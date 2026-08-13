@@ -1,0 +1,21 @@
+# Dependências
+node_modules/
+dist/
+
+# Ambiente
+.env
+.env.local
+.env.*.local
+
+# Banco SQLite (local/dev) — em produção fica em volume Docker
+*.db
+*.db-wal
+*.db-shm
+backend/data/
+
+# Artefato de teste docker
+backend/data-docker-test/
+
+# Logs e misc
+*.log
+.DS_Store

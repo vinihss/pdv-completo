@@ -1,0 +1,29 @@
+# ============================================================
+# Caddy — proxy reverso com HTTPS automático (Let's Encrypt).
+# Troque {$DOMAIN} pelo domínio real (ver deploy/.env).
+# ============================================================
+
+{$DOMAIN} {
+	# API REST
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy backend:3000
+	}
+
+	# WebSocket em tempo real
+	handle /realtime* {
+		reverse_proxy backend:3000
+	}
+
+	# Health check direto (útil pra monitoramento externo)
+	handle /health {
+		reverse_proxy backend:3000
+	}
+
+	# Resto: frontend estático (PWA)
+	handle {
+		reverse_proxy frontend:80
+	}
+
+	encode gzip
+}
