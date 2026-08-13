@@ -43,7 +43,10 @@ export function AuthProvider({ children }) {
     }
     api
       .getStoreSettings()
-      .then(setStoreSettings)
+      .then((s) => {
+        setStoreSettings(s);
+        if (s?.merchantName) document.title = `${s.merchantName} — PDV`;
+      })
       .catch(() => {});
   }, [session]);
 

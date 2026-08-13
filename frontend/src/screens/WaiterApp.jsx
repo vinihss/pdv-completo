@@ -1,16 +1,30 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
-  Search, Plus, Receipt, ChevronLeft, Check, Trash2, AlertTriangle,
-  CreditCard, Banknote, QrCode, MoreHorizontal, X, LogOut, Zap, Clock,
+  Search, Plus, ChevronLeft, Check, Trash2, AlertTriangle,
+  CreditCard, Banknote, QrCode, MoreHorizontal, X, Zap, Clock,
 } from "lucide-react";
 import { api } from "../lib/api.js";
+import { buildPixPayload } from "../lib/pix.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import QRCode from "qrcode";
 import { useOrders } from "../lib/useOrders.js";
 import StatusBadge from "../components/StatusBadge.jsx";
 import { useToast, Toast } from "../components/Toast.jsx";
 
 function money(v) {
   return `R$ ${Number(v).toFixed(2)}`;
+}
+
+function toDate(ts) {
+  if (!ts) return null;
+  return ts.includes("T") ? new Date(ts) : new Date(ts.replace(" ", "T") + "Z");
+}
+
+function formatDateTime(ts) {
+  const d = toDate(ts);
+  if (!d || Number.isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function orderLabel(order) {
@@ -105,25 +119,36 @@ export default function WaiterApp() {
 function OrdersListScreen({ orders, loading, kitchenEnabled, usesTables, filter, setFilter, search, setSearch, onOpenOrder, onNewOrder, onReloadAll }) {
   const chips = [
     { id: "all", label: "Todas" },
+    { id: "open", label: "Abertas" },
+    { id: "closed", label: "Fechadas" },
     ...(kitchenEnabled ? [{ id: "ready", label: "Com pronto", icon: Zap }] : []),
     ...(usesTables ? [{ id: "table", label: "Mesa" }] : []),
     { id: "customer", label: "Cliente" },
   ];
 
-  const filtered = orders.filter((o) => {
-    if (filter === "ready" && !orderHasReady(o)) return false;
-    if (filter === "table" && !o.tableId) return false;
-    if (filter === "customer" && o.tableId) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      if (!orderLabel(o).toLowerCase().includes(q)) return false;
-    }
-    return true;
-  });
+  const filtered = orders
+    .filter((o) => {
+      if (filter === "open" && o.status !== "open") return false;
+      if (filter === "closed" && o.status !== "closed") return false;
+      if (filter === "ready" && !orderHasReady(o)) return false;
+      if (filter === "table" && !o.tableId) return false;
+      if (filter === "customer" && o.tableId) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        if (!orderLabel(o).toLowerCase().includes(q)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (a.status !== b.status) return a.status === "open" ? -1 : 1;
+      const aTs = a.status === "closed" ? a.closedAt : a.openedAt;
+      const bTs = b.status === "closed" ? b.closedAt : b.openedAt;
+      return (bTs ?? "").localeCompare(aTs ?? "");
+    });
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-50 pb-24">
-      <div className="px-5 pt-6 pb-4 sticky top-0 bg-stone-950/95 backdrop-blur z-10 border-b border-stone-900">
+      <div className="px-5 pt-6 pb-4 sticky top-12 bg-stone-950/95 backdrop-blur z-10 border-b border-stone-900">
         <div className="flex items-center justify-between mb-4">
           <h1 className="font-display text-xl font-bold">Comandas</h1>
           <button
@@ -161,18 +186,29 @@ function OrdersListScreen({ orders, loading, kitchenEnabled, usesTables, filter,
       <div className="px-5 pt-4">
         {loading && orders.length === 0 && <div className="text-stone-600 text-center py-16">Carregando comandas…</div>}
         {!loading && filtered.length === 0 && (
-          <div className="text-stone-600 text-center py-16">Nenhuma comanda aberta encontrada.</div>
+          <div className="text-stone-600 text-center py-16">
+            {filter === "closed"
+              ? "Nenhuma comanda fechada encontrada."
+              : filter === "all"
+                ? "Nenhuma comanda encontrada."
+                : "Nenhuma comanda aberta encontrada."}
+          </div>
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {filtered.map((o) => {
+            const closed = o.status === "closed";
             const hasReady = orderHasReady(o);
             const allDelivered = orderAllDelivered(o);
             return (
               <button
                 key={o.id}
-                onClick={() => onOpenOrder(o.id)}
-                className={`text-left rounded-2xl border p-4 transition-colors active:scale-95 ${
-                  hasReady ? "border-emerald-500/50 bg-emerald-500/5" : "border-stone-800 bg-stone-900 hover:bg-stone-850"
+                onClick={() => !closed && onOpenOrder(o.id)}
+                className={`text-left rounded-2xl border p-4 transition-colors ${
+                  hasReady
+                    ? "border-emerald-500/50 bg-emerald-500/5"
+                    : closed
+                      ? "border-stone-800 bg-stone-900/40 cursor-default"
+                      : "border-stone-800 bg-stone-900 hover:bg-stone-850 active:scale-95"
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
@@ -180,6 +216,10 @@ function OrdersListScreen({ orders, loading, kitchenEnabled, usesTables, filter,
                   <span className="text-stone-500 text-xs">{o.items.length} {o.items.length === 1 ? "item" : "itens"}</span>
                 </div>
                 <div className="text-emerald-400 font-semibold text-sm mb-1">{money(orderTotal(o))}</div>
+                <div className="text-stone-500 text-xs">
+                  Aberta em {formatDateTime(o.openedAt)}
+                  {closed && <span className="text-stone-600"> · Fechada em {formatDateTime(o.closedAt)}</span>}
+                </div>
                 {kitchenEnabled && hasReady && (
                   <div className="mt-2 flex items-center gap-1 text-emerald-400 text-xs font-semibold">
                     <Zap size={12} /> Pronto para entregar
@@ -447,7 +487,7 @@ function OrderDetailScreen({ order, kitchenEnabled, onBack, onReload, showToast 
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-50 pb-32">
-      <div className="px-5 pt-6 pb-4 sticky top-0 bg-stone-950/95 backdrop-blur z-10 border-b border-stone-900 flex items-center gap-3">
+      <div className="px-5 pt-6 pb-4 sticky top-12 bg-stone-950/95 backdrop-blur z-10 border-b border-stone-900 flex items-center gap-3">
         <button onClick={onBack} className="text-stone-400 hover:text-stone-200">
           <ChevronLeft size={22} />
         </button>
@@ -562,6 +602,7 @@ function OrderDetailScreen({ order, kitchenEnabled, onBack, onReload, showToast 
       {paymentOpen && (
         <PaymentModal
           order={order}
+          storeSettings={storeSettings}
           enabledMethods={storeSettings?.enabledPaymentMethods ?? ["cash", "card", "pix", "other"]}
           onClose={() => setPaymentOpen(false)}
           onConfirmed={async () => {
@@ -861,10 +902,15 @@ const PAYMENT_META = {
   other: { label: "Outro", icon: MoreHorizontal },
 };
 
-function PaymentModal({ order, enabledMethods, onClose, onConfirmed, showToast }) {
+function PaymentModal({ order, enabledMethods, storeSettings, onClose, onConfirmed, showToast }) {
   const [method, setMethod] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  const pixKey = (storeSettings?.pixKey ?? "").trim();
+  const merchantName = (storeSettings?.merchantName ?? "").trim();
+  const merchantCity = (storeSettings?.merchantCity ?? "").trim();
+  const pixAvailable = Boolean(pixKey && merchantName && merchantCity);
 
   async function handleConfirm() {
     if (!method) return;
@@ -879,6 +925,19 @@ function PaymentModal({ order, enabledMethods, onClose, onConfirmed, showToast }
     }
   }
 
+  async function handleSelect(m) {
+    if (m !== "pix") {
+      setMethod(m);
+      return;
+    }
+    try {
+      await api.registerPayment(order.id, "pix", false);
+      setMethod("pix");
+    } catch (e) {
+      showToast(e.message, "error");
+    }
+  }
+
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center sm:justify-center z-50">
       <div className="w-full sm:max-w-sm bg-stone-900 border border-stone-800 rounded-t-3xl sm:rounded-3xl p-6 fade-up">
@@ -888,25 +947,45 @@ function PaymentModal({ order, enabledMethods, onClose, onConfirmed, showToast }
         </div>
 
         {!method && (
-          <div className="grid grid-cols-2 gap-3">
-            {enabledMethods.map((m) => {
-              const meta = PAYMENT_META[m];
-              const Icon = meta.icon;
-              return (
-                <button
-                  key={m}
-                  onClick={() => setMethod(m)}
-                  className="flex flex-col items-center gap-2 bg-stone-800 hover:bg-stone-750 border border-stone-700 rounded-2xl py-5"
-                >
-                  <Icon size={22} className="text-amber-400" />
-                  <span className="text-sm font-semibold">{meta.label}</span>
-                </button>
-              );
-            })}
+          <div>
+            <div className="grid grid-cols-2 gap-3">
+              {enabledMethods.map((m) => {
+                const meta = PAYMENT_META[m];
+                const Icon = meta.icon;
+                const disabled = m === "pix" && !pixAvailable;
+                return (
+                  <button
+                    key={m}
+                    onClick={() => handleSelect(m)}
+                    disabled={disabled}
+                    className={`flex flex-col items-center gap-2 bg-stone-800 border border-stone-700 rounded-2xl py-5 ${disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-stone-750"}`}
+                  >
+                    <Icon size={22} className="text-amber-400" />
+                    <span className="text-sm font-semibold">{meta.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {enabledMethods.includes("pix") && !pixAvailable && (
+              <p className="mt-3 text-xs text-stone-500 flex items-center gap-1.5">
+                <AlertTriangle size={13} className="shrink-0 text-amber-400" />
+                Pix indisponível — configure a chave, o nome e a cidade nas Configurações do gerente.
+              </p>
+            )}
           </div>
         )}
 
-        {method && !confirming && (
+        {method === "pix" && (
+          <PixQrScreen
+            order={order}
+            storeSettings={{ pixKey, merchantName, merchantCity }}
+            onBack={() => setMethod(null)}
+            onConfirm={handleConfirm}
+            submitting={submitting}
+          />
+        )}
+
+        {method && method !== "pix" && !confirming && (
           <div>
             <div className="text-center py-6">
               <div className="text-stone-400 text-sm mb-1">Total a receber</div>
@@ -927,7 +1006,7 @@ function PaymentModal({ order, enabledMethods, onClose, onConfirmed, showToast }
           </div>
         )}
 
-        {method && confirming && (
+        {method && method !== "pix" && confirming && (
           <div>
             <div className="flex items-center gap-2 text-amber-400 mb-4 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2.5 text-xs">
               <AlertTriangle size={14} className="shrink-0" />
@@ -947,6 +1026,59 @@ function PaymentModal({ order, enabledMethods, onClose, onConfirmed, showToast }
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function PixQrScreen({ order, storeSettings, onBack, onConfirm, submitting }) {
+  const [dataUrl, setDataUrl] = useState(null);
+  const payload = buildPixPayload({
+    pixKey: storeSettings.pixKey,
+    merchantName: storeSettings.merchantName,
+    merchantCity: storeSettings.merchantCity,
+    amount: orderTotal(order),
+    txid: order.id,
+    description: orderLabel(order),
+  });
+
+  useEffect(() => {
+    let alive = true;
+    QRCode.toDataURL(payload, { width: 220, margin: 1 })
+      .then((url) => alive && setDataUrl(url))
+      .catch(() => alive && setDataUrl(null));
+    return () => {
+      alive = false;
+    };
+  }, [payload]);
+
+  return (
+    <div>
+      <div className="text-center pt-1">
+        <div className="text-stone-400 text-sm mb-1">Escaneie o QR com o app do banco</div>
+        <div className="font-display text-3xl font-bold text-emerald-400">{money(orderTotal(order))}</div>
+      </div>
+      <div className="flex justify-center my-5">
+        {dataUrl ? (
+          <img src={dataUrl} alt="QR Code Pix" className="w-[220px] h-[220px] rounded-2xl bg-white p-2" />
+        ) : (
+          <div className="w-[220px] h-[220px] rounded-2xl bg-stone-800 animate-pulse" />
+        )}
+      </div>
+      <div className="text-center text-xs text-stone-500 mb-4">
+        Confira o recebimento no extrato do banco antes de confirmar.
+      </div>
+      <div className="flex gap-2">
+        <button onClick={onBack} className="flex-1 bg-stone-800 text-stone-300 font-semibold py-3 rounded-xl">
+          Voltar
+        </button>
+        <button
+          onClick={onConfirm}
+          disabled={submitting}
+          className="flex-1 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-stone-950 font-semibold py-3 rounded-xl"
+        >
+          {submitting ? "Confirmando…" : "Confirmar recebimento"}
+        </button>
       </div>
     </div>
   );

@@ -23,7 +23,7 @@ export default function ManagerApp() {
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-50">
-      <div className="sticky top-0 z-20 bg-stone-950/95 backdrop-blur border-b border-stone-900 px-3 pt-3">
+      <div className="sticky top-12 z-20 bg-stone-950/95 backdrop-blur border-b border-stone-900 px-3 pt-3">
         <div className="flex gap-1 overflow-x-auto pb-3">
           {TABS.map((t) => (
             <button

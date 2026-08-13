@@ -87,7 +87,7 @@ export default function KitchenDisplay() {
           </div>
           <div>
             <div className="font-display text-xl font-bold leading-tight">Estação Cozinha</div>
-            <div className="text-stone-500 text-sm">Bar do Zé</div>
+            <div className="text-stone-500 text-sm">{settings.merchantName || "Bar do Zé"}</div>
           </div>
         </div>
         <div className="flex items-center gap-6 text-stone-400 text-sm font-medium">

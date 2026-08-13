@@ -12,6 +12,7 @@ import { authRoutes } from "./routes/auth.routes.js";
 import { orderRoutes } from "./routes/order.routes.js";
 import { miscRoutes } from "./routes/misc.routes.js";
 import { realtimeRoutes } from "./routes/realtime.routes.js";
+import { getStoreSettingsUsecase } from "../application/store-settings.usecases.js";
 
 async function main() {
   // Migrations rodam automaticamente no boot em modo local (§14.5)
@@ -51,6 +52,14 @@ async function main() {
   await app.register(orderRoutes);
   await app.register(miscRoutes);
   await app.register(realtimeRoutes);
+
+  // ---------- Store info pública (§10) — nome exibido no login, sem pix key ----------
+  await app.register(async (publicApp) => {
+    publicApp.get("/store-info", async () => {
+      const s = await getStoreSettingsUsecase();
+      return { merchantName: s.merchantName, merchantCity: s.merchantCity };
+    });
+  });
 
   // ---------- Error handler — envelope padrão da §7.0 ----------
   app.setErrorHandler((err, _req, reply) => {

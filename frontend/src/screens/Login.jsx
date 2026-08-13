@@ -20,6 +20,7 @@ export default function Login() {
   const { login } = useAuth();
   const [screen, setScreen] = useState("select"); // select | pin
   const [users, setUsers] = useState([]);
+  const [storeName, setStoreName] = useState("");
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -35,6 +36,10 @@ export default function Login() {
       .then(setUsers)
       .catch((e) => setLoadError(e.message))
       .finally(() => setLoadingUsers(false));
+    api
+      .getStoreInfo()
+      .then((s) => setStoreName(s?.merchantName || ""))
+      .catch(() => {});
   }, []);
 
   function openPinScreen(user) {
@@ -94,7 +99,7 @@ export default function Login() {
             <div className="w-14 h-14 rounded-2xl bg-amber-500 flex items-center justify-center mx-auto mb-4">
               <Lock size={26} className="text-stone-950" strokeWidth={2.5} />
             </div>
-            <h1 className="font-display text-2xl font-bold">Bar do Zé</h1>
+            <h1 className="font-display text-2xl font-bold">{storeName || "Bar do Zé"}</h1>
             <p className="text-stone-500 text-sm mt-1">Selecione seu nome para continuar</p>
           </div>
 

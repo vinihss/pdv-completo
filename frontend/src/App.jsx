@@ -7,18 +7,22 @@ import KitchenDisplay from "./screens/KitchenDisplay.jsx";
 import ManagerApp from "./screens/ManagerApp.jsx";
 
 function AppFrame({ children }) {
-  const { session, logout } = useAuth();
+  const { logout, storeSettings } = useAuth();
   return (
     <div className="relative">
+      <div className="sticky top-0 z-40 h-12 flex items-center justify-between px-4 bg-stone-900/95 backdrop-blur border-b border-stone-800">
+        <span className="text-xs font-semibold text-stone-500">{storeSettings?.merchantName ?? "Bar do Zé"}</span>
+        <button
+          onClick={logout}
+          title="Trocar usuário"
+          aria-label="Trocar usuário"
+          className="flex items-center gap-1.5 text-stone-300 hover:text-red-400 text-xs font-semibold transition-colors"
+        >
+          <LogOut size={16} />
+          Sair
+        </button>
+      </div>
       {children}
-      <button
-        onClick={logout}
-        className="fixed bottom-4 right-4 z-20 flex items-center gap-2 bg-stone-800/95 backdrop-blur border border-stone-700 hover:bg-stone-700 text-stone-200 text-xs font-semibold pl-3 pr-3.5 py-2.5 rounded-full shadow-lg shadow-black/40"
-      >
-        <LogOut size={14} />
-        Trocar usuário
-        <span className="text-stone-500 font-normal hidden sm:inline">· {session.user.name.split(" ")[0]}</span>
-      </button>
     </div>
   );
 }

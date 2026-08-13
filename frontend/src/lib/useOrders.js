@@ -19,8 +19,11 @@ export function useOrders() {
   const reloadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.listOrders("open");
-      setOrders(data);
+      const [openRes, closedRes] = await Promise.all([
+        api.listOrders("open"),
+        api.listOrders("closed", 200),
+      ]);
+      setOrders([...openRes.data, ...closedRes.data]);
     } finally {
       setLoading(false);
     }

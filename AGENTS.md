@@ -201,8 +201,8 @@ dentro da fase, a ordem indicada.
 - **3.5 Debounce no filtro de cliente do relatório**
   (`frontend/src/screens/ManagerApp.jsx:538-554`).
 - **3.6 Divergências de spec na UI**: navegação pós-lote volta para a lista
-  (spec §4.4) em vez de ficar no detalhe; QR Pix (BR Code) client-side;
-  som na cozinha; auditoria acessível ao garçom (spec §4.4.1).
+  (spec §4.4) em vez de ficar no detalhe; ~~QR Pix (BR Code) client-side~~ ✅
+  feito (ver 4.4); som na cozinha; auditoria acessível ao garçom (spec §4.4.1).
 
 ### Fase 4 — Features pendentes da spec (fora do escopo atual)
 
@@ -214,8 +214,12 @@ dentro da fase, a ordem indicada.
 - **4.3 Buffer de eventos no reconnect do WS**: `sync.request` responde vazio
   (`realtime.routes.ts:35-37`); client recarrega via REST, mas não é o sync
   completo da spec §8.
-- **4.4 QR Pix (BR Code)**: campo `pix_key` existe em `store_settings`, mas não
-  há endpoint/geração de QR.
+- **4.4 ~~QR Pix (BR Code)~~** — ✅ feito: `frontend/src/lib/pix.js` gera o BR
+  Code (EMV + CRC-16/CCITT-FALSE) no client; o `PaymentModal` de
+  `WaiterApp.jsx` registra `confirmed:false`, exibe o QR a partir de
+  `store_settings.pix_key`/`merchant_name`/`merchant_city` e confirma com
+  `confirmed:true`. Sem chave/nome/cidade configurados, a opção Pix fica
+  desabilitada com aviso.
 
 ## Critérios de verificação gerais
 
