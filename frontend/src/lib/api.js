@@ -89,6 +89,7 @@ export const api = {
   registerPayment: (orderId, paymentMethod, confirmed) =>
     request("PATCH", `/orders/${orderId}/payment`, { paymentMethod, confirmed }),
   closeOrder: (orderId) => request("PATCH", `/orders/${orderId}/close`, { correlationId: newCorrelationId() }),
+  cancelOrder: (orderId, reason) => request("PATCH", `/orders/${orderId}/cancel`, { correlationId: newCorrelationId(), reason }),
 
   // ---------- Products / Categories ----------
   listProducts: (params = {}) => {
@@ -113,6 +114,27 @@ export const api = {
   // ---------- Customers ----------
   searchCustomers: (search) => request("GET", `/customers${search ? `?search=${encodeURIComponent(search)}` : ""}`),
   createCustomer: (body) => request("POST", "/customers", body),
+
+  // ---------- Deliveries (manager) ----------
+  listDeliveries: (status) => request("GET", `/manager/deliveries${status ? `?status=${status}` : ""}`),
+  listCouriers: () => request("GET", "/manager/couriers"),
+  assignCourier: (deliveryId, courierId) => request("PATCH", `/manager/deliveries/${deliveryId}/assign`, { courierId }),
+
+  // ---------- Deliveries (courier) ----------
+  listMyDeliveries: () => request("GET", "/courier/deliveries"),
+  dispatchDelivery: (deliveryId) => request("PATCH", `/courier/deliveries/${deliveryId}/dispatch`),
+  deliverDelivery: (deliveryId) => request("PATCH", `/courier/deliveries/${deliveryId}/deliver`),
+  failDelivery: (deliveryId, reason) => request("PATCH", `/courier/deliveries/${deliveryId}/fail`, { reason }),
+
+  // ---------- Página pública de delivery (sem auth — ver public.routes.ts) ----------
+  getPublicMenu: () => request("GET", "/public/menu"),
+  lookupPublicCustomer: (phone) => request("POST", "/public/customers/lookup", { phone }),
+  createPublicCustomer: (name, phone) =>
+    request("POST", "/public/customers", { correlationId: newCorrelationId(), name, phone }),
+  addPublicAddress: (customerId, address) =>
+    request("POST", `/public/customers/${customerId}/addresses`, { correlationId: newCorrelationId(), ...address }),
+  createPublicOrder: (body) => request("POST", "/public/orders", { correlationId: newCorrelationId(), ...body }),
+  getPublicOrderStatus: (orderId) => request("GET", `/public/orders/${orderId}/status`),
 
   // ---------- Reports / Audit ----------
   salesReport: (params = {}) => {

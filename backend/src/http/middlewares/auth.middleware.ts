@@ -5,7 +5,7 @@ import { Errors } from "../../domain/errors.js";
 
 export interface AuthUser {
   sub: string; // user id
-  role: "waiter" | "kitchen" | "manager";
+  role: "waiter" | "kitchen" | "manager" | "courier";
 }
 
 declare module "fastify" {
@@ -26,7 +26,7 @@ export async function authMiddleware(req: FastifyRequest, _reply: FastifyReply) 
   }
 }
 
-export function requireRole(...roles: Array<"waiter" | "kitchen" | "manager">) {
+export function requireRole(...roles: Array<"waiter" | "kitchen" | "manager" | "courier">) {
   return async (req: FastifyRequest, _reply: FastifyReply) => {
     if (!req.authUser) throw Errors.unauthorized();
     if (!roles.includes(req.authUser.role)) throw Errors.forbiddenRole();

@@ -75,6 +75,10 @@ async function serializeOrder(orderId: string) {
     customerName: customer?.name ?? null,
     tabLabel: order.tabLabel,
     waiterId: order.waiterId,
+    channel: order.channel,
+    externalRef: order.externalRef,
+    deliveryFee: order.deliveryFee,
+    cancelReason: order.cancelReason,
     paymentMethod: order.paymentMethod,
     paymentConfirmedAt: order.paymentConfirmedAt,
     paymentConfirmedBy: order.paymentConfirmedBy,
@@ -90,6 +94,8 @@ export async function openOrderUsecase(input: {
   tableId?: string;
   customerId?: string;
   tabLabel?: string;
+  channel?: "balcao" | "whatsapp" | "web"; // default "balcao" — usado pelo self-service (§04)
+  deliveryFee?: number; // snapshot da taxa no momento do pedido, só para channel != "balcao"
 }) {
   if (!input.tableId && !input.customerId && !input.tabLabel) {
     throw Errors.identificationRequired();
@@ -103,6 +109,8 @@ export async function openOrderUsecase(input: {
         tableId: input.tableId ?? null,
         customerId: input.customerId ?? null,
         tabLabel: input.tabLabel ?? null,
+        channel: input.channel ?? "balcao",
+        deliveryFee: input.deliveryFee ?? null,
       })
       .returning()
       .get();
@@ -182,7 +190,7 @@ export async function updateItemStatusUsecase(input: {
   orderId: string;
   itemId: string;
   userId: string;
-  userRole: "waiter" | "kitchen" | "manager";
+  userRole: "waiter" | "kitchen" | "manager" | "courier";
   newStatus: "ready" | "delivered";
   expectedVersion: number;
 }) {
@@ -340,6 +348,54 @@ export async function closeOrderUsecase(input: { orderId: string; userId: string
   });
 
   return closed;
+}
+
+// ---------- PATCH /orders/:id/cancel ----------
+/**
+ * Só existe porque a fase de delivery expôs um buraco que já existia pro
+ * app inteiro: nenhum caminho fechava um pedido que não terminasse em venda
+ * (ex: entrega marcada "failed" — deliveries.status vira "failed", mas
+ * orders.status ficava "open" pra sempre, sem paymentMethod nem itens
+ * "delivered", então closeOrderUsecase nunca aceitaria). Diferente de
+ * closeOrderUsecase, não exige pagamento nem itens já entregues — cancelar
+ * é precisamente o caminho pra quando a venda não vai acontecer.
+ */
+export async function cancelOrderUsecase(input: { orderId: string; userId: string; reason: string }) {
+  const cancelled = db.transaction((tx) => {
+    const order = tx.query.orders.findFirst({ where: eq(orders.id, input.orderId) }).sync();
+    if (!order) throw Errors.notFound("Comanda");
+    if (order.status !== "open") throw Errors.orderNotOpen();
+
+    tx.update(orderItems)
+      .set({ status: "cancelled" })
+      .where(and(eq(orderItems.orderId, input.orderId), notInArray(orderItems.status, ["delivered", "cancelled"])))
+      .run();
+
+    const result = tx
+      .update(orders)
+      .set({ status: "cancelled", closedAt: new Date().toISOString(), cancelReason: input.reason })
+      .where(eq(orders.id, input.orderId))
+      .returning()
+      .get();
+
+    if (order.tableId) {
+      tx.update(restaurantTables).set({ status: "free" }).where(eq(restaurantTables.id, order.tableId)).run();
+      enqueueEvent(tx, `table:${order.tableId}`, "table.status_changed", {
+        tableId: order.tableId,
+        status: "free",
+      });
+    }
+
+    enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.cancelled", {
+      orderId: order.id,
+      tableId: order.tableId,
+    });
+
+    logAction(tx, input.userId, "order_cancelled", input.orderId, { reason: input.reason });
+    return result;
+  });
+
+  return cancelled;
 }
 
 // ---------- GET /orders, GET /orders/:id, GET /tables ----------

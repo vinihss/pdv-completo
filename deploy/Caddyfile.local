@@ -1,0 +1,33 @@
+# ============================================================
+# Caddyfile LOCAL (sem HTTPS) — usado pelo docker-compose.local.yml
+# (docker-up.sh na raiz do projeto).
+#
+# Endereço ":80": HTTP puro, sem hostname específico — aceita qualquer
+# Host, então funciona tanto em http://localhost quanto em
+# http://<IP-da-maquina-na-LAN>. Nada de Let's Encrypt.
+# ============================================================
+
+:80 {
+	# API REST
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy backend:3000
+	}
+
+	# WebSocket em tempo real
+	handle /realtime* {
+		reverse_proxy backend:3000
+	}
+
+	# Health check
+	handle /health {
+		reverse_proxy backend:3000
+	}
+
+	# Resto: frontend estático (PWA)
+	handle {
+		reverse_proxy frontend:80
+	}
+
+	encode gzip
+}

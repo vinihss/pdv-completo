@@ -34,7 +34,7 @@ function orderLabel(order) {
 }
 
 function orderTotal(order) {
-  return order.items.reduce((sum, it) => sum + it.unitPrice * it.quantity, 0);
+  return order.items.reduce((sum, it) => sum + it.unitPrice * it.quantity, 0) + (order.deliveryFee ?? 0);
 }
 
 function orderHasReady(order) {
@@ -215,6 +215,11 @@ function OrdersListScreen({ orders, loading, kitchenEnabled, usesTables, filter,
                   <span className="font-display text-lg font-bold">{orderLabel(o)}</span>
                   <span className="text-stone-500 text-xs">{o.items.length} {o.items.length === 1 ? "item" : "itens"}</span>
                 </div>
+                {(o.channel === "whatsapp" || o.channel === "web") && (
+                  <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 mb-1.5">
+                    Delivery{o.channel === "whatsapp" ? " · WhatsApp" : ""}
+                  </span>
+                )}
                 <div className="text-emerald-400 font-semibold text-sm mb-1">{money(orderTotal(o))}</div>
                 <div className="text-stone-500 text-xs">
                   Aberta em {formatDateTime(o.openedAt)}

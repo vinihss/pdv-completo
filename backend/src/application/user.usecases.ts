@@ -17,7 +17,7 @@ function randomPin(): string {
   return String(Math.floor(1000 + Math.random() * 9000));
 }
 
-export async function createUserUsecase(input: { name: string; role: "waiter" | "kitchen" | "manager" }) {
+export async function createUserUsecase(input: { name: string; role: "waiter" | "kitchen" | "manager" | "courier" }) {
   const pin = randomPin();
   const pinHash = await argon2.hash(pin);
   const [created] = await db.insert(users).values({ name: input.name, role: input.role, pinHash }).returning();
@@ -26,7 +26,7 @@ export async function createUserUsecase(input: { name: string; role: "waiter" | 
 
 export async function updateUserUsecase(
   id: string,
-  input: { name?: string; role?: "waiter" | "kitchen" | "manager"; active?: boolean }
+  input: { name?: string; role?: "waiter" | "kitchen" | "manager" | "courier"; active?: boolean }
 ) {
   const existing = await db.query.users.findFirst({ where: eq(users.id, id) });
   if (!existing) throw Errors.notFound("Usuário");

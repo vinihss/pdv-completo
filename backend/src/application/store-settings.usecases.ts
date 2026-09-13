@@ -15,6 +15,7 @@ function serialize(s: typeof storeSettings.$inferSelect) {
     kitchenPrepWarnMin: s.kitchenPrepWarnMin,
     kitchenPrepUrgentMin: s.kitchenPrepUrgentMin,
     kitchenPickupUrgentMin: s.kitchenPickupUrgentMin,
+    deliveryFee: s.deliveryFee,
   };
 }
 
@@ -35,6 +36,7 @@ export async function updateStoreSettingsUsecase(input: {
   kitchenPrepWarnMin: number;
   kitchenPrepUrgentMin: number;
   kitchenPickupUrgentMin: number;
+  deliveryFee: number;
 }) {
   if (input.merchantName.length > 25) throw Errors.validationFailed({ field: "merchantName", max: 25 });
   if (input.merchantCity.length > 15) throw Errors.validationFailed({ field: "merchantCity", max: 15 });
@@ -53,6 +55,7 @@ export async function updateStoreSettingsUsecase(input: {
       kitchenPrepWarnMin: input.kitchenPrepWarnMin,
       kitchenPrepUrgentMin: input.kitchenPrepUrgentMin,
       kitchenPickupUrgentMin: input.kitchenPickupUrgentMin,
+      deliveryFee: input.deliveryFee,
     })
     .where(eq(storeSettings.id, "singleton"))
     .returning();

@@ -1,0 +1,52 @@
+# ============================================================
+# Deploy LOCAL (sem HTTPS) — usado pelo docker-up.sh na raiz.
+# Compose standalone (não é override): o merge de `ports` entre
+# arquivos concatenaria 80/443 duplicados do compose cloud.
+#
+# Uso: PDV_PORT=8080 ./docker-up.sh  (porta padrão: 80)
+# Acesso: http://localhost  ou  http://<IP-da-maquina-na-LAN>
+# ============================================================
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "${PDV_PORT:-80}:80"
+    environment:
+      - DOMAIN=localhost
+    volumes:
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+  backend:
+    build: ../backend
+    restart: unless-stopped
+    environment:
+      - DEPLOYMENT_MODE=local
+      - DATABASE_URL=sqlite:/app/data/data.db
+      - JWT_SECRET=${JWT_SECRET}
+      - CORS_ORIGIN=
+      - PORT=3000
+      - LOG_LEVEL=info
+    volumes:
+      - backend_data:/app/data
+    # Não expõe porta pro host — o Caddy fala com ele via rede interna
+
+  frontend:
+    build: ../frontend
+    restart: unless-stopped
+    # idem — só o Caddy acessa
+
+volumes:
+  # Mesmos nomes explícitos do compose de produção (pdv_*) para que o banco
+  # e os certs sejam reaproveitados entre as duas formas de subir.
+  backend_data:
+    name: pdv_backend_data # onde o data.db mora — NUNCA apague sem backup (ver deploy/backup.sh)
+  caddy_data:
+    name: pdv_caddy_data
+  caddy_config:
+    name: pdv_caddy_config

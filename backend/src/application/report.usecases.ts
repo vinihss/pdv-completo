@@ -30,6 +30,7 @@ export async function salesReportUsecase(input: {
       customerId: orders.customerId,
       customerName: customers.name,
       tabLabel: orders.tabLabel,
+      deliveryFee: orders.deliveryFee,
     })
     .from(orders)
     .leftJoin(restaurantTables, eq(restaurantTables.id, orders.tableId))
@@ -78,7 +79,7 @@ export async function salesReportUsecase(input: {
     label: o.tableNumber ? `Mesa ${o.tableNumber}` : o.customerName ?? o.tabLabel ?? "—",
     closedAt: o.closedAt,
     paymentMethod: o.paymentMethod,
-    total: totalsByOrder.get(o.id) ?? 0,
+    total: (totalsByOrder.get(o.id) ?? 0) + (o.deliveryFee ?? 0),
   }));
 
   // summary é agregado sobre TODO o conjunto filtrado, não sobre a página (§7.9)

@@ -9,6 +9,7 @@ import {
   deleteItemUsecase,
   registerPaymentUsecase,
   closeOrderUsecase,
+  cancelOrderUsecase,
   getOrderUsecase,
   listOrdersUsecase,
   listTablesUsecase,
@@ -46,6 +47,7 @@ const paymentSchema = z.object({
 });
 
 const closeSchema = z.object({ correlationId: z.string() });
+const cancelSchema = z.object({ correlationId: z.string(), reason: z.string().min(1) });
 
 export async function orderRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authMiddleware);
@@ -130,6 +132,22 @@ export async function orderRoutes(app: FastifyInstance) {
       const body = closeSchema.parse(req.body);
       return withIdempotency(`PATCH /orders/${id}/close`, body.correlationId, body, async () => {
         const order = await closeOrderUsecase({ orderId: id, userId: req.authUser!.sub });
+        return { status: 200, body: order };
+      }).then((r) => r.body);
+    }
+  );
+
+  // Restrito a manager — anula a comanda sem venda, diferente de close
+  // (que sempre implica pagamento confirmado). Mais consequente que close,
+  // por isso mais restrito que ele.
+  app.patch(
+    "/orders/:id/cancel",
+    { preHandler: requireRole("manager") },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const body = cancelSchema.parse(req.body);
+      return withIdempotency(`PATCH /orders/${id}/cancel`, body.correlationId, body, async () => {
+        const order = await cancelOrderUsecase({ orderId: id, userId: req.authUser!.sub, reason: body.reason });
         return { status: 200, body: order };
       }).then((r) => r.body);
     }

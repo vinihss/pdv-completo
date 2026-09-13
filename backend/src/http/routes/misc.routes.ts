@@ -30,6 +30,7 @@ const storeSettingsSchema = z.object({
   kitchenPrepWarnMin: z.number().int().positive(),
   kitchenPrepUrgentMin: z.number().int().positive(),
   kitchenPickupUrgentMin: z.number().int().positive(),
+  deliveryFee: z.number().min(0),
 });
 
 const productCreateSchema = z.object({
@@ -43,10 +44,10 @@ const productUpdateSchema = productCreateSchema.partial();
 const categoryCreateSchema = z.object({ name: z.string().min(1), displayOrder: z.number().int().optional() });
 const categoryUpdateSchema = categoryCreateSchema.partial();
 
-const userCreateSchema = z.object({ name: z.string().min(1), role: z.enum(["waiter", "kitchen", "manager"]) });
+const userCreateSchema = z.object({ name: z.string().min(1), role: z.enum(["waiter", "kitchen", "manager", "courier"]) });
 const userUpdateSchema = z.object({
   name: z.string().min(1).optional(),
-  role: z.enum(["waiter", "kitchen", "manager"]).optional(),
+  role: z.enum(["waiter", "kitchen", "manager", "courier"]).optional(),
   active: z.boolean().optional(),
 });
 

@@ -52,4 +52,10 @@ export const Errors = {
     new AppError("payment_not_registered", 409, "Registre a forma de pagamento antes de fechar."),
   tooManyAttempts: () =>
     new AppError("too_many_attempts", 429, "Muitas tentativas. Aguarde um minuto."),
+  addressLimitReached: () =>
+    new AppError("address_limit_reached", 409, "Limite de 3 endereços por cliente atingido."),
+  duplicatePhone: () =>
+    new AppError("duplicate_phone", 409, "Telefone já cadastrado."),
+  invalidCourierRole: () =>
+    new AppError("invalid_courier_role", 400, "Usuário indicado não é um entregador."),
 };

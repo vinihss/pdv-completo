@@ -35,4 +35,14 @@ export const config = {
   // chamar a API via browser. Em dev, undefined = todas as origens liberadas
   // (útil pra tocar o Vite em outra porta sem precisar configurar nada).
   corsOrigin: process.env.CORS_ORIGIN, // ex: "https://pdv.seudominio.com.br"
+  // WhatsApp Cloud API — vazios em dev; whatsapp.routes.ts recusa
+  // (não trava o boot) se estiverem faltando quando o webhook é chamado.
+  whatsappVerifyToken: process.env.WHATSAPP_VERIFY_TOKEN,
+  whatsappAppSecret: process.env.WHATSAPP_APP_SECRET,
+  whatsappAccessToken: process.env.WHATSAPP_ACCESS_TOKEN,
+  whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+  // Página externa de cardápio/checkout — o bot linka pra cá em vez de
+  // conduzir carrinho por texto (decisão: "checkout por fora" — ver
+  // 04-delivery-self-service-integration.md).
+  externalMenuUrl: process.env.EXTERNAL_MENU_URL ?? "https://pedido.seudominio.com.br",
 };

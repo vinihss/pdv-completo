@@ -16,6 +16,9 @@ backend/data/
 # Artefato de teste docker
 backend/data-docker-test/
 
+# Backups gerados pelo docker-up.sh / deploy/backup.sh
+deploy/backups/
+
 # Logs e misc
 *.log
 .DS_Store

@@ -16,7 +16,7 @@ import { sql } from "drizzle-orm";
 export const users = sqliteTable("user", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
-  role: text("role", { enum: ["waiter", "kitchen", "manager"] }).notNull(),
+  role: text("role", { enum: ["waiter", "kitchen", "manager", "courier", "system"] }).notNull(),
   pinHash: text("pin_hash").notNull(),
   failedAttempts: integer("failed_attempts").notNull().default(0),
   lockedUntil: text("locked_until"),
@@ -64,12 +64,16 @@ export const orders = sqliteTable("order", {
   customerId: text("customer_id").references(() => customers.id, { onDelete: "set null" }),
   tabLabel: text("tab_label"),
   waiterId: text("waiter_id").notNull().references(() => users.id, { onDelete: "restrict" }),
-  status: text("status", { enum: ["open", "closed"] }).notNull().default("open"),
+  status: text("status", { enum: ["open", "closed", "cancelled"] }).notNull().default("open"),
   openedAt: text("opened_at").notNull().default(sql`(current_timestamp)`),
   closedAt: text("closed_at"),
   paymentMethod: text("payment_method", { enum: ["cash", "card", "pix", "other"] }),
   paymentConfirmedAt: text("payment_confirmed_at"),
   paymentConfirmedBy: text("payment_confirmed_by").references(() => users.id),
+  channel: text("channel", { enum: ["balcao", "whatsapp", "web"] }).notNull().default("balcao"),
+  externalRef: text("external_ref"), // reservado para integração futura com iFood
+  deliveryFee: real("delivery_fee"), // snapshot da taxa cobrada, só para channel != "balcao"
+  cancelReason: text("cancel_reason"),
 });
 
 export const orderItems = sqliteTable("order_item", {
@@ -100,6 +104,7 @@ export const storeSettings = sqliteTable("store_settings", {
   kitchenPrepWarnMin: integer("kitchen_prep_warn_min").notNull().default(3),
   kitchenPrepUrgentMin: integer("kitchen_prep_urgent_min").notNull().default(6),
   kitchenPickupUrgentMin: integer("kitchen_pickup_urgent_min").notNull().default(5),
+  deliveryFee: real("delivery_fee").notNull().default(0),
 });
 
 export const auditLog = sqliteTable("audit_log", {
@@ -128,5 +133,53 @@ export const outboxEvents = sqliteTable("outbox_event", {
   payload: text("payload").notNull(), // JSON string
   room: text("room").notNull(),
   published: integer("published", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
+});
+
+// ============================================================
+// Delivery self-service (WhatsApp + página externa) — §04/05 docs
+// ============================================================
+
+// Máximo 3 por cliente e apenas 1 is_default por vez: regras de
+// usecase, não constraint de banco (ver 04-delivery-self-service-integration.md).
+export const customerAddresses = sqliteTable("customer_address", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  customerId: text("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  label: text("label"),
+  street: text("street").notNull(),
+  number: text("number").notNull(),
+  complement: text("complement"),
+  neighborhood: text("neighborhood").notNull(),
+  city: text("city").notNull(),
+  reference: text("reference"),
+  isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
+});
+
+// Estado da máquina de conversa do bot — cada mensagem chega isolada via
+// webhook, então o carrinho em construção vive aqui até a confirmação final.
+export const whatsappConversations = sqliteTable("whatsapp_conversation", {
+  phone: text("phone").primaryKey(),
+  state: text("state", { enum: ["welcome", "browsing", "cart", "checkout", "done"] }).notNull().default("welcome"),
+  cartItems: text("cart_items").notNull().default("[]"), // JSON string
+  customerName: text("customer_name"),
+  deliveryAddress: text("delivery_address"),
+  updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
+  expiresAt: text("expires_at").notNull(),
+});
+
+// 1:1 com orders. Eixo separado de order_item.status, que já significa
+// "servido na mesa" — não reaproveitado aqui para evitar ambiguidade.
+export const deliveries = sqliteTable("delivery", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: text("order_id").notNull().unique().references(() => orders.id, { onDelete: "cascade" }),
+  courierId: text("courier_id").references(() => users.id, { onDelete: "set null" }),
+  address: text("address").notNull(), // snapshot formatado, copiado do checkout
+  status: text("status", { enum: ["awaiting_courier", "out_for_delivery", "delivered", "failed"] })
+    .notNull()
+    .default("awaiting_courier"),
+  dispatchedAt: text("dispatched_at"),
+  deliveredAt: text("delivered_at"),
+  notes: text("notes"),
   createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
 });

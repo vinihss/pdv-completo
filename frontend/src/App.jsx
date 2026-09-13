@@ -1,10 +1,13 @@
 import React from "react";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { LogOut } from "lucide-react";
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
 import Login from "./screens/Login.jsx";
 import WaiterApp from "./screens/WaiterApp.jsx";
 import KitchenDisplay from "./screens/KitchenDisplay.jsx";
 import ManagerApp from "./screens/ManagerApp.jsx";
+import CourierApp from "./screens/CourierApp.jsx";
+import CustomerMenuPage from "./screens/CustomerMenuPage.jsx";
 
 function AppFrame({ children }) {
   const { logout, storeSettings } = useAuth();
@@ -42,6 +45,7 @@ function Root() {
     waiter: <WaiterApp />,
     manager: <ManagerApp />,
     kitchen: <KitchenDisplay />,
+    courier: <CourierApp />,
   };
 
   return <AppFrame>{screensByRole[session.user.role]}</AppFrame>;
@@ -49,8 +53,20 @@ function Root() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Root />
-    </AuthProvider>
+    <BrowserRouter>
+      <Routes>
+        {/* Pública, sem login — cliente final, chega direto ou pelo link do bot (§04/05) */}
+        <Route path="/pedido/*" element={<CustomerMenuPage />} />
+        {/* Tudo mais continua exatamente como era: exige login, roteado por papel */}
+        <Route
+          path="/*"
+          element={
+            <AuthProvider>
+              <Root />
+            </AuthProvider>
+          }
+        />
+      </Routes>
+    </BrowserRouter>
   );
 }

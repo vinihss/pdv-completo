@@ -12,6 +12,10 @@ import { authRoutes } from "./routes/auth.routes.js";
 import { orderRoutes } from "./routes/order.routes.js";
 import { miscRoutes } from "./routes/misc.routes.js";
 import { realtimeRoutes } from "./routes/realtime.routes.js";
+import { publicRoutes } from "./routes/public.routes.js";
+import { courierRoutes } from "./routes/courier.routes.js";
+import { deliveryManagerRoutes } from "./routes/delivery-manager.routes.js";
+import { whatsappWebhookRoutes } from "./routes/whatsapp-webhook.routes.js";
 import { getStoreSettingsUsecase } from "../application/store-settings.usecases.js";
 
 async function main() {
@@ -31,6 +35,19 @@ async function main() {
     // deploy/README.md.
     origin: config.corsOrigin ? config.corsOrigin.split(",") : true,
   });
+
+  // Preserva o corpo bruto da requisição em req.rawBody, além do JSON já
+  // parseado — necessário pra verificar a assinatura X-Hub-Signature-256 do
+  // webhook do WhatsApp (§05), sem mudar o parsing normal do resto da API.
+  app.addContentTypeParser("application/json", { parseAs: "string" }, (req, body, done) => {
+    (req as any).rawBody = body as string;
+    try {
+      done(null, body ? JSON.parse(body as string) : {});
+    } catch (err) {
+      done(err as Error, undefined);
+    }
+  });
+
   await app.register(websocketPlugin);
 
   // Rate limit global — proteção básica de DoS pra API exposta na internet.
@@ -52,6 +69,10 @@ async function main() {
   await app.register(orderRoutes);
   await app.register(miscRoutes);
   await app.register(realtimeRoutes);
+  await app.register(publicRoutes);
+  await app.register(courierRoutes);
+  await app.register(deliveryManagerRoutes);
+  await app.register(whatsappWebhookRoutes);
 
   // ---------- Store info pública (§10) — nome exibido no login, sem pix key ----------
   await app.register(async (publicApp) => {

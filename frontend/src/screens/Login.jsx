@@ -7,6 +7,7 @@ const ROLE_META = {
   waiter: { label: "Garçom", icon: ClipboardList },
   kitchen: { label: "Cozinha", icon: ChefHat },
   manager: { label: "Gerente", icon: UtensilsCrossed },
+  courier: { label: "Entregador", icon: UtensilsCrossed },
 };
 
 const MAX_PIN = 6;
