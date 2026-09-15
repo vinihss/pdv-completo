@@ -1,0 +1,23 @@
+# ============================================================
+# Backend PDV — imagem de desenvolvimento (hot reload)
+# ============================================================
+FROM node:22-slim
+
+# node-gyp (usado pelo better-sqlite3) precisa de python3 + build tools
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Instalar dependências
+COPY package*.json ./
+RUN npm ci
+
+# Copiar código fonte (montado via bind mount em dev)
+COPY . .
+
+# Expor porta
+EXPOSE 3000
+
+# Comando de desenvolvimento: tsx watch com hot reload
+CMD ["npx", "tsx", "watch", "src/http/server.ts"]

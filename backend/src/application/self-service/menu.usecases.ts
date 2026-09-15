@@ -23,8 +23,10 @@ export async function getPublicMenuUsecase() {
         .map((p) => ({
           id: p.id,
           name: p.name,
+          description: p.description,
           price: p.price,
           variations: JSON.parse(p.variations),
+          imagePath: p.imagePath ? `/uploads/${p.imagePath}` : null,
         })),
     })),
   };

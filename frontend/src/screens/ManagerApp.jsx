@@ -2,8 +2,10 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   Receipt, Settings, Package, Users, BarChart3, History, Plus, Trash2,
   ChevronUp, ChevronDown, X, Check, RefreshCcw, AlertTriangle, Truck,
+  Upload, ImageOff, UtensilsCrossed,
 } from "lucide-react";
 import { api } from "../lib/api.js";
+import { formatBRL, maskCurrencyInput, parseBRL } from "../lib/money.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useDeliveries } from "../lib/useDeliveries.js";
 import WaiterApp from "./WaiterApp.jsx";
@@ -484,11 +486,27 @@ function CatalogTab({ showToast }) {
               onClick={() => setEditingProduct(p)}
               className={`w-full flex items-center justify-between text-left px-3 py-2.5 rounded-xl ${p.active ? "bg-stone-800/60" : "bg-stone-800/20 opacity-50"}`}
             >
-              <div>
-                <div className="text-sm font-medium">{p.name}</div>
-                <div className="text-stone-500 text-xs">{categories.find((c) => c.id === p.categoryId)?.name ?? "Sem categoria"}</div>
+              <div className="flex items-center gap-3 min-w-0">
+                {p.imagePath ? (
+                  <img src={p.imagePath} alt={p.name} className="w-10 h-10 rounded-lg object-cover shrink-0" />
+                ) : (
+                  <div className="w-10 h-10 rounded-lg bg-stone-900 border border-stone-700 flex items-center justify-center text-stone-600 shrink-0">
+                    <Package size={18} />
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <div className="text-sm font-medium flex items-center gap-1.5">
+                    {p.name}
+                    {p.ifoodEnabled && (
+                      <span className="flex items-center gap-0.5 text-[10px] font-bold text-red-400 bg-red-500/10 rounded-full px-1.5 py-0.5 shrink-0">
+                        <UtensilsCrossed size={10} /> iFood
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-stone-500 text-xs truncate">{categories.find((c) => c.id === p.categoryId)?.name ?? "Sem categoria"}</div>
+                </div>
               </div>
-              <div className="text-emerald-400 text-sm font-semibold">R$ {p.price.toFixed(2)}</div>
+              <div className="text-emerald-400 text-sm font-semibold shrink-0">{formatBRL(p.price)}</div>
             </button>
           ))}
         </div>
@@ -532,22 +550,48 @@ function CatalogTab({ showToast }) {
 
 function ProductModal({ product, categories, onClose, onSaved, showToast }) {
   const [name, setName] = useState(product?.name ?? "");
-  const [price, setPrice] = useState(product?.price ?? "");
+  const [description, setDescription] = useState(product?.description ?? "");
+  const [price, setPrice] = useState(product ? formatBRL(product.price) : "");
   const [categoryId, setCategoryId] = useState(product?.categoryId ?? categories[0]?.id ?? "");
   const [variations, setVariations] = useState((product?.variations ?? []).join(", "));
+  const [ifoodEnabled, setIfoodEnabled] = useState(product?.ifoodEnabled ?? false);
+  const [ifoodSku, setIfoodSku] = useState(product?.ifoodSku ?? "");
+  const [image, setImage] = useState({ file: null, preview: product?.imagePath ?? "" });
+  const [removeImage, setRemoveImage] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  function handleFileChange(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setRemoveImage(false);
+    setImage({ file, preview: URL.createObjectURL(file) });
+  }
+
+  function handleRemoveImage() {
+    setImage({ file: null, preview: "" });
+    setRemoveImage(true);
+  }
 
   async function handleSave() {
     setSaving(true);
     try {
       const body = {
         name: name.trim(),
-        price: Number(price),
+        description: description.trim(),
+        price: parseBRL(price),
         categoryId,
         variations: variations.split(",").map((v) => v.trim()).filter(Boolean),
+        ifoodEnabled,
+        ifoodSku: ifoodEnabled ? ifoodSku.trim() : null,
       };
+      let productId = product?.id;
       if (product) await api.updateProduct(product.id, body);
-      else await api.createProduct(body);
+      else {
+        const created = await api.createProduct(body);
+        productId = created.id;
+      }
+      if (image.file) await api.uploadProductImage(productId, image.file);
+      else if (removeImage) await api.removeProductImage(productId);
       await onSaved();
     } catch (e) {
       showToast(e.message, "error");
@@ -563,14 +607,37 @@ function ProductModal({ product, categories, onClose, onSaved, showToast }) {
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center sm:justify-center z-50">
-      <div className="w-full sm:max-w-sm bg-stone-900 border border-stone-800 rounded-t-3xl sm:rounded-3xl p-6 fade-up">
+      <div className="w-full sm:max-w-md bg-stone-900 border border-stone-800 rounded-t-3xl sm:rounded-3xl p-6 fade-up max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-display text-lg font-bold">{product ? "Editar produto" : "Novo produto"}</h3>
           <button onClick={onClose} className="text-stone-500"><X size={20} /></button>
         </div>
         <div className="space-y-3 mb-5">
+          <Field label="Foto do produto">
+            <div className="flex items-center gap-3">
+              {image.preview ? (
+                <img src={image.preview} alt="Prévia do produto" className="w-16 h-16 rounded-xl object-cover shrink-0" />
+              ) : (
+                <div className="w-16 h-16 rounded-xl bg-stone-800 border border-stone-700 flex items-center justify-center text-stone-600 shrink-0">
+                  <Package size={24} />
+                </div>
+              )}
+              <div className="flex-1 space-y-2">
+                <label className="flex items-center justify-center gap-1.5 bg-stone-800 hover:bg-stone-750 border border-stone-700 rounded-xl px-3 py-2 text-sm font-medium cursor-pointer">
+                  <Upload size={14} /> {image.file || product?.imagePath ? "Trocar foto" : "Enviar foto"}
+                  <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleFileChange} />
+                </label>
+                {(image.file || product?.imagePath) && (
+                  <button onClick={handleRemoveImage} className="flex items-center gap-1.5 text-red-400 text-xs font-medium">
+                    <ImageOff size={13} /> Remover foto
+                  </button>
+                )}
+              </div>
+            </div>
+          </Field>
           <Field label="Nome"><input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} /></Field>
-          <Field label="Preço"><input type="number" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} className={inputClass} /></Field>
+          <Field label="Descrição"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Ex.: Prato do dia com arroz, feijão e salada..." className={inputClass + " resize-none"} /></Field>
+          <Field label="Preço"><input inputMode="numeric" value={price} onChange={(e) => setPrice(maskCurrencyInput(e.target.value))} placeholder="R$ 0,00" className={inputClass} /></Field>
           <Field label="Categoria">
             <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={inputClass}>
               {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -579,6 +646,12 @@ function ProductModal({ product, categories, onClose, onSaved, showToast }) {
           <Field label="Variações (separadas por vírgula)">
             <input value={variations} onChange={(e) => setVariations(e.target.value)} placeholder="Ao ponto, Mal passado..." className={inputClass} />
           </Field>
+          <ToggleRow label="Disponível no iFood" checked={ifoodEnabled} onChange={setIfoodEnabled} />
+          {ifoodEnabled && (
+            <Field label="Código no iFood (SKU)">
+              <input value={ifoodSku} onChange={(e) => setIfoodSku(e.target.value)} placeholder="Ex.: 5f3a0e1a-9d4c..." className={inputClass} />
+            </Field>
+          )}
         </div>
         <div className="flex gap-2">
           {product && (

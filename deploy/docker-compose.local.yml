@@ -28,12 +28,14 @@ services:
     environment:
       - DEPLOYMENT_MODE=local
       - DATABASE_URL=sqlite:/app/data/data.db
+      - UPLOADS_DIR=/app/uploads
       - JWT_SECRET=${JWT_SECRET}
       - CORS_ORIGIN=
       - PORT=3000
       - LOG_LEVEL=info
     volumes:
       - backend_data:/app/data
+      - backend_uploads:/app/uploads
     # Não expõe porta pro host — o Caddy fala com ele via rede interna
 
   frontend:
@@ -46,6 +48,8 @@ volumes:
   # e os certs sejam reaproveitados entre as duas formas de subir.
   backend_data:
     name: pdv_backend_data # onde o data.db mora — NUNCA apague sem backup (ver deploy/backup.sh)
+  backend_uploads:
+    name: pdv_backend_uploads # fotos de produto — backup junto com o banco (deploy/backup.sh)
   caddy_data:
     name: pdv_caddy_data
   caddy_config:

@@ -29,13 +29,14 @@ export default function KitchenDisplay() {
   const settings = storeSettings ?? { kitchenPrepWarnMin: 3, kitchenPrepUrgentMin: 6, kitchenPickupUrgentMin: 5 };
 
   const loadTickets = useCallback(async () => {
-    const { data } = await api.listOrders("open");
+    const [productsRes, { data }] = await Promise.all([api.listProducts({}), api.listOrders("open")]);
+    const map = Object.fromEntries(productsRes.data.map((p) => [p.id, p.imagePath]));
     const flattened = [];
     for (const order of data) {
       const label = order.tableId ? `Mesa ${order.tableNumber ?? ""}`.trim() : order.customerName ?? order.tabLabel ?? "—";
       for (const item of order.items) {
         if (item.status === "ordered" || item.status === "ready") {
-          flattened.push({ ...item, orderId: order.id, label });
+          flattened.push({ ...item, orderId: order.id, label, imagePath: map[item.productId] ?? null });
         }
       }
     }
@@ -123,6 +124,9 @@ export default function KitchenDisplay() {
                     <Clock size={14} /> {formatMinSec(elapsed)}
                   </span>
                 </div>
+                {t.imagePath && (
+                  <img src={t.imagePath} alt={t.name} className="w-full h-20 object-cover rounded-xl mb-3" />
+                )}
                 <div className="font-display text-2xl font-bold leading-tight mb-1">{t.name}</div>
                 {variation && <div className="text-stone-400 text-base mb-2">{variation}</div>}
                 <div className="text-stone-500 text-sm font-medium mt-3">{t.label}</div>
@@ -155,6 +159,9 @@ export default function KitchenDisplay() {
                     <Clock size={12} /> {formatMinSec(waiting)}
                   </span>
                 </div>
+                {t.imagePath && (
+                  <img src={t.imagePath} alt={t.name} className="w-full h-16 object-cover rounded-lg mb-2" />
+                )}
                 <div className="font-display text-lg font-bold leading-tight">{t.quantity}× {t.name}</div>
                 {variation && <div className="text-stone-400 text-sm">{variation}</div>}
                 <div className="text-stone-500 text-xs font-medium mt-2">{t.label}</div>

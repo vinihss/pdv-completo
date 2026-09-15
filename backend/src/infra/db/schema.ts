@@ -37,8 +37,12 @@ export const products = sqliteTable("product", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   categoryId: text("category_id").references(() => categories.id, { onDelete: "set null" }),
   name: text("name").notNull(),
+  description: text("description").notNull().default(""),
   price: real("price").notNull(),
   variations: text("variations").notNull().default("[]"), // JSON string
+  imagePath: text("image_path"), // caminho servido via /uploads/<id>.<ext>
+  ifoodEnabled: integer("ifood_enabled", { mode: "boolean" }).notNull().default(false),
+  ifoodSku: text("ifood_sku"),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
   updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),

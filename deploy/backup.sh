@@ -19,9 +19,11 @@
 set -euo pipefail
 
 VOLUME="${PDV_BACKUP_VOLUME:-pdv_backend_data}"
+UPLOADS_VOLUME="${PDV_UPLOADS_VOLUME:-pdv_backend_uploads}"
 DEST="${1:-$(pwd)/backups}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 TARGET="$DEST/pdv-$STAMP.db"
+UPLOADS_TARGET="$DEST/pdv-$STAMP-uploads.tar.gz"
 
 mkdir -p "$DEST"
 
@@ -32,4 +34,11 @@ docker run --rm \
   nouchka/sqlite3 \
   /data/data.db ".backup '/backup/pdv-${STAMP}.db'"
 
-echo "OK: $(ls -lh "$TARGET" | awk '{print $5, $NF}')"
+echo "Backup das fotos de produto ('$UPLOADS_VOLUME') -> $UPLOADS_TARGET"
+docker run --rm \
+  -v "${UPLOADS_VOLUME}:/uploads:ro" \
+  -v "${DEST}:/backup" \
+  busybox \
+  tar czf "/backup/pdv-${STAMP}-uploads.tar.gz" -C /uploads .
+
+echo "OK: $(ls -lh "$TARGET" "$UPLOADS_TARGET" | awk '{print $5, $NF}')"

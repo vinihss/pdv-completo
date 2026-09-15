@@ -770,8 +770,12 @@ function AddItemScreen({ order, onClose, onConfirmed, showToast }) {
                     {addedQty}
                   </span>
                 )}
+                {p.imagePath && (
+                  <img src={p.imagePath} alt={p.name} className="w-full h-24 object-cover rounded-xl -mt-1 mb-2" />
+                )}
                 <div className="font-semibold text-sm mb-1 pr-6">{p.name}</div>
                 <div className="text-emerald-400 text-sm font-bold">{money(p.price)}</div>
+                {p.description && <div className="text-stone-500 text-xs mt-1 line-clamp-2">{p.description}</div>}
                 {p.variations?.length > 0 && <div className="text-stone-500 text-xs mt-1">Opções disponíveis</div>}
               </button>
             );

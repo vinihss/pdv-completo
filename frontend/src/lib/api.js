@@ -62,6 +62,34 @@ async function request(method, path, body) {
   return payload;
 }
 
+// Upload multipart (foto de produto). Não define Content-Type manualmente —
+// o browser monta o boundary correto do FormData.
+async function upload(path, fieldName, file) {
+  const form = new FormData();
+  form.append(fieldName, file);
+  const headers = {};
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+
+  const res = await fetch(`${BASE}${path}`, { method: "POST", headers, body: form });
+
+  if (res.status === 401) {
+    onUnauthorized?.();
+  }
+
+  const isJson = res.headers.get("content-type")?.includes("application/json");
+  const payload = isJson ? await res.json() : null;
+
+  if (!res.ok) {
+    const err = new Error(payload?.error?.message ?? payload?.message ?? `Erro ${res.status}`);
+    err.code = payload?.error?.code ?? payload?.code;
+    err.status = res.status;
+    err.details = payload?.error?.details ?? payload?.details;
+    throw err;
+  }
+
+  return payload;
+}
+
 export const api = {
   // ---------- Auth ----------
   listLoginUsers: () => request("GET", "/auth/users"),
@@ -99,6 +127,8 @@ export const api = {
   createProduct: (body) => request("POST", "/products", body),
   updateProduct: (id, body) => request("PATCH", `/products/${id}`, body),
   setProductActive: (id, active) => request("PATCH", `/products/${id}/${active ? "activate" : "deactivate"}`),
+  uploadProductImage: (id, file) => upload(`/products/${id}/image`, "image", file),
+  removeProductImage: (id) => request("DELETE", `/products/${id}/image`),
 
   listCategories: () => request("GET", "/categories"),
   createCategory: (body) => request("POST", "/categories", body),

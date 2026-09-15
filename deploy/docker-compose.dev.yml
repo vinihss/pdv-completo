@@ -1,0 +1,66 @@
+# ============================================================
+# Docker Compose LOCAL em modo desenvolvimento (hot reload)
+# Bind mounts parciais mantêm o node_modules da imagem e refletem
+# alterações no código sem rebuild.
+# ============================================================
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "${PDV_PORT:-80}:80"
+    environment:
+      - DOMAIN=localhost
+    volumes:
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    environment:
+      - DEPLOYMENT_MODE=local
+      - DATABASE_URL=sqlite:/app/data/data.db
+      - JWT_SECRET=${JWT_SECRET}
+      - CORS_ORIGIN=
+      - PORT=3000
+      - LOG_LEVEL=info
+    volumes:
+      - ../backend/src:/app/src
+      - ../backend/migrations:/app/migrations
+      - ../backend/package.json:/app/package.json
+      - ../backend/package-lock.json:/app/package-lock.json
+      - backend_data:/app/data
+      - backend_uploads:/app/uploads
+    # tsx watch roda em background; o container morre com o shell
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile.dev
+    restart: unless-stopped
+    volumes:
+      - ../frontend/src:/app/src
+      - ../frontend/public:/app/public
+      - ../frontend/index.html:/app/index.html
+      - ../frontend/vite.config.js:/app/vite.config.js
+      - ../frontend/package.json:/app/package.json
+      - ../frontend/package-lock.json:/app/package-lock.json
+      - /app/node_modules
+    # vite dev server com HMR — só o Caddy acessa
+
+volumes:
+  backend_data:
+    name: pdv_backend_data
+  backend_uploads:
+    name: pdv_backend_uploads
+  caddy_data:
+    name: pdv_caddy_data
+  caddy_config:
+    name: pdv_caddy_config

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { Errors } from "../../domain/errors.js";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
 import { getStoreSettingsUsecase, updateStoreSettingsUsecase } from "../../application/store-settings.usecases.js";
 import {
@@ -7,6 +8,8 @@ import {
   createProductUsecase,
   updateProductUsecase,
   setProductActiveUsecase,
+  saveProductImageUsecase,
+  clearProductImageUsecase,
 } from "../../application/product.usecases.js";
 import {
   listCategoriesUsecase,
@@ -36,10 +39,20 @@ const storeSettingsSchema = z.object({
 const productCreateSchema = z.object({
   categoryId: z.string(),
   name: z.string().min(1),
-  price: z.number(),
+  description: z.string().optional(),
+  price: z.number().min(0),
   variations: z.array(z.any()).optional(),
+  ifoodEnabled: z.boolean().optional(),
+  ifoodSku: z.string().optional().nullable(),
 });
 const productUpdateSchema = productCreateSchema.partial();
+
+// MIME aceitos no upload de foto → extensão de arquivo
+const imageExtByMime: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
 
 const categoryCreateSchema = z.object({ name: z.string().min(1), displayOrder: z.number().int().optional() });
 const categoryUpdateSchema = categoryCreateSchema.partial();
@@ -90,6 +103,21 @@ export async function miscRoutes(app: FastifyInstance) {
   app.patch("/products/:id/activate", { preHandler: requireRole("manager") }, async (req) => {
     const { id } = req.params as { id: string };
     return setProductActiveUsecase(id, true);
+  });
+  // Foto — upload multipart (multipart/form-data, campo "image")
+  app.post("/products/:id/image", { preHandler: requireRole("manager") }, async (req) => {
+    const { id } = req.params as { id: string };
+    const file = await req.file();
+    if (!file) throw Errors.validationFailed({ field: "image" });
+    const ext = imageExtByMime[file.mimetype];
+    if (!ext) throw Errors.validationFailed({ field: "image" });
+    const buffer = await file.toBuffer();
+    return saveProductImageUsecase(id, { buffer, ext });
+  });
+  // Foto — remover
+  app.delete("/products/:id/image", { preHandler: requireRole("manager") }, async (req) => {
+    const { id } = req.params as { id: string };
+    return clearProductImageUsecase(id);
   });
 
   // ---------- Categories ----------

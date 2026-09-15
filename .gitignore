@@ -13,6 +13,9 @@ dist/
 *.db-shm
 backend/data/
 
+# Fotos de produto (uploads) — produção em volume Docker (pdv_backend_uploads)
+backend/uploads/
+
 # Artefato de teste docker
 backend/data-docker-test/
 

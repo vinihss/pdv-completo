@@ -15,6 +15,11 @@
 		reverse_proxy backend:3000
 	}
 
+	# Fotos de produto servidas pelo backend
+	handle /uploads/* {
+		reverse_proxy backend:3000
+	}
+
 	# Health check direto (útil pra monitoramento externo)
 	handle /health {
 		reverse_proxy backend:3000

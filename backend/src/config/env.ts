@@ -26,6 +26,9 @@ function jwtSecret(): string {
 export const config = {
   deploymentMode,
   databaseUrl: required("DATABASE_URL", "sqlite:./data/data.db"),
+  // Diretório das fotos de produto servidas em /uploads. Relativo ao cwd
+  // (em dev: backend/; em docker: /app). Criado no boot (server.ts).
+  uploadsDir: process.env.UPLOADS_DIR ?? "uploads",
   jwtSecret: jwtSecret(),
   syncEnabled: process.env.SYNC_ENABLED === "true",
   syncTargetUrl: process.env.SYNC_TARGET_URL,

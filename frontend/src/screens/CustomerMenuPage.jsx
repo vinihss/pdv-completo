@@ -266,13 +266,19 @@ function MenuScreen({ menu, viaWhatsApp, activeCategory, scrollToCategory, scrol
           <div key={c.id} ref={(el) => (scrollRefs.current[c.id] = el)} className="pt-5">
             <h2 className="text-[13px] font-bold uppercase tracking-wide text-[#8a7c6d] mb-2">{c.name}</h2>
             {c.products.map((p) => {
-              const qty = cart[p.id] ?? 0;
-              return (
-                <div key={p.id} className="flex items-center justify-between py-3 border-b border-black/5 gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[14.5px] font-semibold">{p.name}</p>
-                    <p className="text-[13.5px] text-[#e8a33d] font-semibold mt-1">{money(p.price)}</p>
-                  </div>
+                const qty = cart[p.id] ?? 0;
+                return (
+                  <div key={p.id} className="flex items-center justify-between py-3 border-b border-black/5 gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      {p.imagePath && (
+                        <img src={p.imagePath} alt={p.name} className="w-14 h-14 rounded-lg object-cover shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-[14.5px] font-semibold leading-tight">{p.name}</p>
+                        {p.description && <p className="text-[11.5px] text-[#8a7c6d] leading-snug mt-0.5 line-clamp-2">{p.description}</p>}
+                        <p className="text-[13.5px] text-[#e8a33d] font-semibold mt-1">{money(p.price)}</p>
+                      </div>
+                    </div>
                   {qty === 0 ? (
                     <button onClick={() => addToCart(p.id)} className="shrink-0 w-9 h-9 rounded-full bg-[#e8a33d] flex items-center justify-center" aria-label={`Adicionar ${p.name}`}>
                       <Plus size={17} className="text-[#211b19]" />

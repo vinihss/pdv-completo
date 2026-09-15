@@ -10,6 +10,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': { target: 'http://127.0.0.1:3000', changeOrigin: true, rewrite: (p) => p.replace(/^\/api/, '') },
+      '/uploads': { target: 'http://127.0.0.1:3000', changeOrigin: true },
       '/realtime': { target: 'ws://127.0.0.1:3000', ws: true },
     },
   },

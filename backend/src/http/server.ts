@@ -2,6 +2,10 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import websocketPlugin from "@fastify/websocket";
 import rateLimit from "@fastify/rate-limit";
+import fastifyStatic from "@fastify/static";
+import fastifyMultipart from "@fastify/multipart";
+import fs from "node:fs";
+import path from "node:path";
 import { ZodError } from "zod";
 import { config } from "../config/env.js";
 import { runMigrations } from "../infra/db/migrate.js";
@@ -49,6 +53,22 @@ async function main() {
   });
 
   await app.register(websocketPlugin);
+
+  // ---------- Fotos de produto (§ cadastro) ----------
+  // Diretório criado no boot (e no Docker via volume). As imagens são
+  // públicas em /uploads/<product_id>.<ext> — nada sensível nelas.
+  const uploadsDir = path.resolve(config.uploadsDir);
+  fs.mkdirSync(uploadsDir, { recursive: true });
+
+  await app.register(fastifyStatic, {
+    root: uploadsDir,
+    prefix: "/uploads/",
+    decorateReply: false,
+  });
+
+  await app.register(fastifyMultipart, {
+    limits: { fileSize: 2 * 1024 * 1024, files: 1 }, // 2 MB, 1 arquivo por request
+  });
 
   // Rate limit global — proteção básica de DoS pra API exposta na internet.
   // O login já tem um limite mais apertado próprio (§11); este aqui cobre
