@@ -2,12 +2,14 @@ import React, { useState, useEffect, useRef } from "react";
 import { Delete, ChefHat, UtensilsCrossed, ClipboardList, Lock, Loader2 } from "lucide-react";
 import { api } from "../lib/api.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { applyBrandPrimary } from "../lib/theme.js";
 
 const ROLE_META = {
   waiter: { label: "Garçom", icon: ClipboardList },
   kitchen: { label: "Cozinha", icon: ChefHat },
   manager: { label: "Gerente", icon: UtensilsCrossed },
   courier: { label: "Entregador", icon: UtensilsCrossed },
+  system: { label: "System", icon: UtensilsCrossed },
 };
 
 const MAX_PIN = 6;
@@ -22,6 +24,7 @@ export default function Login() {
   const [screen, setScreen] = useState("select"); // select | pin
   const [users, setUsers] = useState([]);
   const [storeName, setStoreName] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -39,7 +42,11 @@ export default function Login() {
       .finally(() => setLoadingUsers(false));
     api
       .getStoreInfo()
-      .then((s) => setStoreName(s?.merchantName || ""))
+      .then((s) => {
+        setStoreName(s?.merchantName || "");
+        setLogoUrl(s?.logoUrl || "");
+        applyBrandPrimary(s?.brandColor);
+      })
       .catch(() => {});
   }, []);
 
@@ -97,9 +104,13 @@ export default function Login() {
       {screen === "select" && (
         <div className="w-full max-w-md fade-up">
           <div className="text-center mb-10">
-            <div className="w-14 h-14 rounded-2xl bg-amber-500 flex items-center justify-center mx-auto mb-4">
-              <Lock size={26} className="text-stone-950" strokeWidth={2.5} />
-            </div>
+            {logoUrl ? (
+              <img src={logoUrl} alt="Logo do restaurante" className="w-32 h-32 rounded-full object-contain mx-auto mb-5" />
+            ) : (
+              <div className="w-14 h-14 rounded-full bg-amber-500 flex items-center justify-center mx-auto mb-4">
+                <Lock size={26} className="text-stone-950" strokeWidth={2.5} />
+              </div>
+            )}
             <h1 className="font-display text-2xl font-bold">{storeName || "Bar do Zé"}</h1>
             <p className="text-stone-500 text-sm mt-1">Selecione seu nome para continuar</p>
           </div>

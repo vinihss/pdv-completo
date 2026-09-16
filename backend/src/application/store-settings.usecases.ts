@@ -1,16 +1,24 @@
 import { eq } from "drizzle-orm";
+import fs from "node:fs";
+import path from "node:path";
 import { db } from "../infra/db/client.js";
 import { storeSettings } from "../infra/db/schema.js";
 import { Errors } from "../domain/errors.js";
+import { config } from "../config/env.js";
+import { logAction } from "../infra/audit-log.js";
 
 function serialize(s: typeof storeSettings.$inferSelect) {
   return {
     merchantName: s.merchantName,
     merchantCity: s.merchantCity,
+    logoUrl: s.logoPath ? `/uploads/${s.logoPath}` : null,
+    brandColor: s.brandColor,
     pixKey: s.pixKey,
     pixKeyType: s.pixKeyType,
     usesTables: s.usesTables,
     kitchenEnabled: s.kitchenEnabled,
+    usesDelivery: s.usesDelivery,
+    ifoodIntegrationEnabled: s.ifoodIntegrationEnabled,
     enabledPaymentMethods: JSON.parse(s.enabledPaymentMethods),
     kitchenPrepWarnMin: s.kitchenPrepWarnMin,
     kitchenPrepUrgentMin: s.kitchenPrepUrgentMin,
@@ -28,10 +36,13 @@ export async function getStoreSettingsUsecase() {
 export async function updateStoreSettingsUsecase(input: {
   merchantName: string;
   merchantCity: string;
+  brandColor: string;
   pixKey: string;
   pixKeyType: "cpf" | "cnpj" | "email" | "phone" | "random";
   usesTables: boolean;
   kitchenEnabled: boolean;
+  usesDelivery: boolean;
+  ifoodIntegrationEnabled: boolean;
   enabledPaymentMethods: string[];
   kitchenPrepWarnMin: number;
   kitchenPrepUrgentMin: number;
@@ -40,6 +51,7 @@ export async function updateStoreSettingsUsecase(input: {
 }) {
   if (input.merchantName.length > 25) throw Errors.validationFailed({ field: "merchantName", max: 25 });
   if (input.merchantCity.length > 15) throw Errors.validationFailed({ field: "merchantCity", max: 15 });
+  if (!/^#[0-9a-fA-F]{6}$/.test(input.brandColor)) throw Errors.validationFailed({ field: "brandColor" });
   if (input.kitchenPrepUrgentMin <= input.kitchenPrepWarnMin) throw Errors.invalidKitchenThresholds();
 
   const [updated] = await db
@@ -47,10 +59,13 @@ export async function updateStoreSettingsUsecase(input: {
     .set({
       merchantName: input.merchantName,
       merchantCity: input.merchantCity,
+      brandColor: input.brandColor,
       pixKey: input.pixKey,
       pixKeyType: input.pixKeyType,
       usesTables: input.usesTables,
       kitchenEnabled: input.kitchenEnabled,
+      usesDelivery: input.usesDelivery,
+      ifoodIntegrationEnabled: input.ifoodIntegrationEnabled,
       enabledPaymentMethods: JSON.stringify(input.enabledPaymentMethods),
       kitchenPrepWarnMin: input.kitchenPrepWarnMin,
       kitchenPrepUrgentMin: input.kitchenPrepUrgentMin,
@@ -60,5 +75,68 @@ export async function updateStoreSettingsUsecase(input: {
     .where(eq(storeSettings.id, "singleton"))
     .returning();
 
+  return serialize(updated);
+}
+
+// ---------- Logo (identidade) — upload em disco, caminho em store_settings.logo_path ----------
+
+function uploadsDir(): string {
+  const dir = path.resolve(config.uploadsDir);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function logoFileFor(s: { logoPath: string | null }): string | null {
+  if (!s.logoPath) return null;
+  // O banco guarda só o nome do arquivo ("logo.<ext>"), sempre gerado por nós.
+  // basename defende contra qualquer path absoluto/relativo que escape do dir.
+  const filename = path.basename(s.logoPath);
+  if (!filename) return null;
+  return path.resolve(uploadsDir(), filename);
+}
+
+function removeFile(fullPath: string | null) {
+  if (!fullPath) return;
+  try {
+    fs.unlinkSync(fullPath);
+  } catch {
+    // arquivo já removido ou inexistente — logo órfão não impede nada
+  }
+}
+
+export async function saveStoreLogoUsecase(input: { buffer: Buffer; ext: string }, actorId: string) {
+  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
+  if (!settings) throw Errors.notFound("Configuração da loja");
+
+  const filename = `logo.${input.ext}`;
+  const target = path.resolve(uploadsDir(), filename);
+  if (!target.startsWith(uploadsDir())) {
+    throw Errors.validationFailed({ field: "logo" });
+  }
+  fs.writeFileSync(target, input.buffer);
+
+  // Remove o logo antigo quando a extensão muda (logo.jpg → logo.png)
+  const previous = logoFileFor(settings);
+  if (previous && previous !== target) removeFile(previous);
+
+  const updated = db.transaction((tx) => {
+    const row = tx.update(storeSettings).set({ logoPath: filename }).where(eq(storeSettings.id, "singleton")).returning().get();
+    logAction(tx, actorId, "store_logo_changed", null, { logoPath: filename });
+    return row;
+  });
+  return serialize(updated);
+}
+
+export async function clearStoreLogoUsecase(actorId: string) {
+  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
+  if (!settings) throw Errors.notFound("Configuração da loja");
+  if (!settings.logoPath) return serialize(settings);
+
+  removeFile(logoFileFor(settings));
+  const updated = db.transaction((tx) => {
+    const row = tx.update(storeSettings).set({ logoPath: null }).where(eq(storeSettings.id, "singleton")).returning().get();
+    logAction(tx, actorId, "store_logo_removed", null);
+    return row;
+  });
   return serialize(updated);
 }

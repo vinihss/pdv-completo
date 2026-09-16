@@ -29,7 +29,7 @@ const addItemsSchema = z.object({
       z.object({
         productId: z.string(),
         quantity: z.number().int().positive(),
-        selectedVariations: z.record(z.string(), z.string()).optional(),
+        selectedVariations: z.record(z.string(), z.string().or(z.array(z.string()))).optional(),
         notes: z.string().optional(),
       })
     )

@@ -2,12 +2,13 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   Receipt, Settings, Package, Users, BarChart3, History, Plus, Trash2,
   ChevronUp, ChevronDown, X, Check, RefreshCcw, AlertTriangle, Truck,
-  Upload, ImageOff, UtensilsCrossed,
+  Upload, ImageOff, UtensilsCrossed, Search, Eye, EyeOff, ChefHat, Store,
 } from "lucide-react";
 import { api } from "../lib/api.js";
 import { formatBRL, maskCurrencyInput, parseBRL } from "../lib/money.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useDeliveries } from "../lib/useDeliveries.js";
+import { applyBrandPrimary, DEFAULT_PRIMARY_COLOR } from "../lib/theme.js";
 import WaiterApp from "./WaiterApp.jsx";
 import { useToast, Toast } from "../components/Toast.jsx";
 
@@ -226,6 +227,9 @@ function SettingsTab({ showToast }) {
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [logoFile, setLogoFile] = useState(null); // arquivo staged (upload no salvar)
+  const [logoPreview, setLogoPreview] = useState(""); // prévia staged (object URL)
+  const [logoRemoved, setLogoRemoved] = useState(false); // remove o logo no salvar
 
   useEffect(() => {
     if (storeSettings) setForm(storeSettings);
@@ -250,7 +254,11 @@ function SettingsTab({ showToast }) {
     setSaving(true);
     try {
       await api.updateStoreSettings(form);
+      if (logoFile) await api.uploadStoreLogo(logoFile);
+      else if (logoRemoved) await api.removeStoreLogo();
       await refreshStoreSettings();
+      setLogoFile(null);
+      setLogoRemoved(false);
       showToast("Configurações salvas.", "success");
     } catch (e) {
       setError(e.message);
@@ -259,9 +267,71 @@ function SettingsTab({ showToast }) {
     }
   }
 
+  function handleLogoFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLogoRemoved(false);
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
+  }
+
+  function handleRemoveLogo() {
+    setLogoFile(null);
+    setLogoPreview("");
+    setLogoRemoved(true);
+  }
+
+  const displayLogo = logoRemoved ? "" : logoPreview || form.logoUrl || "";
+
   return (
     <div className="p-5 max-w-lg mx-auto space-y-6">
       <Section title="Identidade">
+        <Field label="Logo do restaurante">
+          <div className="flex items-center gap-3">
+            {displayLogo ? (
+              <img src={displayLogo} alt="Logo do restaurante" className="w-16 h-16 rounded-xl object-cover shrink-0" />
+            ) : (
+              <div className="w-16 h-16 rounded-xl bg-stone-800 border border-stone-700 flex items-center justify-center text-stone-600 shrink-0">
+                <Store size={24} />
+              </div>
+            )}
+            <div className="flex-1 space-y-2">
+              <label className="flex items-center justify-center gap-1.5 bg-stone-800 hover:bg-stone-750 border border-stone-700 rounded-xl px-3 py-2 text-sm font-medium cursor-pointer">
+                <Upload size={14} /> {displayLogo ? "Trocar logo" : "Enviar logo"}
+                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleLogoFile} />
+              </label>
+              {displayLogo && (
+                <button onClick={handleRemoveLogo} className="flex items-center gap-1.5 text-red-400 text-xs font-medium">
+                  <ImageOff size={13} /> Remover logo
+                </button>
+              )}
+            </div>
+          </div>
+        </Field>
+        <Field label="Cor principal (marca)">
+          <div className="flex items-center gap-3">
+            <input
+              type="color"
+              value={form.brandColor}
+              onChange={(e) => {
+                set({ brandColor: e.target.value });
+                applyBrandPrimary(e.target.value);
+              }}
+              className="h-11 w-14 rounded-lg bg-stone-800 border border-stone-700 cursor-pointer shrink-0"
+            />
+            <span className="text-sm font-mono text-stone-400">{form.brandColor}</span>
+            <button
+              onClick={() => {
+                set({ brandColor: DEFAULT_PRIMARY_COLOR });
+                applyBrandPrimary();
+              }}
+              className="ml-auto flex items-center gap-1.5 bg-stone-800 hover:bg-stone-750 border border-stone-700 rounded-xl px-3 py-2 text-xs font-semibold text-stone-300 transition-colors"
+            >
+              <RefreshCcw size={13} /> Restaurar padrão
+            </button>
+          </div>
+          <p className="text-stone-600 text-xs mt-1.5">Aplica nos botões principais, destaques e na página externa de pedidos.</p>
+        </Field>
         <Field label="Nome do estabelecimento (máx. 25)">
           <input maxLength={25} value={form.merchantName} onChange={(e) => set({ merchantName: e.target.value })} className={inputClass} />
         </Field>
@@ -273,19 +343,23 @@ function SettingsTab({ showToast }) {
       <Section title="Modo de operação">
         <ToggleRow label="Usa mesas" checked={form.usesTables} onChange={(v) => set({ usesTables: v })} />
         <ToggleRow label="Cozinha habilitada" checked={form.kitchenEnabled} onChange={(v) => set({ kitchenEnabled: v })} />
+        <ToggleRow label="Integração iFood" checked={form.ifoodIntegrationEnabled} onChange={(v) => set({ ifoodIntegrationEnabled: v })} />
       </Section>
 
       <Section title="Entrega (WhatsApp / página externa)">
-        <Field label="Taxa de entrega (R$)">
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            value={form.deliveryFee}
-            onChange={(e) => set({ deliveryFee: Number(e.target.value) })}
-            className={inputClass}
-          />
-        </Field>
+        <ToggleRow label="Usa delivery (página de pedido externa)" checked={form.usesDelivery} onChange={(v) => set({ usesDelivery: v })} />
+        {form.usesDelivery && (
+          <Field label="Taxa de entrega (R$)">
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={form.deliveryFee}
+              onChange={(e) => set({ deliveryFee: Number(e.target.value) })}
+              className={inputClass}
+            />
+          </Field>
+        )}
       </Section>
 
       {form.kitchenEnabled && (
@@ -382,20 +456,38 @@ function ToggleRow({ label, checked, onChange }) {
 const inputClass = "w-full bg-stone-800 border border-stone-700 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-amber-500/50";
 
 // ============================================================
-// Cadastros — categorias e produtos
+// Cadastros — categorias, grupos de produção e produtos
 // ============================================================
 function CatalogTab({ showToast }) {
+  const { storeSettings } = useAuth();
+  const kitchenEnabled = storeSettings?.kitchenEnabled ?? true;
   const [categories, setCategories] = useState([]);
+  const [kitchenGroups, setKitchenGroups] = useState([]);
   const [products, setProducts] = useState([]);
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [newKitchenGroupName, setNewKitchenGroupName] = useState("");
   const [editingProduct, setEditingProduct] = useState(null); // null | "new" | product
   const [deleteCategoryTarget, setDeleteCategoryTarget] = useState(null);
+  const [deleteKitchenGroupTarget, setDeleteKitchenGroupTarget] = useState(null);
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all"); // "all" | "uncategorized" | catId
+  const [activeFilter, setActiveFilter] = useState("all"); // "all" | "active" | "inactive"
 
   const load = useCallback(async () => {
-    const [cats, prods] = await Promise.all([api.listCategories(), api.listProducts({})]);
+    const params = {};
+    if (activeFilter === "active") params.active = "true";
+    else if (activeFilter === "inactive") params.active = "false";
+    if (categoryFilter !== "all" && categoryFilter !== "uncategorized") params.category_id = categoryFilter;
+    if (search.trim()) params.q = search.trim();
+    const [cats, groups, prods] = await Promise.all([
+      api.listCategories(),
+      api.listKitchenGroups(),
+      api.listAllProducts(params),
+    ]);
     setCategories(cats);
+    setKitchenGroups(groups);
     setProducts(prods.data);
-  }, []);
+  }, [search, categoryFilter, activeFilter]);
 
   useEffect(() => {
     load();
@@ -421,6 +513,15 @@ function CatalogTab({ showToast }) {
     }
   }
 
+  async function handleToggleCategoryActive(cat) {
+    try {
+      await api.updateCategory(cat.id, { active: !cat.active });
+      await load();
+    } catch (e) {
+      showToast(e.message, "error");
+    }
+  }
+
   async function handleReorder(cat, direction) {
     const sorted = [...categories].sort((a, b) => a.displayOrder - b.displayOrder);
     const idx = sorted.findIndex((c) => c.id === cat.id);
@@ -434,7 +535,50 @@ function CatalogTab({ showToast }) {
     await load();
   }
 
+  async function handleAddKitchenGroup() {
+    if (!newKitchenGroupName.trim()) return;
+    try {
+      await api.createKitchenGroup({ name: newKitchenGroupName.trim(), displayOrder: kitchenGroups.length });
+      setNewKitchenGroupName("");
+      await load();
+    } catch (e) {
+      showToast(e.message, "error");
+    }
+  }
+
+  async function handleRenameKitchenGroup(group, name) {
+    try {
+      await api.updateKitchenGroup(group.id, { name });
+      await load();
+    } catch (e) {
+      showToast(e.message, "error");
+    }
+  }
+
+  async function handleReorderKitchenGroup(group, direction) {
+    const sorted = [...kitchenGroups].sort((a, b) => a.displayOrder - b.displayOrder);
+    const idx = sorted.findIndex((c) => c.id === group.id);
+    const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= sorted.length) return;
+    const other = sorted[swapIdx];
+    await Promise.all([
+      api.updateKitchenGroup(group.id, { displayOrder: other.displayOrder }),
+      api.updateKitchenGroup(other.id, { displayOrder: group.displayOrder }),
+    ]);
+    await load();
+  }
+
+  async function handleToggleProductActive(p) {
+    try {
+      await api.setProductActive(p.id, !p.active);
+      await load();
+    } catch (e) {
+      showToast(e.message, "error");
+    }
+  }
+
   const productsLinked = (catId) => products.filter((p) => p.categoryId === catId).length;
+  const productsInKitchenGroup = (groupId) => products.filter((p) => p.kitchenGroupId === groupId).length;
 
   async function handleDeleteCategory(cat) {
     try {
@@ -445,6 +589,25 @@ function CatalogTab({ showToast }) {
       showToast(e.message, "error");
     }
   }
+
+  async function handleDeleteKitchenGroup(group) {
+    try {
+      await api.deleteKitchenGroup(group.id);
+      setDeleteKitchenGroupTarget(null);
+      await load();
+    } catch (e) {
+      showToast(e.message, "error");
+    }
+  }
+
+  // "Sem categoria" só faz sentido fora do filtro por categoria específica;
+  // busca/ativo já foram aplicados no servidor.
+  const sortedProducts = [...products].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  const categorized = sortedProducts.filter((p) => p.categoryId);
+  const uncategorized =
+    categoryFilter === "uncategorized"
+      ? sortedProducts.filter((p) => !p.categoryId)
+      : [];
 
   return (
     <div className="p-5 max-w-2xl mx-auto space-y-6">
@@ -459,6 +622,9 @@ function CatalogTab({ showToast }) {
                   onBlur={(e) => e.target.value !== cat.name && handleRenameCategory(cat, e.target.value)}
                   className="flex-1 bg-transparent text-sm font-medium outline-none"
                 />
+                <button onClick={() => handleToggleCategoryActive(cat)} title={cat.active ? "Desativar" : "Ativar"} className="text-stone-500 hover:text-amber-400">
+                  {cat.active ? <Eye size={16} /> : <EyeOff size={16} />}
+                </button>
                 <button onClick={() => handleReorder(cat, "up")} className="text-stone-500 hover:text-stone-300"><ChevronUp size={16} /></button>
                 <button onClick={() => handleReorder(cat, "down")} className="text-stone-500 hover:text-stone-300"><ChevronDown size={16} /></button>
                 <button onClick={() => setDeleteCategoryTarget(cat)} className="text-stone-500 hover:text-red-400"><Trash2 size={15} /></button>
@@ -476,39 +642,115 @@ function CatalogTab({ showToast }) {
             <Plus size={16} />
           </button>
         </div>
+        {categories.some((c) => !c.active) && (
+          <p className="text-stone-600 text-xs">Categorias desativadas não aparecem no cardápio público, mas continuam no app do garçom.</p>
+        )}
       </Section>
 
-      <Section title="Produtos">
-        <div className="space-y-2">
-          {products.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => setEditingProduct(p)}
-              className={`w-full flex items-center justify-between text-left px-3 py-2.5 rounded-xl ${p.active ? "bg-stone-800/60" : "bg-stone-800/20 opacity-50"}`}
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                {p.imagePath ? (
-                  <img src={p.imagePath} alt={p.name} className="w-10 h-10 rounded-lg object-cover shrink-0" />
-                ) : (
-                  <div className="w-10 h-10 rounded-lg bg-stone-900 border border-stone-700 flex items-center justify-center text-stone-600 shrink-0">
-                    <Package size={18} />
-                  </div>
-                )}
-                <div className="min-w-0">
-                  <div className="text-sm font-medium flex items-center gap-1.5">
-                    {p.name}
-                    {p.ifoodEnabled && (
-                      <span className="flex items-center gap-0.5 text-[10px] font-bold text-red-400 bg-red-500/10 rounded-full px-1.5 py-0.5 shrink-0">
-                        <UtensilsCrossed size={10} /> iFood
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-stone-500 text-xs truncate">{categories.find((c) => c.id === p.categoryId)?.name ?? "Sem categoria"}</div>
-                </div>
+      {kitchenEnabled && (
+        <Section title="Grupos de produção">
+          <div className="space-y-2">
+          {kitchenGroups
+            .sort((a, b) => a.displayOrder - b.displayOrder)
+            .map((group) => (
+              <div key={group.id} className="flex items-center gap-2 bg-stone-800/60 rounded-xl px-3 py-2">
+                <ChefHat size={15} className="text-stone-600 shrink-0" />
+                <input
+                  defaultValue={group.name}
+                  onBlur={(e) => e.target.value !== group.name && handleRenameKitchenGroup(group, e.target.value)}
+                  className="flex-1 bg-transparent text-sm font-medium outline-none"
+                />
+                <button onClick={() => handleReorderKitchenGroup(group, "up")} className="text-stone-500 hover:text-stone-300"><ChevronUp size={16} /></button>
+                <button onClick={() => handleReorderKitchenGroup(group, "down")} className="text-stone-500 hover:text-stone-300"><ChevronDown size={16} /></button>
+                <button onClick={() => setDeleteKitchenGroupTarget(group)} className="text-stone-500 hover:text-red-400"><Trash2 size={15} /></button>
               </div>
-              <div className="text-emerald-400 text-sm font-semibold shrink-0">{formatBRL(p.price)}</div>
-            </button>
+            ))}
+          {kitchenGroups.length === 0 && (
+            <p className="text-stone-600 text-xs">Nenhum grupo cadastrado. Produtos sem grupo não entram no fluxo da cozinha.</p>
+          )}
+        </div>
+        <div className="flex gap-2 pt-2">
+          <input
+            value={newKitchenGroupName}
+            onChange={(e) => setNewKitchenGroupName(e.target.value)}
+            placeholder="Novo grupo (ex.: Cozinha, Grelha, Bar)..."
+            className={inputClass}
+          />
+          <button onClick={handleAddKitchenGroup} className="bg-amber-500 hover:bg-amber-400 text-stone-950 px-4 rounded-xl font-semibold shrink-0">
+            <Plus size={16} />
+          </button>
+        </div>
+      </Section>
+    )}
+
+    <Section title="Produtos">
+        <div className="flex gap-2 flex-wrap">
+          <div className="relative flex-1 min-w-[160px]">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar produto..."
+              className={inputClass + " pl-9"}
+            />
+          </div>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className={inputClass + " w-auto shrink-0"}
+          >
+            <option value="all">Todas as categorias</option>
+            <option value="uncategorized">Sem categoria</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+          <select
+            value={activeFilter}
+            onChange={(e) => setActiveFilter(e.target.value)}
+            className={inputClass + " w-auto shrink-0"}
+          >
+            <option value="all">Todos</option>
+            <option value="active">Disponíveis</option>
+            <option value="inactive">Indisponíveis</option>
+          </select>
+        </div>
+
+        <div className="space-y-2">
+          {categorized.map((p) => (
+            <ProductRow
+              key={p.id}
+              product={p}
+              categoryName={p.categoryName ?? "Sem categoria"}
+              ifoodIntegrationEnabled={storeSettings?.ifoodIntegrationEnabled ?? false}
+              kitchenEnabled={kitchenEnabled}
+              onOpen={() => setEditingProduct(p)}
+              onToggleActive={() => handleToggleProductActive(p)}
+            />
           ))}
+
+          {uncategorized.length > 0 && (
+            <div className="pt-2">
+              <div className="text-xs font-bold uppercase tracking-widest text-amber-500/80 mb-2 px-1">
+                Sem categoria ({uncategorized.length}) — reatribua no formulário
+              </div>
+              {uncategorized.map((p) => (
+                <ProductRow
+                  key={p.id}
+                  product={p}
+                  categoryName="Sem categoria"
+                  ifoodIntegrationEnabled={storeSettings?.ifoodIntegrationEnabled ?? false}
+                  kitchenEnabled={kitchenEnabled}
+                  onOpen={() => setEditingProduct(p)}
+                  onToggleActive={() => handleToggleProductActive(p)}
+                />
+              ))}
+            </div>
+          )}
+
+          {categorized.length === 0 && uncategorized.length === 0 && (
+            <div className="text-stone-600 text-center py-12 text-sm">Nenhum produto encontrado.</div>
+          )}
         </div>
         <button
           onClick={() => setEditingProduct("new")}
@@ -522,6 +764,9 @@ function CatalogTab({ showToast }) {
         <ProductModal
           product={editingProduct === "new" ? null : editingProduct}
           categories={categories}
+          kitchenGroups={kitchenGroups}
+          kitchenEnabled={kitchenEnabled}
+          ifoodIntegrationEnabled={storeSettings?.ifoodIntegrationEnabled ?? false}
           onClose={() => setEditingProduct(null)}
           onSaved={async () => {
             setEditingProduct(null);
@@ -544,21 +789,128 @@ function CatalogTab({ showToast }) {
           onConfirm={() => handleDeleteCategory(deleteCategoryTarget)}
         />
       )}
+
+      {deleteKitchenGroupTarget && (
+        <ConfirmModal
+          title="Excluir grupo de produção?"
+          message={`${productsInKitchenGroup(deleteKitchenGroupTarget.id)} produto(s) pararão de ir para a cozinha até reatribuição.`}
+          confirmLabel="Excluir"
+          onCancel={() => setDeleteKitchenGroupTarget(null)}
+          onConfirm={() => handleDeleteKitchenGroup(deleteKitchenGroupTarget)}
+        />
+      )}
     </div>
   );
 }
 
-function ProductModal({ product, categories, onClose, onSaved, showToast }) {
+function ProductRow({ product: p, categoryName, onOpen, onToggleActive, ifoodIntegrationEnabled = false, kitchenEnabled = true }) {
+  return (
+    <button
+      onClick={onOpen}
+      className={`w-full flex items-center justify-between text-left px-3 py-2.5 rounded-xl ${p.active ? "bg-stone-800/60" : "bg-stone-800/20 opacity-50"}`}
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        {p.imagePath ? (
+          <img src={p.imagePath} alt={p.name} className="w-10 h-10 rounded-lg object-cover shrink-0" />
+        ) : (
+          <div className="w-10 h-10 rounded-lg bg-stone-900 border border-stone-700 flex items-center justify-center text-stone-600 shrink-0">
+            <Package size={18} />
+          </div>
+        )}
+        <div className="min-w-0">
+          <div className="text-sm font-medium flex items-center gap-1.5">
+            {p.name}
+            {!p.active && (
+              <span className="text-[10px] font-bold text-stone-500 bg-stone-700/60 rounded-full px-1.5 py-0.5">Indisponível</span>
+            )}
+            {ifoodIntegrationEnabled && p.ifoodEnabled && (
+              <span className="flex items-center gap-0.5 text-[10px] font-bold text-red-400 bg-red-500/10 rounded-full px-1.5 py-0.5 shrink-0">
+                <UtensilsCrossed size={10} /> iFood
+              </span>
+            )}
+          </div>
+          <div className="text-stone-500 text-xs truncate">
+            {categoryName}
+            {kitchenEnabled && p.kitchenGroupName ? ` · ${p.kitchenGroupName}` : ""}
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-3 shrink-0">
+        <span className="text-emerald-400 text-sm font-semibold">{formatBRL(p.price)}</span>
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleActive();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.stopPropagation();
+              onToggleActive();
+            }
+          }}
+          title={p.active ? "Desativar para venda" : "Ativar para venda"}
+          className={`p-1 rounded-lg ${p.active ? "text-emerald-400 hover:text-amber-400" : "text-stone-600 hover:text-emerald-400"}`}
+        >
+          {p.active ? <Eye size={16} /> : <EyeOff size={16} />}
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function ProductModal({ product, categories, kitchenGroups, kitchenEnabled, ifoodIntegrationEnabled, onClose, onSaved, showToast }) {
   const [name, setName] = useState(product?.name ?? "");
   const [description, setDescription] = useState(product?.description ?? "");
   const [price, setPrice] = useState(product ? formatBRL(product.price) : "");
-  const [categoryId, setCategoryId] = useState(product?.categoryId ?? categories[0]?.id ?? "");
-  const [variations, setVariations] = useState((product?.variations ?? []).join(", "));
+  const [categoryId, setCategoryId] = useState(product?.categoryId ?? "");
+  const [kitchenGroupId, setKitchenGroupId] = useState(product?.kitchenGroupId ?? "");
+  // Variações estruturadas: [{ name, options, required, allowMultiple }]
+  const [variationGroups, setVariationGroups] = useState(() =>
+    (product?.variations ?? []).map((g, i) => ({
+      id: `g${i}`,
+      name: g?.name ?? "",
+      options: Array.isArray(g?.options) ? [...g.options] : [],
+      required: Boolean(g?.required),
+      allowMultiple: Boolean(g?.allowMultiple),
+    }))
+  );
+  const [newOption, setNewOption] = useState({});
+  const [active, setActive] = useState(product?.active ?? true);
   const [ifoodEnabled, setIfoodEnabled] = useState(product?.ifoodEnabled ?? false);
   const [ifoodSku, setIfoodSku] = useState(product?.ifoodSku ?? "");
   const [image, setImage] = useState({ file: null, preview: product?.imagePath ?? "" });
   const [removeImage, setRemoveImage] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const categoryOptions = categories.filter((c) => c.active || c.id === product?.categoryId);
+
+  function addVariationGroup() {
+    setVariationGroups((prev) => [
+      ...prev,
+      { id: `g${Date.now()}`, name: "", options: [], required: false, allowMultiple: false },
+    ]);
+  }
+  function updateVariationGroup(id, patch) {
+    setVariationGroups((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch } : g)));
+  }
+  function addOption(gi) {
+    const value = newOption[gi]?.trim();
+    if (!value) return;
+    setVariationGroups((prev) =>
+      prev.map((g, idx) => (idx === gi ? { ...g, options: [...g.options, value] } : g))
+    );
+    setNewOption((prev) => ({ ...prev, [gi]: "" }));
+  }
+  function removeOption(gi, oi) {
+    setVariationGroups((prev) =>
+      prev.map((g, idx) => (idx === gi ? { ...g, options: g.options.filter((_, i) => i !== oi) } : g))
+    );
+  }
+  function removeVariationGroup(id) {
+    setVariationGroups((prev) => prev.filter((g) => g.id !== id));
+  }
 
   function handleFileChange(e) {
     const file = e.target.files?.[0];
@@ -573,16 +925,34 @@ function ProductModal({ product, categories, onClose, onSaved, showToast }) {
   }
 
   async function handleSave() {
+    if (!name.trim()) {
+      showToast("Informe o nome do produto.", "error");
+      return;
+    }
+    if (!categoryId && !product) {
+      showToast("Crie ao menos uma categoria antes de cadastrar o produto.", "error");
+      return;
+    }
     setSaving(true);
     try {
+      const variations = variationGroups
+        .map((g) => ({
+          name: g.name.trim(),
+          options: g.options.map((o) => o.trim()).filter(Boolean),
+          required: g.required,
+          allowMultiple: g.allowMultiple,
+        }))
+        .filter((g) => g.name && g.options.length > 0);
       const body = {
         name: name.trim(),
         description: description.trim(),
         price: parseBRL(price),
-        categoryId,
-        variations: variations.split(",").map((v) => v.trim()).filter(Boolean),
-        ifoodEnabled,
-        ifoodSku: ifoodEnabled ? ifoodSku.trim() : null,
+        categoryId: categoryId || null,
+        kitchenGroupId: kitchenEnabled ? kitchenGroupId || null : null,
+        variations,
+        active,
+        ifoodEnabled: ifoodIntegrationEnabled ? ifoodEnabled : false,
+        ifoodSku: ifoodIntegrationEnabled && ifoodEnabled ? ifoodSku.trim() : null,
       };
       let productId = product?.id;
       if (product) await api.updateProduct(product.id, body);
@@ -598,11 +968,6 @@ function ProductModal({ product, categories, onClose, onSaved, showToast }) {
     } finally {
       setSaving(false);
     }
-  }
-
-  async function handleToggleActive() {
-    await api.setProductActive(product.id, !product.active);
-    await onSaved();
   }
 
   return (
@@ -640,29 +1005,101 @@ function ProductModal({ product, categories, onClose, onSaved, showToast }) {
           <Field label="Preço"><input inputMode="numeric" value={price} onChange={(e) => setPrice(maskCurrencyInput(e.target.value))} placeholder="R$ 0,00" className={inputClass} /></Field>
           <Field label="Categoria">
             <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={inputClass}>
-              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              <option value="">{product ? "— Sem categoria —" : "Selecione uma categoria..."}</option>
+              {categoryOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </Field>
-          <Field label="Variações (separadas por vírgula)">
-            <input value={variations} onChange={(e) => setVariations(e.target.value)} placeholder="Ao ponto, Mal passado..." className={inputClass} />
+          <Field label="Grupo de produção (cozinha)">
+            {kitchenEnabled ? (
+              <>
+                <select value={kitchenGroupId} onChange={(e) => setKitchenGroupId(e.target.value)} className={inputClass}>
+                  <option value="">Nenhum — não vai para a cozinha</option>
+                  {kitchenGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+                <div className="text-stone-600 text-xs mt-1">Itens deste produto só aparecem na tela da cozinha se um grupo for escolhido.</div>
+              </>
+            ) : (
+              <div className="text-stone-600 text-xs bg-stone-800/50 border border-stone-800 rounded-xl px-3 py-2.5">
+                Configuração atual: restaurante sem cozinha — este produto entra na comanda pronto, sem passagem por estação.
+              </div>
+            )}
           </Field>
-          <ToggleRow label="Disponível no iFood" checked={ifoodEnabled} onChange={setIfoodEnabled} />
-          {ifoodEnabled && (
+          <Field label="Variações (opcional)">
+            <div className="space-y-2">
+              {variationGroups.map((g, gi) => (
+                <div key={g.id} className="bg-stone-800/60 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={g.name}
+                      onChange={(e) => updateVariationGroup(g.id, { name: e.target.value })}
+                      placeholder="Nome do grupo (ex.: Ponto da carne)"
+                      className="flex-1 bg-stone-900 border border-stone-700 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-amber-500/50"
+                    />
+                    <button onClick={() => removeVariationGroup(g.id)} className="text-stone-500 hover:text-red-400"><Trash2 size={15} /></button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {g.options.map((opt, oi) => (
+                      <span key={oi} className="flex items-center gap-1 bg-stone-900 border border-stone-700 rounded-full pl-2.5 pr-1 py-1 text-xs">
+                        {opt}
+                        <button onClick={() => removeOption(gi, oi)} className="text-stone-500 hover:text-red-400"><X size={12} /></button>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex gap-1.5">
+                    <input
+                      value={newOption[gi] ?? ""}
+                      onChange={(e) => setNewOption((prev) => ({ ...prev, [gi]: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addOption(gi); } }}
+                      placeholder="Nova opção (Enter para adicionar)..."
+                      className="flex-1 bg-stone-900 border border-stone-700 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-amber-500/50"
+                    />
+                    <button onClick={() => addOption(gi)} className="bg-stone-900 border border-stone-700 rounded-lg px-2.5 text-stone-300 hover:text-amber-400"><Plus size={14} /></button>
+                  </div>
+                  <div className="flex gap-4 text-xs text-stone-400">
+                    <label className="flex items-center gap-1.5"><input type="checkbox" checked={g.required} onChange={(e) => updateVariationGroup(g.id, { required: e.target.checked })} /> Obrigatória</label>
+                    <label className="flex items-center gap-1.5"><input type="checkbox" checked={g.allowMultiple} onChange={(e) => updateVariationGroup(g.id, { allowMultiple: e.target.checked })} /> Permitir múltiplas</label>
+                  </div>
+                </div>
+              ))}
+              <button onClick={addVariationGroup} className="flex items-center gap-1.5 text-amber-500 text-sm font-semibold">
+                <Plus size={14} /> Adicionar variação
+              </button>
+            </div>
+          </Field>
+          <div className="space-y-3 bg-stone-800/40 border border-stone-800 rounded-xl p-3">
+            <div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium">Habilitado para venda</div>
+                  <div className="text-stone-600 text-xs">Desligado, o produto some das telas de venda (garçom, cardápio público e cozinha).</div>
+                </div>
+                <button
+                  onClick={() => setActive(!active)}
+                  className={`shrink-0 w-11 h-6 rounded-full transition-colors relative ${active ? "bg-amber-500" : "bg-stone-700"}`}
+                >
+                  <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${active ? "translate-x-5" : "translate-x-0.5"}`} />
+                </button>
+              </div>
+            </div>
+            <div className="border-t border-stone-800 pt-3">
+              {ifoodIntegrationEnabled ? (
+                <ToggleRow label="Disponível no iFood" checked={ifoodEnabled} onChange={setIfoodEnabled} />
+              ) : (
+                <div className="text-stone-600 text-xs">
+                  Integração com iFood desabilitada nas configurações — a flag não se aplica a este produto.
+                </div>
+              )}
+            </div>
+          </div>
+          {ifoodIntegrationEnabled && ifoodEnabled && (
             <Field label="Código no iFood (SKU)">
               <input value={ifoodSku} onChange={(e) => setIfoodSku(e.target.value)} placeholder="Ex.: 5f3a0e1a-9d4c..." className={inputClass} />
             </Field>
           )}
         </div>
-        <div className="flex gap-2">
-          {product && (
-            <button onClick={handleToggleActive} className="flex-1 bg-stone-800 text-stone-300 font-semibold py-3 rounded-xl text-sm">
-              {product.active ? "Desativar" : "Ativar"}
-            </button>
-          )}
-          <button onClick={handleSave} disabled={saving} className="flex-1 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3 rounded-xl">
-            {saving ? "Salvando…" : "Salvar"}
-          </button>
-        </div>
+        <button onClick={handleSave} disabled={saving} className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3 rounded-xl">
+          {saving ? "Salvando…" : "Salvar"}
+        </button>
       </div>
     </div>
   );
@@ -874,6 +1311,18 @@ const ACTION_LABEL = {
   item_delivered: "Item entregue",
   payment_registered: "Pagamento registrado",
   order_closed: "Comanda fechada",
+  product_created: "Produto criado",
+  product_updated: "Produto atualizado",
+  product_activated: "Produto ativado",
+  product_deactivated: "Produto desativado",
+  product_image_changed: "Foto do produto alterada",
+  product_image_removed: "Foto do produto removida",
+  category_created: "Categoria criada",
+  category_updated: "Categoria atualizada",
+  category_deleted: "Categoria excluída",
+  kitchen_group_created: "Grupo de produção criado",
+  kitchen_group_updated: "Grupo de produção atualizado",
+  kitchen_group_deleted: "Grupo de produção excluído",
 };
 
 function AuditTab() {

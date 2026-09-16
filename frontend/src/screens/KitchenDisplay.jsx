@@ -19,24 +19,33 @@ function formatMinSec(minutesFloat) {
   const s = totalSec % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
 }
+function variationText(sel) {
+  return Object.values(sel ?? {})
+    .map((v) => (Array.isArray(v) ? v.join(", ") : v))
+    .filter(Boolean)
+    .join(", ");
+}
 
 export default function KitchenDisplay() {
   const { session, storeSettings } = useAuth();
   const [tickets, setTickets] = useState([]); // achatado: um item de comanda = um ticket
+  const [kitchenGroups, setKitchenGroups] = useState([]);
+  const [activeGroup, setActiveGroup] = useState(null); // null = todas as estações
   const [now, setNow] = useState(Date.now());
   const [toast, setToast] = useState(null);
 
   const settings = storeSettings ?? { kitchenPrepWarnMin: 3, kitchenPrepUrgentMin: 6, kitchenPickupUrgentMin: 5 };
 
   const loadTickets = useCallback(async () => {
-    const [productsRes, { data }] = await Promise.all([api.listProducts({}), api.listOrders("open")]);
-    const map = Object.fromEntries(productsRes.data.map((p) => [p.id, p.imagePath]));
+    const { data } = await api.listOrders("open");
     const flattened = [];
     for (const order of data) {
       const label = order.tableId ? `Mesa ${order.tableNumber ?? ""}`.trim() : order.customerName ?? order.tabLabel ?? "—";
       for (const item of order.items) {
-        if (item.status === "ordered" || item.status === "ready") {
-          flattened.push({ ...item, orderId: order.id, label, imagePath: map[item.productId] ?? null });
+        // Só itens de produção roteada: produto sem kitchen_group_id (bar/balcão)
+        // não entra na fila da cozinha. A foto já vem no próprio item.
+        if ((item.status === "ordered" || item.status === "ready") && item.kitchenGroupId) {
+          flattened.push({ ...item, orderId: order.id, label, imagePath: item.productImagePath ?? null });
         }
       }
     }
@@ -46,6 +55,10 @@ export default function KitchenDisplay() {
   useEffect(() => {
     loadTickets();
   }, [loadTickets]);
+
+  useEffect(() => {
+    api.listKitchenGroups().then(setKitchenGroups).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -76,8 +89,12 @@ export default function KitchenDisplay() {
     }
   }
 
-  const preparing = tickets.filter((t) => t.status === "ordered").sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  const ready = tickets.filter((t) => t.status === "ready").sort((a, b) => a.updatedAt?.localeCompare(b.updatedAt ?? "") ?? 0);
+  const visible = activeGroup ? tickets.filter((t) => t.kitchenGroupId === activeGroup) : tickets;
+  const preparing = visible.filter((t) => t.status === "ordered").sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const ready = visible.filter((t) => t.status === "ready").sort((a, b) => a.updatedAt?.localeCompare(b.updatedAt ?? "") ?? 0);
+
+  const chipClass = (isActive) =>
+    `shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold ${isActive ? "bg-amber-500 text-stone-950" : "bg-stone-800 border border-stone-700 text-stone-400 hover:bg-stone-750"}`;
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-50 flex flex-col">
@@ -98,6 +115,16 @@ export default function KitchenDisplay() {
       </div>
 
       <div className="flex-[3] overflow-y-auto p-6">
+        {kitchenGroups.length > 1 && (
+          <div className="flex gap-2 overflow-x-auto pb-3 mb-2">
+            <button onClick={() => setActiveGroup(null)} className={chipClass(!activeGroup)}>Todas</button>
+            {kitchenGroups.map((g) => (
+              <button key={g.id} onClick={() => setActiveGroup(g.id)} className={chipClass(activeGroup === g.id)}>
+                {g.name}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="text-stone-500 text-xs font-bold tracking-widest uppercase mb-3 px-1">Em preparo</div>
         {preparing.length === 0 && (
           <div className="h-full flex items-center justify-center text-stone-600 text-lg py-16">Nenhum pedido em preparo.</div>
@@ -111,7 +138,7 @@ export default function KitchenDisplay() {
               urgency === "warn" ? "border-amber-500/60 bg-amber-500/5" :
               "border-stone-700 bg-stone-900";
             const timeClass = urgency === "urgent" ? "text-red-400" : urgency === "warn" ? "text-amber-400" : "text-stone-500";
-            const variation = Object.values(t.selectedVariations ?? {}).join(", ");
+            const variation = variationText(t.selectedVariations);
             return (
               <button
                 key={t.id}
@@ -145,7 +172,7 @@ export default function KitchenDisplay() {
           {ready.map((t) => {
             const waiting = minutesSince(t.updatedAt ?? t.createdAt, now);
             const isUrgent = waiting >= settings.kitchenPickupUrgentMin;
-            const variation = Object.values(t.selectedVariations ?? {}).join(", ");
+            const variation = variationText(t.selectedVariations);
             return (
               <div
                 key={t.id}

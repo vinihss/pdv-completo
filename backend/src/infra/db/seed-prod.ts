@@ -39,6 +39,8 @@ async function seedProd() {
     pixKeyType: "phone",
     usesTables: true,
     kitchenEnabled: true,
+    usesDelivery: true,
+    ifoodIntegrationEnabled: false,
     enabledPaymentMethods: JSON.stringify(["cash", "card", "pix", "other"]),
     kitchenPrepWarnMin: 3,
     kitchenPrepUrgentMin: 6,

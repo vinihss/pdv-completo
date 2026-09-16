@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { api, setAuthToken, setUnauthorizedHandler } from "../lib/api.js";
+import { applyBrandPrimary } from "../lib/theme.js";
 
 const AuthContext = createContext(null);
 
@@ -39,12 +40,14 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     if (!session) {
       setStoreSettings(null);
+      applyBrandPrimary(); // volta ao padrão na tela de login
       return;
     }
     api
       .getStoreSettings()
       .then((s) => {
         setStoreSettings(s);
+        applyBrandPrimary(s?.brandColor);
         if (s?.merchantName) document.title = `${s.merchantName} — PDV`;
       })
       .catch(() => {});
@@ -61,6 +64,7 @@ export function AuthProvider({ children }) {
   const refreshStoreSettings = useCallback(async () => {
     const s = await api.getStoreSettings();
     setStoreSettings(s);
+    applyBrandPrimary(s?.brandColor);
     return s;
   }, []);
 

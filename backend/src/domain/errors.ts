@@ -21,6 +21,8 @@ export const Errors = {
     new AppError("identification_required", 400, "Informe mesa, cliente ou rótulo da comanda."),
   paymentMethodDisabled: () =>
     new AppError("payment_method_disabled", 400, "Forma de pagamento desabilitada."),
+  deliveryDisabled: () =>
+    new AppError("delivery_disabled", 400, "Pedidos por delivery estão desabilitados."),
   invalidKitchenThresholds: () =>
     new AppError("invalid_kitchen_thresholds", 400, "O limiar urgente precisa ser maior que o de alerta."),
   invalidTransition: (msg = "Transição de status inválida.") =>

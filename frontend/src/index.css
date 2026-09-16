@@ -1,6 +1,12 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700;800&family=Inter:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
+:root {
+  --brand-accent: #e8a33d; /* cor de destaque da página externa (padrão atual) */
+  --brand-accent-strong: #b97c1f;
+  --brand-accent-foreground: #211b19;
+}
+
 html, body, #root {
   height: 100%;
 }

@@ -13,8 +13,19 @@ function AppFrame({ children }) {
   const { logout, storeSettings } = useAuth();
   return (
     <div className="relative">
-      <div className="sticky top-0 z-40 h-12 flex items-center justify-between px-4 bg-stone-900/95 backdrop-blur border-b border-stone-800">
-        <span className="text-xs font-semibold text-stone-500">{storeSettings?.merchantName ?? "Bar do Zé"}</span>
+      <div className="sticky top-0 z-40 h-14 flex items-center justify-between px-4 bg-stone-900/95 backdrop-blur border-b border-stone-800">
+        <div className="flex items-center gap-2.5 min-w-0">
+          {storeSettings?.logoUrl ? (
+            <div className="h-9 w-9 rounded-full bg-stone-800 border border-stone-700 flex items-center justify-center overflow-hidden shrink-0">
+              <img src={storeSettings.logoUrl} alt="Logo do restaurante" className="w-full h-full object-contain" />
+            </div>
+          ) : (
+            <div className="h-9 w-9 rounded-full bg-stone-800 border border-stone-700 flex items-center justify-center text-stone-500 shrink-0">
+              <span className="text-xs font-bold">{storeSettings?.merchantName?.[0] ?? "B"}</span>
+            </div>
+          )}
+          <span className="text-sm font-semibold text-stone-400 truncate">{storeSettings?.merchantName ?? "Bar do Zé"}</span>
+        </div>
         <button
           onClick={logout}
           title="Trocar usuário"

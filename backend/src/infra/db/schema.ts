@@ -33,9 +33,18 @@ export const categories = sqliteTable("category", {
   createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
 });
 
+export const kitchenGroups = sqliteTable("kitchen_group", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  displayOrder: integer("display_order").notNull().default(0),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
+});
+
 export const products = sqliteTable("product", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   categoryId: text("category_id").references(() => categories.id, { onDelete: "set null" }),
+  kitchenGroupId: text("kitchen_group_id").references(() => kitchenGroups.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
   price: real("price").notNull(),
@@ -100,10 +109,14 @@ export const storeSettings = sqliteTable("store_settings", {
   id: text("id").primaryKey().default("singleton"),
   merchantName: text("merchant_name").notNull(),
   merchantCity: text("merchant_city").notNull(),
+  logoPath: text("logo_path"), // nome do arquivo do logo em /uploads/logo.<ext>
+  brandColor: text("brand_color").notNull().default("#f59e0b"), // #hex da cor principal da marca
   pixKey: text("pix_key").notNull().default(""),
   pixKeyType: text("pix_key_type", { enum: ["cpf", "cnpj", "email", "phone", "random"] }).notNull().default("phone"),
   usesTables: integer("uses_tables", { mode: "boolean" }).notNull().default(true),
   kitchenEnabled: integer("kitchen_enabled", { mode: "boolean" }).notNull().default(true),
+  usesDelivery: integer("uses_delivery", { mode: "boolean" }).notNull().default(true),
+  ifoodIntegrationEnabled: integer("ifood_integration_enabled", { mode: "boolean" }).notNull().default(false),
   enabledPaymentMethods: text("enabled_payment_methods").notNull().default('["cash","card","pix","other"]'),
   kitchenPrepWarnMin: integer("kitchen_prep_warn_min").notNull().default(3),
   kitchenPrepUrgentMin: integer("kitchen_prep_urgent_min").notNull().default(6),

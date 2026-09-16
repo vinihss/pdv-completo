@@ -3,6 +3,8 @@ import { z } from "zod";
 import { withIdempotency } from "../middlewares/idempotency.middleware.js";
 import { publicLookupRateLimit, publicWriteRateLimit, publicOrderRateLimit } from "../middlewares/rate-limit.middleware.js";
 import { getPublicMenuUsecase } from "../../application/self-service/menu.usecases.js";
+import { getStoreSettingsUsecase } from "../../application/store-settings.usecases.js";
+import { Errors } from "../../domain/errors.js";
 import {
   lookupCustomerByPhoneUsecase,
   createSelfServiceCustomerUsecase,
@@ -49,7 +51,7 @@ const createOrderSchema = z.object({
       z.object({
         productId: z.string(),
         quantity: z.number().int().positive(),
-        selectedVariations: z.record(z.string(), z.string()).optional(),
+        selectedVariations: z.record(z.string(), z.string().or(z.array(z.string()))).optional(),
         notes: z.string().optional(),
       })
     )
@@ -61,7 +63,15 @@ const createOrderSchema = z.object({
 // externa (e internamente pelo webhook do WhatsApp, como chamada de função,
 // não HTTP — ver 05-delivery-api-contracts.md).
 export async function publicRoutes(app: FastifyInstance) {
-  app.get("/public/menu", async () => getPublicMenuUsecase());
+  async function assertDeliveryEnabled() {
+    const s = await getStoreSettingsUsecase();
+    if (!s.usesDelivery) throw Errors.deliveryDisabled();
+  }
+
+  app.get("/public/menu", async () => {
+    await assertDeliveryEnabled();
+    return getPublicMenuUsecase();
+  });
 
   app.post("/public/customers/lookup", { preHandler: publicLookupRateLimit }, async (req, reply) => {
     const body = lookupSchema.parse(req.body);
@@ -96,6 +106,7 @@ export async function publicRoutes(app: FastifyInstance) {
 
   app.post("/public/orders", { preHandler: publicOrderRateLimit }, async (req, reply) => {
     const body = createOrderSchema.parse(req.body);
+    await assertDeliveryEnabled();
     const result = await withIdempotency("POST /public/orders", body.correlationId, body, async () => {
       const created = await createSelfServiceOrderUsecase(body);
       return { status: 201, body: created };

@@ -33,12 +33,20 @@ async function getSettings() {
   return s;
 }
 
-function serializeItem(it: typeof orderItems.$inferSelect, productName: string) {
+// Refs do produto no item: nome + foto + grupo de produção. A foto entra no
+// próprio item pra tela da cozinha não precisar resolver listProducts inteiro
+// (faz o caminho inverso: cozinha consome o que já veio na listagem de órden).
+function serializeItem(
+  it: typeof orderItems.$inferSelect,
+  refs: { name: string; imagePath: string | null; kitchenGroupId: string | null }
+) {
   return {
     id: it.id,
     orderId: it.orderId,
     productId: it.productId,
-    name: productName,
+    name: refs.name,
+    productImagePath: refs.imagePath,
+    kitchenGroupId: refs.kitchenGroupId,
     quantity: it.quantity,
     unitPrice: it.unitPrice,
     selectedVariations: JSON.parse(it.selectedVariations),
@@ -54,7 +62,12 @@ async function serializeOrder(orderId: string) {
   const order = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
   if (!order) throw Errors.notFound("Comanda");
   const items = await db
-    .select({ item: orderItems, productName: products.name })
+    .select({
+      item: orderItems,
+      productName: products.name,
+      productImagePath: products.imagePath,
+      productKitchenGroupId: products.kitchenGroupId,
+    })
     .from(orderItems)
     .innerJoin(products, eq(products.id, orderItems.productId))
     .where(eq(orderItems.orderId, orderId));
@@ -84,7 +97,13 @@ async function serializeOrder(orderId: string) {
     paymentConfirmedBy: order.paymentConfirmedBy,
     openedAt: order.openedAt,
     closedAt: order.closedAt,
-    items: items.map(({ item, productName }) => serializeItem(item, productName)),
+    items: items.map(({ item, productName, productImagePath, productKitchenGroupId }) =>
+      serializeItem(item, {
+        name: productName,
+        imagePath: productImagePath,
+        kitchenGroupId: productKitchenGroupId,
+      })
+    ),
   };
 }
 
@@ -139,11 +158,18 @@ export async function openOrderUsecase(input: {
 export async function addItemsUsecase(input: {
   orderId: string;
   userId: string;
-  items: Array<{ productId: string; quantity: number; selectedVariations?: Record<string, string>; notes?: string }>;
+  items: Array<{
+    productId: string;
+    quantity: number;
+    selectedVariations?: Record<string, string | string[]>;
+    notes?: string;
+  }>;
 }) {
   const order = await db.query.orders.findFirst({ where: eq(orders.id, input.orderId) });
   if (!order) throw Errors.notFound("Comanda");
   if (order.status !== "open") throw Errors.orderNotOpen();
+
+  const settings = await getSettings();
 
   const createdItems = db.transaction((tx) => {
     const result: any[] = [];
@@ -152,6 +178,13 @@ export async function addItemsUsecase(input: {
       if (!product || !product.active) {
         throw Errors.validationFailed({ productId: line.productId, reason: "inativo ou inexistente" });
       }
+      // Status de entrada por estação/modo (§7.2, kitchen_enabled):
+      // - sem cozinha (pub): item já entra entregue — a comanda não controla
+      //   preparo/entrega e não exige confirmação do garçom;
+      // - com cozinha + grupo de produção: entra na fila da estação (ordered);
+      // - com cozinha sem grupo (bar/copa): entra pronto (ready) — só falta entregar.
+      const hasStation = settings.kitchenEnabled && Boolean(product.kitchenGroupId);
+      const initialStatus = !settings.kitchenEnabled ? "delivered" : hasStation ? "ordered" : "ready";
       const created = tx
         .insert(orderItems)
         .values({
@@ -162,20 +195,29 @@ export async function addItemsUsecase(input: {
           selectedVariations: JSON.stringify(line.selectedVariations ?? {}),
           notes: line.notes ?? null,
           createdBy: input.userId,
+          status: initialStatus,
         })
         .returning()
         .get();
-      const serialized = serializeItem(created, product.name);
+      const serialized = serializeItem(created, {
+        name: product.name,
+        imagePath: product.imagePath,
+        kitchenGroupId: product.kitchenGroupId,
+      });
       result.push(serialized);
 
       enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.item.created", {
         orderId: input.orderId,
         item: serialized,
       });
-      enqueueEvent(tx, "kitchen-display", "order.item.created", {
-        orderId: input.orderId,
-        item: serialized,
-      });
+      // Roteamento por estação: só entra na fila da cozinha quando há cozinha
+      // E o produto tem grupo de produção. Bar/copa e modo pub não emitem.
+      if (hasStation) {
+        enqueueEvent(tx, "kitchen-display", "order.item.created", {
+          orderId: input.orderId,
+          item: serialized,
+        });
+      }
     }
 
     logAction(tx, input.userId, "item_added", input.orderId, { items: result });
@@ -250,9 +292,12 @@ export async function updateItemStatusUsecase(input: {
 
 // ---------- DELETE /orders/:id/items/:itemId ----------
 export async function deleteItemUsecase(input: { orderId: string; itemId: string; userId: string }) {
+  const settings = await getSettings();
   const item = await db.query.orderItems.findFirst({ where: eq(orderItems.id, input.itemId) });
   if (!item || item.orderId !== input.orderId) throw Errors.notFound("Item");
-  if (item.status === "delivered") throw Errors.itemAlreadyDelivered();
+  // Modo sem cozinha: a comanda não controla status — item já entra entregue,
+  // então exclusão por engano continua permitida. Com cozinha, item entregue é imutável.
+  if (settings.kitchenEnabled && item.status === "delivered") throw Errors.itemAlreadyDelivered();
 
   db.transaction((tx) => {
     tx.delete(orderItems).where(eq(orderItems.id, input.itemId)).run();

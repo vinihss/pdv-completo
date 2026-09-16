@@ -7,7 +7,7 @@ import argon2 from "argon2";
 import { eq } from "drizzle-orm";
 import { runMigrations } from "./migrate.js";
 import { db } from "./client.js";
-import { users, categories, products, restaurantTables, storeSettings } from "./schema.js";
+import { users, categories, products, restaurantTables, storeSettings, kitchenGroups } from "./schema.js";
 
 async function seed() {
   runMigrations();
@@ -26,6 +26,8 @@ async function seed() {
     pixKeyType: "phone",
     usesTables: true,
     kitchenEnabled: true,
+    usesDelivery: true,
+    ifoodIntegrationEnabled: false,
     enabledPaymentMethods: JSON.stringify(["cash", "card", "pix", "other"]),
     kitchenPrepWarnMin: 3,
     kitchenPrepUrgentMin: 6,
@@ -47,13 +49,31 @@ async function seed() {
   const [pratos] = await db.insert(categories).values({ name: "Pratos", displayOrder: 2 }).returning();
   const [porcoes] = await db.insert(categories).values({ name: "Porções", displayOrder: 3 }).returning();
 
+  const [cozinha] = await db.insert(kitchenGroups).values({ name: "Cozinha", displayOrder: 1 }).returning();
+  const [grelha] = await db.insert(kitchenGroups).values({ name: "Grelha", displayOrder: 2 }).returning();
+  const [bar] = await db.insert(kitchenGroups).values({ name: "Bar", displayOrder: 3 }).returning();
+
   await db.insert(products).values([
-    { categoryId: bebidas.id, name: "Chopp 300ml", price: 9.5 },
-    { categoryId: bebidas.id, name: "Caipirinha", price: 18, variations: JSON.stringify(["Limão", "Morango", "Maracujá"]) },
-    { categoryId: pratos.id, name: "X-Burger", price: 28, variations: JSON.stringify(["Mal passado", "Ao ponto", "Bem passado"]) },
-    { categoryId: pratos.id, name: "Filé à parmegiana", price: 42 },
-    { categoryId: porcoes.id, name: "Batata frita", price: 22 },
-    { categoryId: porcoes.id, name: "Isca de peixe", price: 34 },
+    { categoryId: bebidas.id, kitchenGroupId: bar.id, name: "Chopp 300ml", price: 9.5 },
+    {
+      categoryId: bebidas.id,
+      kitchenGroupId: bar.id,
+      name: "Caipirinha",
+      price: 18,
+      variations: JSON.stringify([{ name: "Fruta", options: ["Limão", "Morango", "Maracujá"] }]),
+    },
+    {
+      categoryId: pratos.id,
+      kitchenGroupId: grelha.id,
+      name: "X-Burger",
+      price: 28,
+      variations: JSON.stringify([
+        { name: "Ponto da carne", options: ["Mal passado", "Ao ponto", "Bem passado"], required: true },
+      ]),
+    },
+    { categoryId: pratos.id, kitchenGroupId: grelha.id, name: "Filé à parmegiana", price: 42 },
+    { categoryId: porcoes.id, kitchenGroupId: cozinha.id, name: "Batata frita", price: 22 },
+    { categoryId: porcoes.id, kitchenGroupId: cozinha.id, name: "Isca de peixe", price: 34 },
   ]);
 
   await db.insert(restaurantTables).values(

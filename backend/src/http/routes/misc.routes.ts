@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { Errors } from "../../domain/errors.js";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
-import { getStoreSettingsUsecase, updateStoreSettingsUsecase } from "../../application/store-settings.usecases.js";
+import { getStoreSettingsUsecase, updateStoreSettingsUsecase, saveStoreLogoUsecase, clearStoreLogoUsecase } from "../../application/store-settings.usecases.js";
 import {
   listProductsUsecase,
   createProductUsecase,
@@ -17,6 +17,12 @@ import {
   updateCategoryUsecase,
   deleteCategoryUsecase,
 } from "../../application/category.usecases.js";
+import {
+  listKitchenGroupsUsecase,
+  createKitchenGroupUsecase,
+  updateKitchenGroupUsecase,
+  deleteKitchenGroupUsecase,
+} from "../../application/kitchen-group.usecases.js";
 import { listUsersUsecase, createUserUsecase, updateUserUsecase, resetPinUsecase } from "../../application/user.usecases.js";
 import { searchCustomersUsecase, createCustomerUsecase } from "../../application/customer.usecases.js";
 import { salesReportUsecase } from "../../application/report.usecases.js";
@@ -25,10 +31,13 @@ import { listAuditLogUsecase } from "../../application/audit-log.usecases.js";
 const storeSettingsSchema = z.object({
   merchantName: z.string(),
   merchantCity: z.string(),
+  brandColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   pixKey: z.string(),
   pixKeyType: z.enum(["cpf", "cnpj", "email", "phone", "random"]),
   usesTables: z.boolean(),
   kitchenEnabled: z.boolean(),
+  usesDelivery: z.boolean(),
+  ifoodIntegrationEnabled: z.boolean(),
   enabledPaymentMethods: z.array(z.enum(["cash", "card", "pix", "other"])),
   kitchenPrepWarnMin: z.number().int().positive(),
   kitchenPrepUrgentMin: z.number().int().positive(),
@@ -36,14 +45,23 @@ const storeSettingsSchema = z.object({
   deliveryFee: z.number().min(0),
 });
 
+const variationGroupSchema = z.object({
+  name: z.string().min(1),
+  options: z.array(z.string().min(1)).min(1),
+  required: z.boolean().optional(),
+  allowMultiple: z.boolean().optional(),
+});
+
 const productCreateSchema = z.object({
-  categoryId: z.string(),
+  categoryId: z.string().min(1),
+  kitchenGroupId: z.string().optional().nullable(),
   name: z.string().min(1),
   description: z.string().optional(),
   price: z.number().min(0),
-  variations: z.array(z.any()).optional(),
+  variations: z.array(variationGroupSchema).optional(),
   ifoodEnabled: z.boolean().optional(),
   ifoodSku: z.string().optional().nullable(),
+  active: z.boolean().optional(),
 });
 const productUpdateSchema = productCreateSchema.partial();
 
@@ -55,7 +73,10 @@ const imageExtByMime: Record<string, string> = {
 };
 
 const categoryCreateSchema = z.object({ name: z.string().min(1), displayOrder: z.number().int().optional() });
-const categoryUpdateSchema = categoryCreateSchema.partial();
+const categoryUpdateSchema = categoryCreateSchema.partial().extend({ active: z.boolean().optional() });
+
+const kitchenGroupCreateSchema = z.object({ name: z.string().min(1), displayOrder: z.number().int().optional() });
+const kitchenGroupUpdateSchema = kitchenGroupCreateSchema.partial().extend({ active: z.boolean().optional() });
 
 const userCreateSchema = z.object({ name: z.string().min(1), role: z.enum(["waiter", "kitchen", "manager", "courier"]) });
 const userUpdateSchema = z.object({
@@ -75,34 +96,48 @@ export async function miscRoutes(app: FastifyInstance) {
     const body = storeSettingsSchema.parse(req.body);
     return updateStoreSettingsUsecase(body);
   });
+  // Logo — upload multipart (multipart/form-data, campo "logo")
+  app.post("/store-settings/logo", { preHandler: requireRole("manager") }, async (req) => {
+    const file = await req.file();
+    if (!file) throw Errors.validationFailed({ field: "logo" });
+    const ext = imageExtByMime[file.mimetype];
+    if (!ext) throw Errors.validationFailed({ field: "logo" });
+    const buffer = await file.toBuffer();
+    return saveStoreLogoUsecase({ buffer, ext }, req.authUser!.sub);
+  });
+  // Logo — remover
+  app.delete("/store-settings/logo", { preHandler: requireRole("manager") }, async (req) => {
+    return clearStoreLogoUsecase(req.authUser!.sub);
+  });
 
   // ---------- Products ----------
   app.get("/products", { preHandler: requireRole("manager", "waiter", "kitchen") }, async (req) => {
-    const q = req.query as { category_id?: string; active?: string; limit?: string; offset?: string };
+    const q = req.query as { category_id?: string; active?: string; q?: string; limit?: string; offset?: string };
     return listProductsUsecase({
       categoryId: q.category_id,
       active: q.active !== undefined ? q.active === "true" : undefined,
+      search: q.q,
       limit: Math.min(Number(q.limit ?? 50), 200),
       offset: Number(q.offset ?? 0),
     });
   });
   app.post("/products", { preHandler: requireRole("manager") }, async (req, reply) => {
     const body = productCreateSchema.parse(req.body);
-    const created = await createProductUsecase(body);
+    const created = await createProductUsecase(body, req.authUser!.sub);
     return reply.code(201).send(created);
   });
   app.patch("/products/:id", { preHandler: requireRole("manager") }, async (req) => {
     const { id } = req.params as { id: string };
     const body = productUpdateSchema.parse(req.body);
-    return updateProductUsecase(id, body);
+    return updateProductUsecase(id, body, req.authUser!.sub);
   });
   app.patch("/products/:id/deactivate", { preHandler: requireRole("manager") }, async (req) => {
     const { id } = req.params as { id: string };
-    return setProductActiveUsecase(id, false);
+    return setProductActiveUsecase(id, false, req.authUser!.sub);
   });
   app.patch("/products/:id/activate", { preHandler: requireRole("manager") }, async (req) => {
     const { id } = req.params as { id: string };
-    return setProductActiveUsecase(id, true);
+    return setProductActiveUsecase(id, true, req.authUser!.sub);
   });
   // Foto — upload multipart (multipart/form-data, campo "image")
   app.post("/products/:id/image", { preHandler: requireRole("manager") }, async (req) => {
@@ -112,29 +147,47 @@ export async function miscRoutes(app: FastifyInstance) {
     const ext = imageExtByMime[file.mimetype];
     if (!ext) throw Errors.validationFailed({ field: "image" });
     const buffer = await file.toBuffer();
-    return saveProductImageUsecase(id, { buffer, ext });
+    return saveProductImageUsecase(id, { buffer, ext }, req.authUser!.sub);
   });
   // Foto — remover
   app.delete("/products/:id/image", { preHandler: requireRole("manager") }, async (req) => {
     const { id } = req.params as { id: string };
-    return clearProductImageUsecase(id);
+    return clearProductImageUsecase(id, req.authUser!.sub);
   });
 
   // ---------- Categories ----------
   app.get("/categories", async () => listCategoriesUsecase());
   app.post("/categories", { preHandler: requireRole("manager") }, async (req, reply) => {
     const body = categoryCreateSchema.parse(req.body);
-    const created = await createCategoryUsecase(body);
+    const created = await createCategoryUsecase(body, req.authUser!.sub);
     return reply.code(201).send(created);
   });
   app.patch("/categories/:id", { preHandler: requireRole("manager") }, async (req) => {
     const { id } = req.params as { id: string };
     const body = categoryUpdateSchema.parse(req.body);
-    return updateCategoryUsecase(id, body);
+    return updateCategoryUsecase(id, body, req.authUser!.sub);
   });
   app.delete("/categories/:id", { preHandler: requireRole("manager") }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    await deleteCategoryUsecase(id);
+    await deleteCategoryUsecase(id, req.authUser!.sub);
+    return reply.code(204).send();
+  });
+
+  // ---------- Kitchen groups (estações de produção) ----------
+  app.get("/kitchen-groups", async () => listKitchenGroupsUsecase());
+  app.post("/kitchen-groups", { preHandler: requireRole("manager") }, async (req, reply) => {
+    const body = kitchenGroupCreateSchema.parse(req.body);
+    const created = await createKitchenGroupUsecase(body, req.authUser!.sub);
+    return reply.code(201).send(created);
+  });
+  app.patch("/kitchen-groups/:id", { preHandler: requireRole("manager") }, async (req) => {
+    const { id } = req.params as { id: string };
+    const body = kitchenGroupUpdateSchema.parse(req.body);
+    return updateKitchenGroupUsecase(id, body, req.authUser!.sub);
+  });
+  app.delete("/kitchen-groups/:id", { preHandler: requireRole("manager") }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    await deleteKitchenGroupUsecase(id, req.authUser!.sub);
     return reply.code(204).send();
   });
 

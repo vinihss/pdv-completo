@@ -40,7 +40,7 @@ export async function createSelfServiceOrderUsecase(input: {
   items: Array<{
     productId: string;
     quantity: number;
-    selectedVariations?: Record<string, string>;
+    selectedVariations?: Record<string, string | string[]>;
     notes?: string;
   }>;
   paymentMethodIntent: "cash" | "card" | "pix" | "other";

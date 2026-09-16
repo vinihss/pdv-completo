@@ -33,6 +33,28 @@ async function main() {
   // e o rate limit vira global. "1" = confiar em apenas 1 hop de proxy.
   const app = Fastify({ logger: { level: config.logLevel }, trustProxy: 1 });
 
+  // ---------- Error handler — envelope padrão da §7.0 ----------
+  // Registrado antes dos plugins/rotas: o handler do contexto raiz precisa
+  // existir quando os contextos encapsulados são criados pra ser aplicado.
+  app.setErrorHandler((err, _req, reply) => {
+    if (err instanceof AppError) {
+      return reply.code(err.status).send({ error: { code: err.code, message: err.message, details: err.details } });
+    }
+    const isZodError =
+      err instanceof ZodError ||
+      (typeof err === "object" &&
+        err !== null &&
+        (err as { name?: unknown }).name === "ZodError" &&
+        Array.isArray((err as { issues?: unknown }).issues));
+    if (isZodError) {
+      return reply
+        .code(400)
+        .send({ error: { code: "validation_failed", message: "Payload inválido.", details: (err as ZodError).issues } });
+    }
+    app.log.error(err);
+    return reply.code(500).send({ error: { code: "internal_error", message: "Erro interno." } });
+  });
+
   await app.register(cors, {
     // Sem CORS_ORIGIN definido (dev local), libera geral. Em produção,
     // SEMPRE defina CORS_ORIGIN com o domínio real do frontend — ver
@@ -95,25 +117,22 @@ async function main() {
   await app.register(whatsappWebhookRoutes);
 
   // ---------- Store info pública (§10) — nome exibido no login, sem pix key ----------
+  // também expõe flags de operação que a página externa e o próprio login usam
+  // para ramificar a UI antes de autenticar (ex.: delivery desligado).
   await app.register(async (publicApp) => {
     publicApp.get("/store-info", async () => {
       const s = await getStoreSettingsUsecase();
-      return { merchantName: s.merchantName, merchantCity: s.merchantCity };
+      return {
+        merchantName: s.merchantName,
+        merchantCity: s.merchantCity,
+        logoUrl: s.logoUrl,
+        brandColor: s.brandColor,
+        usesDelivery: s.usesDelivery,
+        ifoodIntegrationEnabled: s.ifoodIntegrationEnabled,
+        deliveryFee: s.deliveryFee,
+        enabledPaymentMethods: s.enabledPaymentMethods,
+      };
     });
-  });
-
-  // ---------- Error handler — envelope padrão da §7.0 ----------
-  app.setErrorHandler((err, _req, reply) => {
-    if (err instanceof AppError) {
-      return reply.code(err.status).send({ error: { code: err.code, message: err.message, details: err.details } });
-    }
-    if (err instanceof ZodError) {
-      return reply
-        .code(400)
-        .send({ error: { code: "validation_failed", message: "Payload inválido.", details: err.issues } });
-    }
-    app.log.error(err);
-    return reply.code(500).send({ error: { code: "internal_error", message: "Erro interno." } });
   });
 
   const stopDispatcher = startOutboxDispatcher();
