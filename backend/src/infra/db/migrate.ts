@@ -28,11 +28,21 @@ export function runMigrations() {
   for (const file of files) {
     if (applied.has(file)) continue;
     const sql = fs.readFileSync(path.join(migrationsDir, file), "utf8");
-    const applyAll = rawSqlite.transaction(() => {
-      rawSqlite.exec(sql);
-      rawSqlite.prepare("INSERT INTO _migrations (name) VALUES (?)").run(file);
-    });
-    applyAll();
+    // Algumas migrations recriam tabelas referenciadas por FK (padrão das
+    // 0002/0003/0009). O `PRAGMA foreign_keys` é no-op dentro de transação,
+    // então desligamos/religamos FORA dela — técnica oficial do SQLite
+    // ("Making Other Kinds Of Table Schema Changes") — para permitir
+    // DROP TABLE pai mesmo com linhas nas tabelas filhas.
+    rawSqlite.pragma("foreign_keys = OFF");
+    try {
+      const applyAll = rawSqlite.transaction(() => {
+        rawSqlite.exec(sql);
+        rawSqlite.prepare("INSERT INTO _migrations (name) VALUES (?)").run(file);
+      });
+      applyAll();
+    } finally {
+      rawSqlite.pragma("foreign_keys = ON");
+    }
     console.log(`[migrate] applied ${file}`);
   }
 }

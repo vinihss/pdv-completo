@@ -48,4 +48,15 @@ export const config = {
   // conduzir carrinho por texto (decisão: "checkout por fora" — ver
   // 04-delivery-self-service-integration.md).
   externalMenuUrl: process.env.EXTERNAL_MENU_URL ?? "https://pedido.seudominio.com.br",
+  // Integração iFood (Order + Catalog API) — módulo in-process, ver
+  // docs/06-ifood-integration.md. Só ativa com IFOOD_SYNC_ENABLED=true E
+  // credenciais presentes (ou IFOOD_MOCK=true para desenvolvimento).
+  ifoodSyncEnabled: process.env.IFOOD_SYNC_ENABLED === "true",
+  ifoodClientId: process.env.IFOOD_CLIENT_ID,
+  ifoodClientSecret: process.env.IFOOD_CLIENT_SECRET,
+  ifoodMerchantId: process.env.IFOOD_MERCHANT_ID, // opcional — auto-listado via /merchants
+  ifoodPollingIntervalMs: Number(process.env.IFOOD_POLLING_INTERVAL_MS ?? 30000),
+  ifoodMock: process.env.IFOOD_MOCK === "true",
+  ifoodMockPort: Number(process.env.IFOOD_MOCK_PORT ?? 3999),
+  ifoodBaseUrl: process.env.IFOOD_BASE_URL ?? "https://merchant-api.ifood.com.br",
 };

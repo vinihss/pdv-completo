@@ -1,0 +1,145 @@
+import { and, eq, notInArray } from "drizzle-orm";
+import { db } from "../../infra/db/client.js";
+import { orders, orderItems, deliveries, storeSettings } from "../../infra/db/schema.js";
+import { SYSTEM_USER_ID } from "../../domain/constants.js";
+import { Errors } from "../../domain/errors.js";
+import { logAction } from "../../infra/audit-log.js";
+import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
+
+// Retorno de status do iFood → ciclo de vida local da comanda. O iFood é a
+// fonte da verdade do pedido externo: CANCELLED/STALE encerram sem venda,
+// CONCLUDED fecha com pagamento. Como pedidos iFood não têm garçom nem
+// "entrega" no sentido do balcão, aqui forçamos os itens a delivered (quando
+// aplicável) para destravar o fechamento sem depender de interação manual.
+
+type IfoodPaymentMethod = string;
+
+// Mapeia o método de pagamento do iFood para o enum local. iFood usa: CASH,
+// CARD, PIX, ONLINE (digital/wallet), CREDIT/DEBIT, e PAYMENT_METHOD_ONLINE.
+function mapPaymentMethod(method: string | undefined): "cash" | "card" | "pix" | "other" {
+  switch ((method ?? "").toUpperCase()) {
+    case "CASH":
+    case "MONEY":
+      return "cash";
+    case "PIX":
+      return "pix";
+    case "CARD":
+    case "CREDIT":
+    case "DEBIT":
+    case "CARD_MACHINE":
+      return "card";
+    default:
+      return "other"; // ONLINE e qualquer coisa não mapeada caem em "outros"
+  }
+}
+
+// Guarda a opção de pagamento mais adequada respeitando os métodos habilitados
+// nas store_settings. Se nada for habilitado, retorna null (não registra e
+// loga — a comanda fica para o gerente fechar manualmente).
+function pickPaymentMethod(
+  ifoodMethods: Array<{ method?: string; type?: string }>,
+  enabled: string[]
+): { method: "cash" | "card" | "pix" | "other"; confirmed: boolean } | null {
+  const mapped = ifoodMethods.map((p) => mapPaymentMethod(p.method ?? p.type));
+  for (const m of ["cash", "card", "pix", "other"] as const) {
+    if (mapped.includes(m) && enabled.includes(m)) {
+      return { method: m, confirmed: true };
+    }
+  }
+  // Nenhum método do pedido está habilitado localmente — tenta "other" como
+  // último recurso (sempre aprovado no CONCLUDED, o dinheiro já passou).
+  if (enabled.includes("other")) return { method: "other", confirmed: true };
+  return null;
+}
+
+// CONCLUDED: pago + entregue. Fecha a comanda local (itens → delivered,
+// pagamento registrado, delivery concluída). Retorna false se a comanda não
+// existir (evita duplicidade/ruído) ou se não houver pagamento habilitado.
+export function concludeIfoodOrder(orderRef: string): boolean {
+  const order = db.query.orders.findFirst({ where: eq(orders.externalRef, orderRef) }).sync();
+  if (!order || order.channel !== "ifood" || order.status !== "open") return false;
+
+  const settings = db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") }).sync();
+  const enabled: string[] = settings ? JSON.parse(settings.enabledPaymentMethods) : [];
+  const ifoodPayments: Array<{ method?: string; type?: string }> = order.ifoodPayments
+    ? JSON.parse(order.ifoodPayments)
+    : [];
+  const payment = pickPaymentMethod(ifoodPayments, enabled);
+
+  db.transaction((tx) => {
+    // Garante que itens pendentes não bloqueiam o fechamento (a entrega já
+    // aconteceu do lado do iFood — a comanda é só registro contábil).
+    tx.update(orderItems)
+      .set({ status: "delivered" })
+      .where(and(eq(orderItems.orderId, order.id), notInArray(orderItems.status, ["delivered", "cancelled"])))
+      .run();
+
+    if (payment) {
+      tx.update(orders)
+        .set({
+          paymentMethod: payment.method,
+          paymentConfirmedAt: new Date().toISOString(),
+          paymentConfirmedBy: SYSTEM_USER_ID,
+        })
+        .where(eq(orders.id, order.id))
+        .run();
+    }
+
+    tx.update(orders)
+      .set({ status: "closed", closedAt: new Date().toISOString() })
+      .where(eq(orders.id, order.id))
+      .run();
+
+    const delivery = tx.query.deliveries.findFirst({ where: eq(deliveries.orderId, order.id) }).sync();
+    if (delivery && delivery.status !== "delivered") {
+      tx.update(deliveries).set({ status: "delivered" }).where(eq(deliveries.id, delivery.id)).run();
+    }
+
+    enqueueEvent(tx, "deliveries", "ifood.order.concluded", { orderId: order.id, externalRef: orderRef });
+    enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.closed", {
+      orderId: order.id,
+      tableId: order.tableId,
+    });
+    logAction(tx, SYSTEM_USER_ID, "ifood_order_concluded", order.id, {
+      externalRef: orderRef,
+      paymentMethod: payment?.method ?? null,
+      reason: payment ? null : "sem método habilitado — gerente encerra manualmente",
+    });
+  });
+  return true;
+}
+
+// CANCELLED / STALE / CANCELLATION_REQUESTED: o pedido não vira venda.
+// Encerra a comanda local como cancelada (idempotente: se já não está "open",
+// não faz nada e devolve true — o ACK segue normal).
+export function cancelIfoodOrder(orderRef: string, reason: string): boolean {
+  const order = db.query.orders.findFirst({ where: eq(orders.externalRef, orderRef) }).sync();
+  if (!order || order.channel !== "ifood" || order.status !== "open") return false;
+
+  db.transaction((tx) => {
+    tx.update(orderItems)
+      .set({ status: "cancelled" })
+      .where(and(eq(orderItems.orderId, order.id), notInArray(orderItems.status, ["delivered", "cancelled"])))
+      .run();
+
+    tx.update(orders)
+      .set({ status: "cancelled", closedAt: new Date().toISOString(), cancelReason: reason })
+      .where(eq(orders.id, order.id))
+      .run();
+
+    const delivery = tx.query.deliveries.findFirst({ where: eq(deliveries.orderId, order.id) }).sync();
+    if (delivery && delivery.status !== "delivered") {
+      tx.update(deliveries).set({ status: "failed" }).where(eq(deliveries.id, delivery.id)).run();
+    }
+
+    enqueueEvent(tx, "deliveries", "ifood.order.cancelled", { orderId: order.id, externalRef: orderRef, reason });
+    enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.cancelled", {
+      orderId: order.id,
+      tableId: order.tableId,
+    });
+    logAction(tx, SYSTEM_USER_ID, "ifood_order_cancelled", order.id, { externalRef: orderRef, reason });
+  });
+  return true;
+}
+
+export { Errors, type IfoodPaymentMethod };

@@ -176,6 +176,10 @@ export const api = {
   listCouriers: () => request("GET", "/manager/couriers"),
   assignCourier: (deliveryId, courierId) => request("PATCH", `/manager/deliveries/${deliveryId}/assign`, { courierId }),
 
+  // ---------- iFood (manager) ----------
+  getIfoodStatus: () => request("GET", "/ifood/status"),
+  syncIfoodCatalog: () => request("POST", "/ifood/catalog-sync"),
+
   // ---------- Deliveries (courier) ----------
   listMyDeliveries: () => request("GET", "/courier/deliveries"),
   dispatchDelivery: (deliveryId) => request("PATCH", `/courier/deliveries/${deliveryId}/dispatch`),

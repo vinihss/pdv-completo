@@ -20,6 +20,8 @@ import { publicRoutes } from "./routes/public.routes.js";
 import { courierRoutes } from "./routes/courier.routes.js";
 import { deliveryManagerRoutes } from "./routes/delivery-manager.routes.js";
 import { whatsappWebhookRoutes } from "./routes/whatsapp-webhook.routes.js";
+import { ifoodRoutes } from "./routes/ifood.routes.js";
+import { startIfoodSync } from "../integrations/ifood/worker.js";
 import { getStoreSettingsUsecase } from "../application/store-settings.usecases.js";
 
 async function main() {
@@ -115,6 +117,7 @@ async function main() {
   await app.register(courierRoutes);
   await app.register(deliveryManagerRoutes);
   await app.register(whatsappWebhookRoutes);
+  await app.register(ifoodRoutes);
 
   // ---------- Store info pública (§10) — nome exibido no login, sem pix key ----------
   // também expõe flags de operação que a página externa e o próprio login usam
@@ -136,12 +139,14 @@ async function main() {
   });
 
   const stopDispatcher = startOutboxDispatcher();
+  const ifoodSync = startIfoodSync(); // no-op quando sem IFOOD_SYNC_ENABLED/credenciais
 
   await app.listen({ port: config.port, host: "0.0.0.0" });
   app.log.info(`PDV backend rodando em modo ${config.deploymentMode} na porta ${config.port}`);
 
   const shutdown = async () => {
     stopDispatcher();
+    ifoodSync.stop();
     await app.close();
     process.exit(0);
   };

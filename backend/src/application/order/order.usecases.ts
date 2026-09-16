@@ -113,8 +113,9 @@ export async function openOrderUsecase(input: {
   tableId?: string;
   customerId?: string;
   tabLabel?: string;
-  channel?: "balcao" | "whatsapp" | "web"; // default "balcao" — usado pelo self-service (§04)
+  channel?: "balcao" | "whatsapp" | "web" | "ifood"; // default "balcao" — self-service (§04) e iFood usam
   deliveryFee?: number; // snapshot da taxa no momento do pedido, só para channel != "balcao"
+  externalRef?: string; // order id do iFood quando channel === "ifood" (único — índice em 0009)
 }) {
   if (!input.tableId && !input.customerId && !input.tabLabel) {
     throw Errors.identificationRequired();
@@ -130,6 +131,7 @@ export async function openOrderUsecase(input: {
         tabLabel: input.tabLabel ?? null,
         channel: input.channel ?? "balcao",
         deliveryFee: input.deliveryFee ?? null,
+        externalRef: input.externalRef ?? null,
       })
       .returning()
       .get();

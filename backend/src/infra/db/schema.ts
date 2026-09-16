@@ -83,10 +83,11 @@ export const orders = sqliteTable("order", {
   paymentMethod: text("payment_method", { enum: ["cash", "card", "pix", "other"] }),
   paymentConfirmedAt: text("payment_confirmed_at"),
   paymentConfirmedBy: text("payment_confirmed_by").references(() => users.id),
-  channel: text("channel", { enum: ["balcao", "whatsapp", "web"] }).notNull().default("balcao"),
-  externalRef: text("external_ref"), // reservado para integração futura com iFood
+  channel: text("channel", { enum: ["balcao", "whatsapp", "web", "ifood"] }).notNull().default("balcao"),
+  externalRef: text("external_ref"), // order id externo: iFood quando channel === "ifood"
   deliveryFee: real("delivery_fee"), // snapshot da taxa cobrada, só para channel != "balcao"
   cancelReason: text("cancel_reason"),
+  ifoodPayments: text("ifood_payments"), // métodos de pagamento do iFood (JSON), para fechar no CONCLUDED
 });
 
 export const orderItems = sqliteTable("order_item", {
@@ -151,6 +152,32 @@ export const outboxEvents = sqliteTable("outbox_event", {
   room: text("room").notNull(),
   published: integer("published", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
+});
+
+// ============================================================
+// Integração iFood (Order/Catalog API) — ver docs/06-ifood-integration.md
+// ============================================================
+
+// Log/dedupe dos eventos recebidos do polling do iFood: obrigatório persistir
+// ANTES de ACK (senão o iFood aplica throttle). O status vira o bookkeeping:
+// received → processed/ignored/failed → acked.
+export const ifoodEvents = sqliteTable("ifood_event", {
+  id: text("id").primaryKey(), // event id do iFood (evt_...)
+  orderRef: text("order_ref"), // order id do iFood (ord_...)
+  code: text("code").notNull(),
+  fullCode: text("full_code"),
+  status: text("status", { enum: ["received", "processed", "ignored", "failed", "acked"] }).notNull().default("received"),
+  raw: text("raw").notNull().default("{}"), // payload completo do evento
+  processedAt: text("processed_at"),
+  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
+});
+
+// KV singleton para estado da integração: accessToken + expiração, merchantId
+// resolvido, timestamps de último poll/sync (auditoria no painel do gerente).
+export const ifoodState = sqliteTable("ifood_state", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
 });
 
 // ============================================================
