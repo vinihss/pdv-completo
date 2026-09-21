@@ -1,0 +1,1 @@
+export { default as CustomerMenuPage } from "./CustomerMenuPage.jsx";

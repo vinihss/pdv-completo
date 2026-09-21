@@ -1,0 +1,83 @@
+import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { login as loginApi } from "@/shared/api/auth";
+import { getStoreSettings } from "@/shared/api/store";
+import { setAuthToken, setUnauthorizedHandler } from "@/shared/api/http";
+import { applyBrandPrimary } from "@/shared/lib";
+
+const AuthContext = createContext(null);
+
+const STORAGE_KEY = "pdv:session";
+
+export function AuthProvider({ children }) {
+  const [session, setSession] = useState(null); // { token, user: {id,name,role} }
+  const [storeSettings, setStoreSettings] = useState(null);
+  const [booting, setBooting] = useState(true);
+
+  const logout = useCallback(() => {
+    setSession(null);
+    setAuthToken(null);
+    sessionStorage.removeItem(STORAGE_KEY);
+  }, []);
+
+  useEffect(() => {
+    setUnauthorizedHandler(logout);
+  }, [logout]);
+
+  // Restaura sessão da aba (terminal compartilhado — não persiste entre
+  // dispositivos, só sobrevive a um refresh acidental da mesma aba).
+  useEffect(() => {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        setAuthToken(parsed.token);
+        setSession(parsed);
+      } catch {
+        sessionStorage.removeItem(STORAGE_KEY);
+      }
+    }
+    setBooting(false);
+  }, []);
+
+  useEffect(() => {
+    if (!session) {
+      setStoreSettings(null);
+      applyBrandPrimary(); // volta ao padrão na tela de login
+      return;
+    }
+getStoreSettings()
+      .then((s) => {
+        setStoreSettings(s);
+        applyBrandPrimary(s?.brandColor);
+        if (s?.merchantName) document.title = `${s.merchantName} — PDV`;
+      })
+      .catch(() => {});
+  }, [session]);
+
+  const login = useCallback(async (userId, pin) => {
+    const result = await loginApi(userId, pin);
+    setAuthToken(result.token);
+    setSession(result);
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(result));
+    return result;
+  }, []);
+
+  const refreshStoreSettings = useCallback(async () => {
+    const s = await getStoreSettings();
+    setStoreSettings(s);
+    applyBrandPrimary(s?.brandColor);
+    return s;
+  }, []);
+
+  return (
+    <AuthContext.Provider value={{ session, login, logout, booting, storeSettings, refreshStoreSettings }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth precisa estar dentro de <AuthProvider>");
+  return ctx;
+}
