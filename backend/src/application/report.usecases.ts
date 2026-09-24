@@ -1,6 +1,14 @@
-import { and, eq, gte, lte, or, like, sql } from "drizzle-orm";
+import { and, eq, gte, lte, or, like, sql, inArray } from "drizzle-orm";
 import { db } from "../infra/db/client.js";
-import { orders, orderItems, restaurantTables, customers, products } from "../infra/db/schema.js";
+import {
+  orders,
+  orderItems,
+  orderPayments,
+  restaurantTables,
+  customers,
+  products,
+} from "../infra/db/schema.js";
+import { round2 } from "../domain/money.js";
 
 export async function salesReportUsecase(input: {
   dateFrom?: string;
@@ -58,15 +66,13 @@ export async function salesReportUsecase(input: {
 
   // Total por comanda, a partir do snapshot unit_price (nunca o preço atual do produto)
   const totalsByOrder = new Map<string, number>();
-  const paymentByOrder = new Map<string, string | null>();
-  for (const o of orderRows) paymentByOrder.set(o.id, o.paymentMethod);
+  const orderIds = orderRows.map((o) => o.id);
 
   if (orderRows.length > 0) {
-    const orderIds = orderRows.map((o) => o.id);
     const itemRows = await db
       .select({ orderId: orderItems.orderId, unitPrice: orderItems.unitPrice, quantity: orderItems.quantity, status: orderItems.status })
       .from(orderItems)
-      .where(sql`${orderItems.orderId} IN ${orderIds}`);
+      .where(inArray(orderItems.orderId, orderIds));
 
     for (const it of itemRows) {
       if (it.status === "cancelled") continue;
@@ -74,22 +80,68 @@ export async function salesReportUsecase(input: {
     }
   }
 
+  // Pagamento fracionado: o detalhamento por forma vem das linhas de
+  // order_payment (cada método com seu valor). Comandas antigas (pré-order_payment)
+  // caem no denormalizado orders.payment_method pra não sumir do relatório.
+  let paymentRows: Array<{ orderId: string; method: string | null; amount: number; change: number | null }> = [];
+  if (orderIds.length > 0) {
+    paymentRows = await db
+      .select({
+        orderId: orderPayments.orderId,
+        method: orderPayments.method,
+        amount: orderPayments.amount,
+        change: orderPayments.change,
+      })
+      .from(orderPayments)
+      .where(inArray(orderPayments.orderId, orderIds));
+  }
+
+  const paidByOrder = new Map<string, number>();
+  const methodsByOrder = new Map<string, string[]>();
+  const byPaymentMethod: Record<string, number> = { cash: 0, card: 0, pix: 0, other: 0 };
+  let changeTotal = 0;
+
+  for (const p of paymentRows) {
+    paidByOrder.set(p.orderId, (paidByOrder.get(p.orderId) ?? 0) + p.amount);
+    if (p.method) {
+      const byId = methodsByOrder.get(p.orderId) ?? [];
+      if (!byId.includes(p.method)) methodsByOrder.set(p.orderId, [...byId, p.method]);
+      byPaymentMethod[p.method] = (byPaymentMethod[p.method] ?? 0) + p.amount;
+    }
+    if (p.change) changeTotal += p.change;
+  }
+
+  // Comandas sem splits (registro antigo) atribuem o total ao payment_method
+  // denormalizado — mantém o relatório correto em histórico pré-feature.
+  for (const o of orderRows) {
+    const total = (totalsByOrder.get(o.id) ?? 0) + (o.deliveryFee ?? 0);
+    const paid = round2(paidByOrder.get(o.id) ?? 0);
+    const remainder = round2(total - paid);
+    if (remainder > 0.004) {
+      const m: string = o.paymentMethod ?? "other";
+      byPaymentMethod[m] = (byPaymentMethod[m] ?? 0) + remainder;
+      const byId = methodsByOrder.get(o.id) ?? [];
+      if (!byId.includes(m)) methodsByOrder.set(o.id, [...byId, m]);
+    }
+  }
+
+  for (const key of Object.keys(byPaymentMethod)) {
+    byPaymentMethod[key] = round2(byPaymentMethod[key]);
+  }
+  const changeTotalRound = round2(changeTotal);
+
   const enriched = orderRows.map((o) => ({
     orderId: o.id,
     label: o.tableNumber ? `Mesa ${o.tableNumber}` : o.customerName ?? o.tabLabel ?? "—",
     closedAt: o.closedAt,
-    paymentMethod: o.paymentMethod,
+    paymentMethod: methodsByOrder.get(o.id)?.join(" + ") ?? o.paymentMethod ?? "—",
     total: (totalsByOrder.get(o.id) ?? 0) + (o.deliveryFee ?? 0),
   }));
 
   // summary é agregado sobre TODO o conjunto filtrado, não sobre a página (§7.9)
-  const totalRevenue = enriched.reduce((sum, o) => sum + o.total, 0);
+  const totalRevenue = round2(enriched.reduce((sum, o) => sum + o.total, 0));
   const orderCount = enriched.length;
-  const avgTicket = orderCount > 0 ? totalRevenue / orderCount : 0;
-  const byPaymentMethod: Record<string, number> = { cash: 0, card: 0, pix: 0, other: 0 };
-  for (const o of enriched) {
-    if (o.paymentMethod) byPaymentMethod[o.paymentMethod] = (byPaymentMethod[o.paymentMethod] ?? 0) + o.total;
-  }
+  const avgTicket = orderCount > 0 ? round2(totalRevenue / orderCount) : 0;
 
   const page = enriched
     .sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? ""))
@@ -98,6 +150,6 @@ export async function salesReportUsecase(input: {
   return {
     data: page,
     total: orderCount,
-    summary: { totalRevenue, orderCount, avgTicket, byPaymentMethod },
+    summary: { totalRevenue, orderCount, avgTicket, byPaymentMethod, changeTotal: changeTotalRound },
   };
 }

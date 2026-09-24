@@ -125,7 +125,7 @@ CREATE TABLE "order" (
     status          order_status NOT NULL DEFAULT 'open',
     opened_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     closed_at       TIMESTAMPTZ,
-    payment_method      VARCHAR(20), -- cash | card | pix | other, preenchido no fechamento
+    payment_method      VARCHAR(20), -- denormalizado de exibição (seção 7.2): método único → ele; vários → NULL. Fonte da verdade é order_payment
     payment_confirmed_at TIMESTAMPTZ,
     payment_confirmed_by UUID REFERENCES "user"(id),
     CONSTRAINT order_identification_required
@@ -135,6 +135,26 @@ CREATE TABLE "order" (
 CREATE INDEX idx_order_table ON "order"(table_id);
 CREATE INDEX idx_order_customer ON "order"(customer_id);
 CREATE INDEX idx_order_status ON "order"(status);
+
+-- Pagamento fracionado: uma comanda pode ser paga com várias formas
+-- (dinheiro + cartão + pix + ...). Cada "pedaço" é uma linha; o fechamento
+-- exige soma dos pedaços == total e todos confirmados (seção 7.2). Valores
+-- monetários NUMERIC(10,2) em reais, coerente com order_item.unit_price.
+CREATE TABLE order_payment (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_id        UUID NOT NULL REFERENCES "order"(id) ON DELETE CASCADE,
+    method          VARCHAR(20) NOT NULL CHECK (method IN ('cash','card','pix','other')),
+    amount          NUMERIC(10,2) NOT NULL CHECK (amount > 0),
+    received        NUMERIC(10,2), -- só cash: quanto o cliente entregou
+    change          NUMERIC(10,2), -- só cash: received - amount (troco)
+    confirmed       BOOLEAN NOT NULL DEFAULT false, -- Pix nasce false; dinheiro/cartão confirmam no registro
+    confirmed_at    TIMESTAMPTZ,
+    confirmed_by    UUID REFERENCES "user"(id),
+    created_by      UUID NOT NULL REFERENCES "user"(id),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_order_payment_order ON order_payment(order_id);
 
 CREATE TABLE order_item (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -386,8 +406,41 @@ PATCH  /orders/:id/payment
 ```
 - Requer role: `waiter` ou `manager`
 - Body: `{ paymentMethod: "cash" | "card" | "pix" | "other", confirmed: boolean }` — `confirmed=true` grava `payment_confirmed_at`/`payment_confirmed_by`; permite registrar o método antes de confirmar (fluxo Pix: registra método, gera QR, só confirma depois que o cliente paga)
-- 200: order atualizada
+- **Endpoint legado**: descreve a intenção em **uma única linha de 100% do total** em `order_payment` (`confirmed=false` nasce como intenção de Pix; `confirmed=true` confirma). Mantido como adaptador para o checkout self-service e o delivery (§04) — clientes novos devem usar o PUT fracionado abaixo
+- 200: linha de `order_payment` criada/atualizada
 - 400 `payment_method_disabled`: método não está em `store_settings.enabled_payment_methods`
+- 409 `order_not_open`: comanda já fechada/cancelada
+
+```
+PUT    /orders/:id/payments
+```
+- Requer role: `waiter` ou `manager`
+- Body: `{ payments: [{ method, amount, received?, confirmed? }] }` — `received` só vale para `cash` (quanto o cliente entregou; o troco é derivado `received - amount`); `confirmed` é opcional e fica `false` por padrão (Pix deixa para confirmar depois de escaneado o QR)
+- Substitui o conjunto inteiro de linhas em `order_payment` na mesma transação (atómico). Regras:
+  - a soma dos `amount` deve bater com o total da comanda (snapshot `unit_price × quantity`, excluídos `cancelled`, + `delivery_fee`)
+  - `cash` com `confirmed=true` exige `received >= amount`
+  - métodos precisam estar em `store_settings.enabled_payment_methods`
+- 200: comanda atualizada (`payments[]` no corpo — mesmo shape do `GET /orders/:id`)
+- 409 `invalid_payment_total`: soma dos pedaços divergente do total
+- 422 `validation_failed`: `received < amount` em dinheiro confirmado
+- 409 `payment_not_confirmed`: ao tentar fechar com pedaço Pix pendente
+
+```
+PATCH  /orders/:id/payments/:paymentId
+```
+- Requer role: `waiter` ou `manager`
+- Confirma uma linha (`confirmed=true`, grava `confirmed_at`/`confirmed_by`) — usado no fluxo Pix por pedaço
+- 200: linha `order_payment` atualizada
+- 404 `not_found`: linha inexistente ou de outra comanda
+- 409 `order_not_open`: comanda já fechada
+
+```
+DELETE /orders/:id/payments/:paymentId
+```
+- Requer role: `waiter` ou `manager`
+- Remove uma linha **não confirmada** (editar a forma de pagamento antes de fechar)
+- 204, sem corpo
+- 400 `invalid_transition`: linha já confirmada não pode ser removida
 
 ```
 PATCH  /orders/:id/close
@@ -395,7 +448,11 @@ PATCH  /orders/:id/close
 - Body: `{ correlationId: string }`
 - 200: order fechada (`status: closed`, `closed_at` preenchido)
 - 409 `pending_items`: existe item que não é `delivered`/`cancelled` — resposta inclui `details: { pendingItems: [{ id, name, quantity, status }] }`, pra UI listar exatamente o que falta (hoje o frontend só mostra a contagem — ver observação abaixo)
-- 409 `payment_not_registered`: **nova validação** — `payment_method` precisa estar preenchido antes de fechar (hoje o pseudocódigo da seção 9 só checa itens pendentes; esse é um gap que este documento fecha agora, já que fechar sem forma de pagamento registrada não faz sentido dado o fluxo da seção 4.5 do frontend spec)
+- 409 `payment_not_registered`: comanda sem **nenhuma** linha em `order_payment`
+- 409 `payment_not_confirmed`: existe linha `order_payment` com `confirmed=false` (ex.: Pix ainda não conferido no extrato)
+- 409 `invalid_payment_total`: soma das linhas diverge do total (divisão mal ajustada)
+
+**Nota de design (fechamento):** o `payment_method` de `order` é denormalizado só para exibição e histórico de comandas antigas. A fonte da verdade do pagamento é `order_payment`: o fechamento exige **ao menos uma linha**, **todas confirmadas** e **soma == total** — os três erros acima são o espelho disso. Comandas legadas (pré-`order_payment`) fecham sem linhas apenas em sentido de leitura: o relatório (§7.9) as atribui pelo `payment_method` denormalizado pra não sumirem do histórico.
 
 ```
 GET    /orders/:id          → detalhe com itens
@@ -480,11 +537,14 @@ GET /reports/sales?dateFrom=&dateTo=&customerQuery=&productId=&limit=&offset=
       totalRevenue: number,
       orderCount: number,
       avgTicket: number,
-      byPaymentMethod: Record<"cash" | "card" | "pix" | "other", number>
+      byPaymentMethod: Record<"cash" | "card" | "pix" | "other", number>,
+      changeTotal: number // troco dado em dinheiro no período (soma de order_payment.change)
     }
   }
   ```
 - `total` de cada comanda é calculado a partir de `order_item.unit_price × quantity` (o snapshot gravado no lançamento, não o preço atual do produto — seção 4) somado por comanda; `summary` é agregado sobre o mesmo conjunto filtrado, não sobre a página retornada (senão paginar mudaria o total, o que quebraria a confiança no relatório)
+- `data[].paymentMethod` é o rótulo derivado das `order_payment` da comanda ("cash + pix"), não o denormalizado — como a comanda pode ter várias formas, o denormalizado de exibição não é suficiente (seção 7.2)
+- `byPaymentMethod` soma os **pedaços** de `order_payment` (cada forma com seu valor). Comandas antigas sem linhas (pré-`order_payment`) atribuem o total ao `payment_method` denormalizado — assim o histórico não perde a forma de pagamento original
 - Sem paginação por padrão nesta etapa (volume esperado é baixo — seção 15); os parâmetros `limit`/`offset` existem só por consistência com as outras listagens, caso o volume cresça
 
 ### 7.10 Exemplos de payload
@@ -576,13 +636,44 @@ Convenção: API sempre em `camelCase`, mapeado para `snake_case` do schema (se�
 }
 ```
 
-**`PATCH /orders/:id/payment`**
+**`PATCH /orders/:id/payment`** (legado — ver §7.2)
 ```json
 // Request — registra o método sem confirmar ainda (caso Pix: QR já pode ser gerado no client com esses dados)
 { "paymentMethod": "pix", "confirmed": false }
 
 // 200
-{ "id": "o_7d21", "paymentMethod": "pix", "paymentConfirmedAt": null, "paymentConfirmedBy": null }
+{
+  "id": "op_1", "method": "pix", "amount": 74.0,
+  "received": null, "change": null, "confirmed": false
+}
+```
+
+**`PUT /orders/:id/payments`** — pagamento fracionado
+```json
+// Request — dinheiro R$ 40 (recebido R$ 100, troco R$ 60) + pix R$ 34
+{
+  "payments": [
+    { "method": "cash", "amount": 40, "received": 100, "confirmed": true },
+    { "method": "pix", "amount": 34, "confirmed": false }
+  ]
+}
+
+// 200
+{
+  "id": "o_7d21",
+  "status": "open",
+  "paymentMethod": null,
+  "payments": [
+    { "id": "op_1", "method": "cash", "amount": 40, "received": 100, "change": 60, "confirmed": true, "confirmedAt": "2026-08-02T20:10:00.000Z", "confirmedBy": "u_ana" },
+    { "id": "op_2", "method": "pix", "amount": 34, "received": null, "change": null, "confirmed": false, "confirmedAt": null, "confirmedBy": null }
+  ]
+}
+```
+
+**`PATCH /orders/:id/payments/:paymentId`** — confirma o pedaço Pix após conferir o extrato
+```json
+// 200
+{ "id": "op_2", "method": "pix", "amount": 34, "confirmed": true, "confirmedAt": "2026-08-02T20:15:00.000Z", "confirmedBy": "u_ana" }
 ```
 
 **`PUT /store-settings`**
@@ -625,7 +716,9 @@ Referência única de todo `error.code` que a API pode devolver — útil pro fr
 | `item_already_delivered` | 409 | `DELETE /orders/:id/items/:itemId` | item já `delivered` não pode ser removido |
 | `concurrency_conflict` | 409 | `PATCH /orders/:id/items/:itemId` | `expectedVersion` divergente do `version` atual (seção 9) |
 | `pending_items` | 409 | `PATCH /orders/:id/close` | existe item não `delivered`/`cancelled`; `details.pendingItems` traz a lista |
-| `payment_not_registered` | 409 | `PATCH /orders/:id/close` | comanda sem `payment_method` definido |
+| `payment_not_registered` | 409 | `PATCH /orders/:id/close` | comanda sem nenhuma linha em `order_payment` |
+| `payment_not_confirmed` | 409 | `PATCH /orders/:id/close` | existe linha `order_payment` com `confirmed=false` (ex.: Pix a conferir) |
+| `invalid_payment_total` | 409 | `PUT /orders/:id/payments`, `PATCH /orders/:id/close` | soma de `order_payment.amount` diverge do total da comanda |
 | `too_many_attempts` | 429 | `POST /auth/login` | rate limit por IP (seção 11) |
 
 Todo erro 4xx segue o mesmo envelope da seção 7.0 — o `code` acima é sempre o campo estável pra lógica de UI; `message` pode mudar de texto sem quebrar o client.
@@ -828,14 +921,18 @@ O QR em si é só essa string renderizada como imagem (biblioteca `qrcode` no fr
 ### Fluxo de uso
 
 ```
-Fechar comanda → gerente/garçom escolhe forma de pagamento
-  ├── Dinheiro / Cartão / Outro → fecha direto, registra payment_method
-  └── Pix
-        → gera BR Code com o total da order
+Fechar comanda → gerente/garçom monta o pagamento (seção 4.5 do frontend spec)
+  ├── Método único (dinheiro/cartão/outro) → registra com confirmed=true → fecha
+  ├── Várias formas (dinheiro + cartão + pix…) → PUT /orders/:id/payments com uma linha por pedaço
+  │     └── Pix fica confirmed=false; dinheiro confirma no registro (com troco se received > amount)
+  └── Pedaço Pix
+        → gera BR Code com o valor daquele pedaço (não o total da comanda)
         → exibe QR na tela (cliente escaneia com o app do banco)
         → gerente confere manualmente no extrato/notificação do banco
-        → toca "Confirmar recebimento" → grava payment_confirmed_at/by → fecha a order
+        → PATCH /orders/:id/payments/:paymentId → confirma o pedaço → fecha a order
 ```
+
+Quando há mais de um pedaço Pix, o client exibe um QR por pedaço e confirma um a um; o fechamento só acontece depois que **todos** os pedaços estão `confirmed=true` (§7.2).
 
 ### Configuração necessária
 
@@ -851,14 +948,16 @@ A mesma tabela guarda dois outros parâmetros configuráveis pelo gerente:
 ```
 GET    /store-settings
 PUT    /store-settings              → requer role: manager
-PATCH  /orders/:id/payment          → registra payment_method e, se aplicável, confirma recebimento (requer role: waiter ou manager)
+PATCH  /orders/:id/payment          → legado (registra intenção única em order_payment — §7.2; requer role: waiter ou manager)
+PUT    /orders/:id/payments         → define o conjunto de pedaços de pagamento (requer role: waiter ou manager)
+PATCH  /orders/:id/payments/:paymentId  → confirma um pedaço (requer role: waiter ou manager)
 ```
 
 ## 13. Log de Auditoria
 
 Toda ação relevante do garçom ou gerente é registrada em `audit_log`, de forma assíncrona em relação à operação principal (não bloqueia a resposta ao usuário — grava e segue).
 
-**Ações registradas:** abertura de comanda, item adicionado (por lote, um registro por linha do lote confirmado), item removido, item marcado como entregue, comanda fechada (com forma de pagamento).
+**Ações registradas:** abertura de comanda, item adicionado (por lote, um registro por linha do lote confirmado), item removido, item marcado como entregue, pagamento registrado/confirmado/removido (`payment_registered`, `payment_confirmed`, `payment_removed`), comanda fechada (com o detalhe dos pedaços de pagamento).
 
 ```typescript
 async function logAction(userId: string, action: string, orderId: string | null, details: object) {

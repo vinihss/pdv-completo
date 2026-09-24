@@ -26,6 +26,8 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
 
   const pending = pendingItems(order);
   const canClose = pending.length === 0;
+  const payments = order.payments ?? [];
+  const hasPayments = payments.length > 0;
 
   async function handleItemTap(item) {
     if (item.status === "delivered" || item.status === "cancelled") return;
@@ -60,7 +62,7 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
   async function handleClose() {
     setCloseError(null);
     if (!canClose) return;
-    if (!order.paymentMethod) {
+    if (!hasPayments) {
       setPaymentOpen(true);
       return;
     }
@@ -72,7 +74,7 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
     } catch (e) {
       if (e.code === "pending_items") {
         setCloseError("Ainda há itens pendentes: " + e.details.pendingItems.map((i) => i.name).join(", "));
-      } else if (e.code === "payment_not_registered") {
+      } else if (e.code === "payment_not_registered" || e.code === "payment_not_confirmed" || e.code === "invalid_payment_total") {
         setPaymentOpen(true);
       } else {
         showToast(e.message, "error");
@@ -154,11 +156,30 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
         </div>
       )}
 
-      {order.paymentMethod && (
-        <div className="px-5 pt-4">
+      {hasPayments && (
+        <div className="px-5 pt-4 space-y-1.5">
           <div className="flex items-center gap-2 text-emerald-400 text-xs bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-3 py-2.5">
-            <Check size={14} /> Pagamento registrado: {order.paymentMethod}
+            <Check size={14} />
+            <div className="flex-1">
+              <div className="font-semibold">Pagamento registrado</div>
+            </div>
+            <button onClick={() => setPaymentOpen(true)} className="underline underline-offset-2">Ajustar</button>
           </div>
+          {payments.map((p) => {
+            const label = { cash: "Dinheiro", card: "Cartão", pix: "Pix", other: "Outro" }[p.method] ?? p.method;
+            return (
+              <div key={p.id} className="flex items-center justify-between text-xs bg-stone-900 border border-stone-800 rounded-xl px-3 py-2">
+                <span className="text-stone-400">
+                  {label}
+                  {!p.confirmed && <span className="ml-1.5 text-amber-400">aguardando confirmação</span>}
+                </span>
+                <div className="text-right">
+                  <div className="font-semibold text-stone-200">{money(p.amount)}</div>
+                  {p.change > 0 && <div className="text-emerald-400">troco {money(p.change)}</div>}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -179,7 +200,7 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
             disabled={closing}
             className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl transition-colors"
           >
-            {closing ? "Fechando…" : order.paymentMethod ? "Fechar conta" : "Registrar pagamento e fechar"}
+            {closing ? "Fechando…" : hasPayments ? "Fechar conta" : "Registrar pagamento e fechar"}
           </button>
         )}
       </div>

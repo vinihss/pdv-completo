@@ -122,12 +122,21 @@ Cada linha confirmada gera um registro individual no log de auditoria (`item_add
 - Abaixo do botão, um aviso curto explica o motivo e a quantidade: *"1 item ainda não foi entregue — confirme a entrega antes de fechar"* (plural quando houver mais de um).
 - Essa mesma regra vale na função de caixa do gerente (seção 5): a lista de comandas abertas mostra a contagem de itens pendentes no lugar do botão "Fechar" quando aplicável, em vez de deixar o gerente tentar fechar e receber um erro.
 
-Resumo com todos os itens e total. Ao confirmar (com a comanda liberada para fechamento), o garçom escolhe a forma de pagamento entre as habilitadas em `store_settings.enabled_payment_methods` (o gerente controla quais aparecem — ver seção 5).
+Resumo com todos os itens e total. Ao confirmar (com a comanda liberada para fechamento), o garçom monta o pagamento com as formas habilitadas em `store_settings.enabled_payment_methods` (o gerente controla quais aparecem — ver seção 5).
 
-- **Dinheiro/Cartão/Outro**: ao escolher, abre uma tela de confirmação intermediária — "Confirmar pagamento em {forma}? R$ {total}" com **Cancelar**/**Confirmar**. Nenhuma forma de pagamento fecha a comanda direto no primeiro toque; a confirmação é obrigatória em todas, não só no Pix.
-- **Pix**: gera um QR Code (BR Code) com o valor total da comanda, a partir da chave Pix cadastrada pelo gerente em Configurações. O garçom mostra o QR pro cliente escanear, confere o recebimento no celular/extrato, e toca **"Confirmar recebimento"** — essa etapa já funciona como a confirmação exigida acima, não precisa de uma segunda tela. Ver `01-backend-spec.md`, seção 12, para o detalhe de geração do QR (feita inteiramente no client, sem chamada a backend ou PSP).
+**Pagamento fracionado (múltiplas formas)**: a comanda pode ser paga com várias formas de uma vez (ex.: dinheiro + Pix). A modal de pagamento permite:
 
-Nenhuma forma de pagamento nesta etapa envolve integração com adquirente ou confirmação automática — mesmo o Pix depende de conferência manual antes de fechar. O fechamento gera entrada no log de auditoria com a forma de pagamento usada.
+- **Adicionar itens de pagamento** — um por forma escolhida (Dinheiro, Cartão, Pix, Outro), cada um com seu **valor**.
+- **Dinheiro com troco**: além do valor, pede "Recebido (R$)" e calcula o **troco ao vivo** (`recebido − valor`). Se o recebido for menor que o valor, mostra "Faltam R$ X" e bloqueia o registro.
+- **Dividir igualmente entre N pessoas**: seletor de N (1–20) + forma → distribui o total em N pedaços iguais de uma vez (o último pedaço absorve o resto para a soma fechar exata).
+- **Barra de saldo**: mostra quanto ainda falta / quanto excede (`| Soma − Total | < 0.005`). O registro só habilita quando a soma **confere com o total** da comanda.
+- **Pix por pedaço**: cada pedaço Pix gera seu próprio QR (BR Code) com o valor **daquele pedaço**, não do total. Depois de registrar, o client exibe um QR por vez e confirma um a um (o pedaço nasce `confirmed=false` e só vira `confirmed=true` com "Confirmar recebimento").
+
+Confirmação por forma (não por etapa global):
+- **Dinheiro/Cartão/Outro**: confirmados no momento do registro (o dinheiro ainda exige `received ≥ amount`).
+- **Pix**: nasce pendente e é confirmado após escaneado o QR e conferido o extrato — o fechamento da comanda e o da confirmação são a mesma etapa, sem tela extra.
+
+Nenhuma forma de pagamento nesta etapa envolve integração com adquirente ou confirmação automática — mesmo o Pix depende de conferência manual antes de fechar. O fechamento gera entrada no log de auditoria com o detalhe dos pedaços. A tela de detalhe da comanda mostra o quebra-cabeça do pagamento (cada forma, valor e troco) e permite reabrir a modal para ajustar enquanto a conta não fechou.
 
 ## 5. Fluxo do Gerente
 

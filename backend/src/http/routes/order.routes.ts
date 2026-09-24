@@ -8,6 +8,9 @@ import {
   updateItemStatusUsecase,
   deleteItemUsecase,
   registerPaymentUsecase,
+  setOrderPaymentsUsecase,
+  confirmOrderPaymentUsecase,
+  deleteOrderPaymentUsecase,
   closeOrderUsecase,
   cancelOrderUsecase,
   getOrderUsecase,
@@ -44,6 +47,17 @@ const updateItemSchema = z.object({
 const paymentSchema = z.object({
   paymentMethod: z.enum(["cash", "card", "pix", "other"]),
   confirmed: z.boolean(),
+});
+
+const paymentLineSchema = z.object({
+  method: z.enum(["cash", "card", "pix", "other"]),
+  amount: z.number().positive(),
+  received: z.number().positive().optional(),
+  confirmed: z.boolean().optional(),
+});
+
+const setPaymentsSchema = z.object({
+  payments: z.array(paymentLineSchema).min(1),
 });
 
 const closeSchema = z.object({ correlationId: z.string() });
@@ -121,6 +135,38 @@ export async function orderRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const body = paymentSchema.parse(req.body);
       return registerPaymentUsecase({ orderId: id, userId: req.authUser!.sub, ...body });
+    }
+  );
+
+  // Pagamento fracionado: uma comanda pode ser paga com várias formas
+  // (dinheiro + cartão + pix…). PUT substitui o conjunto de linhas de uma vez;
+  // confirmar/remover são PATCH/DELETE por linha.
+  app.put(
+    "/orders/:id/payments",
+    { preHandler: requireRole("waiter", "manager") },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const body = setPaymentsSchema.parse(req.body);
+      return setOrderPaymentsUsecase({ orderId: id, userId: req.authUser!.sub, payments: body.payments });
+    }
+  );
+
+  app.patch(
+    "/orders/:id/payments/:paymentId",
+    { preHandler: requireRole("waiter", "manager") },
+    async (req) => {
+      const { id, paymentId } = req.params as { id: string; paymentId: string };
+      return confirmOrderPaymentUsecase({ orderId: id, paymentId, userId: req.authUser!.sub });
+    }
+  );
+
+  app.delete(
+    "/orders/:id/payments/:paymentId",
+    { preHandler: requireRole("waiter", "manager") },
+    async (req, reply) => {
+      const { id, paymentId } = req.params as { id: string; paymentId: string };
+      await deleteOrderPaymentUsecase({ orderId: id, paymentId, userId: req.authUser!.sub });
+      return reply.code(204).send();
     }
   );
 

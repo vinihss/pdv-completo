@@ -118,7 +118,7 @@ start_services() {
   ensure_env
   if [ "$DEV" = "1" ]; then
     echo "[up] subida em modo desenvolvimento (hot reload via bind mounts)..."
-    "${COMPOSE[@]}" up -d
+    "${COMPOSE[@]}" up -d --build
   else
     echo "[up] build e subida dos containers (pode demorar na 1ª vez)..."
     "${COMPOSE[@]}" up -d --build

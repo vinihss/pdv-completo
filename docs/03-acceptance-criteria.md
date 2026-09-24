@@ -41,11 +41,21 @@ Convenção: critérios marcados com ⚠️ cobrem comportamento que já gerou a
 
 - **Dado** uma comanda com todo item `delivered` e forma de pagamento já registrada, **quando** o garçom acessa a comanda, **então** o botão "Fechar conta" está habilitado.
 - **Dado** uma comanda com ao menos 1 item que não é `delivered`, **quando** o garçom olha a tela, **então** o botão "Fechar conta" está desabilitado **e** um aviso lista os itens pendentes por nome (não só a contagem).
-- **Dado** uma comanda sem `payment_method` definido, **quando** o garçom tenta fechar mesmo assim (ex: via chamada direta à API, contornando a UI), **então** a API responde `409 payment_not_registered`.
+- **Dado** uma comanda sem nenhuma linha em `order_payment`, **quando** o garçom tenta fechar mesmo assim (ex: via chamada direta à API, contornando a UI), **então** a API responde `409 payment_not_registered`.
 - **Dado** o garçom escolhe "Dinheiro" como forma de pagamento, **quando** ele toca na opção, **então** uma tela de confirmação explícita aparece antes de qualquer coisa ser gravada — **nenhuma forma de pagamento fecha a comanda no primeiro toque**, nem as não-Pix.
 - **Dado** o fluxo Pix, **quando** o QR é exibido e o garçom toca "Confirmar recebimento", **então** essa ação conta como a confirmação obrigatória — não existe uma segunda tela de confirmação depois dela.
 - **Dado** uma forma de pagamento desabilitada em `store_settings.enabled_payment_methods`, **quando** o garçom abre a tela de fechamento, **então** essa opção não aparece na lista de formas disponíveis.
 - **Dado** a função de caixa do gerente, **quando** ele tenta fechar uma comanda com item pendente, **então** o mesmo bloqueio se aplica — o botão "Fechar" é substituído por um resumo dos itens pendentes, igual ao comportamento do garçom.
+
+### 5.1 Pagamento fracionado e troco
+
+- **Dado** uma comanda de R$ 37,00, **quando** o garçom registra dinheiro R$ 20,00 (recebido R$ 50,00) + cartão R$ 17,00, **então** ambos os pedaços ficam em `order_payment` com troco R$ 30,00 no dinheiro, e o botão "Fechar conta" habilita.
+- **Dado** um preenchimento cuja soma não bate com o total (ex.: pedaços somam R$ 34,00 numa comanda de R$ 37,00), **quando** o garçom toca em registrar, **então** a modal bloqueia com "Falta R$ 3,00" **e** a API responde `409 invalid_payment_total` se chamada direto.
+- **Dado** uma linha de dinheiro com `received < amount`, **quando** a soma total está correta, **então** o registro é bloqueado com "Faltam R$ X" na UI (`422 validation_failed` por API direta).
+- **Dado** o atalho "Dividir igualmente entre 3", **quando** a conta é de R$ 40,00, **então** geram 3 pedaços (R$ 13,33 / R$ 13,33 / R$ 13,34), cuja soma é exatamente R$ 40,00.
+- **Dado** uma comanda com pedaço Pix ainda não confirmado (`confirmed=false`), **quando** o garçom tenta fechar, **então** a API responde `409 payment_not_confirmed` e a UI reabre a modal de pagamento.
+- **Dado** dinheiro R$ 40,00 (recebido R$ 100,00) + Pix R$ 34,00, **quando** o garçom confirma o QR do pedaço Pix, **então** a comanda fecha e `order_payment` registra os 2 pedaços (troco R$ 60,00 no dinheiro, pix confirmado).
+- **Dado** o detalhe da comanda, **quando** há mais de uma forma de pagamento registrada, **então** a tela mostra o quebra-cabeça (cada forma, valor e troco) e permite ajustar enquanto a conta não fechou.
 
 ## 6. Configurações da loja (frontend §5, backend §7.3)
 
@@ -102,7 +112,8 @@ Convenção: critérios marcados com ⚠️ cobrem comportamento que já gerou a
 - **Dado** um filtro de período (de/até), **quando** aplicado, **então** só entram no cálculo comandas com `closed_at` dentro do intervalo — comandas ainda abertas nunca aparecem no relatório, mesmo que tenham itens.
 - **Dado** um filtro por produto, **quando** aplicado, **então** só aparecem comandas que contêm ao menos um item daquele produto — o valor mostrado continua sendo o total da comanda inteira, não só a fatia daquele produto.
 - **Dado** o resumo (total vendido, ticket médio, número de comandas), **quando** um filtro é alterado, **então** os três números recalculam sobre o conjunto filtrado inteiro, não sobre uma página — paginar (se existir) não pode mudar o total exibido.
-- **Dado** o detalhamento por forma de pagamento, **quando** ele é somado, **então** bate exatamente com o total vendido do resumo — não pode haver comanda contada em um e não no outro.
+- **Dado** o detalhamento por forma de pagamento, **quando** ele é somado, **então** bate exatamente com o total vendido do resumo — não pode haver comanda contada em um e não no outro. Comanda paga em duas formas (ex.: dinheiro + Pix) **não** pode somar o total duas vezes nos dois métodos; cada pedaço entra uma vez na sua forma.
+- **Dado** uma comanda com pedaço de dinheiro e troco, **quando** o relatório agrega o dia, **então** `summary.changeTotal` soma os trocos dados e o fraturamento por forma soma os `amount` de cada pedaço (o troco não reduz a receita por forma — ele é informação à parte).
 - ⚠️ **Dado** um produto que teve seu preço alterado depois de vendido, **quando** o relatório calcula o total de uma comanda antiga, **então** usa o `unit_price` gravado no momento do lançamento (snapshot), não o preço atual do produto — histórico de vendas não pode mudar retroativamente por causa de um reajuste de preço.
 
 ## Como usar este documento

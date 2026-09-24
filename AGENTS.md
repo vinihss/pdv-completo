@@ -114,6 +114,15 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
   O handler global (`src/http/server.ts`) converte para
   `{ error: { code, message, details } }`. Nunca deixar vazar erro cru (500
   interno) onde cabe um erro de domínio.
+- **Pagamento fracionado**: a fonte da verdade do pagamento é `order_payment`
+  (1 linha por forma); `order.payment_method` é só denormalizado de exibição.
+  Fechamento exige ≥1 linha, todas `confirmed` e soma == total (erros
+  `payment_not_registered`/`payment_not_confirmed`/`invalid_payment_total`). O
+  relatório `byPaymentMethod` soma os pedaços — comandas antigas sem linhas
+  caem no denormalizado (fallback de leitura). Endpoints: `PUT /orders/:id/
+  payments`, `PATCH/DELETE /orders/:id/payments/:paymentId`; o `PATCH
+  /orders/:id/payment` legado é adaptador de intenção única usado pelo
+  self-service/delivery — não regredir esses dois fluxos.
 - **Idempotência**: endpoints marcados (`POST /orders`,
   `POST /orders/:id/items`, `PATCH /orders/:id/close`) devem usar
   `withIdempotency` com `correlationId`.
@@ -154,13 +163,13 @@ dentro da fase, a ordem indicada.
 
 | # | Melhoria | Localização | Verificação |
 |---|---|---|---|
-| 1.1 | Relatório de vendas quebra ao filtrar: `sql\`${orderItems.orderId} IN ${orderIds}\`` passa array cru ao template SQL (Drizzle expande sem parênteses). Trocar por `inArray` ou `sql.join` com parênteses. | `backend/src/application/report.usecases.ts:68` | Chamar `GET /reports/sales` (com e sem `productId`) e conferir resultado. |
+| 1.1 | ~~Relatório de vendas quebra ao filtrar~~ — ✅ feito: `sql\`... IN ${orderIds}\`` trocado por `inArray` em `report.usecases.ts`; filtro `productId` testado por API. | `backend/src/application/report.usecases.ts` | `GET /reports/sales` (com e sem `productId`) retorna resultado. |
 | 1.2 | Comanda fechada não some da lista: `order.closed` e `table.status_changed` são broadcast só para `table:{id}`, room que nenhum client assina. Decidir entre fazer o client assinar o room ou broadcast extra para `kitchen-display`/`waiter:{id}`. | `backend/src/application/order/order.usecases.ts:327-336`; `frontend/src/lib/useOrders.js:55` | Fechar comanda num terminal e o outro atualizar via WS sem "Atualizar" manual. |
 | 1.3 | `crypto.randomUUID()` indefinido em contexto HTTP na LAN (dev em `http://<ip>:5173`). Adicionar fallback (ex.: `Math.random`-based UUID) em `frontend/src/lib/api.js:18`. | `frontend/src/lib/api.js` | Abrir comanda a partir de `http://<ip-da-maquina>:5173`. |
 | 1.4 | Idempotência: estado `failed` → 409 permanente; `expires_at` escrito mas nunca lido (sem cleanup); race check-then-insert → 500 (colisão de PK) em vez de 409. | `backend/src/http/middlewares/idempotency.middleware.ts` | Replay de `correlationId` após falha server-side; dois requests idênticos concorrentes. |
 | 1.5 | Outbox dispatcher sem try/catch: payload corrompido → unhandled rejection → derruba o processo. | `backend/src/infra/realtime/outbox-dispatcher.ts:15-28` | Corromper payload de `outbox_event` e observar o processo continuar vivo. |
 | 1.6 | `openOrderUsecase` não valida existência/status da mesa: permite 2 comandas abertas na mesma mesa; fechar uma libera a mesa com a outra aberta. Validar mesa existente e `free` (ou devolver erro de domínio). | `backend/src/application/order/order.usecases.ts:88-128` | Abrir comanda em mesa ocupada → esperar erro de domínio (não 500/duplicidade). |
-| 1.7 | `registerPaymentUsecase` muta comanda já fechada (sem checagem de status); `closeOrder` valida só `paymentMethod`, não `paymentConfirmedAt`. | `backend/src/application/order/order.usecases.ts:256-343` | Testes de API direta (curl) em comanda fechada e pagamento não confirmado. |
+| 1.7 | ~~`registerPaymentUsecase` muta comanda já fechada~~ — ✅ feito: valida `order_not_open` em todos os use cases de pagamento; `closeOrder` agora exige linhas `order_payment` confirmadas e soma == total (erros `payment_not_confirmed`/`invalid_payment_total`). Também resolveu de vez o fechamento com pagamento não confirmado. | `backend/src/application/order/order.usecases.ts:256-343` | Testes de API direta (curl) em comanda fechada e pagamento não confirmado retornam erros de domínio. |
 | 1.8 | Sem eventos realtime para delete de item e pagamento → telas de colegas/cozinha defasadas. | `backend/src/application/order/order.usecases.ts:244-289` | Deletar item/pagar numa tela e ver a outra refletir via WS. |
 
 ### Fase 2 — Robustez operacional e segurança

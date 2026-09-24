@@ -6,6 +6,10 @@ export function money(v) {
   return `R$ ${Number(v).toFixed(2)}`;
 }
 
+export function round2(v) {
+  return Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+}
+
 export function orderLabel(order) {
   if (order.tableId && order.tableNumber) return `Mesa ${order.tableNumber}`;
   if (order.tableId) return "Mesa";
@@ -13,7 +17,11 @@ export function orderLabel(order) {
 }
 
 export function orderTotal(order) {
-  return order.items.reduce((sum, it) => sum + it.unitPrice * it.quantity, 0) + (order.deliveryFee ?? 0);
+  const itemsTotal = order.items.reduce(
+    (sum, it) => sum + (it.status === "cancelled" ? 0 : it.unitPrice * it.quantity),
+    0
+  );
+  return round2(itemsTotal + (order.deliveryFee ?? 0));
 }
 
 export function orderHasReady(order) {

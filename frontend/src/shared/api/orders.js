@@ -36,6 +36,18 @@ export function registerPayment(orderId, paymentMethod, confirmed) {
   return request("PATCH", `/orders/${orderId}/payment`, { paymentMethod, confirmed });
 }
 
+export function setPayments(orderId, payments) {
+  return request("PUT", `/orders/${orderId}/payments`, { payments });
+}
+
+export function confirmPayment(orderId, paymentId) {
+  return request("PATCH", `/orders/${orderId}/payments/${paymentId}`);
+}
+
+export function removePayment(orderId, paymentId) {
+  return request("DELETE", `/orders/${orderId}/payments/${paymentId}`);
+}
+
 export function closeOrder(orderId) {
   return request("PATCH", `/orders/${orderId}/close`, { correlationId: newCorrelationId() });
 }

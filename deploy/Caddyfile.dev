@@ -1,0 +1,38 @@
+# ============================================================
+# Caddyfile DEV (sem HTTPS) — usado pelo docker-compose.dev.yml
+# (./docker-up.sh dev, hot reload).
+#
+# Diferença pro Caddyfile.local: o frontend dev roda o Vite (HMR)
+# na porta 5173 do container, e o reverse_proxy precisa apontar
+# pra lá — não pra porta 80 (nginx de produção).
+# ============================================================
+
+:80 {
+	# API REST
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy backend:3000
+	}
+
+	# WebSocket em tempo real
+	handle /realtime* {
+		reverse_proxy backend:3000
+	}
+
+	# Fotos de produto servidas pelo backend
+	handle /uploads/* {
+		reverse_proxy backend:3000
+	}
+
+	# Health check
+	handle /health {
+		reverse_proxy backend:3000
+	}
+
+	# Resto: Vite dev server (HMR)
+	handle {
+		reverse_proxy frontend:5173
+	}
+
+	encode gzip
+}

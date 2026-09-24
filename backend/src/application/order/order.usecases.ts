@@ -3,12 +3,14 @@ import { db } from "../../infra/db/client.js";
 import {
   orders,
   orderItems,
+  orderPayments,
   products,
   storeSettings,
   restaurantTables,
   customers,
 } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
+import { round2, moneyEq } from "../../domain/money.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
 
@@ -78,6 +80,7 @@ async function serializeOrder(orderId: string) {
   const customer = order.customerId
     ? await db.query.customers.findFirst({ where: eq(customers.id, order.customerId) })
     : null;
+  const payments = await db.query.orderPayments.findMany({ where: eq(orderPayments.orderId, orderId) });
 
   return {
     id: order.id,
@@ -104,7 +107,34 @@ async function serializeOrder(orderId: string) {
         kitchenGroupId: productKitchenGroupId,
       })
     ),
+    payments: payments.map(serializePayment),
   };
+}
+
+function serializePayment(p: typeof orderPayments.$inferSelect) {
+  return {
+    id: p.id,
+    method: p.method,
+    amount: p.amount,
+    received: p.received,
+    change: p.change,
+    confirmed: p.confirmed,
+    confirmedAt: p.confirmedAt,
+    confirmedBy: p.confirmedBy,
+  };
+}
+
+// Total da comanda a partir do snapshot unit_price (nunca o preço atual do
+// produto), arredondado pra 2 casas. Itens "cancelled" não contam (mesma
+// regra do relatório de vendas). Executa no contexto síncrono da transação.
+function computeOrderTotal(tx: any, order: typeof orders.$inferSelect): number {
+  const rows = tx
+    .select({ unitPrice: orderItems.unitPrice, quantity: orderItems.quantity })
+    .from(orderItems)
+    .where(and(eq(orderItems.orderId, order.id), notInArray(orderItems.status, ["cancelled"])))
+    .all();
+  const sum = rows.reduce((acc: number, r: { unitPrice: number; quantity: number }) => acc + r.unitPrice * r.quantity, 0);
+  return round2(sum + (order.deliveryFee ?? 0));
 }
 
 // ---------- POST /orders ----------
@@ -307,7 +337,157 @@ export async function deleteItemUsecase(input: { orderId: string; itemId: string
   });
 }
 
-// ---------- PATCH /orders/:id/payment ----------
+// ---------- PUT /orders/:id/payments, PATCH/DELETE /orders/:id/payments/:paymentId ----------
+
+type PaymentLineInput = {
+  method: "cash" | "card" | "pix" | "other";
+  amount: number;
+  received?: number;
+  confirmed?: boolean;
+};
+
+// Aplica as linhas de pagamento: apaga as anteriores e insere as novas, na
+// mesma transação da escrita (padrão do repo). `orders.payment_method` continua
+// como denormalizado de exibição — método único → ele; mais de um → null
+// (o client consome `payments[]` pra exibir o detalhe).
+function upsertPaymentLines(tx: any, order: typeof orders.$inferSelect, userId: string, lines: PaymentLineInput[]) {
+  tx.delete(orderPayments).where(eq(orderPayments.orderId, order.id)).run();
+
+  const created: any[] = [];
+  for (const line of lines) {
+    const isCash = line.method === "cash";
+    const confirmed = Boolean(line.confirmed);
+    const received = isCash ? (line.received != null ? line.received : line.amount) : null;
+    if (isCash && confirmed && received != null && received < line.amount) {
+      throw Errors.validationFailed({ field: "received", reason: "dinheiro recebido menor que o valor a pagar" });
+    }
+    const change = isCash && received != null ? round2(received - line.amount) : null;
+    const row = tx
+      .insert(orderPayments)
+      .values({
+        orderId: order.id,
+        method: line.method,
+        amount: round2(line.amount),
+        received,
+        change,
+        confirmed,
+        confirmedAt: confirmed ? new Date().toISOString() : null,
+        confirmedBy: confirmed ? userId : null,
+        createdBy: userId,
+      })
+      .returning()
+      .get();
+    created.push(serializePayment(row));
+  }
+
+  const methods = [...new Set(lines.map((l) => l.method))];
+  const allConfirmed = created.length > 0 && created.every((p) => p.confirmed);
+  tx.update(orders)
+    .set({
+      paymentMethod: methods.length === 1 ? methods[0] : null,
+      paymentConfirmedAt: allConfirmed ? new Date().toISOString() : null,
+      paymentConfirmedBy: allConfirmed ? userId : null,
+    })
+    .where(eq(orders.id, order.id))
+    .run();
+
+  return created;
+}
+
+export async function setOrderPaymentsUsecase(input: {
+  orderId: string;
+  userId: string;
+  payments: PaymentLineInput[];
+}) {
+  const settings = await getSettings();
+  const enabled: string[] = JSON.parse(settings.enabledPaymentMethods);
+  if (input.payments.length === 0) {
+    throw Errors.validationFailed({ field: "payments", reason: "informe ao menos uma forma de pagamento" });
+  }
+
+  const order = await db.query.orders.findFirst({ where: eq(orders.id, input.orderId) });
+  if (!order) throw Errors.notFound("Comanda");
+  if (order.status !== "open") throw Errors.orderNotOpen();
+
+  for (const p of input.payments) {
+    if (!enabled.includes(p.method)) throw Errors.paymentMethodDisabled();
+    if (!(p.amount > 0)) throw Errors.validationFailed({ field: "amount", reason: "valor deve ser maior que zero" });
+  }
+
+  const updated = db.transaction((tx) => {
+    const total = computeOrderTotal(tx, order);
+    const sum = round2(input.payments.reduce((acc, p) => acc + p.amount, 0));
+    if (!moneyEq(sum, total)) throw Errors.invalidPaymentTotal();
+
+    const created = upsertPaymentLines(tx, order, input.userId, input.payments);
+    logAction(tx, input.userId, "payment_registered", input.orderId, { payments: created });
+    enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.payment_changed", {
+      orderId: input.orderId,
+      payments: created,
+    });
+    return created;
+  });
+
+  return serializeOrder(input.orderId);
+}
+
+export async function confirmOrderPaymentUsecase(input: { orderId: string; paymentId: string; userId: string }) {
+  const order = await db.query.orders.findFirst({ where: eq(orders.id, input.orderId) });
+  if (!order) throw Errors.notFound("Comanda");
+  if (order.status !== "open") throw Errors.orderNotOpen();
+
+  const updated = db.transaction((tx) => {
+    const payment = tx.query.orderPayments.findFirst({ where: eq(orderPayments.id, input.paymentId) }).sync();
+    if (!payment || payment.orderId !== input.orderId) throw Errors.notFound("Pagamento");
+    if (payment.confirmed) return payment;
+
+    const result = tx
+      .update(orderPayments)
+      .set({ confirmed: true, confirmedAt: new Date().toISOString(), confirmedBy: input.userId })
+      .where(eq(orderPayments.id, input.paymentId))
+      .returning()
+      .get();
+
+    const all = tx.select().from(orderPayments).where(eq(orderPayments.orderId, input.orderId)).all();
+    if (all.length > 0 && all.every((p) => p.confirmed)) {
+      tx.update(orders)
+        .set({ paymentConfirmedAt: new Date().toISOString(), paymentConfirmedBy: input.userId })
+        .where(eq(orders.id, input.orderId))
+        .run();
+    }
+
+    logAction(tx, input.userId, "payment_confirmed", input.orderId, { paymentId: input.paymentId, method: payment.method });
+    enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.payment_changed", {
+      orderId: input.orderId,
+      paymentId: input.paymentId,
+      confirmed: true,
+    });
+    return result;
+  });
+
+  return serializePayment(updated);
+}
+
+export async function deleteOrderPaymentUsecase(input: { orderId: string; paymentId: string; userId: string }) {
+  const order = await db.query.orders.findFirst({ where: eq(orders.id, input.orderId) });
+  if (!order) throw Errors.notFound("Comanda");
+  if (order.status !== "open") throw Errors.orderNotOpen();
+
+  db.transaction((tx) => {
+    const payment = tx.query.orderPayments.findFirst({ where: eq(orderPayments.id, input.paymentId) }).sync();
+    if (!payment || payment.orderId !== input.orderId) throw Errors.notFound("Pagamento");
+    if (payment.confirmed) throw Errors.invalidTransition("Pagamento já confirmado não pode ser removido.");
+    tx.delete(orderPayments).where(eq(orderPayments.id, input.paymentId)).run();
+    logAction(tx, input.userId, "payment_removed", input.orderId, { paymentId: input.paymentId, method: payment.method });
+    enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.payment_changed", { orderId: input.orderId });
+  });
+}
+
+// ---------- PATCH /orders/:id/payment (legado) ----------
+// Adaptador sobre o modelo fracionado: transforma o registro antigo (método
+// único, sem valor) em uma única linha de 100% do total. Mantém o fluxo
+// self-service/entrega funcionando sem mudança (intenção confirmed:false no
+// checkout; confirmação confirmed:true na entrega).
 export async function registerPaymentUsecase(input: {
   orderId: string;
   userId: string;
@@ -320,24 +500,22 @@ export async function registerPaymentUsecase(input: {
 
   const order = await db.query.orders.findFirst({ where: eq(orders.id, input.orderId) });
   if (!order) throw Errors.notFound("Comanda");
+  if (order.status !== "open") throw Errors.orderNotOpen();
 
   const updated = db.transaction((tx) => {
-    const result = tx
-      .update(orders)
-      .set({
-        paymentMethod: input.paymentMethod,
-        paymentConfirmedAt: input.confirmed ? new Date().toISOString() : null,
-        paymentConfirmedBy: input.confirmed ? input.userId : null,
-      })
-      .where(eq(orders.id, input.orderId))
-      .returning()
-      .get();
-
+    const total = computeOrderTotal(tx, order);
+    const created = upsertPaymentLines(tx, order, input.userId, [
+      { method: input.paymentMethod, amount: total, confirmed: input.confirmed },
+    ]);
     logAction(tx, input.userId, "payment_registered", input.orderId, {
       paymentMethod: input.paymentMethod,
       confirmed: input.confirmed,
     });
-    return result;
+    enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.payment_changed", {
+      orderId: input.orderId,
+      payments: created,
+    });
+    return created[0];
   });
 
   return updated;
@@ -368,7 +546,16 @@ export async function closeOrderUsecase(input: { orderId: string; userId: string
       );
     }
 
-    if (!order.paymentMethod) throw Errors.paymentNotRegistered();
+    // Pagamento fracionado: exige ao menos uma linha, todas confirmadas e a
+    // soma conferindo com o total (evita fechar com "intenção" de Pix ainda
+    // não recebida, ou com divisão que não cobre a conta).
+    const payments = tx.select().from(orderPayments).where(eq(orderPayments.orderId, input.orderId)).all();
+    if (payments.length === 0) throw Errors.paymentNotRegistered();
+    if (payments.some((p) => !p.confirmed)) throw Errors.paymentNotConfirmed();
+
+    const total = computeOrderTotal(tx, order);
+    const paid = round2(payments.reduce((acc, p) => acc + p.amount, 0));
+    if (!moneyEq(paid, total)) throw Errors.invalidPaymentTotal();
 
     const result = tx
       .update(orders)
@@ -390,7 +577,9 @@ export async function closeOrderUsecase(input: { orderId: string; userId: string
       tableId: order.tableId,
     });
 
-    logAction(tx, input.userId, "order_closed", input.orderId, { paymentMethod: order.paymentMethod });
+    logAction(tx, input.userId, "order_closed", input.orderId, {
+      payments: payments.map(serializePayment),
+    });
     return result;
   });
 

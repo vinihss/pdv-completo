@@ -41,10 +41,11 @@ export default function ReportsTab({ showToast }) {
 
       {report && !loading && (
         <>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <StatCard label="Total vendido" value={`R$ ${report.summary.totalRevenue.toFixed(2)}`} />
             <StatCard label="Comandas" value={report.summary.orderCount} />
             <StatCard label="Ticket médio" value={`R$ ${report.summary.avgTicket.toFixed(2)}`} />
+            <StatCard label="Troco (dinheiro)" value={`R$ ${report.summary.changeTotal.toFixed(2)}`} />
           </div>
           <Section title="Por forma de pagamento">
             <div className="grid grid-cols-2 gap-2">

@@ -3,13 +3,14 @@ import QRCode from "qrcode";
 import { buildPixPayload } from "@/shared/lib";
 import { orderTotal, orderLabel, money } from "./order.utils.js";
 
-export default function PixQrScreen({ order, storeSettings, onBack, onConfirm, submitting }) {
+export default function PixQrScreen({ order, amount, storeSettings, onBack, onConfirm, submitting }) {
   const [dataUrl, setDataUrl] = useState(null);
+  const value = amount ?? orderTotal(order);
   const payload = buildPixPayload({
     pixKey: storeSettings.pixKey,
     merchantName: storeSettings.merchantName,
     merchantCity: storeSettings.merchantCity,
-    amount: orderTotal(order),
+    amount: value,
     txid: order.id,
     description: orderLabel(order),
   });
@@ -28,7 +29,7 @@ export default function PixQrScreen({ order, storeSettings, onBack, onConfirm, s
     <div>
       <div className="text-center pt-1">
         <div className="text-stone-400 text-sm mb-1">Escaneie o QR com o app do banco</div>
-        <div className="font-display text-3xl font-bold text-emerald-400">{money(orderTotal(order))}</div>
+        <div className="font-display text-3xl font-bold text-emerald-400">{money(value)}</div>
       </div>
       <div className="flex justify-center my-5">
         {dataUrl ? (

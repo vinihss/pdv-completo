@@ -52,6 +52,10 @@ export const Errors = {
     new AppError("pending_items", 409, "Ainda há itens não entregues nesta comanda.", { pendingItems }),
   paymentNotRegistered: () =>
     new AppError("payment_not_registered", 409, "Registre a forma de pagamento antes de fechar."),
+  paymentNotConfirmed: () =>
+    new AppError("payment_not_confirmed", 409, "Confirme o recebimento das formas de pagamento antes de fechar."),
+  invalidPaymentTotal: () =>
+    new AppError("invalid_payment_total", 409, "A soma das formas de pagamento não confere com o total da comanda."),
   tooManyAttempts: () =>
     new AppError("too_many_attempts", 429, "Muitas tentativas. Aguarde um minuto."),
   addressLimitReached: () =>

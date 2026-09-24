@@ -90,6 +90,20 @@ export const orders = sqliteTable("order", {
   ifoodPayments: text("ifood_payments"), // métodos de pagamento do iFood (JSON), para fechar no CONCLUDED
 });
 
+export const orderPayments = sqliteTable("order_payment", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: text("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
+  method: text("method", { enum: ["cash", "card", "pix", "other"] }).notNull(),
+  amount: real("amount").notNull(),
+  received: real("received"), // só cash: quanto o cliente entregou
+  change: real("change"), // só cash: received - amount (troco)
+  confirmed: integer("confirmed", { mode: "boolean" }).notNull().default(false),
+  confirmedAt: text("confirmed_at"),
+  confirmedBy: text("confirmed_by").references(() => users.id),
+  createdBy: text("created_by").notNull().references(() => users.id),
+  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
+});
+
 export const orderItems = sqliteTable("order_item", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   orderId: text("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),

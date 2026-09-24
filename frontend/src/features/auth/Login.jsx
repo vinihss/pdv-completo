@@ -35,6 +35,7 @@ export default function Login() {
   const [checking, setChecking] = useState(false);
   const errorTimer = useRef(null);
 
+  // Carregamento inicial de dados da loja
   useEffect(() => {
     listLoginUsers()
       .then(setUsers)
@@ -77,11 +78,46 @@ export default function Login() {
     setError(null);
   }
 
+  // Ouvinte do Teclado para a tela de PIN
+  useEffect(() => {
+    function loginNumericPadHelper(evento) {
+      // Só escuta o teclado se estiver na tela de PIN
+      if (screen !== "pin") return;
+
+      // Se for um número de 0 a 9 (teclado normal ou numérico)
+      if (/^[0-9]\$/.test(evento.key)) {
+        evento.preventDefault();
+        pressDigit(evento.key);
+      } 
+      // Se for a tecla para apagar
+      else if (evento.key === "Backspace") {
+        evento.preventDefault();
+        backspace();
+      } 
+      // Se for Enter e já tiver o mínimo de dígitos
+      else if (evento.key === "Enter") {
+        evento.preventDefault();
+        confirmPin();
+      }
+      // Se for a tecla Esc, volta para a seleção de usuário
+      else if (evento.key === "Escape") {
+        evento.preventDefault();
+        backToSelect();
+      }
+    }
+
+    window.addEventListener('keydown', loginNumericPadHelper);
+    
+    // Remove o evento ao desmontar ou atualizar estados para evitar bugs
+    return () => {
+      window.removeEventListener('keydown', loginNumericPadHelper);
+    };
+  }, [screen, pin, checking]); // Dependências necessárias para ler os estados corretos
+  
   async function attemptLogin(candidatePin) {
     setChecking(true);
     try {
       await login(selectedUser.id, candidatePin);
-      // sucesso: AuthProvider atualiza a sessão, o roteamento troca de tela sozinho
     } catch (e) {
       setChecking(false);
       setError(e.code === "too_many_attempts" ? "Muitas tentativas. Aguarde um minuto." : "PIN incorreto. Tente novamente.");
@@ -191,7 +227,7 @@ export default function Login() {
               </button>
             ))}
             <button onClick={backToSelect} className="text-stone-500 hover:text-stone-300 text-xs font-semibold rounded-2xl py-5">
-              Voltar
+              Voltar (Esc)
             </button>
             <button
               onClick={() => pressDigit("0")}
@@ -203,21 +239,11 @@ export default function Login() {
             <button
               onClick={backspace}
               disabled={checking || pin.length === 0}
-              className="flex items-center justify-center text-stone-400 hover:text-stone-200 disabled:opacity-30 rounded-2xl py-5"
+              className="flex items-center justify-center text-stone-500 hover:text-red-400 disabled:opacity-40 rounded-2xl py-5 transition-colors"
             >
               <Delete size={22} />
             </button>
           </div>
-
-          {pin.length >= MIN_PIN && pin.length < MAX_PIN && (
-            <button
-              onClick={confirmPin}
-              disabled={checking}
-              className="w-full mt-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-stone-950 font-semibold py-3.5 rounded-xl transition-colors"
-            >
-              Confirmar
-            </button>
-          )}
         </div>
       )}
     </div>

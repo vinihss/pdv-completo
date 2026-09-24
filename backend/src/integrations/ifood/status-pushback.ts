@@ -1,7 +1,8 @@
-import { and, eq, notInArray } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
-import { orders, orderItems, deliveries, storeSettings } from "../../infra/db/schema.js";
+import { orders, orderItems, orderPayments, deliveries, storeSettings } from "../../infra/db/schema.js";
 import { SYSTEM_USER_ID } from "../../domain/constants.js";
+import { round2 } from "../../domain/money.js";
 import { Errors } from "../../domain/errors.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
@@ -75,6 +76,27 @@ export function concludeIfoodOrder(orderRef: string): boolean {
       .run();
 
     if (payment) {
+      // Pagamento já recebido pelo iFood — grava como linha de pagamento
+      // confirmada cobrindo o total da comanda (snapshot unit_price + taxa).
+      const itemSum = tx
+        .select({ sum: sql<number>`COALESCE(SUM(${orderItems.unitPrice} * ${orderItems.quantity}), 0)` })
+        .from(orderItems)
+        .where(and(eq(orderItems.orderId, order.id), notInArray(orderItems.status, ["cancelled"])))
+        .get()?.sum ?? 0;
+      const total = round2(Number(itemSum) + (order.deliveryFee ?? 0));
+      tx.insert(orderPayments)
+        .values({
+          orderId: order.id,
+          method: payment.method,
+          amount: total,
+          received: payment.method === "cash" ? total : null,
+          confirmed: true,
+          confirmedAt: new Date().toISOString(),
+          confirmedBy: SYSTEM_USER_ID,
+          createdBy: SYSTEM_USER_ID,
+        })
+        .run();
+
       tx.update(orders)
         .set({
           paymentMethod: payment.method,
