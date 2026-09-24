@@ -3,9 +3,11 @@ import jwt from "jsonwebtoken";
 import { config } from "../../config/env.js";
 import { Errors } from "../../domain/errors.js";
 
+export type Role = "waiter" | "kitchen" | "manager" | "courier" | "cashier";
+
 export interface AuthUser {
   sub: string; // user id
-  role: "waiter" | "kitchen" | "manager" | "courier";
+  role: Role;
 }
 
 declare module "fastify" {
@@ -26,7 +28,7 @@ export async function authMiddleware(req: FastifyRequest, _reply: FastifyReply) 
   }
 }
 
-export function requireRole(...roles: Array<"waiter" | "kitchen" | "manager" | "courier">) {
+export function requireRole(...roles: Role[]) {
   return async (req: FastifyRequest, _reply: FastifyReply) => {
     if (!req.authUser) throw Errors.unauthorized();
     if (!roles.includes(req.authUser.role)) throw Errors.forbiddenRole();

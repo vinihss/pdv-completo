@@ -14,6 +14,7 @@ import { startOutboxDispatcher } from "../infra/realtime/outbox-dispatcher.js";
 import { AppError } from "../domain/errors.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { orderRoutes } from "./routes/order.routes.js";
+import { cashFlowRoutes } from "./routes/cash-flow.routes.js";
 import { miscRoutes } from "./routes/misc.routes.js";
 import { realtimeRoutes } from "./routes/realtime.routes.js";
 import { publicRoutes } from "./routes/public.routes.js";
@@ -111,6 +112,7 @@ async function main() {
 
   await app.register(authRoutes);
   await app.register(orderRoutes);
+  await app.register(cashFlowRoutes);
   await app.register(miscRoutes);
   await app.register(realtimeRoutes);
   await app.register(publicRoutes);

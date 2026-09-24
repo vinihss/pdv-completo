@@ -78,10 +78,10 @@ const categoryUpdateSchema = categoryCreateSchema.partial().extend({ active: z.b
 const kitchenGroupCreateSchema = z.object({ name: z.string().min(1), displayOrder: z.number().int().optional() });
 const kitchenGroupUpdateSchema = kitchenGroupCreateSchema.partial().extend({ active: z.boolean().optional() });
 
-const userCreateSchema = z.object({ name: z.string().min(1), role: z.enum(["waiter", "kitchen", "manager", "courier"]) });
+const userCreateSchema = z.object({ name: z.string().min(1), role: z.enum(["waiter", "kitchen", "manager", "courier", "cashier"]) });
 const userUpdateSchema = z.object({
   name: z.string().min(1).optional(),
-  role: z.enum(["waiter", "kitchen", "manager", "courier"]).optional(),
+  role: z.enum(["waiter", "kitchen", "manager", "courier", "cashier"]).optional(),
   active: z.boolean().optional(),
 });
 

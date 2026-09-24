@@ -64,4 +64,17 @@ export const Errors = {
     new AppError("duplicate_phone", 409, "Telefone já cadastrado."),
   invalidCourierRole: () =>
     new AppError("invalid_courier_role", 400, "Usuário indicado não é um entregador."),
+  cashDrawerAlreadyOpen: () =>
+    new AppError("cash_drawer_already_open", 409, "Já existe um caixa aberto. Feche-o antes de abrir outro."),
+  cashDrawerNotOpen: () =>
+    new AppError("cash_drawer_not_open", 409, "Nenhum caixa aberto para esta operação."),
+  cashDrawerAlreadyClosed: () =>
+    new AppError("cash_drawer_already_closed", 409, "Este caixa já está fechado."),
+  cashWithdrawalExceedsAvailable: (available: number) =>
+    new AppError(
+      "cash_withdrawal_exceeds_available",
+      409,
+      `Sangria maior que o valor disponível no caixa (${available.toFixed(2)}).`,
+      { available }
+    ),
 };

@@ -1,6 +1,6 @@
 {
   "name": "@inspector/react",
-  "version": "0.13.1",
+  "version": "0.13.0",
   "private": true,
   "description": "React development inspector with DOM selection, CSS preview and contextual AI suggestions.",
   "type": "module",

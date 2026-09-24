@@ -264,7 +264,7 @@ export async function updateItemStatusUsecase(input: {
   orderId: string;
   itemId: string;
   userId: string;
-  userRole: "waiter" | "kitchen" | "manager" | "courier";
+  userRole: "waiter" | "kitchen" | "manager" | "courier" | "cashier";
   newStatus: "ready" | "delivered";
   expectedVersion: number;
 }) {
@@ -425,6 +425,10 @@ export async function setOrderPaymentsUsecase(input: {
       orderId: input.orderId,
       payments: created,
     });
+    enqueueEvent(tx, "cash-drawer", "order.payment_changed", {
+      orderId: input.orderId,
+      payments: created,
+    });
     return created;
   });
 
@@ -462,6 +466,11 @@ export async function confirmOrderPaymentUsecase(input: { orderId: string; payme
       paymentId: input.paymentId,
       confirmed: true,
     });
+    enqueueEvent(tx, "cash-drawer", "order.payment_changed", {
+      orderId: input.orderId,
+      paymentId: input.paymentId,
+      confirmed: true,
+    });
     return result;
   });
 
@@ -480,6 +489,7 @@ export async function deleteOrderPaymentUsecase(input: { orderId: string; paymen
     tx.delete(orderPayments).where(eq(orderPayments.id, input.paymentId)).run();
     logAction(tx, input.userId, "payment_removed", input.orderId, { paymentId: input.paymentId, method: payment.method });
     enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.payment_changed", { orderId: input.orderId });
+    enqueueEvent(tx, "cash-drawer", "order.payment_changed", { orderId: input.orderId });
   });
 }
 
@@ -512,6 +522,10 @@ export async function registerPaymentUsecase(input: {
       confirmed: input.confirmed,
     });
     enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.payment_changed", {
+      orderId: input.orderId,
+      payments: created,
+    });
+    enqueueEvent(tx, "cash-drawer", "order.payment_changed", {
       orderId: input.orderId,
       payments: created,
     });

@@ -6,6 +6,7 @@ import { OrdersRoot } from "@/features/orders";
 import { ManagerApp } from "@/features/manager";
 import { KitchenDisplay } from "@/features/kitchen";
 import { CourierApp } from "@/features/courier";
+import { CashierApp } from "@/features/cashier";
 import { CustomerMenuPage } from "@/features/customer-menu";
 
 export function AppFrame({ children }) {
@@ -46,6 +47,7 @@ const SCREENS_BY_ROLE = {
   manager: <ManagerApp />,
   kitchen: <KitchenDisplay />,
   courier: <CourierApp />,
+  cashier: <CashierApp />,
 };
 
 export function Root() {

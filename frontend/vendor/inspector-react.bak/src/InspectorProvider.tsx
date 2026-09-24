@@ -34,7 +34,7 @@ const propertyMap: Record<string, PreviewStyle> = {
 function toSelector(element: HTMLElement) {
   if (element.id) return `#${CSS.escape(element.id)}`;
   const className = typeof element.className === "string"
-    ? element.className.split(/\s+/).filter(Boolean).filter((name) => !name.includes("inspector") && /^[a-zA-Z0-9_-]+$/.test(name)).slice(0, 2)
+    ? element.className.split(/\s+/).filter(Boolean).filter((name) => !name.includes("inspector")).slice(0, 2)
     : [];
   return className.length ? `.${className.join(".")}` : element.tagName.toLowerCase();
 }
@@ -94,7 +94,6 @@ export function InspectorProvider({ children, enabled = true, workspace, ai, def
   const [markupText, setMarkupText] = useState("");
   const [markupHref, setMarkupHref] = useState("");
   const [markupTag, setMarkupTag] = useState("");
-  const [savedMarkupTag, setSavedMarkupTag] = useState("");
   const [savedMarkup, setSavedMarkup] = useState("");
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -102,16 +101,14 @@ export function InspectorProvider({ children, enabled = true, workspace, ai, def
   ]);
   const [pending, setPending] = useState(false);
   const [toast, setToast] = useState("");
-  const [toastKind, setToastKind] = useState<"success" | "error" | "info">("info");
   const [workspaceHistory, setWorkspaceHistory] = useState<WorkspaceEvent[]>([]);
   const [expandedTreeNodes, setExpandedTreeNodes] = useState<Set<string>>(() => new Set());
   const [newAttributeName, setNewAttributeName] = useState("");
   const [newAttributeValue, setNewAttributeValue] = useState("");
   const [attributeToRemove, setAttributeToRemove] = useState<{ node: HTMLElement; name: string } | null>(null);
 
-  const showToast = useCallback((text: string, kind: "success" | "error" | "info" = "info") => {
+  const showToast = useCallback((text: string) => {
     setToast(text);
-    setToastKind(kind);
     window.setTimeout(() => setToast(""), 2600);
   }, []);
 
@@ -229,7 +226,6 @@ export function InspectorProvider({ children, enabled = true, workspace, ai, def
     setMarkupText(next.node.textContent ?? "");
     setMarkupHref(next.node instanceof HTMLAnchorElement ? next.node.getAttribute("href") ?? "" : "");
     setMarkupTag(next.tag);
-    setSavedMarkupTag(next.tag);
     setSavedMarkup(next.node.outerHTML);
     setNewAttributeName("");
     setNewAttributeValue("");
@@ -367,9 +363,7 @@ export function InspectorProvider({ children, enabled = true, workspace, ai, def
     const canWriteMarkup = Boolean(markupDirty && (workspace?.writeMarkupPatch || workspace?.writeContentPatch) && workspace.readFile && source?.markupPath);
     const canWriteStyles = Boolean(pendingChanges.length > 0 && workspace?.writePatch && workspace.readFile && source?.path);
     if (!workspace?.readFile || !source || !selected || (!canWriteMarkup && !canWriteStyles)) {
-      const message = "Alteração aplicada somente no preview: workspace sem origem ou adapter de gravação";
-      showToast(message, "error");
-      recordWorkspaceEvent({ status: "error", message, path: source?.markupPath || source?.path || "origem não resolvida", kind: markupDirty && pendingChanges.length > 0 ? "mixed" : markupDirty ? "markup" : "style" });
+      showToast("Alteração aplicada somente no preview");
       return;
     }
     try {
@@ -379,7 +373,7 @@ export function InspectorProvider({ children, enabled = true, workspace, ai, def
         const contentPath = source.markupPath as string;
         const file = await workspace.readFile(contentPath);
         const attributes = Array.from(selected.node.attributes).filter((attribute) => !attribute.name.startsWith("data-inspector")).map((attribute) => ({ name: attribute.name, value: attribute.value }));
-        const markupInput = { path: contentPath, selector: source.selector, sourceTag: savedMarkupTag || selected.tag, tag: selected.tag, text: directText(selected.node), attributes, expectedHash: file.hash };
+        const markupInput = { path: contentPath, selector: source.selector, tag: selected.tag, text: directText(selected.node), attributes, expectedHash: file.hash };
         if (workspace.previewMarkupPatch) await workspace.previewMarkupPatch(markupInput);
         const result = await workspace.writeMarkupPatch(markupInput);
         if (result.hash) setSource((current) => current ? { ...current, markupHash: result.hash } : current);
@@ -407,11 +401,11 @@ export function InspectorProvider({ children, enabled = true, workspace, ai, def
       }
       setSavedStyles(currentStyles);
       setTab("changes");
-      showToast("Alterações salvas com sucesso no workspace", "success");
+      showToast("Alterações salvas com sucesso no workspace");
       recordWorkspaceEvent({ status: "success", message: "Alterações gravadas com sucesso", path: source.markupPath || source.path, kind: wroteMarkup && wroteStyles ? "mixed" : wroteMarkup ? "markup" : "style" });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao gravar alterações";
-      showToast(message, "error");
+      showToast(message);
       recordWorkspaceEvent({ status: "error", message, path: source?.markupPath || source?.path || "origem não resolvida", kind: markupDirty && pendingChanges.length > 0 ? "mixed" : markupDirty ? "markup" : "style" });
     }
   };
@@ -462,7 +456,7 @@ export function InspectorProvider({ children, enabled = true, workspace, ai, def
         <footer className="inspector-full-footer"><span><i /> {workspace ? "API: workspace conectado" : "Preview local"}</span><span>{ai ? "IA pronta" : "IA não configurada"}</span></footer>
       </aside>}
       <button className="inspector-full-trigger" onClick={() => setOpen((value) => !value)} aria-label={open ? "Fechar Inspector" : "Abrir Inspector"}>✦</button>
-      {toast && <div className={`inspector-full-toast ${toastKind}`} role={toastKind === "error" ? "alert" : "status"}>{toastKind === "success" ? "✓" : toastKind === "error" ? "!" : "i"} {toast}</div>}
+      {toast && <div className="inspector-full-toast">✓ {toast}</div>}
       {attributeToRemove && <div className="inspector-confirm-backdrop" role="presentation" onClick={() => setAttributeToRemove(null)}><div className="inspector-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="inspector-remove-title" onClick={(event) => event.stopPropagation()}><h3 id="inspector-remove-title">Remover atributo?</h3><p>O atributo <code>{attributeToRemove.name}</code> será removido do preview. A alteração só será gravada no workspace quando você salvar.</p><div className="inspector-confirm-actions"><button className="inspector-confirm-cancel" onClick={() => setAttributeToRemove(null)}>Cancelar</button><button className="inspector-confirm-danger" onClick={confirmRemoveAttribute}>Remover</button></div></div></div>}
     </div>
   </>;

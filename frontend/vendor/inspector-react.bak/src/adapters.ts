@@ -27,8 +27,8 @@ export function createTrpcWorkspaceAdapter(api: {
   listFiles: () => Promise<string[]>;
   resolveSource: (selector: string) => Promise<{ path: string; selector: string; hash: string; markupPath?: string; markupHash?: string } | null>;
   readFile: (path: string) => Promise<{ path: string; content: string; hash: string; bytes: number }>;
-  previewMarkupPatch?: (input: { path: string; selector: string; sourceTag?: string; tag: string; text: string; attributes: Array<{ name: string; value: string }>; expectedHash?: string }) => Promise<unknown>;
-  writeMarkupPatch?: (input: { path: string; selector: string; sourceTag?: string; tag: string; text: string; attributes: Array<{ name: string; value: string }>; expectedHash: string }) => Promise<{ hash?: string }>;
+  previewMarkupPatch?: (input: { path: string; selector: string; tag: string; text: string; attributes: Array<{ name: string; value: string }>; expectedHash?: string }) => Promise<unknown>;
+  writeMarkupPatch?: (input: { path: string; selector: string; tag: string; text: string; attributes: Array<{ name: string; value: string }>; expectedHash: string }) => Promise<{ hash?: string }>;
   previewContentPatch?: (input: { path: string; before: string; after: string; expectedHash?: string }) => Promise<unknown>;
   writeContentPatch?: (input: { path: string; before: string; after: string; expectedHash: string }) => Promise<{ hash?: string }>;
   previewPatch?: (input: Parameters<NonNullable<InspectorWorkspaceAdapter["previewPatch"]>>[0]) => Promise<unknown>;

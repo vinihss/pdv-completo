@@ -16,7 +16,7 @@ import { sql } from "drizzle-orm";
 export const users = sqliteTable("user", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
-  role: text("role", { enum: ["waiter", "kitchen", "manager", "courier", "system"] }).notNull(),
+  role: text("role", { enum: ["waiter", "kitchen", "manager", "courier", "system", "cashier"] }).notNull(),
   pinHash: text("pin_hash").notNull(),
   failedAttempts: integer("failed_attempts").notNull().default(0),
   lockedUntil: text("locked_until"),
@@ -117,6 +117,35 @@ export const orderItems = sqliteTable("order_item", {
   createdBy: text("created_by").notNull().references(() => users.id),
   createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
   updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
+});
+
+// Fluxo de caixa (migration 0012): uma sessão aberta por vez (índice parcial
+// único). O "esperado" em dinheiro de cada sessão é calculado em usecase a
+// partir de order_payment (method='cash', confirmed, confirmed_at no período)
+// somado ao fundo inicial e movimentos manuais (sangria/suprimento).
+export const cashDrawers = sqliteTable("cash_drawer", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  status: text("status", { enum: ["open", "closed"] }).notNull().default("open"),
+  openedAt: text("opened_at").notNull().default(sql`(current_timestamp)`),
+  openedBy: text("opened_by").notNull().references(() => users.id),
+  openingAmount: real("opening_amount").notNull().default(0),
+  closedAt: text("closed_at"),
+  closedBy: text("closed_by").references(() => users.id),
+  closingExpected: real("closing_expected"),
+  closingCounted: real("closing_counted"),
+  closingDifference: real("closing_difference"),
+  note: text("note"),
+  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
+});
+
+export const cashDrawerMovements = sqliteTable("cash_drawer_movement", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  drawerId: text("drawer_id").notNull().references(() => cashDrawers.id, { onDelete: "cascade" }),
+  type: text("type", { enum: ["sangria", "suprimento"] }).notNull(),
+  amount: real("amount").notNull(),
+  note: text("note"),
+  createdBy: text("created_by").notNull().references(() => users.id),
+  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
 });
 
 // Singleton (linha única) — id fixo "singleton" pra facilitar SELECT/UPDATE sem WHERE dinâmico

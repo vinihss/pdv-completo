@@ -63,5 +63,3 @@
 .inspector-confirm-cancel { color: #aeb8c9; background: rgba(255,255,255,.04); }
 .inspector-confirm-danger { border-color: rgba(255,111,127,.3) !important; color: #fff; background: #b84f62; }
 .inspector-confirm-danger:hover { background: #d35d70; }
-.inspector-full-toast.error { border-color: rgba(248,113,113,.55); background: #3a1820; color: #fecaca; }
-.inspector-full-toast.success { border-color: rgba(52,211,153,.45); background: #102b26; color: #a7f3d0; }

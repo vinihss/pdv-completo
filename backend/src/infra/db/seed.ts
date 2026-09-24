@@ -38,6 +38,7 @@ async function seed() {
     { name: "Ana Ribeiro", role: "waiter" as const, pin: "1234" },
     { name: "Carlos Lima", role: "waiter" as const, pin: "5678" },
     { name: "Roberto Alves", role: "manager" as const, pin: "9999" },
+    { name: "Caixa Teste", role: "cashier" as const, pin: "2468" },
     { name: "Estação Cozinha", role: "kitchen" as const, pin: "0000" },
   ];
   for (const u of seedUsers) {
@@ -81,7 +82,7 @@ async function seed() {
   );
 
   console.log("[seed] concluído.");
-  console.log("[seed] PINs de teste — Ana: 1234 · Carlos: 5678 · Roberto: 9999 · Cozinha: 0000");
+  console.log("[seed] PINs de teste — Ana: 1234 · Carlos: 5678 · Roberto: 9999 · Caixa: 2468 · Cozinha: 0000");
 }
 
 seed()

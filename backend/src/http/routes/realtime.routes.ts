@@ -20,6 +20,9 @@ export async function realtimeRoutes(app: FastifyInstance) {
     // Rooms iniciais por perfil — o client também pode entrar em `table:{id}` específico via mensagem.
     const initialRooms = [`waiter:${authUser.sub}`];
     if (authUser.role === "kitchen") initialRooms.push("kitchen-display");
+    // Caixa e gerente acompanham o fluxo de caixa ao vivo (pagamentos em
+    // dinheiro também são broadcast para esse room — ver order.usecases).
+    if (authUser.role === "cashier" || authUser.role === "manager") initialRooms.push("cash-drawer");
 
     const conn = wsGateway.addConnection(socket as any, initialRooms);
 

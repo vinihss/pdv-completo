@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  Receipt, Settings, Package, Users, BarChart3, History, Truck, Store,
+  Receipt, Settings, Package, Users, BarChart3, History, Truck, Store, Wallet,
 } from "lucide-react";
 import { useToast, Toast } from "@/shared/components";
 import { OrdersRoot } from "@/features/orders";
@@ -11,9 +11,11 @@ import { ReportsTab } from "@/features/reports";
 import { AuditTab } from "@/features/audit";
 import { IfoodTab } from "@/features/ifood";
 import { SettingsTab } from "@/features/settings";
+import { CashDrawerTab } from "@/features/cashdrawer";
 
 const TABS = [
   { id: "orders", label: "Comandas", icon: Receipt },
+  { id: "cash", label: "Caixa", icon: Wallet },
   { id: "deliveries", label: "Entregas", icon: Truck },
   { id: "catalog", label: "Cadastros", icon: Package },
   { id: "users", label: "Equipe", icon: Users },
@@ -46,6 +48,7 @@ export default function ManagerApp() {
       </div>
 
       {tab === "orders" && <OrdersRoot />}
+      {tab === "cash" && <CashDrawerTab showToast={showToast} />}
       {tab === "deliveries" && <DeliveriesTab showToast={showToast} />}
       {tab === "catalog" && <CatalogTab showToast={showToast} />}
       {tab === "users" && <UsersTab showToast={showToast} />}

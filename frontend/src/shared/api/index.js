@@ -9,4 +9,5 @@ export * as courierApi from "./courier.js";
 export * as ifoodApi from "./ifood.js";
 export * as publicApi from "./public.js";
 export * as reportsApi from "./reports.js";
+export * as cashApi from "./cash.js";
 export { request, upload, setAuthToken, setUnauthorizedHandler } from "./http.js";

@@ -3,7 +3,7 @@ import { Plus, RefreshCcw, X } from "lucide-react";
 import { listUsers, createUser, updateUser, resetPin } from "@/shared/api/users";
 import { Field, inputClass, ConfirmModal } from "@/shared/components";
 
-const ROLE_LABEL = { waiter: "Garçom", kitchen: "Cozinha", manager: "Gerente", courier: "Entregador" };
+const ROLE_LABEL = { waiter: "Garçom", kitchen: "Cozinha", manager: "Gerente", courier: "Entregador", cashier: "Caixa" };
 
 export default function UsersTab({ showToast: _showToast }) {
   const [users, setUsers] = useState([]);
@@ -100,6 +100,7 @@ export function NewUserModal({ onClose, onCreate }) {
               <option value="waiter">Garçom</option>
               <option value="kitchen">Cozinha</option>
               <option value="manager">Gerente</option>
+              <option value="cashier">Caixa</option>
               <option value="courier">Entregador</option>
             </select>
           </Field>

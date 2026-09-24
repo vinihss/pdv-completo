@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Delete, ChefHat, UtensilsCrossed, ClipboardList, Lock, Loader2 } from "lucide-react";
+import { Delete, ChefHat, UtensilsCrossed, ClipboardList, Lock, Loader2, Wallet } from "lucide-react";
 import { listLoginUsers } from "@/shared/api/auth";
 import { getStoreInfo } from "@/shared/api/store";
 import { useAuth } from "./AuthContext.jsx";
@@ -10,6 +10,7 @@ const ROLE_META = {
   kitchen: { label: "Cozinha", icon: ChefHat },
   manager: { label: "Gerente", icon: UtensilsCrossed },
   courier: { label: "Entregador", icon: UtensilsCrossed },
+  cashier: { label: "Caixa", icon: Wallet },
   system: { label: "System", icon: UtensilsCrossed },
 };
 
