@@ -17,7 +17,10 @@ export function useRealtime(token, rooms, onEvent) {
   const connect = useCallback(() => {
     if (!token) return;
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${proto}//${window.location.host}/realtime?token=${token}`);
+    // 2.3 — token via subprotocol (Sec-WebSocket-Protocol), não na query string
+    // (que vazaria nos logs do proxy/Caddy). O server reflete o protocolo no
+    // handshake; se o token for inválido, a conexão é fechada com 4001.
+    const ws = new WebSocket(`${proto}//${window.location.host}/realtime`, [token]);
     wsRef.current = ws;
 
     ws.onopen = () => {

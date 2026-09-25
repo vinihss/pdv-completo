@@ -68,6 +68,10 @@ export const Errors = {
     new AppError("cash_drawer_already_open", 409, "Já existe um caixa aberto. Feche-o antes de abrir outro."),
   cashDrawerNotOpen: () =>
     new AppError("cash_drawer_not_open", 409, "Nenhum caixa aberto para esta operação."),
+  paymentRequiresOpenDrawer: () =>
+    new AppError("cash_drawer_not_open", 409, "Pagamento em dinheiro exige caixa aberto. Abra o caixa antes de confirmar a venda."),
+  cashRefundRequiresOpenDrawer: () =>
+    new AppError("cash_drawer_not_open", 409, "Não há caixa aberto para registrar o estorno em dinheiro."),
   cashDrawerAlreadyClosed: () =>
     new AppError("cash_drawer_already_closed", 409, "Este caixa já está fechado."),
   cashWithdrawalExceedsAvailable: (available: number) =>
@@ -77,4 +81,8 @@ export const Errors = {
       `Sangria maior que o valor disponível no caixa (${available.toFixed(2)}).`,
       { available }
     ),
+  tableNotFound: (tableId: string) =>
+    new AppError("table_not_found", 404, "Mesa não encontrada.", { tableId }),
+  tableOccupied: () =>
+    new AppError("table_occupied", 409, "Esta mesa já está ocupada por outra comanda aberta."),
 };

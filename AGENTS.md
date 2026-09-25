@@ -89,8 +89,10 @@ e `/realtime` pro backend).
 | `npm run seed` | backend | seed de dev (usuários/PINs fictícios) |
 | `npm run seed:prod` | backend | seed de primeiro deploy (sem dados fictícios) |
 | `npm run db:migrate` | backend | aplica `migrations/*.sql` manualmente (também roda no boot em modo local) |
+| `npm run test` | backend | vitest (banco dedicado `data/test.db`; caixa, comandas, idempotência, maintenance) |
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
+| `npm run test` | frontend | vitest (jsdom + Testing Library; relatório de caixa/reports) |
 
 ## Convenções e regras ao editar código
 
@@ -124,8 +126,10 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
   /orders/:id/payment` legado é adaptador de intenção única usado pelo
   self-service/delivery — não regredir esses dois fluxos.
 - **Idempotência**: endpoints marcados (`POST /orders`,
-  `POST /orders/:id/items`, `PATCH /orders/:id/close`) devem usar
-  `withIdempotency` com `correlationId`.
+  `POST /orders/:id/items`, `PATCH /orders/:id/close`, fluxo de caixa) devem usar
+  `withIdempotency` com `correlationId`. `failed`/expirado reprocessa na mesma
+  linha; `completed` válido devolve cache; corrida de insert nunca gera 500
+  (ver roadmap 1.4). Chaves expiradas são purgadas pelo job de maintenance (2.5).
 - **Lock otimista**: toda mutação de `order_item` via `PATCH
   /orders/:id/items/:itemId` exige `expectedVersion`; em conflito, responder
   `concurrency_conflict`.
@@ -139,10 +143,12 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
 
 - **Sem lib de estado** (sem Redux/Zustand/React Query): server-authoritative.
   Padrão: mutation `await` + reload via REST; WS para refresh direcionado.
-- **Realtime**: usar o hook `useRealtime(token, rooms, onEvent)` (`src/lib/ws.js`).
-  Atenção aos rooms: hoje os clients assinam `waiter:{userId}` e
-  `kitchen-display`. Eventos broadcast apenas para `table:{id}` **não chegam a
-  nenhum client** — ver roadmap (1.2) e manter a consistência room/broadcast.
+- **Realtime**: usar o hook `useRealtime(token, rooms, onEvent)` (`src/shared/hooks/useRealtime.js`).
+  O token vai como **subprotocol** (`Sec-WebSocket-Protocol`), nunca na query
+  string. Rooms: clients assinam `waiter:{userId}` + `kitchen-display`; o backend
+  usa `kitchen-display` como room-broadcast do app de comandas (fechar/pagar/
+  deletar/cancelar emitem para lá além de `table:{id}`). **Nunca** emitir evento
+  relevante só para `table:{id}` — nenhum client assina esse room (ver 1.2).
 - **Mutations**: aguardar e então recarregar; sem otimismo. Tratar erros de
   domínio com toasts (`src/components/Toast.jsx`).
 - **UI em PT-BR**; ícones via `lucide-react`; estilos com Tailwind 4 (CSS-first).
@@ -164,13 +170,13 @@ dentro da fase, a ordem indicada.
 | # | Melhoria | Localização | Verificação |
 |---|---|---|---|
 | 1.1 | ~~Relatório de vendas quebra ao filtrar~~ — ✅ feito: `sql\`... IN ${orderIds}\`` trocado por `inArray` em `report.usecases.ts`; filtro `productId` testado por API. | `backend/src/application/report.usecases.ts` | `GET /reports/sales` (com e sem `productId`) retorna resultado. |
-| 1.2 | Comanda fechada não some da lista: `order.closed` e `table.status_changed` são broadcast só para `table:{id}`, room que nenhum client assina. Decidir entre fazer o client assinar o room ou broadcast extra para `kitchen-display`/`waiter:{id}`. | `backend/src/application/order/order.usecases.ts:327-336`; `frontend/src/lib/useOrders.js:55` | Fechar comanda num terminal e o outro atualizar via WS sem "Atualizar" manual. |
-| 1.3 | `crypto.randomUUID()` indefinido em contexto HTTP na LAN (dev em `http://<ip>:5173`). Adicionar fallback (ex.: `Math.random`-based UUID) em `frontend/src/lib/api.js:18`. | `frontend/src/lib/api.js` | Abrir comanda a partir de `http://<ip-da-maquina>:5173`. |
-| 1.4 | Idempotência: estado `failed` → 409 permanente; `expires_at` escrito mas nunca lido (sem cleanup); race check-then-insert → 500 (colisão de PK) em vez de 409. | `backend/src/http/middlewares/idempotency.middleware.ts` | Replay de `correlationId` após falha server-side; dois requests idênticos concorrentes. |
-| 1.5 | Outbox dispatcher sem try/catch: payload corrompido → unhandled rejection → derruba o processo. | `backend/src/infra/realtime/outbox-dispatcher.ts:15-28` | Corromper payload de `outbox_event` e observar o processo continuar vivo. |
-| 1.6 | `openOrderUsecase` não valida existência/status da mesa: permite 2 comandas abertas na mesma mesa; fechar uma libera a mesa com a outra aberta. Validar mesa existente e `free` (ou devolver erro de domínio). | `backend/src/application/order/order.usecases.ts:88-128` | Abrir comanda em mesa ocupada → esperar erro de domínio (não 500/duplicidade). |
+| 1.2 | ~~Comanda fechada não some da lista~~ — ✅ feito: `order.closed`, `order.cancelled`, `order.payment_changed` e `order.item.removed` agora têm broadcast extra para `kitchen-display` (room que o `useOrders` do garçom/gerente assina) além de `table:{id}` — decisão: usar `kitchen-display` como room-broadcast do app de comandas, mesmo padrão já usado em `order.item.created`. | `backend/src/application/order/order.usecases.ts` | Fechar/deletar/pagar comanda num terminal e o outro atualizar via WS sem "Atualizar" manual. |
+| 1.3 | ✅ `crypto.randomUUID()` em contexto HTTP na LAN — já resolvido: fallback completos em `frontend/src/shared/lib/uuid.js` (`newCorrelationId()`: `randomUUID` → `getRandomValues` → `Math.random`), e todos os `correlationId` passam por ele. | `frontend/src/shared/lib/uuid.js` | Abrir comanda a partir de `http://<ip-da-maquina>:5173`. |
+| 1.4 | ~~Idempotência: `failed` → 409 permanente; `expires_at` nunca lido; race → 500~~ — ✅ feito: estado `failed` ou `expires_at` expirado reprocessa na mesma linha (sem colisão de PK); race check-then-insert detecta a colisão e devolve a resposta da vencedora. Cleanup de chaves via job (ver 2.5). | `backend/src/http/middlewares/idempotency.middleware.ts` | Replay de `correlationId` após falha server-side reprocessa; dois requests idênticos concorrentes não geram 500. Testado em `test/idempotency.test.ts`. |
+| 1.5 | ~~Outbox dispatcher sem try/catch~~ — ✅ feito: ciclo isolado em `pollOutboxOnce()` com catch por evento; payload corrompido é descartado (marca publicado + warn), o processo jamais derruba. | `backend/src/infra/realtime/outbox-dispatcher.ts` | Corromper payload de `outbox_event` e observar o processo continuar vivo (teste em `test/maintenance.test.ts`). |
+| 1.6 | ~~`openOrderUsecase` não valida existência/status da mesa~~ — ✅ feito: dentro da transação, mesa inexistente → `404 table_not_found`; status ≠ `free` → `409 table_occupied`. | `backend/src/application/order/order.usecases.ts` | Abrir comanda em mesa ocupada → erro de domínio (não 500/duplicidade). Testado em `test/order-flow.test.ts`. |
 | 1.7 | ~~`registerPaymentUsecase` muta comanda já fechada~~ — ✅ feito: valida `order_not_open` em todos os use cases de pagamento; `closeOrder` agora exige linhas `order_payment` confirmadas e soma == total (erros `payment_not_confirmed`/`invalid_payment_total`). Também resolveu de vez o fechamento com pagamento não confirmado. | `backend/src/application/order/order.usecases.ts:256-343` | Testes de API direta (curl) em comanda fechada e pagamento não confirmado retornam erros de domínio. |
-| 1.8 | Sem eventos realtime para delete de item e pagamento → telas de colegas/cozinha defasadas. | `backend/src/application/order/order.usecases.ts:244-289` | Deletar item/pagar numa tela e ver a outra refletir via WS. |
+| 1.8 | ~~Sem eventos realtime para delete de item e pagamento~~ — ✅ feito: `order.item.removed` (novo) e `order.payment_changed` broadcast para `table:{id}` + `kitchen-display` (ver 1.2). | `backend/src/application/order/order.usecases.ts:244-289` | Deletar item/pagar numa tela e ver a outra refletir via WS. |
 
 ### Fase 2 — Robustez operacional e segurança
 
@@ -182,24 +188,26 @@ dentro da fase, a ordem indicada.
   em produção (NODE_ENV=production ou modo cloud) se `JWT_SECRET` estiver
   ausente, for `"dev-secret-change-me"` ou tiver menos de 32 chars. Em dev local
   o fallback continua valendo.
-- **2.3 WebSocket**: token na query string vaza em logs de proxy
-  (`realtime.routes.ts:7`, `frontend/src/lib/ws.js:20`) — mover para
-  header/`Sec-WebSocket-Protocol`. Qualquer usuário autenticado pode `join`
-  qualquer room (`realtime.routes.ts:29-31`) — autorizar rooms.
-- **2.4 `GET /audit-log`** sem restrição de papel, apesar de a spec tratar como
-  ferramenta do gerente — adicionar `requireRole("manager")`.
-- **2.5 Cleanup**: `outbox_event` publicado e `idempotency_key` crescem sem
-  limite (e `expires_at` nunca é respeitado) — job de expiração/limpeza.
+- **2.3 ~~WebSocket: token na query string + join sem autorização~~** — ✅ feito:
+  token passa a chegar via subprotocol `Sec-WebSocket-Protocol`
+  (`frontend/src/shared/hooks/useRealtime.js`, `backend/src/http/routes/realtime.routes.ts`)
+  — some dos logs de proxy; e `join` dinâmico é autorizado por papel
+  (`canJoinRoom`: waiter/manager → `waiter:{sub}`/`kitchen-display`/`deliveries`,
+  kitchen → `kitchen-display`, cashier → `cash-drawer`, courier → `deliveries`);
+  room não permitido responde `join.denied`.
+- **2.4 ~~`GET /audit-log` sem restrição~~** — ✅ feito: `requireRole("manager")`
+  em `backend/src/http/routes/misc.routes.ts`.
+- **2.5 ~~Cleanup~~** — ✅ feito: `backend/src/infra/maintenance.ts` —
+  `runMaintenanceOnce()` purga `outbox_event` publicado com >1h e
+  `idempotency_key` com `expires_at` passado; job de 5min no `main()` do
+  `server.ts`. Testado em `test/maintenance.test.ts`.
 - **2.6 ~~Remover artefato~~** — ✅ feito: `backend/data-docker-test/` removido
   (banco SQLite de teste commitado). Tudo que é runtime/local está no
   `.gitignore` da raiz (`*.db*`, `backend/data/`, `.env`).
 
 ### Fase 3 — Qualidade e refactor
 
-- **3.1 Testes**: configurar framework de testes (backend e frontend, a decidir)
-  cobrindo ao menos os bugs da Fase 1 e os fluxos críticos
-  (login, abrir/lançar/entregar/pagar/fechar, bloqueio de fechamento com item
-  pendente).
+- **3.1 Testes**: ✅ backend coberto por vitest (banco `data/test.db` limpo no global setup; suítes `backend/test/cash-flow.test.ts` — fluxo de caixa: sessão única, sangria/suprimento/fechamento, idempotência, hard block de dinheiro sem caixa, estorno automático e resumo por período incluindo `openCount`/`openExpected` e `closing_note`/`tz`; `test/order-flow.test.ts` — validação de mesa (1.6) e eventos outbox de fechamento/cancelamento/pagamento/delete (1.2/1.8); `test/idempotency.test.ts` — retry de `failed`/expirado, 409 processing, cache de completed (1.4); `test/maintenance.test.ts` — outbox corrompido não derruba (1.5) e cleanup (2.5)). ✅ frontend também: vitest + jsdom + Testing Library (rodar `npm run test` no `frontend/`), com a lógica pura de `reports/cashReportView.js` e regressão de render do `ReportsTab` com sessão de caixa aberta no período. Ainda falta: cobrir os fluxos críticos de UI (login, entrega, fechamento com item pendente).
 - **3.2 Lint/typecheck no backend** (hoje só `tsc` no build, sem lint).
 - **3.3 N+1 em `listOrdersUsecase`**: 4 queries por comanda
   (`order.usecases.ts:358`) — trocar por join em lote.
@@ -235,7 +243,9 @@ dentro da fase, a ordem indicada.
 Antes de dar qualquer mudança por feita:
 
 1. Backend: `npm run build` (tsc) sem erros.
-2. Frontend: `npm run lint` e `npm run build` sem erros.
+1.1. Backend: `npm run test` (vitest) sem falhas — obrigatório quando o fluxo
+   alterado tiver suíte (fluxo de caixa hoje).
+2. Frontend: `npm run lint`, `npm run build` e `npm run test` sem erros.
 3. Smoke manual por perfil: login (garçom/gerente/cozinha) → abrir comanda →
    lançar itens → (cozinha marca pronto) → garçom entrega → pagar → fechar.
 4. Conferir o critério de aceite correspondente em

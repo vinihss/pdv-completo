@@ -2,16 +2,26 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
 import { withIdempotency } from "../middlewares/idempotency.middleware.js";
+import { dayStart, dayEnd, isValidTz } from "../../application/cash-flow/day-bounds.js";
 import {
   getCurrentDrawerUsecase,
   listCashDrawersUsecase,
   getCashDrawerDetailUsecase,
+  sumCashDrawersSummaryUsecase,
   openCashDrawerUsecase,
   registerCashMovementUsecase,
   closeCashDrawerUsecase,
 } from "../../application/cash-flow/cash-flow.usecases.js";
 
 const noteSchema = z.string().max(200).optional();
+
+// Offset opcional de fuso para interpretar datas "YYYY-MM-DD" como um dia
+// local na loja (ex: "-03:00" para GMT-3). Default UTC → mesmo comportamento
+// anterior.
+const tzSchema = z
+  .string()
+  .optional()
+  .refine(isValidTz, "tz deve ser um offset como -03:00 ou +05:30 (dentro de ±12h)");
 
 const openSchema = z.object({
   correlationId: z.string(),
@@ -28,6 +38,7 @@ const movementSchema = z.object({
 const closeSchema = z.object({
   correlationId: z.string(),
   countedAmount: z.number().min(0),
+  note: noteSchema,
 });
 
 // Caixa e gerente operam o fluxo de caixa.
@@ -43,6 +54,17 @@ export async function cashFlowRoutes(app: FastifyInstance) {
     return listCashDrawersUsecase({
       limit: Math.min(Number(q.limit ?? 50), 200),
       offset: Number(q.offset ?? 0),
+    });
+  });
+
+  // Aceita datas ISO completas ou "YYYY-MM-DD" (vira início/fim do dia). Com
+  // `tz` (±HH:MM), o dia é interpretado no fuso local da loja.
+  app.get("/cash-drawer/summary", { preHandler: requireRole(...CASH_ROLES) }, async (req) => {
+    const q = req.query as { from?: string; to?: string; tz?: string };
+    const tz = tzSchema.parse(q.tz);
+    return sumCashDrawersSummaryUsecase({
+      from: q.from ? dayStart(q.from, tz) : "0001-01-01T00:00:00.000Z",
+      to: q.to ? dayEnd(q.to, tz) : "9999-12-31T23:59:59.999Z",
     });
   });
 
@@ -96,6 +118,7 @@ export async function cashFlowRoutes(app: FastifyInstance) {
       const result = await closeCashDrawerUsecase({
         userId: req.authUser!.sub,
         countedAmount: body.countedAmount,
+        note: body.note,
       });
       return { status: 200, body: result };
     }).then((r) => r.body);

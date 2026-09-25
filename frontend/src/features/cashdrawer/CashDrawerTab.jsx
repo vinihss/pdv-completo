@@ -9,8 +9,20 @@ import OpenCashDrawerModal from "./OpenCashDrawerModal.jsx";
 import CashMovementModal from "./CashMovementModal.jsx";
 import CloseCashDrawerModal from "./CloseCashDrawerModal.jsx";
 import CashDrawerDetailModal from "./CashDrawerDetailModal.jsx";
+import PrintReceipt from "./PrintReceipt.jsx";
 
 const fmt = (n) => `R$ ${Number(n || 0).toFixed(2)}`;
+
+// "há 3h 12min" para a sessão aberta.
+function fmtElapsed(iso, now) {
+  const ms = Math.max(0, now - Date.parse(iso));
+  const totalMin = Math.floor(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? `${h}h ${m}min` : `${m}min`;
+}
+
+const PAGE = 20;
 
 export default function CashDrawerTab({ showToast }) {
   const { session } = useAuth();
@@ -21,12 +33,16 @@ export default function CashDrawerTab({ showToast }) {
   const [movementType, setMovementType] = useState(null);
   const [closeModal, setCloseModal] = useState(false);
   const [detail, setDetail] = useState(null);
+  const [printId, setPrintId] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [now, setNow] = useState(Date.now());
 
   const reload = useCallback(async () => {
     try {
-      const [c, h] = await Promise.all([getCurrentCashDrawer(), listCashDrawers({ limit: 20 })]);
+      const [c, h] = await Promise.all([getCurrentCashDrawer(), listCashDrawers({ limit: PAGE })]);
       setCurrent(c);
       setHistory(h.data);
+      setHasMore(h.data.length === PAGE);
     } catch (e) {
       showToast(e.message, "error");
     } finally {
@@ -37,9 +53,38 @@ export default function CashDrawerTab({ showToast }) {
 
   useEffect(() => { reload(); }, [reload]);
 
+  // Atualiza o "aberta há" a cada minuto pra sessão aberta.
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(t);
+  }, []);
+
   // Refresca ao vivo quando outro terminal altera o caixa (pagamentos em
   // dinheiro também são broadcast para o room "cash-drawer").
   useRealtime(session?.token, ["cash-drawer"], () => reload());
+
+  async function loadMore() {
+    try {
+      const h = await listCashDrawers({ limit: PAGE, offset: history.length });
+      setHistory((prev) => [...prev, ...h.data]);
+      setHasMore(h.data.length === PAGE);
+    } catch (e) {
+      showToast(e.message, "error");
+    }
+  }
+
+  async function handleClose(counted, note) {
+    try {
+      const drawer = await closeCashDrawer(counted, note);
+      await reload();
+      showToast("Caixa fechado.", "success");
+      setPrintId(drawer.id);
+      return true;
+    } catch (e) {
+      showToast(e.message, "error");
+      return false;
+    }
+  }
 
   async function run(action, successMsg) {
     try {
@@ -71,6 +116,7 @@ export default function CashDrawerTab({ showToast }) {
           <>
             <div className="text-stone-500 text-xs mb-3">
               Aberto por {current.openedByName ?? "—"} às {toDate(current.openedAt).toLocaleTimeString()}
+              <span className="text-stone-600"> · aberto há {fmtElapsed(current.openedAt, now)}</span>
             </div>
             <div className="text-3xl font-display font-bold text-emerald-400">{fmt(current.expectedCash)}</div>
             <div className="text-stone-500 text-xs mt-1">esperado na gaveta</div>
@@ -110,6 +156,11 @@ export default function CashDrawerTab({ showToast }) {
                   <span className={`font-semibold ${m.type === "sangria" ? "text-red-400" : "text-emerald-400"}`}>
                     {m.type === "sangria" ? "Sangria" : "Suprimento"}
                   </span>
+                  {m.refOrderLabel && (
+                    <span className="inline-block text-[10px] font-semibold bg-stone-800 text-amber-400 rounded-full px-1.5 py-0.5 ml-1.5">
+                      Estorno · {m.refOrderLabel}
+                    </span>
+                  )}
                   {m.note && <span className="text-stone-500 text-xs ml-2">{m.note}</span>}
                   <div className="text-stone-600 text-xs">
                     {toDate(m.createdAt).toLocaleTimeString()} · {m.createdByName ?? m.createdBy}
@@ -158,6 +209,11 @@ export default function CashDrawerTab({ showToast }) {
           ))}
           {history.length === 0 && <div className="text-stone-600 text-sm py-4 text-center">Nenhum caixa fechado ainda.</div>}
         </div>
+        {hasMore && (
+          <button onClick={loadMore} className="w-full text-sm text-amber-400 hover:text-amber-300 font-medium py-2 mt-1">
+            Carregar mais
+          </button>
+        )}
       </Section>
 
       {/* Modais */}
@@ -170,6 +226,7 @@ export default function CashDrawerTab({ showToast }) {
       {movementType && (
         <CashMovementModal
           type={movementType}
+          expected={current?.expectedCash}
           onClose={() => setMovementType(null)}
           onConfirm={(p) => run(() => registerCashMovement(movementType, p), movementType === "sangria" ? "Sangria registrada." : "Suprimento registrado.")}
         />
@@ -178,10 +235,11 @@ export default function CashDrawerTab({ showToast }) {
         <CloseCashDrawerModal
           expected={current.expectedCash}
           onClose={() => setCloseModal(false)}
-          onConfirm={(counted) => run(() => closeCashDrawer(counted), "Caixa fechado.")}
+          onConfirm={handleClose}
         />
       )}
-      {detail && <CashDrawerDetailModal drawerId={detail.id} onClose={() => setDetail(null)} showToast={showToast} />}
+      {detail && <CashDrawerDetailModal drawerId={detail.id} onClose={() => setDetail(null)} showToast={showToast} onPrint={() => setPrintId(detail.id)} />}
+      {printId && <PrintReceipt drawerId={printId} onDone={() => setPrintId(null)} />}
     </div>
   );
 }

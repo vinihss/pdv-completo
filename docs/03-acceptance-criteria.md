@@ -116,6 +116,23 @@ Convenção: critérios marcados com ⚠️ cobrem comportamento que já gerou a
 - **Dado** uma comanda com pedaço de dinheiro e troco, **quando** o relatório agrega o dia, **então** `summary.changeTotal` soma os trocos dados e o fraturamento por forma soma os `amount` de cada pedaço (o troco não reduz a receita por forma — ele é informação à parte).
 - ⚠️ **Dado** um produto que teve seu preço alterado depois de vendido, **quando** o relatório calcula o total de uma comanda antiga, **então** usa o `unit_price` gravado no momento do lançamento (snapshot), não o preço atual do produto — histórico de vendas não pode mudar retroativamente por causa de um reajuste de preço.
 
+## 14. Fluxo de caixa (backend §14, `04-cash-flow.md`)
+
+- **Dado** nenhum caixa aberto, **quando** o caixa/gerente abre o caixa com fundo `R$ 100,00`, **então** `GET /cash-drawer/current` retorna a sessão com `expectedCash = 100`, sem movimentos.
+- ⚠️ **Dado** um caixa já aberto, **quando** uma nova abertura é tentada, **então** a API responde `409 cash_drawer_already_open` — inclusive se o replay usar o mesmo `correlationId`, que nesse caso devolve a resposta cacheada da primeira abertura (idempotência).
+- **Dado** um caixa aberto com fundo `R$ 100,00`, **quando** é feita uma sangria de `R$ 30,00` e um suprimento de `R$ 20,00`, **então** `expectedCash` passa a `R$ 90,00`.
+- **Dado** um caixa com disponível de `R$ 90,00`, **quando** uma sangria de `R$ 999,00` é tentada, **então** a API responde `409 cash_withdrawal_exceeds_available` com `details.available = 90` — nunca caixa negativo.
+- **Dado** um caixa aberto, **quando** o fechamento confere `countedAmount = 90` e o esperado é `R$ 90,00`, **então** a sessão fecha com `closingDifference = 0`, `GET /cash-drawer/current` volta a `null` e novas sangrias/suprimentos respondem `409 cash_drawer_not_open`.
+- **Dado** um pagamento em dinheiro confirmado, **quando** **nenhum** caixa está aberto, **então** o registro é recusado com `409 cash_drawer_not_open`, tanto via `PUT /orders/:id/payments` com linha `confirmed:true` quanto via `PATCH /orders/:id/payments/:paymentId` ao confirmar uma linha — **linhas não confirmadas continuam permitidas** sem caixa.
+- **Dado** o caixa aberto com fundo `R$ 100,00`, **quando** uma comanda de `R$ 19,00` é paga em dinheiro confirmado, **então** `expectedCash` passa a `R$ 119,00` ao vivo.
+- ⚠️ **Dado** uma comanda paga em dinheiro confirmado com caixa aberto, **quando** o gerente a cancela, **então** uma sangria automática de `R$ 19,00` é gravada com `ref_order_id` apontando pra comanda e `expectedCash` volta a `R$ 100,00` — a linha de pagamento **permanece** confirmada no relatório (venda + sangria de reversão).
+- **Dado** uma comanda paga em dinheiro confirmado, **quando** o gerente a cancela **depois** do caixa já fechado, **então** a API responde `409 cash_drawer_not_open` — estorno só com gaveta aberta.
+- **Dado** o resumo de caixa com `from`/`to`, **quando** há mais de uma sessão fechada no período, **então** o retorno soma `closing_expected`/`closing_counted`/diferença de todas as sessões incluídas; sessões abertas não contam no `totalCounted`/`totalExpected`/`totalDifference` — e `openCount`/`openExpected` expõem a (s) sessão(ões) em aberto.
+- **Dado** o relatório do gerente com uma sessão de caixa **ainda aberta** no período, **quando** ele abre a aba de fluxo de caixa, **então** a tela renderiza a sessão como "em aberto" com o esperado atual e os totais do resumo não incluem o não-contado — o relatório não quebra nem exibe diferença distorcida.
+- **Dado** o fechamento do caixa, **quando** o caixa/gerente informa `note` (observação da conferência), **então** `closing_note` é persistido na sessão, aparece no detalhe, no cupom Z e no log de auditoria.
+- **Dado** o resumo com datas `YYYY-MM-DD`, **quando** é informado `tz=-03:00`, **então** o dia é interpretado no fuso local (ex.: `from=2026-09-19` → `2026-09-19T03:00:00Z`); `tz` inválido responde `400 validation_failed`.
+- **Dado** o garçom, **quando** ele tenta `GET /cash-drawer/current` ou qualquer operação do caixa, **então** a API responde `403 forbidden_role` — operação é restrita a `cashier` e `manager`.
+
 ## Como usar este documento
 
 Cada bloco acima deve virar um ou mais casos de teste automatizado (integração, no mínimo, pros fluxos de `order`/`item`; unitário pros usecases de domínio). Os itens marcados ⚠️ são os candidatos naturais a teste automatizado prioritário, por já terem histórico de ambiguidade neste projeto — vale garantir que eles tenham cobertura antes de qualquer coisa mais "óbvia" da lista.

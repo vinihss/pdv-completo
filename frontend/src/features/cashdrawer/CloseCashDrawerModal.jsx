@@ -6,6 +6,7 @@ const fmt = (n) => `R$ ${Number(n || 0).toFixed(2)}`;
 
 export default function CloseCashDrawerModal({ expected, onClose, onConfirm }) {
   const [counted, setCounted] = useState(expected.toFixed(2));
+  const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
 
   const countedValue = Number(counted);
@@ -14,7 +15,7 @@ export default function CloseCashDrawerModal({ expected, onClose, onConfirm }) {
   async function handleSubmit() {
     if (difference === null || countedValue < 0) return;
     setSaving(true);
-    const ok = await onConfirm(countedValue);
+    const ok = await onConfirm(countedValue, note.trim() || undefined);
     setSaving(false);
     if (ok) onClose();
   }
@@ -38,6 +39,16 @@ export default function CloseCashDrawerModal({ expected, onClose, onConfirm }) {
             Diferença: {difference > 0 ? "+" : ""}{fmt(difference)}
           </div>
         )}
+        <div className="my-3">
+          <Field label="Observação da conferência (opcional)">
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder={difference && difference !== 0 ? "Motivo da variação" : "Ex.: separado fundo de quinta"}
+              className={inputClass}
+            />
+          </Field>
+        </div>
         <button onClick={handleSubmit} disabled={saving} className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3 rounded-xl mt-4">
           {saving ? "Fechando…" : "Fechar caixa"}
         </button>

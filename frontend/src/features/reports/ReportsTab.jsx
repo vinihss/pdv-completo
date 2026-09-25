@@ -1,9 +1,13 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { salesReport } from "@/shared/api/reports";
+import { getCashDrawerSummary } from "@/shared/api/cash";
 import { Section, Field, inputClass } from "@/shared/components";
+import { toDate } from "@/shared/lib";
+import { buildCashReportView, browserTzOffset, fmtMoney } from "./cashReportView.js";
 
 export default function ReportsTab({ showToast }) {
   const [report, setReport] = useState(null);
+  const [cash, setCash] = useState(null);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [customerQuery, setCustomerQuery] = useState("");
@@ -17,6 +21,11 @@ export default function ReportsTab({ showToast }) {
       if (dateTo) params.dateTo = dateTo;
       if (customerQuery) params.customerQuery = customerQuery;
       setReport(await salesReport(params));
+
+      const cashParams = { tz: browserTzOffset() };
+      if (dateFrom) cashParams.from = dateFrom;
+      if (dateTo) cashParams.to = dateTo;
+      setCash(await getCashDrawerSummary(cashParams));
     } catch (e) {
       showToast(e.message, "error");
     } finally {
@@ -71,6 +80,61 @@ export default function ReportsTab({ showToast }) {
               {report.data.length === 0 && <div className="text-stone-600 text-center py-6 text-sm">Nenhuma comanda no período.</div>}
             </div>
           </Section>
+          {cash && (
+            <Section title={`Fluxo de caixa (${cash.sessions.length})`}>
+              {(() => {
+                const view = buildCashReportView(cash);
+                return (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                      <StatCard label="Fundo" value={fmtMoney(view.totalOpening)} />
+                      <StatCard label="Vendas $" value={fmtMoney(view.totalSales)} />
+                      <StatCard label="Esperado" value={fmtMoney(view.totalExpected)} />
+                      <StatCard
+                        label="Diferença"
+                        value={`${view.totalDifference > 0 ? "+" : ""}${fmtMoney(view.totalDifference)}`}
+                      />
+                    </div>
+                    {view.openCount > 0 && (
+                      <div className="text-stone-500 text-xs mb-3">
+                        <b className="text-amber-400">{view.openCount} sessão(ões) em aberto</b> no período —
+                        {fmtMoney(view.openExpected)} ainda não contado.
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      {view.sessions.map((s) => (
+                        <div key={s.id} className="flex items-center justify-between text-sm bg-stone-900 border border-stone-800 rounded-xl px-3 py-2">
+                          <div>
+                            <div className="font-medium">Aberto {toDate(s.openedAt).toLocaleString()}</div>
+                            <div className="text-stone-500 text-xs">
+                              {s.isOpen
+                                ? "ainda aberto"
+                                : `fechado ${s.closedAt && toDate(s.closedAt).toLocaleString()}`}
+                              {s.openedByName ? ` · ${s.openedByName}` : ""}
+                            </div>
+                          </div>
+                          {s.isOpen ? (
+                            <div className="text-right">
+                              <div className="font-semibold text-amber-400">em aberto</div>
+                              <div className="text-stone-500 text-xs">esperado {fmtMoney(s.expected)}</div>
+                            </div>
+                          ) : (
+                            <div className="text-right">
+                              <div className={`font-semibold ${s.diff > 0 ? "text-emerald-400" : s.diff < 0 ? "text-red-400" : "text-stone-200"}`}>
+                                {s.diff > 0 ? "+" : ""}{fmtMoney(s.diff)}
+                              </div>
+                              <div className="text-stone-500 text-xs">esperado {fmtMoney(s.expected ?? 0)}</div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {view.sessions.length === 0 && <div className="text-stone-600 text-center py-6 text-sm">Nenhum caixa no período.</div>}
+                    </div>
+                  </>
+                );
+              })()}
+            </Section>
+          )}
         </>
       )}
     </div>

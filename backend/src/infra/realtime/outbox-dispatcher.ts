@@ -12,22 +12,40 @@ const POLL_MS = 200;
  * registros não publicados periodicamente (§8).
  */
 export function startOutboxDispatcher() {
-  const timer = setInterval(async () => {
-    const pending = await db.query.outboxEvents.findMany({
-      where: eq(outboxEvents.published, false),
-      limit: 50,
-    } as any);
+  const timer = setInterval(() => {
+    pollOutboxOnce().catch((err) => {
+      // 1.5 — nenhum erro de ciclo pode derrubar o processo.
+      console.error("[outbox] erro no ciclo de polling:", err);
+    });
+  }, POLL_MS);
+  return () => clearInterval(timer);
+}
 
-    for (const evt of pending) {
+/**
+ * Um ciclo de publicação — extraído para teste determinístico. Cada evento é
+ * isolado em try/catch: payload corrompido não derruba o processo nem trava o
+ * ciclo — é descartado com log e marcado publicado (a partir daquele payload
+ * o broadcast é irrecuperável, e mantê-lo pendente criaria um loop apertado de
+ * retry a cada poll).
+ */
+export async function pollOutboxOnce() {
+  const pending = await db.query.outboxEvents.findMany({
+    where: eq(outboxEvents.published, false),
+    limit: 50,
+  } as any);
+
+  for (const evt of pending) {
+    try {
       wsGateway.broadcastToRoom(evt.room, {
         type: evt.eventType,
         payload: JSON.parse(evt.payload),
       });
       await db.update(outboxEvents).set({ published: true }).where(eq(outboxEvents.id, evt.id));
+    } catch (err) {
+      console.warn(`[outbox] descartando evento ${evt.id} (${evt.eventType}) com payload corrompido:`, err);
+      await db.update(outboxEvents).set({ published: true }).where(eq(outboxEvents.id, evt.id));
     }
-  }, POLL_MS);
-
-  return () => clearInterval(timer);
+  }
 }
 
 /**

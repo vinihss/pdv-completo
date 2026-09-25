@@ -95,11 +95,21 @@ A comanda só pode ser fechada quando todo item estiver `delivered`. Essa regra 
 | `01-backend-spec.md` | schema SQL, arquitetura em camadas, API REST, WebSocket, concorrência, idempotência, Pix, auditoria, setup (env/seed/health/migrations), requisitos não-funcionais, deployment |
 | `02-frontend-spec.md` | fluxos de garçom, cozinha e gerente, tela por tela |
 | `03-acceptance-criteria.md` | critérios de aceite em formato Dado/Quando/Então, por funcionalidade, com destaque pros pontos que já geraram ambiguidade no projeto |
+| `04-cash-flow.md` | spec do fluxo de caixa (sessão única, hard block de dinheiro, estorno automático, fechamento/impressão, resumo por período) |
 | `login-prototype.jsx` | protótipo navegável só do login (seleção de usuário + PIN) |
 | `waiter-app-prototype.jsx` | protótipo navegável do garçom, standalone |
 | `manager-app-prototype.jsx` | protótipo navegável do gerente, standalone — mesmo acesso a comandas que o garçom (não só caixa), toggle de cozinha e Relatórios |
 | `kitchen-display-prototype.jsx` | protótipo navegável da cozinha, standalone |
 | `pos-app-integrated.jsx` | login + garçom + gerente + cozinha num único fluxo, com sessão compartilhada — mesmas funcionalidades dos protótipos standalone, mas com troca de perfil pelo login |
+
+## Fluxo de caixa
+
+O caixa é uma **sessão única por vez** (fundo inicial + vendas em dinheiro
+confirmadas no período + suprimentos − sangrias). Papéis `cashier` e
+`manager` operam a gaveta; a confirmação de pagamento em dinheiro exige caixa
+aberto (bloqueio na transação) e o cancelamento de comanda paga em dinheiro
+gera sangria automática com `ref_order_id`. Detalhes, endpoint por endpoint,
+em `04-cash-flow.md`; critérios de aceite na §14 de `03-acceptance-criteria.md`.
 
 ## O que ainda não existe
 

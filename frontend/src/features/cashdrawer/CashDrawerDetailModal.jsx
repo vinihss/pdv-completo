@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { X } from "lucide-react";
+import { X, Printer } from "lucide-react";
 import { getCashDrawerDetail } from "@/shared/api/cash";
 import { toDate } from "@/shared/lib";
 
 const fmt = (n) => `R$ ${Number(n || 0).toFixed(2)}`;
 
-export default function CashDrawerDetailModal({ drawerId, onClose, showToast }) {
+export default function CashDrawerDetailModal({ drawerId, onClose, showToast, onPrint }) {
   const [detail, setDetail] = useState(null);
 
   useEffect(() => {
@@ -19,7 +19,12 @@ export default function CashDrawerDetailModal({ drawerId, onClose, showToast }) 
       <div className="w-full sm:max-w-md bg-stone-900 border border-stone-800 rounded-t-3xl sm:rounded-3xl p-6 fade-up max-h-[85vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-display text-lg font-bold">Detalhe do caixa</h3>
-          <button onClick={onClose} className="text-stone-500"><X size={20} /></button>
+          <div className="flex items-center gap-1">
+            <button onClick={() => onPrint?.()} title="Imprimir cupom" className="text-stone-500 hover:text-stone-300">
+              <Printer size={18} />
+            </button>
+            <button onClick={onClose} className="text-stone-500"><X size={20} /></button>
+          </div>
         </div>
 
         {!detail && <div className="text-stone-600 text-center py-8">Carregando…</div>}
@@ -39,12 +44,17 @@ export default function CashDrawerDetailModal({ drawerId, onClose, showToast }) 
             <div className="text-xs text-stone-500 mb-4">
               Aberto por {detail.openedByName ?? "—"} em {toDate(detail.openedAt).toLocaleString()} ·{" "}
               fechado por {detail.closedByName ?? "—"} em {detail.closedAt && toDate(detail.closedAt).toLocaleString()}
+              {detail.closingNote && (
+                <div className="mt-2 text-stone-400 bg-stone-950 border border-stone-800 rounded-xl px-3 py-2">
+                  <b>Observação:</b> {detail.closingNote}
+                </div>
+              )}
             </div>
 
             <DetailList title={`Vendas em dinheiro (${detail.cashSales.length})`}>
               {detail.cashSales.length === 0 && <Empty text="Nenhuma venda em dinheiro no período." />}
               {detail.cashSales.map((s) => (
-                <Row key={s.orderId} title={s.label}>
+                <Row key={s.orderId} title={s.label} sub={s.received != null ? `Recebido ${fmt(s.received)} · Troco ${fmt(s.change ?? 0)}` : undefined}>
                   <span className="text-emerald-400 font-semibold">{fmt(s.amount)}</span>
                 </Row>
               ))}
@@ -53,7 +63,11 @@ export default function CashDrawerDetailModal({ drawerId, onClose, showToast }) 
             <DetailList title={`Movimentações (${detail.movements.length})`}>
               {detail.movements.length === 0 && <Empty text="Sem sangrias ou suprimentos." />}
               {detail.movements.map((m) => (
-                <Row key={m.id} title={m.type === "sangria" ? "Sangria" : "Suprimento"} sub={m.note}>
+                <Row
+                  key={m.id}
+                  title={m.type === "sangria" ? (m.refOrderLabel ? `Sangria (estorno ${m.refOrderLabel})` : "Sangria") : "Suprimento"}
+                  sub={[m.note, m.createdByName && `${m.createdByName}`].filter(Boolean).join(" · ") || undefined}
+                >
                   <span className={`font-semibold ${m.type === "sangria" ? "text-red-400" : "text-emerald-400"}`}>
                     {m.type === "sangria" ? "−" : "+"} {fmt(m.amount)}
                   </span>

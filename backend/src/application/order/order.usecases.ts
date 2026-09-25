@@ -4,6 +4,7 @@ import {
   orders,
   orderItems,
   orderPayments,
+  cashDrawerMovements,
   products,
   storeSettings,
   restaurantTables,
@@ -13,6 +14,7 @@ import { Errors } from "../../domain/errors.js";
 import { round2, moneyEq } from "../../domain/money.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
+import { findOpenDrawerTx } from "../cash-flow/cash-flow.usecases.js";
 
 // NOTA IMPORTANTE sobre sync vs async:
 // O driver better-sqlite3 é fundamentalmente síncrono — `db.transaction(cb)`
@@ -152,6 +154,17 @@ export async function openOrderUsecase(input: {
   }
 
   const order = db.transaction((tx) => {
+    // 1.6 — valida a mesa antes de abrir: inexistente → 404; ocupada → 409.
+    // Só vale para abertura física de comanda (channel default "balcao");
+    // self-service e iFood não parametrizam mesa.
+    if (input.tableId) {
+      const table = tx.query.restaurantTables.findFirst({
+        where: eq(restaurantTables.id, input.tableId),
+      }).sync();
+      if (!table) throw Errors.tableNotFound(input.tableId);
+      if (table.status !== "free") throw Errors.tableOccupied();
+    }
+
     const created = tx
       .insert(orders)
       .values({
@@ -334,6 +347,16 @@ export async function deleteItemUsecase(input: { orderId: string; itemId: string
   db.transaction((tx) => {
     tx.delete(orderItems).where(eq(orderItems.id, input.itemId)).run();
     logAction(tx, input.userId, "item_removed", input.orderId, { itemId: input.itemId, name: item.productId });
+    // 1.8 — item removido em um terminal precisa sumir dos demais (garçom/gerente
+    // assinam "kitchen-display"; "table:{id}" não é assinado por ninguém).
+    enqueueEvent(tx, `table:${item.orderId}`, "order.item.removed", {
+      orderId: input.orderId,
+      itemId: input.itemId,
+    });
+    enqueueEvent(tx, "kitchen-display", "order.item.removed", {
+      orderId: input.orderId,
+      itemId: input.itemId,
+    });
   });
 }
 
@@ -346,6 +369,17 @@ type PaymentLineInput = {
   confirmed?: boolean;
 };
 
+// Corretude do fluxo de caixa: pagamento em dinheiro confirmado só entra com
+// caixa aberto no momento — senão a venda fica fora de qualquer sessão e a
+// conferência da gaveta quebra. Roda na mesma transação da escrita do
+// pagamento (no caso do fechamento do caixa, o pagamento/estorno roda depois
+// da sessão ter sido marcada fechada e é rejeitado).
+function requireOpenDrawerForCash(tx: any, method: string, confirmed: boolean) {
+  if (method === "cash" && confirmed && !findOpenDrawerTx(tx)) {
+    throw Errors.paymentRequiresOpenDrawer();
+  }
+}
+
 // Aplica as linhas de pagamento: apaga as anteriores e insere as novas, na
 // mesma transação da escrita (padrão do repo). `orders.payment_method` continua
 // como denormalizado de exibição — método único → ele; mais de um → null
@@ -355,6 +389,7 @@ function upsertPaymentLines(tx: any, order: typeof orders.$inferSelect, userId: 
 
   const created: any[] = [];
   for (const line of lines) {
+    requireOpenDrawerForCash(tx, line.method, Boolean(line.confirmed));
     const isCash = line.method === "cash";
     const confirmed = Boolean(line.confirmed);
     const received = isCash ? (line.received != null ? line.received : line.amount) : null;
@@ -429,6 +464,10 @@ export async function setOrderPaymentsUsecase(input: {
       orderId: input.orderId,
       payments: created,
     });
+    enqueueEvent(tx, "kitchen-display", "order.payment_changed", {
+      orderId: input.orderId,
+      payments: created,
+    });
     return created;
   });
 
@@ -444,6 +483,7 @@ export async function confirmOrderPaymentUsecase(input: { orderId: string; payme
     const payment = tx.query.orderPayments.findFirst({ where: eq(orderPayments.id, input.paymentId) }).sync();
     if (!payment || payment.orderId !== input.orderId) throw Errors.notFound("Pagamento");
     if (payment.confirmed) return payment;
+    requireOpenDrawerForCash(tx, payment.method, true);
 
     const result = tx
       .update(orderPayments)
@@ -471,6 +511,11 @@ export async function confirmOrderPaymentUsecase(input: { orderId: string; payme
       paymentId: input.paymentId,
       confirmed: true,
     });
+    enqueueEvent(tx, "kitchen-display", "order.payment_changed", {
+      orderId: input.orderId,
+      paymentId: input.paymentId,
+      confirmed: true,
+    });
     return result;
   });
 
@@ -490,6 +535,7 @@ export async function deleteOrderPaymentUsecase(input: { orderId: string; paymen
     logAction(tx, input.userId, "payment_removed", input.orderId, { paymentId: input.paymentId, method: payment.method });
     enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.payment_changed", { orderId: input.orderId });
     enqueueEvent(tx, "cash-drawer", "order.payment_changed", { orderId: input.orderId });
+    enqueueEvent(tx, "kitchen-display", "order.payment_changed", { orderId: input.orderId });
   });
 }
 
@@ -526,6 +572,10 @@ export async function registerPaymentUsecase(input: {
       payments: created,
     });
     enqueueEvent(tx, "cash-drawer", "order.payment_changed", {
+      orderId: input.orderId,
+      payments: created,
+    });
+    enqueueEvent(tx, "kitchen-display", "order.payment_changed", {
       orderId: input.orderId,
       payments: created,
     });
@@ -590,6 +640,12 @@ export async function closeOrderUsecase(input: { orderId: string; userId: string
       orderId: order.id,
       tableId: order.tableId,
     });
+    // 1.2 — comanda fechada em outro terminal deve sumir da lista do garçom
+    // (useOrders assina "kitchen-display" e remove a comanda ao receber isso).
+    enqueueEvent(tx, "kitchen-display", "order.closed", {
+      orderId: order.id,
+      tableId: order.tableId,
+    });
 
     logAction(tx, input.userId, "order_closed", input.orderId, {
       payments: payments.map(serializePayment),
@@ -616,6 +672,52 @@ export async function cancelOrderUsecase(input: { orderId: string; userId: strin
     if (!order) throw Errors.notFound("Comanda");
     if (order.status !== "open") throw Errors.orderNotOpen();
 
+    // Estorno: dinheiro confirmado entrou na gaveta na confirmação; cancelar
+    // a venda devolve esse dinheiro. A reversão vira uma sangria automática
+    // no caixa corrente (`ref_order_id` para rastrear), e — coerente com o
+    // bloqueio de dinheiro sem caixa — exige sessão aberta. A linha de
+    // pagamento permanece confirmada: os relatórios mostram a venda e a
+    // sangria de reversão, efeito líquido zero.
+    const cashPaid = tx
+      .select()
+      .from(orderPayments)
+      .where(
+        and(
+          eq(orderPayments.orderId, input.orderId),
+          eq(orderPayments.method, "cash"),
+          eq(orderPayments.confirmed, true)
+        )
+      )
+      .all();
+    const refund = round2(cashPaid.reduce((acc: number, p: { amount: number }) => acc + p.amount, 0));
+    if (refund > 0) {
+      const drawer = findOpenDrawerTx(tx);
+      if (!drawer) throw Errors.cashRefundRequiresOpenDrawer();
+      const movement = tx
+        .insert(cashDrawerMovements)
+        .values({
+          drawerId: drawer.id,
+          type: "sangria",
+          amount: refund,
+          note: `Estorno comanda ${order.tabLabel ?? order.id}`,
+          refOrderId: input.orderId,
+          createdBy: input.userId,
+        })
+        .returning()
+        .get();
+      logAction(tx, input.userId, "cash_drawer_sangria", input.orderId, {
+        movementId: movement.id,
+        drawerId: drawer.id,
+        amount: movement.amount,
+        reason: input.reason,
+      });
+      enqueueEvent(tx, "cash-drawer", "cash_drawer.sangria", {
+        drawerId: drawer.id,
+        amount: movement.amount,
+        refOrderId: input.orderId,
+      });
+    }
+
     tx.update(orderItems)
       .set({ status: "cancelled" })
       .where(and(eq(orderItems.orderId, input.orderId), notInArray(orderItems.status, ["delivered", "cancelled"])))
@@ -637,6 +739,10 @@ export async function cancelOrderUsecase(input: { orderId: string; userId: strin
     }
 
     enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.cancelled", {
+      orderId: order.id,
+      tableId: order.tableId,
+    });
+    enqueueEvent(tx, "kitchen-display", "order.cancelled", {
       orderId: order.id,
       tableId: order.tableId,
     });

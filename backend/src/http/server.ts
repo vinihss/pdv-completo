@@ -1,3 +1,4 @@
+import type { FastifyInstance } from "fastify";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import websocketPlugin from "@fastify/websocket";
@@ -11,6 +12,7 @@ import { config } from "../config/env.js";
 import { runMigrations } from "../infra/db/migrate.js";
 import { rawSqlite } from "../infra/db/client.js";
 import { startOutboxDispatcher } from "../infra/realtime/outbox-dispatcher.js";
+import { startMaintenanceJobs } from "../infra/maintenance.js";
 import { AppError } from "../domain/errors.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { orderRoutes } from "./routes/order.routes.js";
@@ -25,15 +27,9 @@ import { ifoodRoutes } from "./routes/ifood.routes.js";
 import { startIfoodSync } from "../integrations/ifood/worker.js";
 import { getStoreSettingsUsecase } from "../application/store-settings.usecases.js";
 
-async function main() {
-  // Migrations rodam automaticamente no boot em modo local (§14.5)
-  if (config.deploymentMode === "local") {
-    runMigrations();
-  }
-
-  // trustProxy: atrás do Caddy/nginx, req.ip deve ser o IP real do client
-  // (via X-Forwarded-For), senão todos os clients compartilham o IP do proxy
-  // e o rate limit vira global. "1" = confiar em apenas 1 hop de proxy.
+// Monta o app Fastify com todas as rotas/plugins, sem escutar. Exportado
+// para os testes (vitest) injetarem requests via `app.inject()`.
+export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.logLevel }, trustProxy: 1 });
 
   // ---------- Error handler — envelope padrão da §7.0 ----------
@@ -140,7 +136,19 @@ async function main() {
     });
   });
 
+  return app;
+}
+
+async function main() {
+  // Migrations rodam automaticamente no boot em modo local (§14.5)
+  if (config.deploymentMode === "local") {
+    runMigrations();
+  }
+
+  const app = await buildApp();
+
   const stopDispatcher = startOutboxDispatcher();
+  const stopMaintenance = startMaintenanceJobs();
   const ifoodSync = startIfoodSync(); // no-op quando sem IFOOD_SYNC_ENABLED/credenciais
 
   await app.listen({ port: config.port, host: "0.0.0.0" });
@@ -148,6 +156,7 @@ async function main() {
 
   const shutdown = async () => {
     stopDispatcher();
+    stopMaintenance();
     ifoodSync.stop();
     await app.close();
     process.exit(0);

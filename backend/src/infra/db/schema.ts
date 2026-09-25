@@ -134,6 +134,7 @@ export const cashDrawers = sqliteTable("cash_drawer", {
   closingExpected: real("closing_expected"),
   closingCounted: real("closing_counted"),
   closingDifference: real("closing_difference"),
+  closingNote: text("closing_note"),
   note: text("note"),
   createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
 });
@@ -144,6 +145,7 @@ export const cashDrawerMovements = sqliteTable("cash_drawer_movement", {
   type: text("type", { enum: ["sangria", "suprimento"] }).notNull(),
   amount: real("amount").notNull(),
   note: text("note"),
+  refOrderId: text("ref_order_id").references(() => orders.id),
   createdBy: text("created_by").notNull().references(() => users.id),
   createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
 });

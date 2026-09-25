@@ -240,7 +240,9 @@ export async function miscRoutes(app: FastifyInstance) {
   });
 
   // ---------- Audit log ----------
-  app.get("/audit-log", async (req) => {
+  // Especificado como ferramenta do gerente — garçom não consulta o log global
+  // (o histórico da própria comanda dele é outra concernência, ver spec §4.4.1).
+  app.get("/audit-log", { preHandler: requireRole("manager") }, async (req) => {
     const q = req.query as { order_id?: string; limit?: string; offset?: string };
     return listAuditLogUsecase({
       orderId: q.order_id,

@@ -1,4 +1,4 @@
-import { and, eq, gte, lte, desc } from "drizzle-orm";
+import { and, eq, gte, lte, desc, or, isNull } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import {
   cashDrawers,
@@ -35,11 +35,40 @@ function serializeDrawer(d: typeof cashDrawers.$inferSelect) {
     closingExpected: d.closingExpected,
     closingCounted: d.closingCounted,
     closingDifference: d.closingDifference,
+    closingNote: d.closingNote,
   };
 }
 
 function serializeMovement(m: typeof cashDrawerMovements.$inferSelect) {
-  return { id: m.id, type: m.type, amount: m.amount, note: m.note, createdBy: m.createdBy, createdAt: m.createdAt };
+  return {
+    id: m.id,
+    type: m.type,
+    amount: m.amount,
+    note: m.note,
+    refOrderId: m.refOrderId,
+    createdBy: m.createdBy,
+    createdAt: m.createdAt,
+  };
+}
+
+// Rótulo de exibição da comanda de um estorno (ref_order_id): rótulo da
+// comanda, nº da mesa ou fallback pro id. Same join usado no detail de vendas.
+function orderLabelOf(tx: any, orderId: string): string {
+  const row = tx
+    .select({ tabLabel: orders.tabLabel, tableNumber: restaurantTables.number })
+    .from(orders)
+    .leftJoin(restaurantTables, eq(restaurantTables.id, orders.tableId))
+    .where(eq(orders.id, orderId))
+    .get();
+  return row?.tabLabel ?? (row?.tableNumber != null ? `Mesa ${row.tableNumber}` : orderId);
+}
+
+function serializeMovements(tx: any, movements: any[]) {
+  return movements.map((m: any) => ({
+    ...serializeMovement(m),
+    createdByName: nameOf(tx, m.createdBy),
+    refOrderLabel: m.refOrderId ? orderLabelOf(tx, m.refOrderId) : null,
+  }));
 }
 
 function nameOf(tx: any, userId: string | null): string | null {
@@ -100,14 +129,17 @@ function computeCashSummary(tx: any, drawer: typeof cashDrawers.$inferSelect) {
   };
 }
 
-function findOpenDrawer(tx: any): typeof cashDrawers.$inferSelect | undefined {
+// Find the único caixa aberto — usado internamente e também pelo
+// order.usecases (bloqueio de pagamento em dinheiro e estorno em sangria).
+// Retorna o drawer dentro do mesmo tx da operação que chama.
+export function findOpenDrawerTx(tx: any): typeof cashDrawers.$inferSelect | undefined {
   return tx.query.cashDrawers.findFirst({ where: eq(cashDrawers.status, "open") }).sync();
 }
 
 // ---------- GET /cash-drawer/current ----------
 export async function getCurrentDrawerUsecase() {
   return db.transaction((tx) => {
-    const open = findOpenDrawer(tx);
+    const open = findOpenDrawerTx(tx);
     if (!open) return null;
     const summary = computeCashSummary(tx, open);
     return {
@@ -116,7 +148,7 @@ export async function getCurrentDrawerUsecase() {
       expectedCash: summary.expected,
       cashSalesTotal: summary.salesSum,
       cashSalesCount: summary.sales.length,
-      movements: summary.movements.map((m: typeof cashDrawerMovements.$inferSelect) => ({ ...serializeMovement(m), createdByName: nameOf(tx, m.createdBy) })),
+      movements: serializeMovements(tx, summary.movements),
     };
   });
 }
@@ -169,7 +201,7 @@ export async function getCashDrawerDetailUsecase(id: string) {
       closedByName: nameOf(tx, drawer.closedBy),
       expectedCash: summary.expected,
       cashSalesTotal: summary.salesSum,
-      movements: summary.movements.map((m: typeof cashDrawerMovements.$inferSelect) => ({ ...serializeMovement(m), createdByName: nameOf(tx, m.createdBy) })),
+      movements: serializeMovements(tx, summary.movements),
       cashSales: salesRows.map((r) => ({
         orderId: r.orderId,
         label: r.tabLabel ?? (r.tableNumber ? `Mesa ${r.tableNumber}` : null) ?? r.orderId,
@@ -185,7 +217,7 @@ export async function getCashDrawerDetailUsecase(id: string) {
 // ---------- POST /cash-drawer/open ----------
 export async function openCashDrawerUsecase(input: { userId: string; openingAmount: number; note?: string }) {
   return db.transaction((tx) => {
-    if (findOpenDrawer(tx)) throw Errors.cashDrawerAlreadyOpen();
+    if (findOpenDrawerTx(tx)) throw Errors.cashDrawerAlreadyOpen();
     const openedAt = new Date().toISOString();
     const drawer = tx
       .insert(cashDrawers)
@@ -217,7 +249,7 @@ export async function registerCashMovementUsecase(input: {
   note?: string;
 }) {
   return db.transaction((tx) => {
-    const drawer = findOpenDrawer(tx);
+    const drawer = findOpenDrawerTx(tx);
     if (!drawer) throw Errors.cashDrawerNotOpen();
 
     if (input.type === "sangria") {
@@ -256,9 +288,13 @@ export async function registerCashMovementUsecase(input: {
 }
 
 // ---------- POST /cash-drawer/close ----------
-export async function closeCashDrawerUsecase(input: { userId: string; countedAmount: number }) {
+export async function closeCashDrawerUsecase(input: {
+  userId: string;
+  countedAmount: number;
+  note?: string;
+}) {
   return db.transaction((tx) => {
-    const drawer = findOpenDrawer(tx);
+    const drawer = findOpenDrawerTx(tx);
     if (!drawer) throw Errors.cashDrawerNotOpen();
 
     const summary = computeCashSummary(tx, drawer);
@@ -276,6 +312,7 @@ export async function closeCashDrawerUsecase(input: { userId: string; countedAmo
         closingExpected: expected,
         closingCounted: counted,
         closingDifference: difference,
+        closingNote: input.note ?? null,
       })
       .where(eq(cashDrawers.id, drawer.id))
       .returning()
@@ -288,6 +325,7 @@ export async function closeCashDrawerUsecase(input: { userId: string; countedAmo
       expected,
       counted,
       difference,
+      note: input.note ?? null,
     });
     enqueueEvent(tx, CASH_DRAWER_ROOM, "cash_drawer.closed", {
       drawerId: drawer.id,
@@ -296,5 +334,68 @@ export async function closeCashDrawerUsecase(input: { userId: string; countedAmo
       difference,
     });
     return { ...serializeDrawer(closed), cashSalesTotal: summary.salesSum };
+  });
+}
+
+// ---------- GET /cash-drawer/summary ----------
+// Agrega a conferência das sessões que interseccionam [from, to]: esperado,
+// contado e diferença por caixa, com totais para o relatório do gerente.
+export async function sumCashDrawersSummaryUsecase(input: { from: string; to: string }) {
+  return db.transaction((tx) => {
+    const rows = tx
+      .select()
+      .from(cashDrawers)
+      // Interseção: a sessão não fechou antes de `from` nem abriu depois de `to`.
+      // Sessão ainda aberta (closed_at NULL) entra desde que tenha aberto até `to`
+      // — `closed_at ?? now` não coalesce em .where(), então a condição é explícita.
+      .where(
+        and(
+          lte(cashDrawers.openedAt, input.to),
+          or(gte(cashDrawers.closedAt, input.from), isNull(cashDrawers.closedAt))
+        )
+      )
+      .orderBy(desc(cashDrawers.openedAt))
+      .all();
+
+    const sessions = rows.map((d) => {
+      const summary = computeCashSummary(tx, d);
+      return {
+        ...serializeDrawer(d),
+        openedByName: nameOf(tx, d.openedBy),
+        cashSalesTotal: summary.salesSum,
+        cashSalesCount: summary.sales.length,
+        expected: d.closedAt != null ? d.closingExpected : summary.expected,
+        counted: d.closingCounted,
+        difference: d.closingDifference,
+      };
+    });
+
+    const closedSessions = sessions.filter((s) => s.status === "closed");
+    const sum = (sel: (s: (typeof sessions)[number]) => number | null | undefined) =>
+      round2(sessions.reduce((acc, s) => acc + (sel(s) ?? 0), 0));
+
+    // Totais de conferência contam apenas sessões fechadas: `closing_expected`
+    // e `closing_counted` só existem depois do fechamento, e contá-lo senão
+    // misturaria o "esperado ao vivo" com o contado das fechadas (diferença
+    // distorcida). Fundo/vendas incluem o que já entrou, mesmo em aberto.
+    const totalOpening = sum((s) => s.openingAmount);
+    const totalSales = sum((s) => s.cashSalesTotal);
+    const totalExpected = round2(closedSessions.reduce((acc, s) => acc + (s.expected ?? 0), 0));
+    const totalCounted = round2(closedSessions.reduce((acc, s) => acc + (s.counted ?? 0), 0));
+    const totalDifference = round2(totalCounted - totalExpected);
+    const openExpected = round2(
+      sessions.filter((s) => s.status === "open").reduce((acc, s) => acc + (s.expected ?? 0), 0)
+    );
+
+    return {
+      sessions,
+      totalOpening,
+      totalSales,
+      totalExpected,
+      totalCounted,
+      totalDifference,
+      openCount: sessions.filter((s) => s.status === "open").length,
+      openExpected,
+    };
   });
 }
