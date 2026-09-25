@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Exemplo PDV Web - Teste de Impressão com QR Code</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; }
+    button { padding: 10px 20px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+    button:hover { background-color: #218838; }
+    pre { background: #f4f4f4; padding: 10px; border-radius: 4px; font-size: 12px; }
+  </style>
+</head>
+<body>
+
+  <h2>PDV Web - Teste de Impressão</h2>
+  <p>Clique no botão abaixo para enviar os dados de venda para o Agente Local em Go com suporte a QR Code.</p>
+
+  <button onclick="enviarImpressao()">🖨️ Emitir Cupom NFC-e</button>
+
+  <h3>Status da Chamada:</h3>
+  <pre id="log">Aguardando ação...</pre>
+
+  <script>
+    async function enviarImpressao() {
+      const log = document.getElementById('log');
+      log.textContent = "Enviando para http://localhost:8080/imprimir ...";
+
+      const payload = {
+        endereco_impressora: "127.0.0.1:9100",
+        nome_empresa: "PADARIA & CAFE SILVA",
+        cnpj: "12.345.678/0001-90",
+        chave_acesso: "4326 0912 3456 7800 0190 6500 1000 0000 0110 0000 0018",
+        url_qrcode: "https://www.sefaz.rs.gov.br/NFCE/NFCE-COM.aspx?chNFe=43260912345678000190650010000000011000000018",
+        itens: [
+          { descricao: "Café Expresso", qtd: 2, valor: 5.50 },
+          { descricao: "Pão de Queijo", qtd: 3, valor: 4.00 }
+        ],
+        total: 23.00,
+        abrir_gaveta: true,
+        cortar_papel: true
+      };
+
+      try {
+        const response = await fetch('http://localhost:8080/imprimir', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const resultado = await response.json();
+        log.textContent = JSON.stringify(resultado, null, 2);
+      } catch (erro) {
+        log.textContent = "Erro de Comunicação:\n" + erro.message + "\n\nVerifique se o 'main.go' está rodando!";
+      }
+    }
+  </script>
+</body>
+</html>
