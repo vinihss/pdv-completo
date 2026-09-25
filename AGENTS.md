@@ -58,7 +58,32 @@ Usuários de teste (seed de dev — nunca rode em produção):
 | Ana Ribeiro | Garçom | 1234 |
 | Carlos Lima | Garçom | 5678 |
 | Roberto Alves | Gerente | 9999 |
+| Caixa Teste | Caixa | 2468 |
+| Entregador Teste | Entregador | 1357 |
 | Estação Cozinha | Cozinha | 0000 |
+
+### Perfis de acesso
+
+O mesmo código cobre 5 perfis, cada um com sua superfície no login e seus
+papéis no JWT (`backend/src/http/middlewares/auth.middleware.ts`): `waiter`,
+`kitchen`, `manager`, `cashier` e `courier`. O login lista os usuários ativos
+via `GET /auth/users`, que respeita os toggles de rollout — `kitchen_enabled:
+false` esconde a cozinha e `uses_delivery: false` esconde os entregadores
+(paridade por configuração, ver `00-overview.md`).
+
+| Perfil | Telas apps | Rooms de realtime | Restrictions (backend) |
+|---|---|---|---|
+| waiter | Comandas | `waiter:{id}` + `kitchen-display` | comandas (criar/editar/fechar) |
+| kitchen | Cozinha | `kitchen-display` | só marcar itens prontos |
+| manager | Comandas + Configurações + Dinheiro + Entregar + Relatórios + Estoque + Auditoria + Equipe | `waiter:{id}` + `kitchen-display` + `cash-drawer` + `deliveries` + `inventory` | tudo (usa `kitchen-display` como room-broadcast de comandas) |
+| cashier | Dinheiro (gaveta de caixa) | `cash-drawer` | fluxo de caixa (`cash-flow.routes.ts`); 403 em gerência/comandas |
+| courier | Entregas | `deliveries` | só as entregas atribuídas a ele (`courier.routes.ts`); dispatch/deliver/fail |
+
+Rotas por perfil: `waiter`/`manager` em `order.routes.ts`, `kitchen` em
+`kitchen.routes.ts`, `cashier`/`manager` em `cash-flow.routes.ts`, `courier` em
+`courier.routes.ts`, `manager` **exclusivo** em `delivery-manager.routes.ts` /
+`/users` / `/audit-log` / cadastros. O manager também atende `waiter:{id}` —
+ele enxerga as comandas na mesma tela do garçom.
 
 Health check: `GET http://localhost:3000/health`
 
@@ -222,7 +247,7 @@ dentro da fase, a ordem indicada.
 
 ### Fase 3 — Qualidade e refactor
 
-- **3.1 Testes**: ✅ backend coberto por vitest (banco `data/test.db` limpo no global setup; suítes `backend/test/cash-flow.test.ts` — fluxo de caixa: sessão única, sangria/suprimento/fechamento, idempotência, hard block de dinheiro sem caixa, estorno automático e resumo por período incluindo `openCount`/`openExpected` e `closing_note`/`tz`; `test/order-flow.test.ts` — validação de mesa (1.6) e eventos outbox de fechamento/cancelamento/pagamento/delete (1.2/1.8); `test/idempotency.test.ts` — retry de `failed`/expirado, 409 processing, cache de completed (1.4); `test/maintenance.test.ts` — outbox corrompido não derruba (1.5) e cleanup (2.5)). ✅ frontend também: vitest + jsdom + Testing Library (rodar `npm run test` no `frontend/`), com a lógica pura de `reports/cashReportView.js` e regressão de render do `ReportsTab` com sessão de caixa aberta no período. Ainda falta: cobrir os fluxos críticos de UI (login, entrega, fechamento com item pendente).
+- **3.1 Testes**: ✅ backend coberto por vitest (banco `data/test.db` limpo no global setup; suítes `backend/test/cash-flow.test.ts` — fluxo de caixa: sessão única, sangria/suprimento/fechamento, idempotência, hard block de dinheiro sem caixa, estorno automático e resumo por período incluindo `openCount`/`openExpected` e `closing_note`/`tz`; `test/order-flow.test.ts` — validação de mesa (1.6) e eventos outbox de fechamento/cancelamento/pagamento/delete (1.2/1.8); `test/idempotency.test.ts` — retry de `failed`/expirado, 409 processing, cache de completed (1.4); `test/maintenance.test.ts` — outbox corrompido não derruba (1.5) e cleanup (2.5); `test/profiles.test.ts` — perfis caixa/entregador: filtro de login por `kitchen_enabled`/`uses_delivery`, acesso por papel (403 em gerência/comandas), cadastro de entregador pelo gerente com PIN e fluxo complete assign → dispatch → deliver fechando a comanda). ✅ frontend também: vitest + jsdom + Testing Library (rodar `npm run test` no `frontend/`), com a lógica pura de `reports/cashReportView.js` e regressão de render do `ReportsTab` com sessão de caixa aberta no período. Ainda falta: cobrir os fluxos críticos de UI (login, entrega, fechamento com item pendente).
 - **3.2 Lint/typecheck no backend** (hoje só `tsc` no build, sem lint).
 - **3.3 N+1 em `listOrdersUsecase`**: 4 queries por comanda
   (`order.usecases.ts:358`) — trocar por join em lote.

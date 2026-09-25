@@ -13,14 +13,16 @@ export async function authRoutes(app: FastifyInstance) {
   // (login-prototype.jsx / 02-frontend-spec.md). Não estava na lista de
   // endpoints originais da spec — GET /users é manager-only, mas a tela de
   // login por PIN precisa mostrar pra quem ainda não está autenticado. Expõe
-  // só id/name/role de usuários ativos, nunca pinHash. Também respeita
-  // kitchen_enabled, escondendo o usuário "kitchen" quando a cozinha está
-  // desligada, igual ao filtro que já existia nos protótipos.
+  // só id/name/role de usuários ativos, nunca pinHash. Também respeita os
+  // toggles de rollout, escondendo usuários de módulos desligados: "kitchen"
+  // quando kitchen_enabled=false e "courier" quando uses_delivery=false —
+  // mesmo filtro por configuração que rege o resto do produto.
   app.get("/auth/users", async () => {
     const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
     const rows = await db.query.users.findMany({ where: eq(users.active, true), orderBy: (u, { asc }) => asc(u.name) });
     return rows
       .filter((u) => settings?.kitchenEnabled || u.role !== "kitchen")
+      .filter((u) => settings?.usesDelivery !== false || u.role !== "courier")
       .map((u) => ({ id: u.id, name: u.name, role: u.role }));
   });
 

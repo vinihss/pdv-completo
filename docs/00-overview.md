@@ -30,8 +30,10 @@ Stack: Node.js + TypeScript, Fastify, Drizzle ORM (SQL-first, mesmo código para
 | **waiter** (garçom) | Abre comanda, lança itens, entrega, fecha conta | `waiter-app-prototype.jsx` |
 | **kitchen** (cozinha) | Vê pedidos, marca como pronto — opcional, ver `kitchen_enabled` | `kitchen-display-prototype.jsx` |
 | **manager** (gerente) | Mesmo acesso a comandas que o garçom (não só caixa), + cadastros, configuração e relatórios | `manager-app-prototype.jsx` |
+| **cashier** (caixa) | Opera o fluxo de caixa (sessão única: abertura, sangria/suprimento, fechamento e impressão de recibo) | Cashdrawer da tela de login |
+| **courier** (entregador) | Recebe as entregas atribuídas a ele, confirma saída e entrega — opcional, ver `uses_delivery` | Entregas da tela de login |
 
-`pos-app-integrated.jsx` reúne os três perfis num único fluxo com login e sessão compartilhada — os protótipos standalone acima têm as mesmas funcionalidades, mas cada um roda isolado (sem login, sem trocar de perfil).
+`pos-app-integrated.jsx` reúne os três perfis principais num único fluxo com login e sessão compartilhada — os protótipos standalone acima têm as mesmas funcionalidades, mas cada um roda isolado (sem login, sem trocar de perfil). Caixa e entregador são perfis mais recentes, restritos por papel no backend: `cashier` e `manager` operam o fluxo de caixa, `courier` e `manager` enxergam/atribuem entregas (o manager vê todas; o courier só as atribuídas a ele). O login também respeita os toggles de rollout — com `uses_delivery` desligado, usuários `courier` somem da lista de seleção (paridade com `kitchen_enabled`, que some com a cozinha).
 
 ## Decisões de dados (schema)
 
@@ -52,6 +54,7 @@ Tabela `store_settings` (singleton) concentra os parâmetros que mudam o comport
 |---|---|
 | `uses_tables` | `false` remove a opção "Mesa" na abertura de comanda do garçom (fluxo tipo pub) |
 | `kitchen_enabled` | `false` remove a etapa `ready` do fluxo de item (`ordered` → `delivered` direto) e some com o usuário `kitchen` do login |
+| `uses_delivery` | `false` desliga a página/comanda pública de delivery e some com os usuários `courier` do login |
 | `enabled_payment_methods` | controla quais formas de pagamento aparecem no fechamento de conta |
 | `pix_key`, `merchant_name`, `merchant_city` | necessários para gerar o QR Pix (BR Code); sem isso, botão de Pix fica desabilitado |
 | `kitchen_prep_warn_min`, `kitchen_prep_urgent_min`, `kitchen_pickup_urgent_min` | limiares de tempo (minutos) que definem quando um cartão vira âmbar/vermelho na tela da cozinha; só relevantes se `kitchen_enabled = true` |
