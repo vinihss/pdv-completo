@@ -320,6 +320,7 @@ export default function CatalogTab({ showToast }) {
           kitchenGroups={kitchenGroups}
           kitchenEnabled={kitchenEnabled}
           ifoodIntegrationEnabled={storeSettings?.ifoodIntegrationEnabled ?? false}
+          inventoryEnabled={storeSettings?.inventoryEnabled ?? false}
           onClose={() => setEditingProduct(null)}
           onSaved={async () => {
             setEditingProduct(null);

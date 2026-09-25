@@ -133,6 +133,20 @@ Convenção: critérios marcados com ⚠️ cobrem comportamento que já gerou a
 - **Dado** o resumo com datas `YYYY-MM-DD`, **quando** é informado `tz=-03:00`, **então** o dia é interpretado no fuso local (ex.: `from=2026-09-19` → `2026-09-19T03:00:00Z`); `tz` inválido responde `400 validation_failed`.
 - **Dado** o garçom, **quando** ele tenta `GET /cash-drawer/current` ou qualquer operação do caixa, **então** a API responde `403 forbidden_role` — operação é restrita a `cashier` e `manager`.
 
+## 15. Controle de estoque (backend §7.5, §7.9, `07-estoque.md`)
+
+- ⚠️ **Dado** o módulo desligado (`inventory_enabled = false`) por padrão, **quando** um garçom lança um produto com saldo zero e `track_stock` ativo, **então** o lançamento não é bloqueado — instalações existentes não mudam de comportamento ao atualizar.
+- ⚠️ **Dado** o módulo ligado e um produto com `track_stock = true` e estoque inicial `10`, **quando** dois itens são lançados num lote e o saldo é consumido no primeiro, **então** o saldo do produto passa a `8` (um movimento `sale` de `-2` no ledger) — e, num lote que ultrapasse o saldo, **nada** do lote entra (rollback) e a API responde `409 insufficient_stock` com `details.available`.
+- **Dado** um produto com `track_stock = true` e saldo `0` com o módulo ligado, **quando** o garçom tenta lançá-lo, **então** a tela de lançamento mostra o item desabilitado ("Sem estoque") sem chegar a chamar a API.
+- ⚠️ **Dado** um produto com `track_stock = false`, **quando** um item dele é lançado com o módulo ligado, **então** não há débito de estoque (o saldo não muda) e venda nunca é bloqueada — rastreamento é opt-in por produto.
+- ⚠️ **Dado** um item lançado que consumiu estoque, **quando** ele é removido da comanda (ainda não `delivered`) **ou** a comanda é cancelada, **então** um movimento `refund` re-credita o mesmo valor debitado, na mesma transação — saldo volta ao valor anterior.
+- **Dado** a aba Estoque do gerente, **quando** ele registra uma entrada (compra) de `5` num produto, **então** o saldo aumenta em `5` (movimento `purchase`) e a ação aparece no `audit_log` como `stock_movement_manual`.
+- **Dado** a mesma aba, **quando** o gerente faz um ajuste de `-2` (perda/quebra) ou `+3` (sobra), **então** o saldo muda exatamente no delta informado; ajuste `0` é recusado (`400 validation_failed`).
+- **Dado** um movimento manual com `correlationId`, **quando** o mesmo request é repetido, **então** a API devolve a resposta cacheada e não duplica o movimento (idempotência).
+- ⚠️ **Dado** um produto com `low_stock_threshold = 5` e saldo `10`, **quando** uma venda leva o saldo a `5`, **então** o produto fica marcado como `low` na listagem e na aba Estoque (evento `stock.low`), sem bloquear novas vendas até zerar.
+- **Dado** um produto vendido com custo `R$ 7,00` a `R$ 22,00`, **quando** o relatório de vendas é aberto, **então** a seção "Por produto" mostra `revenue = R$ 22,00 × qtd`, `cost = R$ 7,00 × qtd` e o lucro calculado — usando os **snapshots** do lançamento, não o custo atual do cadastro.
+- **Dado** o gerente, **quando** ele acessa `GET /stock` ou `POST /stock/:productId/movements`, **então** funciona; o garçom, nas mesmas rotas, recebe `403 forbidden_role` — estoque é exclusivo de gerente.
+
 ## Como usar este documento
 
 Cada bloco acima deve virar um ou mais casos de teste automatizado (integração, no mínimo, pros fluxos de `order`/`item`; unitário pros usecases de domínio). Os itens marcados ⚠️ são os candidatos naturais a teste automatizado prioritário, por já terem histórico de ambiguidade neste projeto — vale garantir que eles tenham cobertura antes de qualquer coisa mais "óbvia" da lista.

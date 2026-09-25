@@ -9,12 +9,14 @@ import {
   storeSettings,
   restaurantTables,
   customers,
+  stockMovements,
 } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
 import { round2, moneyEq } from "../../domain/money.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
 import { findOpenDrawerTx } from "../cash-flow/cash-flow.usecases.js";
+import { applyStockMovementTx, stockBalance, INVENTORY_ROOM } from "../stock/stock.usecases.js";
 
 // NOTA IMPORTANTE sobre sync vs async:
 // O driver better-sqlite3 é fundamentalmente síncrono — `db.transaction(cb)`
@@ -223,6 +225,15 @@ export async function addItemsUsecase(input: {
       if (!product || !product.active) {
         throw Errors.validationFailed({ productId: line.productId, reason: "inativo ou inexistente" });
       }
+      // Estoque (003/0016): com a feature global ligada E produto rastreando,
+      // o saldo do ledger é o teto — lançar mais que disponível bloqueia a
+      // comanda inteira (a transação inteira faz rollback no throw). Requer
+      // saldo do ledger, nunca coluna cacheada.
+      const deductsStock = settings.inventoryEnabled && product.trackStock;
+      if (deductsStock) {
+        const available = stockBalance(tx, product.id);
+        if (available < line.quantity) throw Errors.insufficientStock(product.id, product.name, available);
+      }
       // Status de entrada por estação/modo (§7.2, kitchen_enabled):
       // - sem cozinha (pub): item já entra entregue — a comanda não controla
       //   preparo/entrega e não exige confirmação do garçom;
@@ -237,6 +248,7 @@ export async function addItemsUsecase(input: {
           productId: line.productId,
           quantity: line.quantity,
           unitPrice: product.price, // snapshot — nunca referência viva
+          costPrice: product.costPrice, // snapshot do custo no lançamento (margem)
           selectedVariations: JSON.stringify(line.selectedVariations ?? {}),
           notes: line.notes ?? null,
           createdBy: input.userId,
@@ -250,6 +262,28 @@ export async function addItemsUsecase(input: {
         kitchenGroupId: product.kitchenGroupId,
       });
       result.push(serialized);
+
+      // Débito do estoque no mesmo commit do item (rollback garante que item
+      // e saldo nunca divergem). Eventos stock.movement/stock.low vão pro
+      // room "inventory" — quem assina (aba Estoque do gerente) atualiza.
+      if (deductsStock) {
+        const { balance } = applyStockMovementTx(tx, {
+          productId: product.id,
+          type: "sale",
+          quantityDelta: -line.quantity,
+          orderId: input.orderId,
+          orderItemId: created.id,
+          createdBy: input.userId,
+        });
+        if (product.trackStock && product.lowStockThreshold > 0 && balance <= product.lowStockThreshold) {
+          enqueueEvent(tx, INVENTORY_ROOM, "stock.low", {
+            productId: product.id,
+            name: product.name,
+            quantity: balance,
+            threshold: product.lowStockThreshold,
+          });
+        }
+      }
 
       enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.item.created", {
         orderId: input.orderId,
@@ -345,6 +379,28 @@ export async function deleteItemUsecase(input: { orderId: string; itemId: string
   if (settings.kitchenEnabled && item.status === "delivered") throw Errors.itemAlreadyDelivered();
 
   db.transaction((tx) => {
+    // Estorno de estoque: se o item consumiu stock no lançamento (movimento
+    // 'sale' vinculado ao item existe), devolve o mesmo volume como 'refund'.
+    // Baseado no ledger (e não no flag atual do produto) — a decisão de
+    // repor é "houve consumo", então o ledger continua consistente mesmo se
+    // o produto deixou de rastrear estoque depois.
+    const sales = tx
+      .select({ quantityDelta: stockMovements.quantityDelta })
+      .from(stockMovements)
+      .where(and(eq(stockMovements.orderItemId, input.itemId), eq(stockMovements.type, "sale")))
+      .all();
+    for (const sale of sales) {
+      applyStockMovementTx(tx, {
+        productId: item.productId,
+        type: "refund",
+        quantityDelta: -sale.quantityDelta, // sale é negativo → refund positivo
+        orderId: input.orderId,
+        orderItemId: input.itemId,
+        note: "Item removido",
+        createdBy: input.userId,
+      });
+    }
+
     tx.delete(orderItems).where(eq(orderItems.id, input.itemId)).run();
     logAction(tx, input.userId, "item_removed", input.orderId, { itemId: input.itemId, name: item.productId });
     // 1.8 — item removido em um terminal precisa sumir dos demais (garçom/gerente
@@ -722,6 +778,27 @@ export async function cancelOrderUsecase(input: { orderId: string; userId: strin
       .set({ status: "cancelled" })
       .where(and(eq(orderItems.orderId, input.orderId), notInArray(orderItems.status, ["delivered", "cancelled"])))
       .run();
+
+    // Estorno de estoque da comanda inteira: todo item que consumiu stock
+    // (movimento 'sale' com order_id) devolve o volume como 'refund'. Itens
+    // entregues também são estornados aqui — o consumo já aconteceu no
+    // lançamento, e a venda não se concretizou. Sempre baseado no ledger.
+    const sales = tx
+      .select({ productId: stockMovements.productId, orderItemId: stockMovements.orderItemId, quantityDelta: stockMovements.quantityDelta })
+      .from(stockMovements)
+      .where(and(eq(stockMovements.orderId, input.orderId), eq(stockMovements.type, "sale")))
+      .all();
+    for (const sale of sales) {
+      applyStockMovementTx(tx, {
+        productId: sale.productId,
+        type: "refund",
+        quantityDelta: -sale.quantityDelta,
+        orderId: input.orderId,
+        orderItemId: sale.orderItemId,
+        note: "Comanda cancelada",
+        createdBy: input.userId,
+      });
+    }
 
     const result = tx
       .update(orders)

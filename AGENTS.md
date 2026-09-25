@@ -8,8 +8,10 @@ produto; este arquivo é o guia de trabalho e o plano de melhorias.
 
 PDV (ponto de venda) para restaurante/pub, cobrindo o ciclo: abrir comanda →
 lançar itens → (opcionalmente) cozinha prepara → garçom entrega → fechar conta.
-Escopo da Etapa 1 é deliberadamente enxuto: sem estoque, sem pagamento
-automático, sem emissão fiscal.
+Escopo da Etapa 1 é deliberadamente enxuto: sem ficha técnica, sem pagamento
+automático, sem emissão fiscal. Controle de estoque **simples** (por produto,
+com `track_stock`) existe e é opcional via `store_settings.inventory_enabled` —
+ver `docs/07-estoque.md`.
 
 O mesmo produto atende perfis diferentes por **configuração**, não por código
 separado: restaurante tradicional (mesas + cozinha) ou pub (cliente/rótulo,
@@ -33,6 +35,7 @@ docs/       Specs originais (backend, frontend, critérios de aceite)
 | `docs/01-backend-spec.md` | Schema, arquitetura em camadas, API REST, WebSocket, concorrência, idempotência, Pix, auditoria, setup, requisitos não-funcionais. |
 | `docs/02-frontend-spec.md` | Fluxos de garçom, cozinha e gerente, tela por tela. |
 | `docs/03-acceptance-criteria.md` | Critérios de aceite em formato Dado/Quando/Então. |
+| `docs/07-estoque.md` | Spec do controle de estoque: ledger `stock_movement`, flags de rollout, endpoints, regras de corretude e testes. |
 
 ## Como rodar
 
@@ -89,7 +92,7 @@ e `/realtime` pro backend).
 | `npm run seed` | backend | seed de dev (usuários/PINs fictícios) |
 | `npm run seed:prod` | backend | seed de primeiro deploy (sem dados fictícios) |
 | `npm run db:migrate` | backend | aplica `migrations/*.sql` manualmente (também roda no boot em modo local) |
-| `npm run test` | backend | vitest (banco dedicado `data/test.db`; caixa, comandas, idempotência, maintenance) |
+| `npm run test` | backend | vitest (banco dedicado `data/test.db`; caixa, comandas, idempotência, maintenance, stock) |
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
 | `npm run test` | frontend | vitest (jsdom + Testing Library; relatório de caixa/reports) |
@@ -136,6 +139,16 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
 - **Migrations**: toda mudança de schema exige um novo arquivo `.sql` numerado
   (zero-padded, ordem lexicográfica) em `backend/migrations/`. Rodam no boot em
   modo local e via `npm run db:migrate` em produção.
+- **Estoque é ledger, não coluna denormalizada**: o saldo de um produto é a soma
+  dos `quantity_delta` de `stock_movement` (`sale`/`refund`/`purchase`/
+  `adjustment`). O débito acontece em `addItemsUsecase` **dentro da transação**
+  (mesma `db.transaction` do insert do item), com check de saldo antes e
+  `order_item.cost_price` snapshot do custo; `rollback` de lote é automático por
+  `throw`. Refund em `deleteItem`/`cancelOrder` re-credita os `sale` do ledger
+  (por `order_item_id`/`order_id`) — nunca decide pelo flag atual do produto.
+  Movimentos manuais (`POST /stock/:productId/movements`) são idempotentes e
+  viram `stock_movement_manual` no audit. API e regras em
+  `src/application/stock/stock.usecases.ts`; doc em `docs/07-estoque.md`.
 - **Não existe lint/typecheck configurado no backend hoje** — rode `npm run build`
   (`tsc`) para validar.
 
@@ -147,8 +160,10 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
   O token vai como **subprotocol** (`Sec-WebSocket-Protocol`), nunca na query
   string. Rooms: clients assinam `waiter:{userId}` + `kitchen-display`; o backend
   usa `kitchen-display` como room-broadcast do app de comandas (fechar/pagar/
-  deletar/cancelar emitem para lá além de `table:{id}`). **Nunca** emitir evento
-  relevante só para `table:{id}` — nenhum client assina esse room (ver 1.2).
+  deletar/cancelar emitem para lá além de `table:{id}`); o manager também assina
+  `inventory` (módulo de estoque) e o caixa/gerente assina `cash-drawer`.
+  **Nunca** emitir evento relevante só para `table:{id}` — nenhum client assina
+  esse room (ver 1.2).
 - **Mutations**: aguardar e então recarregar; sem otimismo. Tratar erros de
   domínio com toasts (`src/components/Toast.jsx`).
 - **UI em PT-BR**; ícones via `lucide-react`; estilos com Tailwind 4 (CSS-first).
@@ -238,13 +253,30 @@ dentro da fase, a ordem indicada.
   `confirmed:true`. Sem chave/nome/cidade configurados, a opção Pix fica
   desabilitada com aviso.
 
+### Fase 5 — Estoque (implementado)
+
+- **5.1 Ledger de estoque** — ✅ feito: `stock_movement` é a fonte da verdade do
+  saldo (Σ `quantity_delta`; tipos `sale`/`refund`/`purchase`/`adjustment`), com
+  `inventory_enabled` (store_settings) + `track_stock` (produto) como flags de
+  rollout (padrões desligados — instalações existentes não mudam). Débito/
+  bloqueio em `addItemsUsecase` dentro da transação (`insufficient_stock` com
+  `details.available`), refund no delete/cancel via ledger, custo snapshot em
+  `order_item.cost_price`, margem por produto no relatório. Doc em
+  `docs/07-estoque.md`; suíte `test/stock.test.ts` (10 testes).
+- **5.2 UI de estoque** — ✅ feito: aba "Estoque" no gerenciador (visível só com
+  `inventory_enabled`) em `frontend/src/features/inventory/` (StockTab,
+  MovementModal, MovementsList), badge de estoque baixo na listagem de produtos,
+  campo de estoque no cadastro (com `initialStock` no create), bloqueio de item
+  sem estoque na tela de lançamento do garçom e seção "Por produto" no relatório.
+  Realtime no room `inventory` (`stock.movement`/`stock.low`).
+
 ## Critérios de verificação gerais
 
 Antes de dar qualquer mudança por feita:
 
 1. Backend: `npm run build` (tsc) sem erros.
 1.1. Backend: `npm run test` (vitest) sem falhas — obrigatório quando o fluxo
-   alterado tiver suíte (fluxo de caixa hoje).
+   alterado tiver suíte (fluxo de caixa e estoque hoje).
 2. Frontend: `npm run lint`, `npm run build` e `npm run test` sem erros.
 3. Smoke manual por perfil: login (garçom/gerente/cozinha) → abrir comanda →
    lançar itens → (cozinha marca pronto) → garçom entrega → pagar → fechar.

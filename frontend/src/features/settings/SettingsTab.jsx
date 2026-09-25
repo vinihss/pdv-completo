@@ -127,6 +127,15 @@ export default function SettingsTab({ showToast }) {
         <ToggleRow label="Usa mesas" checked={form.usesTables} onChange={(v) => set({ usesTables: v })} />
         <ToggleRow label="Cozinha habilitada" checked={form.kitchenEnabled} onChange={(v) => set({ kitchenEnabled: v })} />
         <ToggleRow label="Integração iFood" checked={form.ifoodIntegrationEnabled} onChange={(v) => set({ ifoodIntegrationEnabled: v })} />
+        <ToggleRow
+          label="Controle de estoque"
+          checked={form.inventoryEnabled}
+          onChange={(v) => set({ inventoryEnabled: v })}
+        />
+        <p className="text-stone-600 text-xs">
+          Em produtos com "Rastreia estoque" ativo, o lançamento de item debita o saldo e bloqueia quando insuficiente; a aba
+          Estoque do gerente permite compras e ajustes. Desligar não apaga o histórico de movimentos.
+        </p>
       </Section>
 
       <Section title="Entrega (WhatsApp / página externa)">

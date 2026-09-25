@@ -66,6 +66,34 @@ export default function ReportsTab({ showToast }) {
               ))}
             </div>
           </Section>
+          <Section title="Por produto">
+            <div className="space-y-1.5">
+              {(report.summary.byProduct ?? []).map((p) => {
+                const margin = p.revenue > 0 ? (p.profit / p.revenue) * 100 : 0;
+                return (
+                  <div key={p.productId} className="flex items-center justify-between gap-3 text-sm">
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{p.name}</div>
+                      <div className="text-stone-500 text-xs">{p.quantity}x vendidos</div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="font-semibold text-emerald-400">R$ {p.revenue.toFixed(2)}</div>
+                      {p.cost > 0 ? (
+                        <div className="text-stone-500 text-xs">
+                          custo R$ {p.cost.toFixed(2)} · lucro R$ {p.profit.toFixed(2)} · margem {margin.toFixed(0)}%
+                        </div>
+                      ) : (
+                        <div className="text-stone-600 text-xs">sem custo cadastrado</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {(report.summary.byProduct ?? []).length === 0 && (
+                <div className="text-stone-600 text-center py-4 text-sm">Nenhuma venda de produto no período.</div>
+              )}
+            </div>
+          </Section>
           <Section title={`Comandas fechadas (${report.total})`}>
             <div className="space-y-2">
               {report.data.map((o) => (

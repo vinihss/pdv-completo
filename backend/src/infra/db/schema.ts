@@ -52,6 +52,11 @@ export const products = sqliteTable("product", {
   imagePath: text("image_path"), // caminho servido via /uploads/<id>.<ext>
   ifoodEnabled: integer("ifood_enabled", { mode: "boolean" }).notNull().default(false),
   ifoodSku: text("ifood_sku"),
+  // Estoque (migration 0016): config do produto — o saldo em si fica no
+  // ledger stock_movement (soma dos deltas), nunca coluna cacheada.
+  costPrice: real("cost_price").notNull().default(0), // custo unitário (margem)
+  lowStockThreshold: real("low_stock_threshold").notNull().default(0),
+  trackStock: integer("track_stock", { mode: "boolean" }).notNull().default(false),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
   updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
@@ -110,6 +115,7 @@ export const orderItems = sqliteTable("order_item", {
   productId: text("product_id").notNull().references(() => products.id, { onDelete: "restrict" }),
   quantity: integer("quantity").notNull(),
   unitPrice: real("unit_price").notNull(),
+  costPrice: real("cost_price").notNull().default(0), // snapshot do custo no lançamento (margem)
   selectedVariations: text("selected_variations").notNull().default("{}"), // JSON string
   notes: text("notes"),
   status: text("status", { enum: ["ordered", "ready", "delivered", "cancelled"] }).notNull().default("ordered"),
@@ -117,6 +123,22 @@ export const orderItems = sqliteTable("order_item", {
   createdBy: text("created_by").notNull().references(() => users.id),
   createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
   updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
+});
+
+// Ledger de estoque (migration 0016): fonte da verdade do saldo — soma dos
+// deltas por produto. 'sale' no lançamento da comanda, 'refund' no estorno
+// (item removido / comanda cancelada), 'purchase'/'adjustment' manuais do
+// gerente. Desenhado para evoluir a ficha técnica: deltas genéricos.
+export const stockMovements = sqliteTable("stock_movement", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  productId: text("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  type: text("type", { enum: ["sale", "refund", "purchase", "adjustment"] }).notNull(),
+  quantityDelta: real("quantity_delta").notNull(),
+  orderId: text("order_id").references(() => orders.id, { onDelete: "set null" }),
+  orderItemId: text("order_item_id").references(() => orderItems.id, { onDelete: "set null" }),
+  note: text("note"),
+  createdBy: text("created_by").notNull().references(() => users.id),
+  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
 });
 
 // Fluxo de caixa (migration 0012): uma sessão aberta por vez (índice parcial
@@ -163,6 +185,7 @@ export const storeSettings = sqliteTable("store_settings", {
   kitchenEnabled: integer("kitchen_enabled", { mode: "boolean" }).notNull().default(true),
   usesDelivery: integer("uses_delivery", { mode: "boolean" }).notNull().default(true),
   ifoodIntegrationEnabled: integer("ifood_integration_enabled", { mode: "boolean" }).notNull().default(false),
+  inventoryEnabled: integer("inventory_enabled", { mode: "boolean" }).notNull().default(false), // controle de estoque (0016)
   enabledPaymentMethods: text("enabled_payment_methods").notNull().default('["cash","card","pix","other"]'),
   kitchenPrepWarnMin: integer("kitchen_prep_warn_min").notNull().default(3),
   kitchenPrepUrgentMin: integer("kitchen_prep_urgent_min").notNull().default(6),

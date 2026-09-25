@@ -6,12 +6,18 @@ import {
 import { formatBRL, parseBRL, maskCurrencyInput } from "@/shared/lib";
 import { Field, ToggleRow, inputClass } from "@/shared/components";
 
-export default function ProductModal({ product, categories, kitchenGroups, kitchenEnabled, ifoodIntegrationEnabled, onClose, onSaved, showToast }) {
+export default function ProductModal({ product, categories, kitchenGroups, kitchenEnabled, ifoodIntegrationEnabled, inventoryEnabled = false, onClose, onSaved, showToast }) {
   const [name, setName] = useState(product?.name ?? "");
   const [description, setDescription] = useState(product?.description ?? "");
   const [price, setPrice] = useState(product ? formatBRL(product.price) : "");
   const [categoryId, setCategoryId] = useState(product?.categoryId ?? "");
   const [kitchenGroupId, setKitchenGroupId] = useState(product?.kitchenGroupId ?? "");
+  // Estoque (config do produto): custo unitário, limite de estoque baixo e a
+  // flag de rastreamento. O saldo em si é o ledger — editável só no estoque inicial do cadastro.
+  const [trackStock, setTrackStock] = useState(product?.trackStock ?? false);
+  const [costPrice, setCostPrice] = useState(product?.costPrice ? formatBRL(product.costPrice) : "");
+  const [lowStockThreshold, setLowStockThreshold] = useState(product?.lowStockThreshold ?? "");
+  const [initialStock, setInitialStock] = useState("");
   // Variações estruturadas: [{ name, options, required, allowMultiple }]
   const [variationGroups, setVariationGroups] = useState(() =>
     (product?.variations ?? []).map((g, i) => ({
@@ -99,7 +105,11 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
         active,
         ifoodEnabled: ifoodIntegrationEnabled ? ifoodEnabled : false,
         ifoodSku: ifoodIntegrationEnabled && ifoodEnabled ? ifoodSku.trim() : null,
+        costPrice: parseBRL(costPrice),
+        lowStockThreshold: Number(lowStockThreshold || 0),
+        trackStock,
       };
+      if (!product && trackStock && Number(initialStock || 0) > 0) body.initialStock = Number(initialStock);
       let productId = product?.id;
       if (product) await updateProduct(product.id, body);
       else {
@@ -211,6 +221,57 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
                 <Plus size={14} /> Adicionar variação
               </button>
             </div>
+          </Field>
+          <Field label="Estoque">
+            {inventoryEnabled ? (
+              <div className="space-y-3 bg-stone-800/40 border border-stone-800 rounded-xl p-3">
+                <ToggleRow label="Rastreia estoque deste produto" checked={trackStock} onChange={setTrackStock} />
+                {trackStock && (
+                  <>
+                    <Field label="Custo unitário (R$)">
+                      <input
+                        inputMode="numeric"
+                        value={costPrice}
+                        onChange={(e) => setCostPrice(maskCurrencyInput(e.target.value))}
+                        placeholder="R$ 0,00"
+                        className={inputClass}
+                      />
+                    </Field>
+                    <Field label="Alerta de estoque baixo (qtd.)">
+                      <input
+                        type="number"
+                        min="0"
+                        value={lowStockThreshold}
+                        onChange={(e) => setLowStockThreshold(e.target.value)}
+                        placeholder="0"
+                        className={inputClass}
+                      />
+                      <div className="text-stone-600 text-xs mt-1">Saldo igual ou abaixo deste valor marca o produto como estoque baixo.</div>
+                    </Field>
+                    {product ? (
+                      <div className="flex items-center gap-2 text-xs text-stone-500 bg-stone-900/60 border border-stone-800 rounded-xl px-3 py-2.5">
+                        Saldo atual: <b className="text-stone-200">{product.quantity ?? 0}</b> — ajuste na aba Estoque do gerente.
+                      </div>
+                    ) : (
+                      <Field label="Estoque inicial (qtd.)">
+                        <input
+                          type="number"
+                          min="0"
+                          value={initialStock}
+                          onChange={(e) => setInitialStock(e.target.value)}
+                          placeholder="0"
+                          className={inputClass}
+                        />
+                      </Field>
+                    )}
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="text-stone-600 text-xs bg-stone-800/40 border border-stone-800 rounded-xl px-3 py-2.5">
+                Controle de estoque desabilitado nas configurações — habilite para rastrear saldo e bloqueio de venda.
+              </div>
+            )}
           </Field>
           <div className="space-y-3 bg-stone-800/40 border border-stone-800 rounded-xl p-3">
             <div>

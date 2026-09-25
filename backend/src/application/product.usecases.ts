@@ -6,6 +6,7 @@ import { products, categories, kitchenGroups } from "../infra/db/schema.js";
 import { Errors } from "../domain/errors.js";
 import { config } from "../config/env.js";
 import { logAction } from "../infra/audit-log.js";
+import { stockBalances, currentStock, applyStockMovementTx } from "./stock/stock.usecases.js";
 
 // Variações: formato estruturado de grupos (§01 backend-spec, tabela product).
 //   [{ name: "Ponto da carne", options: ["Mal passado", ...], required?, allowMultiple? }]
@@ -60,7 +61,11 @@ async function refsFor(categoryId: string | null, kitchenGroupId: string | null)
   return { categoryName: category?.name ?? null, kitchenGroupName: group?.name ?? null };
 }
 
-function serialize(p: typeof products.$inferSelect, refs: ProductRefs) {
+async function serializeWithStock(row: typeof products.$inferSelect) {
+  return serialize(row, await refsFor(row.categoryId, row.kitchenGroupId), await currentStock(row.id));
+}
+
+function serialize(p: typeof products.$inferSelect, refs: ProductRefs, quantity = 0) {
   return {
     id: p.id,
     categoryId: p.categoryId,
@@ -74,6 +79,11 @@ function serialize(p: typeof products.$inferSelect, refs: ProductRefs) {
     imagePath: imageUrl(p.imagePath),
     ifoodEnabled: p.ifoodEnabled,
     ifoodSku: p.ifoodSku,
+    costPrice: p.costPrice,
+    lowStockThreshold: p.lowStockThreshold,
+    trackStock: p.trackStock,
+    quantity, // saldo atual do ledger (só relevante quando trackStock)
+    low: p.trackStock && quantity <= p.lowStockThreshold,
     active: p.active,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
@@ -106,11 +116,17 @@ export async function listProductsUsecase(input: {
   const catMap = new Map(categoryNames.map((c) => [c.id, c.name]));
   const groupMap = new Map(groupNames.map((g) => [g.id, g.name]));
 
+  const balances = await stockBalances(rows.map((p) => p.id));
+
   const data = rows.map((p) =>
-    serialize(p, {
-      categoryName: p.categoryId ? catMap.get(p.categoryId) ?? null : null,
-      kitchenGroupName: p.kitchenGroupId ? groupMap.get(p.kitchenGroupId) ?? null : null,
-    })
+    serialize(
+      p,
+      {
+        categoryName: p.categoryId ? catMap.get(p.categoryId) ?? null : null,
+        kitchenGroupName: p.kitchenGroupId ? groupMap.get(p.kitchenGroupId) ?? null : null,
+      },
+      balances.get(p.id) ?? 0
+    )
   );
   return { data, total: totalRow[0]?.count ?? rows.length };
 }
@@ -136,10 +152,17 @@ export async function createProductUsecase(
     ifoodEnabled?: boolean;
     ifoodSku?: string | null;
     active?: boolean;
+    costPrice?: number;
+    lowStockThreshold?: number;
+    trackStock?: boolean;
+    initialStock?: number;
   },
   actorId: string
 ) {
   if (input.price < 0) throw Errors.validationFailed({ field: "price" });
+  if (input.costPrice !== undefined && input.costPrice < 0) throw Errors.validationFailed({ field: "costPrice" });
+  if (input.lowStockThreshold !== undefined && input.lowStockThreshold < 0)
+    throw Errors.validationFailed({ field: "lowStockThreshold" });
   await assertCategoryExists(input.categoryId);
   if (input.kitchenGroupId) await assertKitchenGroupExists(input.kitchenGroupId);
 
@@ -155,15 +178,30 @@ export async function createProductUsecase(
         variations: JSON.stringify(input.variations ?? []),
         ifoodEnabled: input.ifoodEnabled ?? false,
         ifoodSku: input.ifoodSku ?? null,
+        costPrice: input.costPrice ?? 0,
+        lowStockThreshold: input.lowStockThreshold ?? 0,
+        trackStock: input.trackStock ?? false,
         active: input.active ?? true,
       })
       .returning()
       .get();
+
+    // Estoque inicial informado no cadastro vira um ajuste no ledger (mesma
+    // transação — regra: escrita de domínio + audit + outbox juntos).
+    if (input.trackStock && input.initialStock !== undefined && input.initialStock !== 0) {
+      applyStockMovementTx(tx, {
+        productId: row.id,
+        type: "adjustment",
+        quantityDelta: input.initialStock,
+        note: "Estoque inicial",
+        createdBy: actorId,
+      });
+    }
     logAction(tx, actorId, "product_created", null, { productId: row.id, name: row.name });
     return row;
   });
 
-  return serialize(created, await refsFor(created.categoryId, created.kitchenGroupId));
+  return serializeWithStock(created);
 }
 
 export async function updateProductUsecase(
@@ -178,10 +216,16 @@ export async function updateProductUsecase(
     ifoodEnabled?: boolean;
     ifoodSku?: string | null;
     active?: boolean;
+    costPrice?: number;
+    lowStockThreshold?: number;
+    trackStock?: boolean;
   },
   actorId: string
 ) {
   if (input.price !== undefined && input.price < 0) throw Errors.validationFailed({ field: "price" });
+  if (input.costPrice !== undefined && input.costPrice < 0) throw Errors.validationFailed({ field: "costPrice" });
+  if (input.lowStockThreshold !== undefined && input.lowStockThreshold < 0)
+    throw Errors.validationFailed({ field: "lowStockThreshold" });
   const existing = await db.query.products.findFirst({ where: eq(products.id, id) });
   if (!existing) throw Errors.notFound("Produto");
   if (input.categoryId) await assertCategoryExists(input.categoryId);
@@ -199,6 +243,9 @@ export async function updateProductUsecase(
         ...(input.variations !== undefined ? { variations: JSON.stringify(input.variations ?? []) } : {}),
         ...(input.ifoodEnabled !== undefined ? { ifoodEnabled: input.ifoodEnabled } : {}),
         ...(input.ifoodSku !== undefined ? { ifoodSku: input.ifoodSku } : {}),
+        ...(input.costPrice !== undefined ? { costPrice: input.costPrice } : {}),
+        ...(input.lowStockThreshold !== undefined ? { lowStockThreshold: input.lowStockThreshold } : {}),
+        ...(input.trackStock !== undefined ? { trackStock: input.trackStock } : {}),
         ...(input.active !== undefined ? { active: input.active } : {}),
         updatedAt: new Date().toISOString(),
       })
@@ -209,7 +256,7 @@ export async function updateProductUsecase(
     return row;
   });
 
-  return serialize(updated, await refsFor(updated.categoryId, updated.kitchenGroupId));
+  return serializeWithStock(updated);
 }
 
 export async function setProductActiveUsecase(id: string, active: boolean, actorId: string) {
@@ -228,7 +275,7 @@ export async function setProductActiveUsecase(id: string, active: boolean, actor
     });
     return row;
   });
-  return serialize(updated, await refsFor(updated.categoryId, updated.kitchenGroupId));
+  return serializeWithStock(updated);
 }
 
 // ---------- Foto (upload em disco, caminho gravado em product.image_path) ----------
@@ -288,7 +335,7 @@ export async function saveProductImageUsecase(
     logAction(tx, actorId, "product_image_changed", null, { productId: id });
     return row;
   });
-  return serialize(updated, await refsFor(updated.categoryId, updated.kitchenGroupId));
+  return serializeWithStock(updated);
 }
 
 export async function clearProductImageUsecase(id: string, actorId: string) {
@@ -305,5 +352,5 @@ export async function clearProductImageUsecase(id: string, actorId: string) {
     logAction(tx, actorId, "product_image_removed", null, { productId: id });
     return row;
   });
-  return serialize(updated, await refsFor(updated.categoryId, updated.kitchenGroupId));
+  return serializeWithStock(updated);
 }

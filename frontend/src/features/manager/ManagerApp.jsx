@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
-  Receipt, Settings, Package, Users, BarChart3, History, Truck, Store, Wallet,
+  Receipt, Settings, Package, Users, BarChart3, History, Truck, Store, Wallet, Boxes,
 } from "lucide-react";
 import { useToast, Toast } from "@/shared/components";
 import { OrdersRoot } from "@/features/orders";
@@ -12,8 +12,12 @@ import { AuditTab } from "@/features/audit";
 import { IfoodTab } from "@/features/ifood";
 import { SettingsTab } from "@/features/settings";
 import { CashDrawerTab } from "@/features/cashdrawer";
+import { StockTab } from "@/features/inventory";
+import { useAuth } from "@/features/auth";
+import { listStock } from "@/shared/api/stock";
+import { useRealtime } from "@/shared/hooks";
 
-const TABS = [
+const BASE_TABS = [
   { id: "orders", label: "Comandas", icon: Receipt },
   { id: "cash", label: "Caixa", icon: Wallet },
   { id: "deliveries", label: "Entregas", icon: Truck },
@@ -26,8 +30,33 @@ const TABS = [
 ];
 
 export default function ManagerApp() {
+  const { storeSettings, session } = useAuth();
   const [tab, setTab] = useState("orders");
+  const [lowCount, setLowCount] = useState(0);
   const { toast, showToast } = useToast();
+
+  const inventoryEnabled = storeSettings?.inventoryEnabled ?? false;
+
+  // Badge de estoque baixo na aba (resumo barato: 1 chamada com low_only).
+  const refreshLowCount = useCallback(() => {
+    if (!inventoryEnabled) return;
+    listStock({ low_only: "true", limit: 1 })
+      .then((r) => setLowCount(r.total))
+      .catch(() => {});
+  }, [inventoryEnabled]);
+  useEffect(() => {
+    setLowCount(0);
+    refreshLowCount();
+  }, [refreshLowCount]);
+
+  // Atualiza o contador ao vivo (qualquer movimento de estoque em qualquer tela).
+  useRealtime(session?.token, inventoryEnabled ? ["inventory"] : [], (msg) => {
+    if (msg.type === "stock.movement" || msg.type === "stock.low") refreshLowCount();
+  });
+
+  const TABS = inventoryEnabled
+    ? [...BASE_TABS.slice(0, 4), { id: "stock", label: "Estoque", icon: Boxes }, ...BASE_TABS.slice(4)]
+    : BASE_TABS;
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-50">
@@ -42,6 +71,11 @@ export default function ManagerApp() {
               }`}
             >
               <t.icon size={13} /> {t.label}
+              {t.id === "stock" && lowCount > 0 && (
+                <span className="ml-0.5 bg-red-500 text-white rounded-full min-w-[1.1rem] h-[1.1rem] px-1 flex items-center justify-center text-[10px] font-bold">
+                  {lowCount}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -56,6 +90,7 @@ export default function ManagerApp() {
       {tab === "ifood" && <IfoodTab showToast={showToast} />}
       {tab === "audit" && <AuditTab />}
       {tab === "settings" && <SettingsTab showToast={showToast} />}
+      {tab === "stock" && <StockTab showToast={showToast} />}
       <Toast toast={toast} />
     </div>
   );

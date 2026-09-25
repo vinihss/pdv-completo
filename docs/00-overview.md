@@ -4,7 +4,7 @@ Este documento resume as decisões-chave já tomadas, servindo de ponto de entra
 
 ## O que é
 
-PDV para restaurante/pub, cobrindo o ciclo: abrir comanda → lançar itens → (opcionalmente) cozinha prepara → garçom entrega → fechar conta. Etapa 1 (escopo atual) é deliberadamente enxuta: sem controle de estoque, sem processamento automático de pagamento, sem emissão fiscal, sem roteamento automático de pedido para estações.
+PDV para restaurante/pub, cobrindo o ciclo: abrir comanda → lançar itens → (opcionalmente) cozinha prepara → garçom entrega → fechar conta. Etapa 1 é deliberadamente enxuta: sem ficha técnica, sem processamento automático de pagamento, sem emissão fiscal, sem roteamento automático de pedido para estações. Controle de estoque **simples** (saldo por produto com `track_stock`, débito automático no lançamento, entrada/ajuste manual e alerta de estoque baixo) existe e é opcional por configuração — ver `07-estoque.md`.
 
 O mesmo produto atende perfis de estabelecimento bem diferentes através de configuração, não de código separado:
 - **Restaurante tradicional**: organiza o salão por mesa numerada, tem cozinha separada preparando os pedidos.
@@ -40,6 +40,7 @@ Stack: Node.js + TypeScript, Fastify, Drizzle ORM (SQL-first, mesmo código para
 - **`variations`/`selected_variations` em JSONB**, não normalizado — decisão consciente de simplicidade para a etapa 1; migrar para tabela própria só se etapa 2 exigir queries por variação específica.
 - **Lock otimista por item** (campo `version` em `order_item`), não por comanda inteira — dois garçons podem mexer em itens diferentes da mesma comanda sem conflito.
 - **`audit_log`** registra toda ação relevante (abertura/fechamento de comanda, item adicionado/removido/entregue) de forma assíncrona, consultável por comanda.
+- **Estoque é obtido por ledger**, não por coluna denormalizada: `stock_movement` guarda cada venda/estorno/compra/ajuste e o saldo é a soma dos deltas — histórico auditável e sem risco de divergência com a "contagem real". Dados pela flag `store_settings.inventory_enabled` + `product.track_stock`, padrões desligados (rollout seguro).
 - **Idempotência** via `correlationId` gerado no client, obrigatória em `POST /orders`, `POST /orders/:id/items` e `PATCH /orders/:id/close`.
 - **Outbox pattern** para eventos WebSocket — garante entrega mesmo se o processo cair entre o commit no banco e o broadcast.
 
@@ -54,6 +55,7 @@ Tabela `store_settings` (singleton) concentra os parâmetros que mudam o comport
 | `enabled_payment_methods` | controla quais formas de pagamento aparecem no fechamento de conta |
 | `pix_key`, `merchant_name`, `merchant_city` | necessários para gerar o QR Pix (BR Code); sem isso, botão de Pix fica desabilitado |
 | `kitchen_prep_warn_min`, `kitchen_prep_urgent_min`, `kitchen_pickup_urgent_min` | limiares de tempo (minutos) que definem quando um cartão vira âmbar/vermelho na tela da cozinha; só relevantes se `kitchen_enabled = true` |
+| `inventory_enabled` | `false` remove a validação de estoque no lançamento e a aba Estoque do gerente; `true` liga o módulo (débito/bloqueio em produtos com `track_stock` + movimentos manuais) — ver `07-estoque.md` |
 
 ## Decisões de UX chave (garçom)
 
@@ -73,7 +75,8 @@ Tabela `store_settings` (singleton) concentra os parâmetros que mudam o comport
 - Categorias com CRUD completo: criar, renomear inline, reordenar (setas), excluir (com aviso se houver produtos vinculados — exclusão não é bloqueada, só avisada, e produtos ficam sem categoria até reatribuição).
 - **Gerente tem acesso total às comandas, não só função de caixa**: abre, lança item, remove item, marca entregue, fecha — a mesma interface do garçom, sobre o mesmo estado. Substituiu a versão anterior (só ver/fechar), que era limitada demais na prática.
 - **Cozinha é opcional, configurável pelo gerente** (`kitchen_enabled`): estabelecimentos sem estação de preparo separada (ex: pub pequeno) desligam o recurso — o item pula `ready` e vai direto de `ordered` pra `delivered`, o usuário `kitchen` some do login, e os limiares de tempo da cozinha somem das Configurações.
-- **Relatório de vendas**: filtro por período, cliente/mesa e produto; resumo de total vendido, ticket médio e detalhamento por forma de pagamento — sempre sobre comandas fechadas, calculado a partir do `unit_price` gravado no lançamento (nunca o preço atual do produto).
+- **Relatório de vendas**: filtro por período, cliente/mesa e produto; resumo de total vendido, ticket médio e detalhamento por forma de pagamento — sempre sobre comandas fechadas, calculado a partir do `unit_price` gravado no lançamento (nunca o preço atual do produto). Com estoque ligado, ganha **margem por produto** (receita vs. custo, ambos snapshots do lançamento).
+- **Controle de estoque (gerente)**: aba "Estoque" (visível só com `store_settings.inventory_enabled`) com saldo vivo por produto, alerta de estoque baixo, entrada de mercadoria (compra) e ajuste de contagem (positivo/negativo). Produtos com `track_stock` desabilitam na tela de lançamento quando o saldo zera. Ver `07-estoque.md`.
 
 ## Fechar comanda com item pendente — resolvido
 
@@ -96,6 +99,7 @@ A comanda só pode ser fechada quando todo item estiver `delivered`. Essa regra 
 | `02-frontend-spec.md` | fluxos de garçom, cozinha e gerente, tela por tela |
 | `03-acceptance-criteria.md` | critérios de aceite em formato Dado/Quando/Então, por funcionalidade, com destaque pros pontos que já geraram ambiguidade no projeto |
 | `04-cash-flow.md` | spec do fluxo de caixa (sessão única, hard block de dinheiro, estorno automático, fechamento/impressão, resumo por período) |
+| `07-estoque.md` | spec do controle de estoque (ledger `stock_movement`, flags de rollout, endpoints, regras de corretude e testes) |
 | `login-prototype.jsx` | protótipo navegável só do login (seleção de usuário + PIN) |
 | `waiter-app-prototype.jsx` | protótipo navegável do garçom, standalone |
 | `manager-app-prototype.jsx` | protótipo navegável do gerente, standalone — mesmo acesso a comandas que o garçom (não só caixa), toggle de cozinha e Relatórios |

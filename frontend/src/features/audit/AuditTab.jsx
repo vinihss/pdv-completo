@@ -28,6 +28,7 @@ const ACTION_LABEL = {
   kitchen_group_created: "Grupo de produção criado",
   kitchen_group_updated: "Grupo de produção atualizado",
   kitchen_group_deleted: "Grupo de produção excluído",
+  stock_movement_manual: "Movimento de estoque",
 };
 
 export default function AuditTab() {

@@ -27,6 +27,15 @@ export function ProductRow({ product: p, categoryName, onOpen, onToggleActive, i
                 <UtensilsCrossed size={10} /> iFood
               </span>
             )}
+            {p.trackStock && (
+              <span
+                className={`text-[10px] font-bold rounded-full px-1.5 py-0.5 shrink-0 ${
+                  p.quantity <= 0 ? "bg-red-500/15 text-red-400" : p.low ? "bg-amber-500/15 text-amber-400" : "bg-emerald-500/15 text-emerald-400"
+                }`}
+              >
+                {p.quantity <= 0 ? "Sem estoque" : p.low ? `Estoque baixo (${p.quantity})` : `Estoque ${p.quantity}`}
+              </span>
+            )}
           </div>
           <div className="text-stone-500 text-xs truncate">
             {categoryName}

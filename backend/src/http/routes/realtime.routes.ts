@@ -13,7 +13,7 @@ function canJoinRoom(user: AuthUser, room: string): boolean {
     case "waiter":
       return room === "kitchen-display" || room === "deliveries";
     case "manager":
-      return room === "kitchen-display" || room === "deliveries" || room === "cash-drawer";
+      return room === "kitchen-display" || room === "deliveries" || room === "cash-drawer" || room === "inventory";
     case "kitchen":
       return room === "kitchen-display";
     case "cashier":
@@ -51,6 +51,8 @@ export async function realtimeRoutes(app: FastifyInstance) {
     // Caixa e gerente acompanham o fluxo de caixa ao vivo (pagamentos em
     // dinheiro também são broadcast para esse room — ver order.usecases).
     if (authUser.role === "cashier" || authUser.role === "manager") initialRooms.push("cash-drawer");
+    // Gerente acompanha o estoque ao vivo (movimentos e alertas de estoque baixo).
+    if (authUser.role === "manager") initialRooms.push("inventory");
 
     const conn = wsGateway.addConnection(socket as any, initialRooms);
 

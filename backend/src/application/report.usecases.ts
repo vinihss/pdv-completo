@@ -64,21 +64,58 @@ export async function salesReportUsecase(input: {
     orderRows = orderRows.filter((o) => idsWithProduct.has(o.id));
   }
 
-  // Total por comanda, a partir do snapshot unit_price (nunca o preço atual do produto)
+  // Grandes totais por comanda + totais por produto, ambos sobre TODO o
+  // conjunto filtrado (não a página). Margem por produto: revenue usa o
+  // snapshot unit_price; custo usa o snapshot order_item.cost_price (0 em
+  // itens lançados antes da feature de estoque — margem só é confiável
+  // quando há custo cadastrado).
   const totalsByOrder = new Map<string, number>();
+  const prodTotals = new Map<string, { qty: number; revenue: number; cost: number }>();
   const orderIds = orderRows.map((o) => o.id);
 
   if (orderRows.length > 0) {
     const itemRows = await db
-      .select({ orderId: orderItems.orderId, unitPrice: orderItems.unitPrice, quantity: orderItems.quantity, status: orderItems.status })
+      .select({
+        orderId: orderItems.orderId,
+        productId: orderItems.productId,
+        unitPrice: orderItems.unitPrice,
+        costPrice: orderItems.costPrice,
+        quantity: orderItems.quantity,
+        status: orderItems.status,
+      })
       .from(orderItems)
       .where(inArray(orderItems.orderId, orderIds));
 
     for (const it of itemRows) {
       if (it.status === "cancelled") continue;
       totalsByOrder.set(it.orderId, (totalsByOrder.get(it.orderId) ?? 0) + it.unitPrice * it.quantity);
+      const cur = prodTotals.get(it.productId) ?? { qty: 0, revenue: 0, cost: 0 };
+      cur.qty += it.quantity;
+      cur.revenue += it.unitPrice * it.quantity;
+      cur.cost += (it.costPrice ?? 0) * it.quantity;
+      prodTotals.set(it.productId, cur);
     }
   }
+
+  const productIds = [...prodTotals.keys()];
+  const productRows = productIds.length
+    ? await db.query.products.findMany({ where: inArray(products.id, productIds), columns: { id: true, name: true } })
+    : [];
+  const nameMap = new Map(productRows.map((p) => [p.id, p.name]));
+  const byProduct = [...prodTotals.entries()]
+    .map(([productId, t]) => {
+      const revenue = round2(t.revenue);
+      const cost = round2(t.cost);
+      return {
+        productId,
+        name: nameMap.get(productId) ?? "—",
+        quantity: t.qty,
+        revenue,
+        cost,
+        profit: round2(revenue - cost),
+      };
+    })
+    .sort((a, b) => b.revenue - a.revenue);
 
   // Pagamento fracionado: o detalhamento por forma vem das linhas de
   // order_payment (cada método com seu valor). Comandas antigas (pré-order_payment)
@@ -150,6 +187,13 @@ export async function salesReportUsecase(input: {
   return {
     data: page,
     total: orderCount,
-    summary: { totalRevenue, orderCount, avgTicket, byPaymentMethod, changeTotal: changeTotalRound },
+    summary: {
+      totalRevenue,
+      orderCount,
+      avgTicket,
+      byPaymentMethod,
+      byProduct,
+      changeTotal: changeTotalRound,
+    },
   };
 }

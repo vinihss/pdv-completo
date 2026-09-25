@@ -65,6 +65,7 @@ export function resetState() {
     DELETE FROM order_payment;
     DELETE FROM order_item;
     DELETE FROM cash_drawer_movement;
+    DELETE FROM stock_movement;
     DELETE FROM audit_log;
     DELETE FROM idempotency_key;
     DELETE FROM outbox_event;

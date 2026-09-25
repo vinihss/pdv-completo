@@ -27,6 +27,12 @@ import { listUsersUsecase, createUserUsecase, updateUserUsecase, resetPinUsecase
 import { searchCustomersUsecase, createCustomerUsecase } from "../../application/customer.usecases.js";
 import { salesReportUsecase } from "../../application/report.usecases.js";
 import { listAuditLogUsecase } from "../../application/audit-log.usecases.js";
+import {
+  listStockUsecase,
+  getStockMovementsUsecase,
+  registerStockMovementUsecase,
+} from "../../application/stock/stock.usecases.js";
+import { withIdempotency } from "../middlewares/idempotency.middleware.js";
 
 const storeSettingsSchema = z.object({
   merchantName: z.string(),
@@ -38,6 +44,7 @@ const storeSettingsSchema = z.object({
   kitchenEnabled: z.boolean(),
   usesDelivery: z.boolean(),
   ifoodIntegrationEnabled: z.boolean(),
+  inventoryEnabled: z.boolean(),
   enabledPaymentMethods: z.array(z.enum(["cash", "card", "pix", "other"])),
   kitchenPrepWarnMin: z.number().int().positive(),
   kitchenPrepUrgentMin: z.number().int().positive(),
@@ -62,8 +69,36 @@ const productCreateSchema = z.object({
   ifoodEnabled: z.boolean().optional(),
   ifoodSku: z.string().optional().nullable(),
   active: z.boolean().optional(),
+  costPrice: z.number().min(0).optional(),
+  lowStockThreshold: z.number().min(0).optional(),
+  trackStock: z.boolean().optional(),
+  initialStock: z.number().min(0).optional(),
 });
-const productUpdateSchema = productCreateSchema.partial();
+const productUpdateSchema = z
+  .object({
+    categoryId: z.string().min(1),
+    kitchenGroupId: z.string().optional().nullable(),
+    name: z.string().min(1),
+    description: z.string().optional(),
+    price: z.number().min(0),
+    variations: z.array(variationGroupSchema).optional(),
+    ifoodEnabled: z.boolean().optional(),
+    ifoodSku: z.string().optional().nullable(),
+    active: z.boolean().optional(),
+    costPrice: z.number().min(0).optional(),
+    lowStockThreshold: z.number().min(0).optional(),
+    trackStock: z.boolean().optional(),
+  })
+  .partial();
+
+// Movimento manual de estoque — manager. purchase: entrada (+qty);
+// adjustment: contagem/ajuste (Δ sinalizado, ex. -2 sobra de perda).
+const stockMovementCreateSchema = z.object({
+  type: z.enum(["purchase", "adjustment"]),
+  quantity: z.number(),
+  note: z.string().optional().nullable(),
+  correlationId: z.string().min(1),
+});
 
 // MIME aceitos no upload de foto → extensão de arquivo
 const imageExtByMime: Record<string, string> = {
@@ -237,6 +272,42 @@ export async function miscRoutes(app: FastifyInstance) {
       limit: Math.min(Number(q.limit ?? 50), 200),
       offset: Number(q.offset ?? 0),
     });
+  });
+
+  // ---------- Stock (inventário) ----------
+  // Listagem: apenas produtos com trackStock; ?low_only=true filtra só os
+  // abaixo do threshold. O saldo vem do ledger (soma dos deltas).
+  app.get("/stock", { preHandler: requireRole("manager") }, async (req) => {
+    const q = req.query as { low_only?: string; q?: string; limit?: string; offset?: string };
+    return listStockUsecase({
+      lowOnly: q.low_only === "true",
+      search: q.q,
+      limit: Math.min(Number(q.limit ?? 50), 200),
+      offset: Number(q.offset ?? 0),
+    });
+  });
+  // Histórico de movimentos — ?product_id filtra por produto.
+  app.get("/stock/movements", { preHandler: requireRole("manager") }, async (req) => {
+    const q = req.query as { product_id?: string; limit?: string; offset?: string };
+    return getStockMovementsUsecase({
+      productId: q.product_id,
+      limit: Math.min(Number(q.limit ?? 50), 200),
+      offset: Number(q.offset ?? 0),
+    });
+  });
+  // Movimento manual (compra / ajuste) — idempotente, registra audit.
+  app.post("/stock/:productId/movements", { preHandler: requireRole("manager") }, async (req) => {
+    const body = stockMovementCreateSchema.parse(req.body);
+    return withIdempotency(`POST /stock/${(req.params as { productId: string }).productId}/movements`, body.correlationId, body, async () => {
+      const movement = await registerStockMovementUsecase({
+        productId: (req.params as { productId: string }).productId,
+        type: body.type,
+        quantity: body.quantity,
+        note: body.note ?? undefined,
+        userId: req.authUser!.sub,
+      });
+      return { status: 200, body: movement };
+    }).then((r) => r.body);
   });
 
   // ---------- Audit log ----------

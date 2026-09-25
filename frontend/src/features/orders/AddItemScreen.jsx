@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from "react";
-import { Search, X, Check } from "lucide-react";
+import { Search, X, Check, AlertTriangle } from "lucide-react";
 import { listCategories, listAllProducts } from "@/shared/api/catalog";
 import { addItems as addOrderItems } from "@/shared/api/orders";
+import { useAuth } from "@/features/auth";
 import { money } from "./order.utils.js";
 import VariationModal from "./VariationModal.jsx";
 import ReviewCartModal from "./ReviewCartModal.jsx";
 
 export default function AddItemScreen({ order, onClose, onConfirmed, showToast }) {
+  const { storeSettings } = useAuth();
+  const stockEnabled = storeSettings?.inventoryEnabled ?? false;
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
   const [activeCategory, setActiveCategory] = useState(null);
@@ -123,15 +126,23 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {filteredProducts.map((p) => {
             const addedQty = cartQtyForProduct(p.id);
+            // Com estoque habilitado e produto rastreado, saldo zero bloqueia
+            // a inclusão (o backend também valida no confirmar).
+            const outOfStock = stockEnabled && p.trackStock && p.quantity <= 0;
             return (
               <button
                 key={p.id}
-                onClick={() => handleProductTap(p)}
+                onClick={() => !outOfStock && handleProductTap(p)}
+                disabled={outOfStock}
                 className={`relative overflow-hidden text-left rounded-2xl p-4 border transition-all active:scale-95 ${
-                  addedQty > 0 ? "bg-emerald-500/10 border-emerald-500/50" : "bg-stone-800 border-stone-700 hover:bg-stone-750"
+                  outOfStock
+                    ? "bg-stone-900 border-stone-800 opacity-50"
+                    : addedQty > 0
+                      ? "bg-emerald-500/10 border-emerald-500/50"
+                      : "bg-stone-800 border-stone-700 hover:bg-stone-750"
                 }`}
               >
-                {addedQty > 0 && (
+                {addedQty > 0 && !outOfStock && (
                   <span className="absolute top-2 right-2 bg-emerald-500 text-emerald-950 text-xs font-bold min-w-[1.5rem] h-6 px-1 rounded-full flex items-center justify-center shadow-lg pop-anim">
                     {addedQty}
                   </span>
@@ -143,6 +154,11 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
                 <div className="text-emerald-400 text-sm font-bold">{money(p.price)}</div>
                 {p.description && <div className="text-stone-500 text-xs mt-1 line-clamp-2">{p.description}</div>}
                 {p.variations?.length > 0 && <div className="text-stone-500 text-xs mt-1">Opções disponíveis</div>}
+                {outOfStock && (
+                  <div className="flex items-center gap-1 text-red-400 text-xs font-bold mt-1">
+                    <AlertTriangle size={12} /> Sem estoque
+                  </div>
+                )}
               </button>
             );
           })}

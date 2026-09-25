@@ -7,7 +7,7 @@ import argon2 from "argon2";
 import { eq } from "drizzle-orm";
 import { runMigrations } from "./migrate.js";
 import { db } from "./client.js";
-import { users, categories, products, restaurantTables, storeSettings, kitchenGroups } from "./schema.js";
+import { users, categories, products, restaurantTables, storeSettings, kitchenGroups, stockMovements } from "./schema.js";
 
 async function seed() {
   runMigrations();
@@ -28,6 +28,7 @@ async function seed() {
     kitchenEnabled: true,
     usesDelivery: true,
     ifoodIntegrationEnabled: false,
+    inventoryEnabled: true, // demo com controle de estoque ligado
     enabledPaymentMethods: JSON.stringify(["cash", "card", "pix", "other"]),
     kitchenPrepWarnMin: 3,
     kitchenPrepUrgentMin: 6,
@@ -41,9 +42,11 @@ async function seed() {
     { name: "Caixa Teste", role: "cashier" as const, pin: "2468" },
     { name: "Estação Cozinha", role: "kitchen" as const, pin: "0000" },
   ];
+  let managerId: string = "";
   for (const u of seedUsers) {
     const pinHash = await argon2.hash(u.pin);
-    await db.insert(users).values({ name: u.name, role: u.role, pinHash });
+    const [created] = await db.insert(users).values({ name: u.name, role: u.role, pinHash }).returning();
+    if (u.role === "manager") managerId = created.id;
   }
 
   const [bebidas] = await db.insert(categories).values({ name: "Bebidas", displayOrder: 1 }).returning();
@@ -54,13 +57,16 @@ async function seed() {
   const [grelha] = await db.insert(kitchenGroups).values({ name: "Grelha", displayOrder: 2 }).returning();
   const [bar] = await db.insert(kitchenGroups).values({ name: "Bar", displayOrder: 3 }).returning();
 
-  await db.insert(products).values([
-    { categoryId: bebidas.id, kitchenGroupId: bar.id, name: "Chopp 300ml", price: 9.5 },
+  // Demo de estoque: alguns produtos com custo e rastreamento; o saldo é
+  // criado como movimento 'adjustment' (Estoque inicial) no ledger.
+  const seededProducts = await db.insert(products).values([
+    { categoryId: bebidas.id, kitchenGroupId: bar.id, name: "Chopp 300ml", price: 9.5, costPrice: 3, trackStock: true, lowStockThreshold: 20 },
     {
       categoryId: bebidas.id,
       kitchenGroupId: bar.id,
       name: "Caipirinha",
       price: 18,
+      costPrice: 6,
       variations: JSON.stringify([{ name: "Fruta", options: ["Limão", "Morango", "Maracujá"] }]),
     },
     {
@@ -68,14 +74,37 @@ async function seed() {
       kitchenGroupId: grelha.id,
       name: "X-Burger",
       price: 28,
+      costPrice: 11,
+      trackStock: true,
+      lowStockThreshold: 10,
       variations: JSON.stringify([
         { name: "Ponto da carne", options: ["Mal passado", "Ao ponto", "Bem passado"], required: true },
       ]),
     },
-    { categoryId: pratos.id, kitchenGroupId: grelha.id, name: "Filé à parmegiana", price: 42 },
-    { categoryId: porcoes.id, kitchenGroupId: cozinha.id, name: "Batata frita", price: 22 },
-    { categoryId: porcoes.id, kitchenGroupId: cozinha.id, name: "Isca de peixe", price: 34 },
-  ]);
+    { categoryId: pratos.id, kitchenGroupId: grelha.id, name: "Filé à parmegiana", price: 42, costPrice: 18, trackStock: true, lowStockThreshold: 8 },
+    { categoryId: porcoes.id, kitchenGroupId: cozinha.id, name: "Batata frita", price: 22, costPrice: 7, trackStock: true, lowStockThreshold: 15 },
+    { categoryId: porcoes.id, kitchenGroupId: cozinha.id, name: "Isca de peixe", price: 34, costPrice: 15, trackStock: true, lowStockThreshold: 10 },
+  ]).returning();
+
+  // Saldo inicial = movimento de ajuste por produto rastreado. Estoque baixo
+  // deixado em um deles (Batata frita) pra aba Estoque já nascer com alerta.
+  const initialByProduct: Record<string, number> = {
+    "Chopp 300ml": 60,
+    "X-Burger": 40,
+    "Filé à parmegiana": 25,
+    "Batata frita": 12, // abaixo do threshold → stock.low
+    "Isca de peixe": 20,
+  };
+  const stockRows = seededProducts
+    .filter((p) => p.trackStock && initialByProduct[p.name] !== undefined)
+    .map((p) => ({
+      productId: p.id,
+      type: "adjustment" as const,
+      quantityDelta: initialByProduct[p.name],
+      note: "Estoque inicial",
+      createdBy: managerId,
+    }));
+  if (stockRows.length > 0) await db.insert(stockMovements).values(stockRows);
 
   await db.insert(restaurantTables).values(
     Array.from({ length: 8 }, (_, i) => ({ number: String(i + 1) }))

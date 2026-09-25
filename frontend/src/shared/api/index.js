@@ -10,4 +10,5 @@ export * as ifoodApi from "./ifood.js";
 export * as publicApi from "./public.js";
 export * as reportsApi from "./reports.js";
 export * as cashApi from "./cash.js";
+export * as stockApi from "./stock.js";
 export { request, upload, setAuthToken, setUnauthorizedHandler } from "./http.js";

@@ -3,7 +3,7 @@
 ## 1. Escopo da Etapa 1
 
 Incluído:
-- Cadastro de produtos (sem ficha técnica, sem controle de estoque)
+- Cadastro de produtos (sem ficha técnica; com controle de estoque simples — saldo por produto via ledger, ver §7.5 e `07-estoque.md`)
 - Configuração de usuários (waiter, kitchen, manager)
 - Mesas e comandas (orders), com suporte a identificação por mesa, cliente cadastrado ou rótulo livre
 - Configuração da loja: uso de mesas (liga/desliga), uso da tela da cozinha (liga/desliga) e formas de pagamento habilitadas
@@ -14,9 +14,10 @@ Incluído:
 - Log de auditoria de todas as ações relevantes (abertura/fechamento de comanda, item adicionado/removido/entregue)
 - **Gerente com acesso completo à operação de comandas** — não só a função de caixa (fechar conta): abrir comanda, lançar/remover item, marcar entregue, tudo que o garçom faz, com a mesma interface e as mesmas regras de negócio (§7.2, §9)
 - **Relatório de vendas para o gerente** — total vendido, ticket médio e detalhamento por forma de pagamento, com filtro por período, cliente/mesa e produto (§7.11)
+- **Controle de estoque simples** — saldo por produto (ledger de movimentos), débito automático no lançamento, entrada/ajuste manual pelo gerente, alerta de estoque baixo e margem por produto no relatório (§7.5, §7.9 e `07-estoque.md`)
 
 Explicitamente fora do escopo:
-- Controle de estoque / ficha técnica
+- **Ficha técnica** (baixa automática por ingrediente/quantidade de receita) — o estoque atual é por produto com `track_stock`, ligado/desligado edição manual
 - Processamento automático de pagamento — não há integração com PSP/adquirente, não há webhook de confirmação, não há reconciliação automática. Pix é apenas geração de cobrança (BR Code); a confirmação de recebimento é sempre uma ação manual do gerente/garçom após conferir o extrato bancário
 - Emissão fiscal (NFC-e/SAT)
 - Roteamento automático de pedido para estações de produção (cozinha/bar)
@@ -236,9 +237,42 @@ CREATE TABLE outbox_event (
 );
 ```
 
-Notas de design:
-- `unit_price` em `order_item` é snapshot, não referência viva a `product.price`.
-- `variations`/`selected_variations` em JSONB por serem estruturas variáveis; migrar para tabela normalizada se etapa 2 exigir queries por variação específica.
+### Adições da migration `0016_inventory` (controle de estoque)
+
+Sem tocar no schema acima, as migrations adicionam controlo de estoque
+**por produto**, com padrões desligados (rollout seguro — ver `07-estoque.md`):
+
+```sql
+-- product: custo unitário atual, alerta de estoque baixo e flag de rastreamento
+ALTER TABLE product      ADD COLUMN cost_price         NUMERIC(10,2) NOT NULL DEFAULT 0;
+ALTER TABLE product      ADD COLUMN low_stock_threshold REAL NOT NULL DEFAULT 0;
+ALTER TABLE product      ADD COLUMN track_stock        BOOLEAN NOT NULL DEFAULT false;
+
+-- order_item: custo snapshot no lançamento (mesma disciplina do unit_price)
+ALTER TABLE order_item   ADD COLUMN cost_price         NUMERIC(10,2) NOT NULL DEFAULT 0;
+
+-- store_settings: liga/desliga o módulo
+ALTER TABLE store_settings ADD COLUMN inventory_enabled BOOLEAN NOT NULL DEFAULT false;
+
+-- Ledger: fonte da verdade do saldo (Σ quantity_delta), história auditável.
+CREATE TABLE stock_movement (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id       UUID NOT NULL REFERENCES product(id) ON DELETE RESTRICT,
+    quantity_delta   REAL NOT NULL CHECK (quantity_delta != 0), -- sale/refund/purchase/adjustment
+    movement_type    VARCHAR(20) NOT NULL CHECK (movement_type IN ('sale','refund','purchase','adjustment')),
+    order_id         UUID REFERENCES "order"(id),       -- só sale/refund
+    order_item_id    UUID REFERENCES order_item(id),    -- só sale/refund
+    user_id          UUID NOT NULL REFERENCES "user"(id),
+    note             TEXT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_stock_movement_product ON stock_movement(product_id, created_at);
+CREATE INDEX idx_stock_movement_order    ON stock_movement(order_id);
+CREATE INDEX idx_stock_movement_user     ON stock_movement(user_id);
+```
+
+O custo de `unit_price` em `order_item` é snapshot, não referência viva a
+`product.price`.
 - UUIDs como PK, adequados para futura sincronização multi-servidor.
 - `version` em `order_item` suporta lock otimista (seção 6).
 - **Identificação da order**: `table_id`, `customer_id` e `tab_label` são independentes entre si (não hierárquicos) — a constraint `order_identification_required` garante que ao menos um esteja preenchido. Isso suporta tanto o modelo de restaurante tradicional (mesa) quanto o de pub sem mesa (comanda vinculada a cliente cadastrado ou a um rótulo livre digitado na hora, sem exigir cadastro). `customer` é uma entidade própria (não um campo solto) para permitir busca por nome/telefone e reaproveitamento em visitas futuras, mesmo que histórico de consumo fique fora do escopo da etapa 1.
@@ -466,7 +500,7 @@ GET    /tables               → lista mesas com status
 GET    /store-settings
 PUT    /store-settings       → requer role: manager
 ```
-- Body do `PUT`: `{ merchantName, merchantCity, pixKey, pixKeyType, usesTables, kitchenEnabled, enabledPaymentMethods, kitchenPrepWarnMin, kitchenPrepUrgentMin, kitchenPickupUrgentMin }`
+- Body do `PUT`: `{ merchantName, merchantCity, pixKey, pixKeyType, usesTables, kitchenEnabled, enabledPaymentMethods, kitchenPrepWarnMin, kitchenPrepUrgentMin, kitchenPickupUrgentMin, inventoryEnabled }`
 - 200: configuração atualizada
 - 400: `merchantName` acima de 25 caracteres ou `merchantCity` acima de 15 — limites do padrão BR Code (seção 12)
 - 400 `invalid_kitchen_thresholds`: `kitchenPrepUrgentMin <= kitchenPrepWarnMin` — o limiar vermelho precisa ser maior que o âmbar, senão a escala de urgência não faz sentido
@@ -487,8 +521,10 @@ PATCH  /products/:id
 PATCH  /products/:id/deactivate   → desativa (não deleta, preserva histórico)
 PATCH  /products/:id/activate     → reativa um produto desativado
 ```
-- Body do `POST`/`PATCH`: `{ categoryId, name, price, variations? }`
-- 400: `price < 0`
+- Body do `POST`/`PATCH`: `{ categoryId, name, price, variations?, costPrice?, lowStockThreshold?, trackStock? }` — campos de estoque obrigatórios só no `POST` quando `trackStock=true` (`costPrice`/`lowStockThreshold`/`trackStock`, padrões 0/0/false); `POST` também aceita `initialStock?` (cria movimento `adjustment` de saldo inicial na mesma transação)
+- `POST /products` com `trackStock=true` e `initialStock` informado gira um movimento `adjustment` na mesma transação do create — o estoque inicial já nasce no ledger, não numa coluna solta
+- 400: `price < 0`, `costPrice < 0`, `lowStockThreshold < 0`, `initialStock < 0`
+- `GET /products` (todas as telas) devolve também `costPrice`, `lowStockThreshold`, `trackStock`, `quantity` e `low` — o client usa `trackStock`/`quantity` pra desabilitar item sem estoque na tela de lançamento; o gerenciamento de estoque em si fica em `GET /stock` (ver `07-estoque.md`)
 - **Nota de design**: produto nunca é hard-deleted (só desativado) porque `order_item.product_id` referencia `product(id) ON DELETE RESTRICT` — um produto já usado em qualquer comanda não pode ser removido do banco sem quebrar o histórico. Isso é diferente de categoria (seção 7.6), que pode ser excluída de verdade porque `product.category_id` aceita nulo. Essa assimetria é intencional, não uma inconsistência a resolver.
 
 ### 7.6 Categorias (requer role: manager)
@@ -539,12 +575,14 @@ GET /reports/sales?dateFrom=&dateTo=&customerQuery=&productId=&limit=&offset=
       avgTicket: number,
       byPaymentMethod: Record<"cash" | "card" | "pix" | "other", number>,
       changeTotal: number // troco dado em dinheiro no período (soma de order_payment.change)
+      byProduct: Array<{ productId, name, quantity, revenue, cost, profit }> // margem por produto (snapshots)
     }
   }
   ```
 - `total` de cada comanda é calculado a partir de `order_item.unit_price × quantity` (o snapshot gravado no lançamento, não o preço atual do produto — seção 4) somado por comanda; `summary` é agregado sobre o mesmo conjunto filtrado, não sobre a página retornada (senão paginar mudaria o total, o que quebraria a confiança no relatório)
 - `data[].paymentMethod` é o rótulo derivado das `order_payment` da comanda ("cash + pix"), não o denormalizado — como a comanda pode ter várias formas, o denormalizado de exibição não é suficiente (seção 7.2)
 - `byPaymentMethod` soma os **pedaços** de `order_payment` (cada forma com seu valor). Comandas antigas sem linhas (pré-`order_payment`) atribuem o total ao `payment_method` denormalizado — assim o histórico não perde a forma de pagamento original
+- `byProduct` agrega por produto sobre o mesmo conjunto filtrado: `revenue` é a soma de `unit_price × quantity` (snapshot do lançamento), `cost` a soma de `order_item.cost_price × quantity` (snapshot do custo) e `profit = revenue − cost`. Sem `cost_price` cadastrado o custo é 0 — o client indica "sem custo cadastrado" em vez de inferir margem
 - Sem paginação por padrão nesta etapa (volume esperado é baixo — seção 15); os parâmetros `limit`/`offset` existem só por consistência com as outras listagens, caso o volume cresça
 
 ### 7.10 Exemplos de payload
@@ -719,6 +757,7 @@ Referência única de todo `error.code` que a API pode devolver — útil pro fr
 | `payment_not_registered` | 409 | `PATCH /orders/:id/close` | comanda sem nenhuma linha em `order_payment` |
 | `payment_not_confirmed` | 409 | `PATCH /orders/:id/close` | existe linha `order_payment` com `confirmed=false` (ex.: Pix a conferir) |
 | `invalid_payment_total` | 409 | `PUT /orders/:id/payments`, `PATCH /orders/:id/close` | soma de `order_payment.amount` diverge do total da comanda |
+| `insufficient_stock` | 409 | `POST /orders/:id/items` | produto com `track_stock` e módulo ligado sem saldo suficiente; `details`: `{ productId, name, available }` |
 | `too_many_attempts` | 429 | `POST /auth/login` | rate limit por IP (seção 11) |
 
 Todo erro 4xx segue o mesmo envelope da seção 7.0 — o `code` acima é sempre o campo estável pra lógica de UI; `message` pode mudar de texto sem quebrar o client.
@@ -957,7 +996,7 @@ PATCH  /orders/:id/payments/:paymentId  → confirma um pedaço (requer role: wa
 
 Toda ação relevante do garçom ou gerente é registrada em `audit_log`, de forma assíncrona em relação à operação principal (não bloqueia a resposta ao usuário — grava e segue).
 
-**Ações registradas:** abertura de comanda, item adicionado (por lote, um registro por linha do lote confirmado), item removido, item marcado como entregue, pagamento registrado/confirmado/removido (`payment_registered`, `payment_confirmed`, `payment_removed`), comanda fechada (com o detalhe dos pedaços de pagamento).
+**Ações registradas:** abertura de comanda, item adicionado (por lote, um registro por linha do lote confirmado), item removido, item marcado como entregue, pagamento registrado/confirmado/removido (`payment_registered`, `payment_confirmed`, `payment_removed`), comanda fechada (com o detalhe dos pedaços de pagamento), movimento de estoque manual (`stock_movement_manual`). Venda/estorno de estoque não têm linha própria de auditoria — o próprio `stock_movement` (com `order_id`/`order_item_id`) é o registro auditável.
 
 ```typescript
 async function logAction(userId: string, action: string, orderId: string | null, details: object) {

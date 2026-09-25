@@ -85,4 +85,11 @@ export const Errors = {
     new AppError("table_not_found", 404, "Mesa não encontrada.", { tableId }),
   tableOccupied: () =>
     new AppError("table_occupied", 409, "Esta mesa já está ocupada por outra comanda aberta."),
+  insufficientStock: (productId: string, name: string, available: number) =>
+    new AppError(
+      "insufficient_stock",
+      409,
+      `Estoque insuficiente de ${name} (disponível: ${available}).`,
+      { productId, name, available }
+    ),
 };
