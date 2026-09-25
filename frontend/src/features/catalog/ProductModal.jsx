@@ -15,6 +15,7 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
   // Estoque (config do produto): custo unitário, limite de estoque baixo e a
   // flag de rastreamento. O saldo em si é o ledger — editável só no estoque inicial do cadastro.
   const [trackStock, setTrackStock] = useState(product?.trackStock ?? false);
+  const [unit, setUnit] = useState(product?.unit ?? "Un");
   const [costPrice, setCostPrice] = useState(product?.costPrice ? formatBRL(product.costPrice) : "");
   const [lowStockThreshold, setLowStockThreshold] = useState(product?.lowStockThreshold ?? "");
   const [initialStock, setInitialStock] = useState("");
@@ -108,6 +109,7 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
         costPrice: parseBRL(costPrice),
         lowStockThreshold: Number(lowStockThreshold || 0),
         trackStock,
+        unit: unit.trim() || "Un",
       };
       if (!product && trackStock && Number(initialStock || 0) > 0) body.initialStock = Number(initialStock);
       let productId = product?.id;
@@ -228,15 +230,26 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
                 <ToggleRow label="Rastreia estoque deste produto" checked={trackStock} onChange={setTrackStock} />
                 {trackStock && (
                   <>
-                    <Field label="Custo unitário (R$)">
-                      <input
-                        inputMode="numeric"
-                        value={costPrice}
-                        onChange={(e) => setCostPrice(maskCurrencyInput(e.target.value))}
-                        placeholder="R$ 0,00"
-                        className={inputClass}
-                      />
-                    </Field>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Unidade">
+                        <select value={unit} onChange={(e) => setUnit(e.target.value)} className={inputClass}>
+                          <option value="Un">Un</option>
+                          <option value="kg">kg</option>
+                          <option value="L">L</option>
+                          <option value="cx">cx</option>
+                          <option value="pct">pct</option>
+                        </select>
+                      </Field>
+                      <Field label="Custo unitário (R$)">
+                        <input
+                          inputMode="numeric"
+                          value={costPrice}
+                          onChange={(e) => setCostPrice(maskCurrencyInput(e.target.value))}
+                          placeholder="R$ 0,00"
+                          className={inputClass}
+                        />
+                      </Field>
+                    </div>
                     <Field label="Alerta de estoque baixo (qtd.)">
                       <input
                         type="number"

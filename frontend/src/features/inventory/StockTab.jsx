@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Search, ArrowRightLeft, History, AlertTriangle, PackageSearch } from "lucide-react";
 import { listStock } from "@/shared/api/stock";
+import { inventoryValue } from "@/shared/api/purchase";
 import { useAuth } from "@/features/auth";
 import { useRealtime } from "@/shared/hooks";
 import { formatBRL } from "@/shared/lib";
@@ -17,10 +18,11 @@ function badgeFor(qty, low) {
 
 // A tab Estoque só existe com a feature ligada (storeSettings.inventoryEnabled);
 // aqui o único gate restante é o live-reload pelo room "inventory".
-export default function StockTab({ showToast }) {
+export default function StockTab({ showToast, purchaseEnabled = false }) {
   const { session } = useAuth();
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
+  const [valuation, setValuation] = useState(null);
   const [search, setSearch] = useState("");
   const [lowOnly, setLowOnly] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -38,13 +40,17 @@ export default function StockTab({ showToast }) {
       const res = await listStock(params);
       setRows(res.data);
       setTotal(res.total);
+      if (purchaseEnabled) {
+        const v = await inventoryValue();
+        setValuation(v.totalValue);
+      }
     } catch (e) {
       showToast(e.message, "error");
     } finally {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lowOnly]);
+  }, [lowOnly, purchaseEnabled]);
 
   useEffect(() => {
     const t = setTimeout(load, 300);
@@ -86,6 +92,13 @@ export default function StockTab({ showToast }) {
         </button>
       </div>
 
+      {purchaseEnabled && valuation != null && (
+        <div className="flex items-center justify-between bg-stone-900 border border-stone-800 rounded-xl px-3 py-2.5">
+          <div className="text-stone-400 text-sm">Valorização do estoque</div>
+          <div className="font-display font-bold text-lg">{formatBRL(valuation)}</div>
+        </div>
+      )}
+
       {lowCount > 0 && !lowOnly && (
         <div className="flex items-center gap-2 text-amber-400 text-sm bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2.5">
           <AlertTriangle size={14} /> {lowCount} produto(s) abaixo do limite de estoque.
@@ -107,13 +120,14 @@ export default function StockTab({ showToast }) {
                 </div>
                 <div className="text-stone-500 text-xs truncate">
                   {r.categoryName ?? "Sem categoria"}
-                  {r.unitCost > 0 ? ` · custo ${formatBRL(r.unitCost)}` : ""}
+                  {r.unit ? ` · ${r.unit}` : ""}
+                  {r.averageCost > 0 ? ` · custo médio ${formatBRL(r.averageCost)}` : ""}
                 </div>
               </div>
               <div className="flex items-center gap-3 shrink-0">
                 <div className="text-right">
                   <div className={`font-display font-bold ${r.low ? "text-amber-400" : r.quantity <= 0 ? "text-red-400" : "text-stone-100"}`}>
-                    {r.quantity}
+                    {r.quantity}{r.unit ? ` ${r.unit}` : ""}
                   </div>
                   <div className="text-stone-500 text-[11px]">limite {r.lowStockThreshold}</div>
                 </div>

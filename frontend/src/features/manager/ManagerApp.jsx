@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
-  Receipt, Settings, Package, Users, BarChart3, History, Truck, Store, Wallet, Boxes,
+  Receipt, Settings, Package, Users, BarChart3, History, Truck, Store, Wallet, Boxes, ShoppingCart,
 } from "lucide-react";
 import { useToast, Toast } from "@/shared/components";
 import { OrdersRoot } from "@/features/orders";
@@ -13,6 +13,7 @@ import { IfoodTab } from "@/features/ifood";
 import { SettingsTab } from "@/features/settings";
 import { CashDrawerTab } from "@/features/cashdrawer";
 import { StockTab } from "@/features/inventory";
+import { PurchaseTab } from "@/features/purchase";
 import { useAuth } from "@/features/auth";
 import { listStock } from "@/shared/api/stock";
 import { useRealtime } from "@/shared/hooks";
@@ -36,6 +37,7 @@ export default function ManagerApp() {
   const { toast, showToast } = useToast();
 
   const inventoryEnabled = storeSettings?.inventoryEnabled ?? false;
+  const purchaseEnabled = storeSettings?.purchaseEnabled ?? false;
 
   // Badge de estoque baixo na aba (resumo barato: 1 chamada com low_only).
   const refreshLowCount = useCallback(() => {
@@ -54,9 +56,14 @@ export default function ManagerApp() {
     if (msg.type === "stock.movement" || msg.type === "stock.low") refreshLowCount();
   });
 
-  const TABS = inventoryEnabled
-    ? [...BASE_TABS.slice(0, 4), { id: "stock", label: "Estoque", icon: Boxes }, ...BASE_TABS.slice(4)]
-    : BASE_TABS;
+  // Abas extras por feature-toggle: Estoque (inventory_enabled) e Compras
+  // (purchase_enabled) entram entre Cadastros e Equipe.
+  const TABS = [
+    ...BASE_TABS.slice(0, 4),
+    ...(inventoryEnabled ? [{ id: "stock", label: "Estoque", icon: Boxes }] : []),
+    ...(purchaseEnabled ? [{ id: "compras", label: "Compras", icon: ShoppingCart }] : []),
+    ...BASE_TABS.slice(4),
+  ];
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-50">
@@ -81,16 +88,17 @@ export default function ManagerApp() {
         </div>
       </div>
 
-      {tab === "orders" && <OrdersRoot />}
-      {tab === "cash" && <CashDrawerTab showToast={showToast} />}
-      {tab === "deliveries" && <DeliveriesTab showToast={showToast} />}
-      {tab === "catalog" && <CatalogTab showToast={showToast} />}
-      {tab === "users" && <UsersTab showToast={showToast} />}
-      {tab === "reports" && <ReportsTab showToast={showToast} />}
-      {tab === "ifood" && <IfoodTab showToast={showToast} />}
-      {tab === "audit" && <AuditTab />}
-      {tab === "settings" && <SettingsTab showToast={showToast} />}
-      {tab === "stock" && <StockTab showToast={showToast} />}
+{tab === "orders" && <OrdersRoot />}
+  {tab === "cash" && <CashDrawerTab showToast={showToast} />}
+  {tab === "deliveries" && <DeliveriesTab showToast={showToast} />}
+  {tab === "catalog" && <CatalogTab showToast={showToast} />}
+  {tab === "users" && <UsersTab showToast={showToast} />}
+  {tab === "reports" && <ReportsTab showToast={showToast} />}
+  {tab === "ifood" && <IfoodTab showToast={showToast} />}
+  {tab === "audit" && <AuditTab />}
+  {tab === "settings" && <SettingsTab showToast={showToast} />}
+  {tab === "compras" && <PurchaseTab showToast={showToast} />}
+  {tab === "stock" && <StockTab showToast={showToast} purchaseEnabled={purchaseEnabled} />}
       <Toast toast={toast} />
     </div>
   );

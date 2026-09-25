@@ -3,7 +3,9 @@
 Documento do módulo de controle de estoque (saldo por produto, débito no
 lançamento, movimentos manuais e alerta de estoque baixo). Complementa
 `01-backend-spec.md` e define o comportamento que os critérios de aceite em
-`03-acceptance-criteria.md` verificam.
+`03-acceptance-criteria.md` verificam. A camada profissional (fornecedores,
+compras multi-item, custo médio móvel e valorização) está specada em
+`08-estoque-profissional.md`.
 
 ## Conceito
 
@@ -20,7 +22,9 @@ saldo do produto = Σ stock_movement.quantity_delta
   fez, quando, por quê) de uma vez só.
 - O saldo é calculado por leitura (`stockBalance`/`stockBalances`), sem saldo
   materializado — volume do estabelecimento não justifica contador separado.
-- **Custo**: `product.cost_price` é o custo unitário atual (edição manual);
+- **Custo**: `product.cost_price` é o custo unitário atual — editável manual
+  quando o módulo de compras está desligado; com o módulo ligado, é espelhado
+  da **média móvel** (ver `08-estoque-profissional.md`);
   `order_item.cost_price` é o **snapshot** gravado no lançamento, mesma
   disciplina do `unit_price` — é ele que alimenta margem no relatório.
 

@@ -36,6 +36,7 @@ docs/       Specs originais (backend, frontend, critérios de aceite)
 | `docs/02-frontend-spec.md` | Fluxos de garçom, cozinha e gerente, tela por tela. |
 | `docs/03-acceptance-criteria.md` | Critérios de aceite em formato Dado/Quando/Então. |
 | `docs/07-estoque.md` | Spec do controle de estoque: ledger `stock_movement`, flags de rollout, endpoints, regras de corretude e testes. |
+| `docs/08-estoque-profissional.md` | Spec do estoque profissional: fornecedores, compras multi-item, custo médio móvel, valorização, pendências (contagem, lote, multi-depósito). |
 
 ## Como rodar
 
@@ -294,6 +295,30 @@ dentro da fase, a ordem indicada.
   campo de estoque no cadastro (com `initialStock` no create), bloqueio de item
   sem estoque na tela de lançamento do garçom e seção "Por produto" no relatório.
   Realtime no room `inventory` (`stock.movement`/`stock.low`).
+
+### Fase 6 — Estoque profissional (fase 1: compras + custo médio)
+
+- **6.1 Compras + custo médio móvel** — ✅ feito: `purchase`/`purchase_item`
+  como documento multi-item (fornecedor, nota, lote/validade por linha),
+  custo calculado por **média móvel ponderada** via replay do ledger
+  (`computeMovingAverageTx`, `replayMovingAverage` em
+  `backend/src/application/stock/stock.usecases.ts`), espelho em
+  `product.cost_price`, snapshot em `order_item.cost_price` (só com
+  `inventory_enabled && purchase_enabled && track_stock`; sem o módulo ligado,
+  custo manual — paridade preservada), valorização em `GET /inventory/value`
+  (média × saldo). `stock_movement.unit_cost` + `purchase_item_id`
+  (migration `0017`). Flags: `purchase_enabled` default off; compra de produto
+  sem `track_stock` → 422. Idempotente via `correlationId`. Doc em
+  `docs/08-estoque-profissional.md`; suíte `test/purchase.test.ts` (7 testes).
+- **6.2 UI de compras** — ✅ feito: aba "Compras" no gerenciador (visível só com
+  `purchase_enabled`) em `frontend/src/features/purchase/` (PurchaseTab,
+  NewPurchaseModal, SupplierModal), campo Unidade no cadastro de produto
+  (`product.unit`), toggle "Compras / fornecedores" nas configurações e cartão
+  "Valorização do estoque" na aba Estoque. Realtime no room `inventory`
+  (`purchase.received`).
+- **6.3 Pendências** — contagem/inventário, lote/validade por saída (FIFO/FEFO),
+  multi-depósito, ficha técnica, relatórios de compra — ver
+  `docs/08-estoque-profissional.md` §Pendências.
 
 ## Critérios de verificação gerais
 

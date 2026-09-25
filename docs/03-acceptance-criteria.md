@@ -147,6 +147,17 @@ Convenção: critérios marcados com ⚠️ cobrem comportamento que já gerou a
 - **Dado** um produto vendido com custo `R$ 7,00` a `R$ 22,00`, **quando** o relatório de vendas é aberto, **então** a seção "Por produto" mostra `revenue = R$ 22,00 × qtd`, `cost = R$ 7,00 × qtd` e o lucro calculado — usando os **snapshots** do lançamento, não o custo atual do cadastro.
 - **Dado** o gerente, **quando** ele acessa `GET /stock` ou `POST /stock/:productId/movements`, **então** funciona; o garçom, nas mesmas rotas, recebe `403 forbidden_role` — estoque é exclusivo de gerente.
 
+## 16. Estoque profissional — compras e custo médio (backend §7.5, `08-estoque-profissional.md`)
+
+- **Dado** o módulo de compras desligado (`purchase_enabled = false`) por padrão, **quando** o gerente abre o gerenciador, **então** a aba Compras não aparece e o custo do produto continua sendo o manual do cadastro — instalações existentes não mudam de comportamento ao atualizar.
+- **Dado** o módulo ligado, **quando** o gerente cadastra um fornecedor (`POST /suppliers`) e registra uma compra multi-item (`POST /purchases` com `correlationId`), **então** cada linha gera um movimento `purchase` no ledger (com `unit_cost` e `purchase_item_id`), a resposta inclui a média móvel pós-compra por produto e `product.cost_price` é espelhado.
+- **Dado** uma compra com `correlationId`, **quando** o mesmo request é repetido, **então** a API devolve o mesmo documento (idempotência) e não duplica movimento nem linha.
+- **Dado** um produto com `track_stock = false`, **quando** o gerente tenta comprá-lo, **então** a API responde `422 validation_failed` — compra só vale/entrada produto rastreado.
+- **Dado** estoque inicial de `20` un × `R$ 8,00` e uma compra de `5` un × `R$ 10,00`, **quando** o gerente abre `GET /inventory/value`, **então** o produto mostra `quantity = 25`, `averageCost = R$ 8,40` e `value = R$ 210,00` (média × saldo) — e `totalValue` soma os produtos rastreados.
+- **Dado** o módulo de compras ligado e um produto rastreado com custo médio calculado, **quando** um item dele é lançado numa comanda, **então** `order_item.cost_price` é o **snapshot da média móvel** naquele momento (não o custo manual) — margem do relatório continua vindo dos snapshots de venda.
+- **Dado** a aba Compras do gerente, **quando** uma compra é registrada em outra tela/sessão, **então** o histórico atualiza via WS (evento `purchase.received` no room `inventory`), sem "Atualizar" manual.
+- **Dado** o gerente, **quando** ele acessa `GET /purchases`, **então** funciona; o garçom, na mesma rota, recebe `403 forbidden_role` — compras é exclusivo de gerente.
+
 ## Como usar este documento
 
 Cada bloco acima deve virar um ou mais casos de teste automatizado (integração, no mínimo, pros fluxos de `order`/`item`; unitário pros usecases de domínio). Os itens marcados ⚠️ são os candidatos naturais a teste automatizado prioritário, por já terem histórico de ambiguidade neste projeto — vale garantir que eles tenham cobertura antes de qualquer coisa mais "óbvia" da lista.

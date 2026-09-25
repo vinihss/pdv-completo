@@ -132,6 +132,11 @@ export default function SettingsTab({ showToast }) {
           checked={form.inventoryEnabled}
           onChange={(v) => set({ inventoryEnabled: v })}
         />
+        <ToggleRow
+          label="Compras / fornecedores"
+          checked={form.purchaseEnabled}
+          onChange={(v) => set({ purchaseEnabled: v })}
+        />
         <p className="text-stone-600 text-xs">
           Em produtos com "Rastreia estoque" ativo, o lançamento de item debita o saldo e bloqueia quando insuficiente; a aba
           Estoque do gerente permite compras e ajustes. Desligar não apaga o histórico de movimentos.
