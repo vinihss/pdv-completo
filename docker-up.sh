@@ -104,10 +104,12 @@ print_summary() {
   fi
   echo
   echo " PINs de teste (seed demo):"
-  echo "   Ana Ribeiro (Garçom)     1234"
-  echo "   Carlos Lima (Garçom)     5678"
-  echo "   Roberto Alves (Gerente)  9999"
-  echo "   Estação Cozinha (Cozinha) 0000"
+  echo "   Ana Ribeiro (Garçom)         1234"
+  echo "   Carlos Lima (Garçom)         5678"
+  echo "   Roberto Alves (Gerente)      9999"
+  echo "   Caixa Teste (Caixa)          2468"
+  echo "   Entregador Teste (Entregador) 1357"
+  echo "   Estação Cozinha (Cozinha)    0000"
   echo
   echo " Comandos úteis: ./docker-up.sh logs | stop | down | backup"
   echo "============================================================"

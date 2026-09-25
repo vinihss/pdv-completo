@@ -1,20 +1,49 @@
 // Seed de desenvolvimento — popula store_settings, usuários, categorias,
-// produtos e mesas. Idempotente: pode rodar de novo sem duplicar (checa
-// se store_settings já existe). Em primeiro deploy real, só a criação do
-// usuário gerente inicial + store_settings mínimo é necessária — ver nota
-// no final do arquivo (§14.3).
+// produtos e mesas. Os dados base são idempotentes (checam store_settings pra
+// não duplicar); os usuários demo são reconciliados em toda execução (só os
+// que faltam são criados). Em primeiro deploy real, só a criação do usuário
+// gerente inicial + store_settings mínimo é necessária — ver nota no final do
+// arquivo (§14.3).
 import argon2 from "argon2";
 import { eq } from "drizzle-orm";
 import { runMigrations } from "./migrate.js";
 import { db } from "./client.js";
 import { users, categories, products, restaurantTables, storeSettings, kitchenGroups, stockMovements } from "./schema.js";
 
+// Usuários demo são reconciliados em TODA execução do seed (não só no primeiro
+// populate): cada um é inserido apenas se ainda não existir pelo nome. Isso faz
+// o `./docker-up.sh` criar usuários de teste novos (ex.: Caixa, Entregador)
+// mesmo quando o volume já tem um data.db seedado por uma versão antiga do seed
+// — antes, a guarda de store_settings pulava o seed inteiro e os usuários novos
+// nunca apareciam.
+const DEMO_USERS = [
+  { name: "Ana Ribeiro", role: "waiter" as const, pin: "1234" },
+  { name: "Carlos Lima", role: "waiter" as const, pin: "5678" },
+  { name: "Roberto Alves", role: "manager" as const, pin: "9999" },
+  { name: "Caixa Teste", role: "cashier" as const, pin: "2468" },
+  { name: "Entregador Teste", role: "courier" as const, pin: "1357" },
+  { name: "Estação Cozinha", role: "kitchen" as const, pin: "0000" },
+];
+
+async function reconcileDemoUsers() {
+  for (const u of DEMO_USERS) {
+    const found = await db.query.users.findFirst({ where: eq(users.name, u.name) });
+    if (found) continue;
+    const pinHash = await argon2.hash(u.pin);
+    await db.insert(users).values({ name: u.name, role: u.role, pinHash });
+    console.log(`[seed] + usuário demo criado: ${u.name} (${u.role})`);
+  }
+}
+
 async function seed() {
   runMigrations();
 
   const existing = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
   if (existing) {
-    console.log("[seed] já populado, pulando (delete data/data.db pra recomeçar do zero).");
+    console.log("[seed] store_settings já existe — pulando dados base e reconciliando usuários demo.");
+    await reconcileDemoUsers();
+    console.log("[seed] concluído.");
+    console.log("[seed] PINs de teste — Ana: 1234 · Carlos: 5678 · Roberto: 9999 · Caixa: 2468 · Entregador: 1357 · Cozinha: 0000");
     return;
   }
 
@@ -35,16 +64,8 @@ async function seed() {
     kitchenPickupUrgentMin: 5,
   });
 
-  const seedUsers = [
-    { name: "Ana Ribeiro", role: "waiter" as const, pin: "1234" },
-    { name: "Carlos Lima", role: "waiter" as const, pin: "5678" },
-    { name: "Roberto Alves", role: "manager" as const, pin: "9999" },
-    { name: "Caixa Teste", role: "cashier" as const, pin: "2468" },
-    { name: "Entregador Teste", role: "courier" as const, pin: "1357" },
-    { name: "Estação Cozinha", role: "kitchen" as const, pin: "0000" },
-  ];
   let managerId: string = "";
-  for (const u of seedUsers) {
+  for (const u of DEMO_USERS) {
     const pinHash = await argon2.hash(u.pin);
     const [created] = await db.insert(users).values({ name: u.name, role: u.role, pinHash }).returning();
     if (u.role === "manager") managerId = created.id;
@@ -128,4 +149,6 @@ seed()
 // estabelecimento) + um usuário "manager" inicial com PIN temporário, e
 // deixar o gerente cadastrar o resto (categorias, produtos, garçons) pela
 // tela de Configurações. Esse script serve para ambiente de desenvolvimento
-// e para os dados de demonstração deste protótipo.
+// e para os dados de demonstração deste protótipo. Rodar de novo num banco já
+// populado é seguro: reconcilia apenas os usuários demo que faltam (por nome),
+// sem tocar no restante.
