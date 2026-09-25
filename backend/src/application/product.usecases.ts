@@ -82,6 +82,7 @@ function serialize(p: typeof products.$inferSelect, refs: ProductRefs, quantity 
     costPrice: p.costPrice,
     lowStockThreshold: p.lowStockThreshold,
     trackStock: p.trackStock,
+    unit: p.unit,
     quantity, // saldo atual do ledger (só relevante quando trackStock)
     low: p.trackStock && quantity <= p.lowStockThreshold,
     active: p.active,
@@ -155,6 +156,7 @@ export async function createProductUsecase(
     costPrice?: number;
     lowStockThreshold?: number;
     trackStock?: boolean;
+    unit?: string;
     initialStock?: number;
   },
   actorId: string
@@ -181,18 +183,22 @@ export async function createProductUsecase(
         costPrice: input.costPrice ?? 0,
         lowStockThreshold: input.lowStockThreshold ?? 0,
         trackStock: input.trackStock ?? false,
+        unit: input.unit?.trim() || "un",
         active: input.active ?? true,
       })
       .returning()
       .get();
 
     // Estoque inicial informado no cadastro vira um ajuste no ledger (mesma
-    // transação — regra: escrita de domínio + audit + outbox juntos).
+    // transação — regra: escrita de domínio + audit + outbox juntos). Com
+    // unit_cost = cost_price manual, vira o primeiro evento de valoração da
+    // média móvel quando as compras forem habilitadas.
     if (input.trackStock && input.initialStock !== undefined && input.initialStock !== 0) {
       applyStockMovementTx(tx, {
         productId: row.id,
         type: "adjustment",
         quantityDelta: input.initialStock,
+        unitCost: input.costPrice ?? 0,
         note: "Estoque inicial",
         createdBy: actorId,
       });
@@ -219,6 +225,7 @@ export async function updateProductUsecase(
     costPrice?: number;
     lowStockThreshold?: number;
     trackStock?: boolean;
+    unit?: string;
   },
   actorId: string
 ) {
@@ -246,6 +253,7 @@ export async function updateProductUsecase(
         ...(input.costPrice !== undefined ? { costPrice: input.costPrice } : {}),
         ...(input.lowStockThreshold !== undefined ? { lowStockThreshold: input.lowStockThreshold } : {}),
         ...(input.trackStock !== undefined ? { trackStock: input.trackStock } : {}),
+        ...(input.unit !== undefined ? { unit: input.unit.trim() || "un" } : {}),
         ...(input.active !== undefined ? { active: input.active } : {}),
         updatedAt: new Date().toISOString(),
       })

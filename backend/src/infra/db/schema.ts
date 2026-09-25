@@ -57,6 +57,7 @@ export const products = sqliteTable("product", {
   costPrice: real("cost_price").notNull().default(0), // custo unitário (margem)
   lowStockThreshold: real("low_stock_threshold").notNull().default(0),
   trackStock: integer("track_stock", { mode: "boolean" }).notNull().default(false),
+  unit: text("unit").notNull().default("un"), // unidade de medida (0017)
   active: integer("active", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
   updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
@@ -125,6 +126,46 @@ export const orderItems = sqliteTable("order_item", {
   updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
 });
 
+// Fornecedores (0017) — vazio por padrão, usado quando `store_settings.purchase_enabled` liga.
+export const suppliers = sqliteTable("supplier", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  phone: text("phone"),
+  taxId: text("tax_id"),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
+  updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
+});
+
+// Documento de entrada de mercadoria (0017) — multi-item, com fornecedor,
+// nº de nota (informativo, sem integração fiscal), data e total.
+export const purchases = sqliteTable("purchase", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  supplierId: text("supplier_id").references(() => suppliers.id, { onDelete: "set null" }),
+  invoiceNumber: text("invoice_number"),
+  issuedOn: text("issued_on"),
+  note: text("note"),
+  total: real("total").notNull().default(0),
+  createdBy: text("created_by").notNull().references(() => users.id),
+  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
+});
+
+// Linha da compra — cada linha vira um movimento `purchase` no ledger com
+// unit_cost (evento de valoração da média móvel). batch_no/expiry_date são
+// informativos (rastreio; baixa sem FIFO — ver docs/08).
+export const purchaseItems = sqliteTable("purchase_item", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  purchaseId: text("purchase_id").notNull().references(() => purchases.id, { onDelete: "cascade" }),
+  productId: text("product_id").notNull().references(() => products.id, { onDelete: "restrict" }),
+  quantity: real("quantity").notNull(),
+  unitCost: real("unit_cost").notNull(),
+  lineTotal: real("line_total").notNull().default(0),
+  batchNo: text("batch_no"),
+  expiryDate: text("expiry_date"),
+  createdBy: text("created_by").notNull().references(() => users.id),
+  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
+});
+
 // Ledger de estoque (migration 0016): fonte da verdade do saldo — soma dos
 // deltas por produto. 'sale' no lançamento da comanda, 'refund' no estorno
 // (item removido / comanda cancelada), 'purchase'/'adjustment' manuais do
@@ -134,6 +175,10 @@ export const stockMovements = sqliteTable("stock_movement", {
   productId: text("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
   type: text("type", { enum: ["sale", "refund", "purchase", "adjustment"] }).notNull(),
   quantityDelta: real("quantity_delta").notNull(),
+  // 0017: custo unitário nos eventos de valoração (purchase / estoque inicial)
+  // — a média móvel é replay desses eventos, não coluna de estado.
+  unitCost: real("unit_cost"),
+  purchaseItemId: text("purchase_item_id").references(() => purchaseItems.id, { onDelete: "set null" }),
   orderId: text("order_id").references(() => orders.id, { onDelete: "set null" }),
   orderItemId: text("order_item_id").references(() => orderItems.id, { onDelete: "set null" }),
   note: text("note"),
@@ -186,6 +231,7 @@ export const storeSettings = sqliteTable("store_settings", {
   usesDelivery: integer("uses_delivery", { mode: "boolean" }).notNull().default(true),
   ifoodIntegrationEnabled: integer("ifood_integration_enabled", { mode: "boolean" }).notNull().default(false),
   inventoryEnabled: integer("inventory_enabled", { mode: "boolean" }).notNull().default(false), // controle de estoque (0016)
+  purchaseEnabled: integer("purchase_enabled", { mode: "boolean" }).notNull().default(false), // compras + custo médio (0017)
   enabledPaymentMethods: text("enabled_payment_methods").notNull().default('["cash","card","pix","other"]'),
   kitchenPrepWarnMin: integer("kitchen_prep_warn_min").notNull().default(3),
   kitchenPrepUrgentMin: integer("kitchen_prep_urgent_min").notNull().default(6),

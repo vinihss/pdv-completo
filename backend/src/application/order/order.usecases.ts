@@ -16,7 +16,7 @@ import { round2, moneyEq } from "../../domain/money.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
 import { findOpenDrawerTx } from "../cash-flow/cash-flow.usecases.js";
-import { applyStockMovementTx, stockBalance, INVENTORY_ROOM } from "../stock/stock.usecases.js";
+import { applyStockMovementTx, stockBalance, computeMovingAverageTx, INVENTORY_ROOM } from "../stock/stock.usecases.js";
 
 // NOTA IMPORTANTE sobre sync vs async:
 // O driver better-sqlite3 é fundamentalmente síncrono — `db.transaction(cb)`
@@ -55,6 +55,7 @@ function serializeItem(
     kitchenGroupId: refs.kitchenGroupId,
     quantity: it.quantity,
     unitPrice: it.unitPrice,
+    costPrice: it.costPrice, // snapshot do custo no lançamento (margem)
     selectedVariations: JSON.parse(it.selectedVariations),
     notes: it.notes,
     status: it.status,
@@ -248,7 +249,13 @@ export async function addItemsUsecase(input: {
           productId: line.productId,
           quantity: line.quantity,
           unitPrice: product.price, // snapshot — nunca referência viva
-          costPrice: product.costPrice, // snapshot do custo no lançamento (margem)
+          // Snapshot do custo no lançamento (margem): com a feature global e
+          // compras ligadas, usa a média móvel do ledger naquele instante;
+          // senão, o cost_price manual do cadastro (comportamento 0016).
+          costPrice:
+            settings.inventoryEnabled && settings.purchaseEnabled && product.trackStock
+              ? computeMovingAverageTx(tx, product.id, product.costPrice).avg
+              : product.costPrice,
           selectedVariations: JSON.stringify(line.selectedVariations ?? {}),
           notes: line.notes ?? null,
           createdBy: input.userId,

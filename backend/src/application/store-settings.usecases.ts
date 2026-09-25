@@ -20,6 +20,7 @@ function serialize(s: typeof storeSettings.$inferSelect) {
     usesDelivery: s.usesDelivery,
     ifoodIntegrationEnabled: s.ifoodIntegrationEnabled,
     inventoryEnabled: s.inventoryEnabled,
+    purchaseEnabled: s.purchaseEnabled,
     enabledPaymentMethods: JSON.parse(s.enabledPaymentMethods),
     kitchenPrepWarnMin: s.kitchenPrepWarnMin,
     kitchenPrepUrgentMin: s.kitchenPrepUrgentMin,
@@ -45,6 +46,7 @@ export async function updateStoreSettingsUsecase(input: {
   usesDelivery: boolean;
   ifoodIntegrationEnabled: boolean;
   inventoryEnabled: boolean;
+  purchaseEnabled: boolean;
   enabledPaymentMethods: string[];
   kitchenPrepWarnMin: number;
   kitchenPrepUrgentMin: number;
@@ -69,6 +71,7 @@ export async function updateStoreSettingsUsecase(input: {
       usesDelivery: input.usesDelivery,
       ifoodIntegrationEnabled: input.ifoodIntegrationEnabled,
       inventoryEnabled: input.inventoryEnabled,
+      purchaseEnabled: input.purchaseEnabled,
       enabledPaymentMethods: JSON.stringify(input.enabledPaymentMethods),
       kitchenPrepWarnMin: input.kitchenPrepWarnMin,
       kitchenPrepUrgentMin: input.kitchenPrepUrgentMin,

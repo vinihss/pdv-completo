@@ -25,6 +25,77 @@ export const INVENTORY_ROOM = "inventory";
 
 export type StockMovementType = "sale" | "refund" | "purchase" | "adjustment";
 
+// ---------- Custo médio móvel (0017) ----------
+// A média é um REPLAY do ledger sobre os eventos de valoração (quantity_delta >
+// 0 com unit_cost): avg_n = (avg_prev*qty_prev + unit_cost*delta) / (qty_prev +
+// delta). Vendas/refunds e ajuste negativo mudam quantidade, não a média;
+// ajuste positivo sem custo só soma quantidade. Nunca coluna de estado.
+
+export type MovingAverage = { avg: number; qty: number };
+
+export function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+function replayMovingAverage(rows: { quantityDelta: number; unitCost: number | null }[], fallbackCost: number): MovingAverage {
+  let qty = 0;
+  let avg = 0;
+  let costed = false;
+  for (const r of rows) {
+    const d = r.quantityDelta;
+    if (d > 0) {
+      if (r.unitCost != null) {
+        avg = qty > 0 ? (avg * qty + r.unitCost * d) / (qty + d) : r.unitCost;
+        costed = true;
+      }
+      qty += d;
+    } else {
+      qty += d;
+    }
+  }
+  if (qty < 0) qty = 0; // saldo negativo (over-consume) não valoriza: medida física
+  return costed ? { avg: round2(avg), qty: round2(qty) } : { avg: round2(fallbackCost), qty: round2(qty) };
+}
+
+// Média móvel vigente — versão síncrona (dentro de db.transaction).
+// fallbackCost = cost_price manual do cadastro (usado antes da 1ª valoração).
+export function computeMovingAverageTx(tx: any, productId: string, fallbackCost = 0): MovingAverage {
+  const rows = tx
+    .select({ quantityDelta: stockMovements.quantityDelta, unitCost: stockMovements.unitCost })
+    .from(stockMovements)
+    .where(eq(stockMovements.productId, productId))
+    .orderBy(sql`${stockMovements.createdAt} asc, rowid asc`)
+    .all() as { quantityDelta: number; unitCost: number | null }[];
+  return replayMovingAverage(rows, fallbackCost);
+}
+
+// Média móvel de vários produtos em uma query agrupada (listagem/valorização).
+export async function averageCosts(productIds: string[]): Promise<Map<string, MovingAverage>> {
+  const res = new Map<string, MovingAverage>();
+  if (productIds.length === 0) return res;
+  const rows = await db
+    .select({
+      productId: stockMovements.productId,
+      quantityDelta: stockMovements.quantityDelta,
+      unitCost: stockMovements.unitCost,
+      createdAt: stockMovements.createdAt,
+    })
+    .from(stockMovements)
+    .where(inArray(stockMovements.productId, productIds))
+    .orderBy(sql`${stockMovements.createdAt} asc, rowid asc`);
+  const groups = new Map<string, { quantityDelta: number; unitCost: number | null }[]>();
+  for (const r of rows) {
+    let list = groups.get(r.productId);
+    if (!list) {
+      list = [];
+      groups.set(r.productId, list);
+    }
+    list.push({ quantityDelta: r.quantityDelta, unitCost: r.unitCost });
+  }
+  for (const [productId, group] of groups) res.set(productId, replayMovingAverage(group, 0));
+  return res;
+}
+
 // Saldo atual a partir do ledger — versão síncrona (dentro de db.transaction,
 // o driver better-sqlite3 exige métodos terminais; ver order.usecases).
 export function stockBalance(tx: any, productId: string): number {
@@ -64,6 +135,8 @@ export function applyStockMovementTx(
     productId: string;
     type: StockMovementType;
     quantityDelta: number;
+    unitCost?: number | null;
+    purchaseItemId?: string | null;
     orderId?: string | null;
     orderItemId?: string | null;
     note?: string | null;
@@ -77,6 +150,8 @@ export function applyStockMovementTx(
       productId: input.productId,
       type: input.type,
       quantityDelta: input.quantityDelta,
+      unitCost: input.unitCost ?? null,
+      purchaseItemId: input.purchaseItemId ?? null,
       orderId: input.orderId ?? null,
       orderItemId: input.orderItemId ?? null,
       note: input.note ?? null,
@@ -91,6 +166,7 @@ export function applyStockMovementTx(
     type: input.type,
     quantityDelta: input.quantityDelta,
     quantity: balance,
+    unitCost: input.unitCost ?? null,
     orderId: input.orderId ?? null,
   });
 
@@ -114,17 +190,24 @@ export async function listStockUsecase(input: { lowOnly?: boolean; search?: stri
   const categoryNames = await db.query.categories.findMany({ columns: { id: true, name: true } });
   const catMap = new Map(categoryNames.map((c) => [c.id, c.name]));
   const balances = await stockBalances(rows.map((p) => p.id));
+  const averages = await averageCosts(rows.map((p) => p.id));
 
-  const data = rows.map((p) => ({
-    productId: p.id,
-    name: p.name,
-    categoryId: p.categoryId,
-    categoryName: p.categoryId ? catMap.get(p.categoryId) ?? null : null,
-    unitCost: p.costPrice,
-    quantity: balances.get(p.id) ?? 0,
-    lowStockThreshold: p.lowStockThreshold,
-    low: (balances.get(p.id) ?? 0) <= p.lowStockThreshold,
-  }));
+  const data = rows.map((p) => {
+    const balance = balances.get(p.id) ?? 0;
+    const avg = averages.get(p.id);
+    return {
+      productId: p.id,
+      name: p.name,
+      categoryId: p.categoryId,
+      categoryName: p.categoryId ? catMap.get(p.categoryId) ?? null : null,
+      unit: p.unit,
+      unitCost: avg?.avg ?? p.costPrice, // custo médio móvel vigente (fallback: manual)
+      manualCost: p.costPrice,
+      quantity: balance,
+      lowStockThreshold: p.lowStockThreshold,
+      low: balance <= p.lowStockThreshold,
+    };
+  });
 
   return {
     data: input.lowOnly ? data.filter((d) => d.low) : data,
@@ -142,6 +225,7 @@ export async function getStockMovementsUsecase(input: { productId?: string; limi
       productName: products.name,
       type: stockMovements.type,
       quantityDelta: stockMovements.quantityDelta,
+      unitCost: stockMovements.unitCost,
       orderId: stockMovements.orderId,
       note: stockMovements.note,
       userName: users.name,
@@ -164,6 +248,7 @@ export async function getStockMovementsUsecase(input: { productId?: string; limi
       productName: r.productName,
       type: r.type,
       quantityDelta: r.quantityDelta,
+      unitCost: r.unitCost,
       orderId: r.orderId,
       note: r.note,
       userName: r.userName,

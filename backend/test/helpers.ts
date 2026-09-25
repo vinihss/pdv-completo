@@ -62,6 +62,9 @@ export function seedFixture() {
 // DELETEs respeita as FKs (movimento/audit referenciam order e cash_drawer).
 export function resetState() {
   rawSqlite.exec(`
+    DELETE FROM purchase_item;
+    DELETE FROM purchase;
+    DELETE FROM supplier;
     DELETE FROM order_payment;
     DELETE FROM order_item;
     DELETE FROM cash_drawer_movement;
