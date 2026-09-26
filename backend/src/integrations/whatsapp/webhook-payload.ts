@@ -6,21 +6,50 @@ import crypto from "node:crypto";
  * contra developers.facebook.com/docs/whatsapp/cloud-api/webhooks ao
  * integrar de verdade — a Meta já mudou esse formato no passado.
  */
+export interface WhatsAppLocation {
+  latitude: number;
+  longitude: number;
+}
+
 export interface WhatsAppWebhookPayload {
   object?: string;
   entry?: Array<{
     changes?: Array<{
       value?: {
-        messages?: Array<{ from: string; type: string; text?: { body: string } }>;
+        messages?: Array<{
+          from: string;
+          type: string;
+          text?: { body: string };
+          location?: WhatsAppLocation;
+        }>;
       };
     }>;
   }>;
 }
 
-export function extractIncomingMessage(payload: WhatsAppWebhookPayload): { phone: string; text: string } | null {
+export interface IncomingWhatsAppMessage {
+  phone: string;
+  text: string | null;
+  location: WhatsAppLocation | null;
+}
+
+export function extractIncomingMessage(payload: WhatsAppWebhookPayload): IncomingWhatsAppMessage | null {
   const message = payload.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-  if (!message || message.type !== "text" || !message.text?.body) return null;
-  return { phone: message.from, text: message.text.body };
+  if (!message) return null;
+
+  if (message.type === "location" && message.location) {
+    return {
+      phone: message.from,
+      text: null,
+      location: { latitude: message.location.latitude, longitude: message.location.longitude },
+    };
+  }
+
+  if (message.type === "text" && message.text?.body) {
+    return { phone: message.from, text: message.text.body, location: null };
+  }
+
+  return null;
 }
 
 /**

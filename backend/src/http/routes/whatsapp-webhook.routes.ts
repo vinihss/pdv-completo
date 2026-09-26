@@ -30,7 +30,7 @@ export async function whatsappWebhookRoutes(app: FastifyInstance) {
 
     const incoming = extractIncomingMessage(req.body as any);
     if (incoming) {
-      handleIncomingWhatsAppMessage(incoming.phone, incoming.text)
+      handleIncomingWhatsAppMessage(incoming.phone, incoming.text, incoming.location)
         .then(({ replyText }) => sendTextMessage(incoming.phone, replyText))
         .catch((err) => req.log.error(err, "erro processando mensagem do whatsapp"));
     }
