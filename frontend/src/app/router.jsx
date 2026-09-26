@@ -1,7 +1,8 @@
 import React from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { LogOut } from "lucide-react";
-import { AuthProvider, useAuth, Login } from "@/features/auth";
+import { AuthProvider, useAuth } from "@/app/providers/auth";
+import { LoginPage } from "@/pages/login";
 import { OrdersRoot } from "@/features/orders";
 import { ManagerApp } from "@/features/manager";
 import { KitchenDisplay } from "@/features/kitchen";
@@ -58,7 +59,7 @@ export function Root() {
   }
 
   if (!session) {
-    return <Login />;
+    return <LoginPage />;
   }
 
   return <AppFrame>{SCREENS_BY_ROLE[session.user.role] ?? <OrdersRoot />}</AppFrame>;

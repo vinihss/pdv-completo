@@ -14,7 +14,7 @@ import { SettingsTab } from "@/features/settings";
 import { CashDrawerTab } from "@/features/cashdrawer";
 import { StockTab } from "@/features/inventory";
 import { PurchaseTab } from "@/features/purchase";
-import { useAuth } from "@/features/auth";
+import { useAuth } from "@/app/providers/auth";
 import { listStock } from "@/shared/api/stock";
 import { useRealtime } from "@/shared/hooks";
 

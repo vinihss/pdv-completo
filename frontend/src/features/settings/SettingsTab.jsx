@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Upload, ImageOff, Store, RefreshCcw, AlertTriangle } from "lucide-react";
 import { updateStoreSettings, uploadStoreLogo, removeStoreLogo } from "@/shared/api/store";
-import { useAuth } from "@/features/auth";
+import { useAuth } from "@/app/providers/auth";
 import { applyBrandPrimary, DEFAULT_PRIMARY_COLOR } from "@/shared/lib";
 import { Section, Field, ToggleRow, inputClass } from "@/shared/components";
 

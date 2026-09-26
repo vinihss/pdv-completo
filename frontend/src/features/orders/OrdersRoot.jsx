@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { openOrder } from "@/shared/api/orders";
-import { useAuth } from "@/features/auth";
+import { useAuth } from "@/app/providers/auth";
 import { useOrders } from "./useOrders.js";
 import { useToast, Toast } from "@/shared/components";
 import OrderListScreen from "./OrderListScreen.jsx";

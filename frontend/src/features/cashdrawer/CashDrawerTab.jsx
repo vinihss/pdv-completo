@@ -3,7 +3,7 @@ import { Wallet, Lock, History, ArrowDownCircle, ArrowUpCircle } from "lucide-re
 import { getCurrentCashDrawer, listCashDrawers, openCashDrawer, registerCashMovement, closeCashDrawer } from "@/shared/api/cash";
 import { Section } from "@/shared/components";
 import { useRealtime } from "@/shared/hooks";
-import { useAuth } from "@/features/auth";
+import { useAuth } from "@/app/providers/auth";
 import { toDate } from "@/shared/lib";
 import OpenCashDrawerModal from "./OpenCashDrawerModal.jsx";
 import CashMovementModal from "./CashMovementModal.jsx";

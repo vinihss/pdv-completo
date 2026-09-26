@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Search, ArrowRightLeft, History, AlertTriangle, PackageSearch } from "lucide-react";
 import { listStock } from "@/shared/api/stock";
 import { inventoryValue } from "@/shared/api/purchase";
-import { useAuth } from "@/features/auth";
+import { useAuth } from "@/app/providers/auth";
 import { useRealtime } from "@/shared/hooks";
 import { formatBRL } from "@/shared/lib";
 import { inputClass } from "@/shared/components";

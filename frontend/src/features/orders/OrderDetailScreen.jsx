@@ -3,7 +3,7 @@ import {
   ChevronLeft, Plus, Check, Trash2, AlertTriangle, Clock,
 } from "lucide-react";
 import { updateItemStatus, deleteItem, closeOrder } from "@/shared/api/orders";
-import { useAuth } from "@/features/auth";
+import { useAuth } from "@/app/providers/auth";
 import { StatusBadge } from "@/shared/components";
 import {
   orderLabel,

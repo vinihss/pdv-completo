@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from "react";
 import { X, Plus, Truck, PackagePlus, ChevronRight } from "lucide-react";
 import { listSuppliers, listPurchases, getPurchase, updateSupplier } from "@/shared/api/purchase";
 import { listStock } from "@/shared/api/stock";
-import { useAuth } from "@/features/auth";
+import { useAuth } from "@/app/providers/auth";
 import { useRealtime } from "@/shared/hooks";
 import { formatBRL, formatDateTime } from "@/shared/lib";
 import { ToggleRow } from "@/shared/components";

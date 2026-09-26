@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Check, Clock, Flame, ChefHat, PackageCheck } from "lucide-react";
 import { listOrders, updateItemStatus } from "@/shared/api/orders";
 import { listKitchenGroups } from "@/shared/api/catalog";
-import { useAuth } from "@/features/auth";
+import { useAuth } from "@/app/providers/auth";
 import { useRealtime } from "@/shared/hooks";
 import { toDate, variationsText } from "@/shared/lib";
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { listDeliveries, listCouriers } from "@/shared/api/deliveries";
-import { useAuth } from "@/features/auth";
+import { useAuth } from "@/app/providers/auth";
 import { useRealtime } from "@/shared/hooks";
 
 /**

@@ -6,7 +6,7 @@ import {
   createKitchenGroup, updateKitchenGroup, deleteKitchenGroup,
   setProductActive,
 } from "@/shared/api/catalog";
-import { useAuth } from "@/features/auth";
+import { useAuth } from "@/app/providers/auth";
 import { Section, inputClass, ConfirmModal } from "@/shared/components";
 import { ProductRow } from "./ProductRow.jsx";
 import ProductModal from "./ProductModal.jsx";
