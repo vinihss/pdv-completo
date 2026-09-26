@@ -3,6 +3,7 @@ import { z } from "zod";
 import { Errors } from "../../domain/errors.js";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
 import { getStoreSettingsUsecase, updateStoreSettingsUsecase, saveStoreLogoUsecase, clearStoreLogoUsecase } from "../../application/store-settings.usecases.js";
+import { geocodeRestaurantUsecase } from "../../application/delivery/geocode-restaurant.usecase.js";
 import {
   listProductsUsecase,
   createProductUsecase,
@@ -60,6 +61,10 @@ const storeSettingsSchema = z.object({
   kitchenPrepUrgentMin: z.number().int().positive(),
   kitchenPickupUrgentMin: z.number().int().positive(),
   deliveryFee: z.number().min(0),
+  restaurantLat: z.number().min(-90).max(90).optional().nullable(),
+  restaurantLong: z.number().min(-180).max(180).optional().nullable(),
+  freeDeliveryMin: z.number().min(0).optional(),
+  deliveryFeeTiers: z.array(z.object({ maxKm: z.number().positive(), fee: z.number().min(0) })).optional(),
 });
 
 const variationGroupSchema = z.object({
@@ -181,6 +186,10 @@ export async function miscRoutes(app: FastifyInstance) {
   // Logo — remover
   app.delete("/store-settings/logo", { preHandler: requireRole("manager") }, async (req) => {
     return clearStoreLogoUsecase(req.authUser!.sub);
+  });
+  // Geocodificar restaurante (forward geocoding do endereço do estabelecimento)
+  app.post("/store/geocode-restaurant", { preHandler: requireRole("manager") }, async (req) => {
+    return geocodeRestaurantUsecase();
   });
 
   // ---------- Products ----------
