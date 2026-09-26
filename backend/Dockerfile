@@ -26,6 +26,7 @@ RUN npm ci --omit=dev && apt-get purge -y python3 make g++ && apt-get autoremove
 
 COPY --from=build /app/dist ./dist
 COPY migrations ./migrations
+COPY seed-data ./seed-data
 
 # Volume onde o SQLite persiste — monte um volume nomeado ou bind mount aqui
 VOLUME ["/app/data"]

@@ -110,6 +110,8 @@ No deploy via GitHub Actions, o workflow agora **gera/atualiza automaticamente**
 
 ## Passo a passo
 
+### Instalação do zero (recomendado)
+
 ```bash
 # 1. Envie o projeto pro servidor (scp, git clone, rsync — o que preferir)
 scp -r pdv/ usuario@seu-servidor:/opt/pdv
@@ -123,38 +125,65 @@ cp .env.example .env
 nano .env
 #   DOMAIN=app.seudominio.com.br
 #   JWT_SECRET=<gere com: openssl rand -hex 32>
+#   MERCHANT_NAME="Bar do Zé"        (opcional)
+#   MERCHANT_CITY="Sao Paulo"        (opcional)
+#   MANAGER_NAME="Roberto Alves"     (opcional)
 
-# 4. Suba tudo
-docker compose up -d --build
-
-# 5. Rode o seed de primeiro deploy (uma única vez — cria o cadastro do
-#    estabelecimento e o usuário gerente inicial; nada de dados fictícios)
-docker compose exec backend node dist/infra/db/seed-prod.js
-#   Pode passar variáveis pra personalizar (opcional, senão usa placeholders):
-#   docker compose exec -e MERCHANT_NAME="Bar do Zé" -e MERCHANT_CITY="Sao Paulo" \
-#     -e MANAGER_NAME="Roberto Alves" backend node dist/infra/db/seed-prod.js
+# 4. Instala tudo do zero (containers + gerente + cardápio Unami)
+./install.sh
 ```
 
-O comando acima imprime o **PIN do gerente uma única vez** — anote na hora.
-Depois disso, entre com esse PIN e cadastre o resto (categorias, produtos,
-garçons, cozinha) pela própria tela de Configurações/Equipe — não precisa
-mexer no servidor de novo pra isso.
+O `install.sh` sobe os containers, aguarda o health check, cria **somente** o
+usuário gerente (via `seed-prod`) e aplica o cardápio Unami (via `load-menu`).
+O PIN do gerente é exibido **uma única vez** no log — anote na hora.
 
-Depois desse passo, `https://app.seudominio.com.br` já serve o app com certificado
+Depois disso, entre com esse PIN e cadastre o resto (garçons, cozinha, mesas)
+pela própria tela de Configurações/Equipe — não precisa mexer no servidor de novo.
+
+### Reset total (começar do zero)
+
+Se precisar apagar **todos** os dados e recomeçar:
+
+```bash
+./deploy/reset.sh          # pede confirmação
+./deploy/reset.sh --force  # pula confirmação
+./deploy/install.sh        # instala do zero
+```
+
+**Atenção:** o `reset.sh` remove containers, imagens e volumes. Todos os dados
+(comandas, cadastros, cardápio) são perdidos de forma irreversível.
+
+### Passo a passo manual (alternativo)
+
+```bash
+# Subir containers
+docker compose up -d --build
+
+# Criar somente o gerente (uma única vez)
+docker compose exec backend node dist/infra/db/seed-prod.js
+
+# Aplicar cardápio Unami (explícito, não automático)
+docker compose exec backend node dist/infra/db/load-menu.js
+```
+
+Depois desses passos, `https://app.seudominio.com.br` já serve o app com certificado
 válido, e a API responde em `https://app.seudominio.com.br/api/...`.
 
 ## Seed de demonstração vs. seed de produção
 
-- **`seed.ts`** (`npm run seed`) — só pra desenvolvimento local. Cria 4
-  usuários fictícios (Ana, Carlos, Roberto, Estação Cozinha) com PINs
-  conhecidos e um cardápio de exemplo. **Nunca rode isso num deploy real**
-  — os PINs de teste ficam documentados no código-fonte.
+- **`seed.ts`** (`npm run seed`) — só pra desenvolvimento local. Cria usuários
+  fictícios (Ana, Carlos, Roberto, Estação Cozinha) com PINs conhecidos e um
+  cardápio de exemplo. **Nunca rode isso num deploy real** — os PINs de teste
+  ficam documentados no código-fonte.
 - **`seed-prod.ts`** (`npm run seed:prod`, ou `node dist/infra/db/seed-prod.js`
-  já compilado) — o que o passo 5 acima usa. Cria só `store_settings` com os
-  dados reais do estabelecimento e um usuário gerente com PIN aleatório,
-  sem nenhum dado fictício. É o script que a imagem de produção do backend
-  já inclui (compilado junto com o resto do `dist/`), sem precisar instalar
-  `tsx` na imagem final.
+  já compilado) — cria só `store_settings` com os dados reais do estabelecimento
+  e um usuário gerente com PIN aleatório, sem nenhum dado fictício. É o script
+  que a imagem de produção do backend já inclui (compilado junto com o resto do
+  `dist/`), sem precisar instalar `tsx` na imagem final.
+- **`load-menu.ts`** (`node dist/infra/db/load-menu.js`) — aplica o cardápio
+  Unami (`seed-data/menu-unami.sql`) de forma **explícita**, sob demanda. Não
+  roda automaticamente no boot. O `install.sh` chama esse script após o
+  seed-prod.
 
 ## Backup (não pule esta parte)
 

@@ -166,18 +166,16 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
 - **Migrations**: toda mudança de schema exige um novo arquivo `.sql` numerado
   (zero-padded, ordem lexicográfica) em `backend/migrations/`. Rodam no boot em
   modo local e via `npm run db:migrate` em produção.
-- **Migration de cardápio (0021)**: `0021_menu_unami.sql` carrega o cardápio do
-  restaurante Unami (11 categorias, 63 produtos) a partir de `full_atualizado.md`.
-  É **dado, não schema** — só `INSERT` com ID determinístico (`cat-unami-*` /
-  `p-unami-NNN`) e `ON CONFLICT (id) DO UPDATE` restrito aos campos de catálogo
-  (name/description/price/categoria/cozinha): reaplicar **não** sobrescreve
-  `active`, `featured`, `cost_price`, `track_stock`, `unit` nem `variations`
-  cadastrados depois no app. Desativar o cardápio fictício do `seed` é
-  **script** (`npm run db:deactivate-demo`), não migration: o seed grava os
-  produtos demo *depois* de `runMigrations()`, então um `UPDATE` em migration
-  nunca os encontraria em banco novo — e em banco já populado derrubaria
-  produtos legítimos de teste (`test/stock.test.ts` cria "Batata frita" R$ 22,00,
-  `test/helpers.ts` cria "Chopp 300ml" R$ 9,50).
+- **Cardápio Unami (seed, não migration)**: `backend/seed-data/menu-unami.sql`
+  carrega o cardápio do restaurante Unami (11 categorias, 63 produtos) a partir
+  de `full_atualizado.md`. É **dado, não schema** — só `INSERT` com ID
+  determinístico (`cat-unami-*` / `p-unami-NNN`) e `ON CONFLICT (id) DO UPDATE`
+  restrito aos campos de catálogo (name/description/price/categoria/cozinha):
+  reaplicar **não** sobrescreve `active`, `featured`, `cost_price`,
+  `track_stock`, `unit` nem `variations` cadastrados depois no app. **Não roda
+  automaticamente no boot** — é aplicado de forma explícita pelo script
+  `backend/src/infra/db/load-menu.ts` (`node dist/infra/db/load-menu.js`),
+  chamado pelo `deploy/install.sh` após o seed-prod.
 - **Estoque é ledger, não coluna denormalizada**: o saldo de um produto é a soma
   dos `quantity_delta` de `stock_movement` (`sale`/`refund`/`purchase`/
   `adjustment`). O débito acontece em `addItemsUsecase` **dentro da transação**
