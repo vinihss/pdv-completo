@@ -1,67 +1,68 @@
 # ============================================================
 # Caddy — proxy reverso com HTTPS automático (Let's Encrypt).
 #
-# Dois domínios:
+# Domínios:
 #   umamisushiarte.com.br      → redirect para o Instagram
 #   app.umamisushiarte.com.br  → aplicação (backend + frontend)
+#   srv2011031.hstgr.cloud     → endereço antigo do servidor Hostinger
 #
-# Ambos precisam ter DNS apontando pro IP do servidor.
+# Todos precisam ter DNS apontando pro IP do servidor.
 # ============================================================
 
 # ---------- Domínio principal: redirect pro Instagram ----------
 umamisushiarte.com.br, www.umamisushiarte.com.br {
-	redir https://www.instagram.com/umamisushoarte permanent
+    redir https://www.instagram.com/umamisushoarte permanent
 }
 
 # ---------- Endereço antigo do servidor Hostinger ----------
 # Enquanto o DNS do domínio não propaga, use este endereço.
 srv2011031.hstgr.cloud {
-	handle /api/* {
-		uri strip_prefix /api
-		reverse_proxy backend:3000
-	}
-	handle /realtime* {
-		reverse_proxy backend:3000
-	}
-	handle /uploads/* {
-		reverse_proxy backend:3000
-	}
-	handle /health {
-		reverse_proxy backend:3000
-	}
-	handle {
-		reverse_proxy frontend:80
-	}
-	encode gzip
+    handle /api/* {
+        uri strip_prefix /api
+        reverse_proxy backend:3000
+    }
+    handle /realtime* {
+        reverse_proxy backend:3000
+    }
+    handle /uploads/* {
+        reverse_proxy backend:3000
+    }
+    handle /health {
+        reverse_proxy backend:3000
+    }
+    handle {
+        reverse_proxy frontend:80
+    }
+    encode gzip
 }
 
 # ---------- Subdomínio: aplicação ----------
 app.umamisushiarte.com.br {
-	# API REST
-	handle /api/* {
-		uri strip_prefix /api
-		reverse_proxy backend:3000
-	}
+    # API REST
+    handle /api/* {
+        uri strip_prefix /api
+        reverse_proxy backend:3000
+    }
 
-	# WebSocket em tempo real
-	handle /realtime* {
-		reverse_proxy backend:3000
-	}
+    # WebSocket em tempo real
+    handle /realtime* {
+        reverse_proxy backend:3000
+    }
 
-	# Fotos de produto servidas pelo backend
-	handle /uploads/* {
-		reverse_proxy backend:3000
-	}
+    # Fotos de produto servidas pelo backend
+    handle /uploads/* {
+        reverse_proxy backend:3000
+    }
 
-	# Health check direto (útil pra monitoramento externo)
-	handle /health {
-		reverse_proxy backend:3000
-	}
+    # Health check direto (útil pra monitoramento externo)
+    handle /health {
+        reverse_proxy backend:3000
+    }
 
-	# Resto: frontend estático (PWA)
-	handle {
-		reverse_proxy frontend:80
-	}
+    # Resto: frontend estático (PWA)
+    handle {
+        reverse_proxy frontend:80
+    }
 
-	encode gzip
+    encode gzip
 }
