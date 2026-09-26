@@ -1,6 +1,6 @@
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
-import { customers, customerAddresses, deliveries, storeSettings, orders, orderItems } from "../../infra/db/schema.js";
+import { customers, customerAddresses, deliveries, storeSettings, orders, orderItems, products } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
 import { SYSTEM_USER_ID } from "../../domain/constants.js";
 import { logAction } from "../../infra/audit-log.js";
@@ -10,8 +10,40 @@ import { formatAddress, addCustomerAddressUsecase } from "./customer-address.use
 import { deriveCustomerStage, stageTimeline, CUSTOMER_STAGES } from "../../domain/customer-order-state.js";
 import { emitCustomerStageChangedTx } from "./customer-stage.js";
 import { round2 } from "../../domain/money.js";
+import { parseVariations, missingRequiredGroups, unknownOptions } from "../../domain/variations.js";
 
 const DELIVERY_ROOM = "deliveries"; // painel do manager e listagem do entregador escutam aqui
+
+type IntakeLine = {
+  productId: string;
+  quantity: number;
+  selectedVariations?: Record<string, string | string[]>;
+  notes?: string;
+};
+
+// Confere cada linha contra os grupos de variação do produto. Produto
+// inexistente fica pra `addItemsUsecase` responder com o erro dele (404) — aqui
+// só filtramos o que dá pra validar.
+async function assertVariationsSelectable(lines: IntakeLine[]) {
+  const ids = [...new Set(lines.map((l) => l.productId))];
+  if (ids.length === 0) return;
+  const rows = await db.query.products.findMany({ where: inArray(products.id, ids) });
+  const byId = new Map(rows.map((p) => [p.id, p]));
+
+  for (const line of lines) {
+    const product = byId.get(line.productId);
+    if (!product) continue;
+    const groups = parseVariations(product.variations);
+
+    const missing = missingRequiredGroups(groups, line.selectedVariations);
+    if (missing.length > 0) throw Errors.variationRequired(product.name, missing);
+
+    const unknown = unknownOptions(groups, line.selectedVariations);
+    if (unknown.length > 0) {
+      throw Errors.variationInvalid(product.name, unknown[0].group, unknown[0].option);
+    }
+  }
+}
 
 /**
  * Ponto único de checkout self-service (§04 "Decisões de arquitetura" —
@@ -51,6 +83,13 @@ export async function createSelfServiceOrderUsecase(input: {
   if (!input.addressId && !input.newAddress) {
     throw Errors.validationFailed({ field: "addressId|newAddress", reason: "informe um endereço" });
   }
+
+  // 0. Variações — valida ANTES de qualquer escrita. `addItemsUsecase` grava
+  // `selectedVariations` como veio, sem conferir contra o catálogo: sem esta
+  // guarda, um X-Burger sem "Ponto da carne" (grupo obrigatório) viraria
+  // pedido e a cozinha receberia algo impossível de produzir. Erro 422 com o
+  // grupo faltante, pra tela conseguir apontar o que resolver.
+  await assertVariationsSelectable(input.items);
 
   // 1. Resolve ou cria o cliente pelo telefone (chave de identificação nos dois canais).
   let customer = await db.query.customers.findFirst({ where: eq(customers.phone, input.customerPhone) });

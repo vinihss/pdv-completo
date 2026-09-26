@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Plus, Minus, ShoppingBag, ChevronLeft, MapPin, Check, AlertTriangle, Search, X, PartyPopper } from "lucide-react";
+import { ChevronLeft, MapPin, Check, AlertTriangle, X, PartyPopper } from "lucide-react";
 import {
   getStoreInfo,
 } from "@/shared/api/store";
@@ -16,11 +16,12 @@ import {
   clearPublicCart,
 } from "@/shared/api/public";
 import { usePublicRealtime } from "@/shared/hooks";
-import { applyBrandPrimary, variationsText } from "@/shared/lib";
+import { applyBrandPrimary, variationsText, formatBRL } from "@/shared/lib";
+import { VariationModal } from "@/shared/components";
+import { lineKey, toServerLine, variationGroups, hasVariations, missingRequiredGroups } from "./cartLogic.js";
+import MenuScreen from "./components/MenuScreen.jsx";
+import CartLine from "./components/CartLine.jsx";
 
-function money(v) {
-  return `R$ ${(v ?? 0).toFixed(2).replace(".", ",")}`;
-}
 function formatAddress(a) {
   return `${a.street}, ${a.number}${a.complement ? ` - ${a.complement}` : ""} · ${a.neighborhood}, ${a.city}`;
 }
@@ -33,23 +34,6 @@ function maskPhone(raw) {
   if (d.length <= 2) return `(${d}`;
   if (d.length <= 7) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
-}
-
-// Chave de linha do carrinho: mesmo produto com variações diferentes são
-// linhas distintas (espelha o backend, que só conhece productId +
-// selectedVariations na submissão).
-function lineKey(productId, selectedVariations) {
-  return `${productId}${JSON.stringify(selectedVariations ?? {})}`;
-}
-// Linha no formato do backend (customer_cart / POST /public/orders) — sem
-// campos vazios, pra não divergir do schema (que rejeita "" em notes).
-function toServerLine(line) {
-  return {
-    productId: line.productId,
-    quantity: line.quantity,
-    ...(Object.keys(line.selectedVariations ?? {}).length ? { selectedVariations: line.selectedVariations } : {}),
-    ...(line.notes?.trim() ? { notes: line.notes.trim() } : {}),
-  };
 }
 
 const PAYMENT_OPTIONS = [
@@ -96,8 +80,22 @@ export default function CustomerMenuPage() {
   const [screen, setScreen] = useState("menu");
   // { [lineKey]: { productId, quantity, selectedVariations, notes } }
   const [cart, setCart] = useState({});
-  const [selectedCategory, setSelectedCategory] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
+  // Layout de loja: as pills não filtram, elas rolam até a seção. O estado
+  // aqui é só para acender a pill da seção que está em tela.
+  const [activeSection, setActiveSection] = useState(null);
+  // Barra de busca só aparece depois de rolar (e some quando o topo volta).
+  const [scrolled, setScrolled] = useState(false);
+  const [canScroll, setCanScroll] = useState(false);
+  // No desktop o scroll acontece dentro da coluna esquerda (não na window),
+  // então o listener precisa dos dois alvos.
+  const menuScrollRef = useRef(null);
+  // Produto com variação aguardando escolha no modal (null = fechado).
+  const [pendingProduct, setPendingProduct] = useState(null);
+  // Chave da linha em edição (null = incluindo item novo). Existe porque uma
+  // linha resgatada do carrinho do servidor pode ter vindo sem opção
+  // obrigatória — o cliente precisa conseguir corrigir antes do checkout.
+  const [pendingLineKey, setPendingLineKey] = useState(null);
 
   const [checkoutStep, setCheckoutStep] = useState("phone");
   const [phone, setPhone] = useState(() => maskPhone(prefilledPhone));
@@ -128,7 +126,6 @@ export default function CustomerMenuPage() {
     getPublicMenu()
       .then((m) => {
         setMenu(m);
-        setSelectedCategory("all");
         hydrateCartFromServer(m, digitsOnly(prefilledPhone));
       })
       .catch((e) => setMenuError(e.message));
@@ -214,12 +211,58 @@ export default function CustomerMenuPage() {
 
   // ---------- mutações do carrinho ----------
 
+  // Nenhum produto entra no carrinho em um toque: todo clique abre a ficha
+  // completa (foto, descrição, variações, quantidade) — é onde a escolha
+  // acontece, e vale para produto sem variação também. A escolha vai pra linha
+  // com a própria chave (mesmo produto com "Ponto da carne" diferente são duas
+  // linhas).
   function addToCart(product) {
-    const key = lineKey(product.id, {});
+    setPendingProduct(product);
+  }
+
+  // Reabre o modal já com a escolha atual (edição de linha).
+  function editLine(it) {
+    setPendingProduct(productById.get(it.productId) ?? { id: it.productId, name: it.name, price: it.price });
+    setPendingLineKey(it.key);
+  }
+
+  function applyLineEdit(product, lineKeyToEdit, selectedVariations, notes) {
+    const current = cart[lineKeyToEdit];
+    if (!current) return;
+    const nextKey = lineKey(product.id, selectedVariations);
+    const next = { ...cart };
+    if (nextKey === lineKeyToEdit) {
+      next[lineKeyToEdit] = { ...current, selectedVariations, notes: notes ?? current.notes };
+    } else {
+      // Trocar a variação move a quantidade pra linha destino (somando com o
+      // que já existia lá) e remove a antiga — nada se perde.
+      const target = next[nextKey];
+      next[nextKey] = {
+        productId: product.id,
+        quantity: current.quantity + (target?.quantity ?? 0),
+        selectedVariations,
+        notes: notes ?? current.notes,
+      };
+      delete next[lineKeyToEdit];
+    }
+    setCart(next);
+    scheduleCartSave(next);
+  }
+
+  function addLine(product, selectedVariations, notes, quantity = 1) {
+    const key = lineKey(product.id, selectedVariations);
     const existing = cart[key];
     const next = {
       ...cart,
-      [key]: { productId: product.id, quantity: (existing?.quantity ?? 0) + 1, selectedVariations: {}, notes: existing?.notes ?? "" },
+      [key]: {
+        productId: product.id,
+        quantity: (existing?.quantity ?? 0) + quantity,
+        selectedVariations,
+        // Observação digitada no modal só vira a observação da linha quando é
+        // a primeira delas — depois a edição é pela tela do carrinho, que já
+        // mostra a linha com a variação.
+        notes: existing?.notes ?? notes ?? "",
+      },
     };
     setCart(next);
     scheduleCartSave(next);
@@ -252,22 +295,59 @@ export default function CustomerMenuPage() {
     setCart(next);
     scheduleCartSave(next);
   }
-  const cartQtyForProduct = (productId) =>
-    Object.values(cart)
-      .filter((l) => l.productId === productId)
-      .reduce((s, l) => s + l.quantity, 0);
 
-  // Filtro combinado: categoria (pill) + busca por nome/descrição.
-  const query = searchTerm.trim().toLowerCase();
-  const visibleCategories = (menu?.categories ?? [])
-    .filter((c) => selectedCategory === "all" || c.id === selectedCategory)
-    .map((c) => ({
-      ...c,
-      products: c.products.filter(
-        (p) => !query || p.name.toLowerCase().includes(query) || (p.description ?? "").toLowerCase().includes(query)
-      ),
-    }))
-    .filter((c) => c.products.length > 0);
+  // Barra de busca: fica sempre visível se o cardápio não tem o que rolar (senão
+  // o cliente nunca poderia buscar) e some quando ela está no topo.
+  const showBar = !canScroll || scrolled || searchTerm.trim().length > 0;
+
+  // Seção em tela = a última que passou da linha de corte. Usado só para
+  // acender a pill; um rAF evita recalcular a cada pixel de scroll.
+  const rafRef = useRef(0);
+  // No desktop o scroll é da coluna esquerda; no celular é o documento (a
+  // div do menu é display:contents, então clientHeight é 0 e serve de sinal
+  // para não usá-la como fonte de scroll).
+  const scrollSource = () => {
+    const el = menuScrollRef.current;
+    return el && el.clientHeight > 0 ? el : document.scrollingElement ?? document.documentElement;
+  };
+  const syncScrollState = useCallback(() => {
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      setScrolled(scrollSource().scrollTop > 40);
+      const sections = Array.from(document.querySelectorAll("[data-section]"));
+      let current = sections[0]?.dataset.section ?? null;
+      for (const node of sections) {
+        if (node.getBoundingClientRect().top - 130 <= 0) current = node.dataset.section;
+      }
+      setActiveSection(current);
+    });
+  }, []);
+
+  useEffect(() => {
+    const measure = () => {
+      const src = scrollSource();
+      // Sem rolagem não há "rolou a página" — a barra fica sempre visível.
+      setCanScroll(src.scrollHeight > src.clientHeight + 8);
+      syncScrollState();
+    };
+    measure();
+    // Depois que as imagens carregam, o cardápio cresce e a página passa a
+    // rolar — medir cedo demais esconderia a barra para sempre.
+    const timer = setTimeout(measure, 500);
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", syncScrollState, { passive: true });
+    return () => {
+      clearTimeout(timer);
+      cancelAnimationFrame(rafRef.current);
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", syncScrollState);
+    };
+  }, [menu, screen, syncScrollState]);
+
+  function selectSection(id) {
+    setActiveSection(id);
+    document.getElementById(`sec-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   async function startCheckout() {
     setScreen("checkout");
@@ -464,23 +544,29 @@ export default function CustomerMenuPage() {
   }
 
   return (
-    <div className="min-h-screen bg-stone-950 font-sans text-stone-50 flex justify-center">
-      <div className="w-full max-w-[430px] min-h-screen bg-stone-950 relative flex flex-col">
+    <div className="min-h-screen bg-stone-950 font-sans text-stone-50">
+      {/* Coluna única em todas as larguras. O carrinho não é mais um painel
+          fixo na lateral (tirar o "Seu pedido" da direita): ele vive na barra
+          flutuante (canto inferior direito no desktop, barra no celular) e abre
+          a tela cheia de carrinho. */}
+      <div className="w-full max-w-[480px] lg:max-w-5xl mx-auto min-h-screen bg-stone-950 relative flex flex-col lg:px-8 lg:py-8">
+        <div ref={menuScrollRef} className="contents lg:flex lg:flex-col lg:min-w-0 lg:overflow-y-auto lg:max-h-[calc(100vh-4rem)] lg:pr-1">
         {screen === "menu" && (
           <MenuScreen
             menu={menu}
+            cart={cart}
             viaWhatsApp={viaWhatsApp}
             logoUrl={storeInfo?.logoUrl}
             merchantName={storeInfo?.merchantName}
-            selectedCategory={selectedCategory}
-            onSelectCategory={setSelectedCategory}
             searchTerm={searchTerm}
             onSearchChange={setSearchTerm}
-            visibleCategories={visibleCategories}
-            cartQtyForProduct={cartQtyForProduct}
+            showBar={showBar}
+            activeSection={activeSection}
+            onSelectSection={selectSection}
             addToCart={addToCart}
             addToCartLine={addToCartLine}
             removeFromCartLine={removeFromCartLine}
+            editLine={editLine}
             itemCount={itemCount}
             subtotal={subtotal}
             onOpenCart={() => setScreen("cart")}
@@ -501,6 +587,7 @@ export default function CustomerMenuPage() {
             addToCartLine={addToCartLine}
             removeFromCartLine={removeFromCartLine}
             onNotesChange={changeNotes}
+            onEditLine={editLine}
             onBack={() => setScreen("menu")}
             onCheckout={startCheckout}
           />
@@ -543,193 +630,71 @@ export default function CustomerMenuPage() {
             cancelError={cancelError}
           />
         )}
+        </div>
       </div>
+
+      {pendingProduct && (
+        <VariationModal
+          product={pendingProduct}
+          price={pendingProduct.price}
+          // ficha completa (foto + quantidade) só na entrada; ao editar uma
+          // linha a quantidade muda no carrinho, então o modal não repete o
+          // controle.
+          imagePath={pendingLineKey ? null : pendingProduct.imagePath ?? null}
+          showQuantity={!pendingLineKey}
+          allowNotes
+          initialSelected={pendingLineKey ? cart[pendingLineKey]?.selectedVariations ?? null : null}
+          initialNotes={pendingLineKey ? cart[pendingLineKey]?.notes ?? "" : ""}
+          confirmLabel={pendingLineKey ? "Salvar alterações" : "Adicionar ao carrinho"}
+          onClose={() => {
+            setPendingProduct(null);
+            setPendingLineKey(null);
+          }}
+          onConfirm={(selected, notes, quantity) => {
+            // Rede de segurança: o modal já trava grupo obrigatório, mas se
+            // ele evoluir e deixar passar, a linha não entra no carrinho.
+            if (missingRequiredGroups(variationGroups(pendingProduct), selected).length > 0) return;
+            if (pendingLineKey) applyLineEdit(pendingProduct, pendingLineKey, selected, notes);
+            else addLine(pendingProduct, selected, notes, quantity);
+            setPendingProduct(null);
+            setPendingLineKey(null);
+          }}
+        />
+      )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-function MenuScreen({ menu, viaWhatsApp, logoUrl, merchantName, selectedCategory, onSelectCategory, searchTerm, onSearchChange, visibleCategories, cartQtyForProduct, addToCart, addToCartLine, removeFromCartLine, itemCount, subtotal, onOpenCart, activeOrder, onOpenActiveOrder }) {
-  const pill = (active) =>
-    `shrink-0 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
-      active ? "bg-amber-500 text-[var(--brand-accent-foreground)]" : "bg-stone-900 text-stone-300 border border-stone-800"
-    }`;
-
-  return (
-    <>
-      <div className="px-5 pt-5 pb-4 border-b border-stone-800">
-        <p className="text-[11px] tracking-[0.18em] uppercase text-amber-400/80 font-semibold mb-3">Pedido para entrega</p>
-        <div className="flex items-center gap-3">
-          {logoUrl ? (
-            <img src={logoUrl} alt="Logo do restaurante" className="h-14 w-14 rounded-full object-contain shrink-0" />
-          ) : (
-            <div className="h-14 w-14 rounded-full bg-stone-800 flex items-center justify-center text-amber-400 shrink-0">
-              <span className="font-display text-lg font-bold">{(merchantName?.[0] ?? "B").toUpperCase()}</span>
-            </div>
-          )}
-          <div className="min-w-0 flex-1">
-            <h1 className="text-xl font-extrabold tracking-tight truncate">{merchantName || "Cardápio"}</h1>
-            <p className="text-[12.5px] text-stone-500 mt-0.5">Cardápio · peça online</p>
-          </div>
-          {viaWhatsApp && <span className="shrink-0 text-[10.5px] font-semibold bg-[#25D366]/15 text-[#25D366] px-2 py-0.5 rounded-full">Via WhatsApp</span>}
-        </div>
-
-        {activeOrder && (
-          <button onClick={onOpenActiveOrder} className="mt-4 w-full rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-center justify-between gap-3 text-left">
-            <span className="min-w-0">
-              <span className="block text-[13.5px] font-semibold text-stone-50">Você tem um pedido em andamento</span>
-              <span className="block text-[12px] text-stone-400 mt-0.5 truncate">
-                {activeOrder.customerStage?.label} · {money(activeOrder.total)}
-              </span>
-            </span>
-            <span className="text-[12.5px] font-semibold text-amber-400 shrink-0">Ver status</span>
-          </button>
-        )}
-      </div>
-
-      <div className="sticky top-0 z-10 bg-stone-950/95 backdrop-blur border-b border-stone-800 px-5 pt-3 pb-3 space-y-2.5">
-        <div className="relative">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-500 pointer-events-none" />
-          <input
-            value={searchTerm}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Buscar produto"
-            className="w-full bg-stone-900 border border-stone-800 rounded-lg pl-9 pr-8 h-10 text-[14px] text-stone-100 outline-none focus:border-amber-500 placeholder:text-stone-500"
-          />
-          {searchTerm && (
-            <button
-              onClick={() => onSearchChange("")}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-500 hover:text-stone-300"
-              aria-label="Limpar busca"
-            >
-              <X size={15} />
-            </button>
-          )}
-        </div>
-        <div className="flex gap-2 overflow-x-auto pb-0.5">
-          <button onClick={() => onSelectCategory("all")} className={pill(selectedCategory === "all")}>
-            Todos
-          </button>
-          {menu.categories.map((c) => (
-            <button key={c.id} onClick={() => onSelectCategory(c.id)} className={pill(selectedCategory === c.id)}>
-              {c.name}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex-1 px-5 pb-28">
-        {visibleCategories.length === 0 ? (
-          <p className="text-stone-500 text-sm text-center mt-10">Nenhum produto encontrado.</p>
-        ) : (
-          visibleCategories.map((c) => (
-            <div key={c.id} className="pt-5">
-              <h2 className="text-[13px] font-bold uppercase tracking-wide text-stone-500 mb-2">{c.name}</h2>
-              {c.products.map((p) => {
-                const qty = cartQtyForProduct(p.id);
-                const key = lineKey(p.id, {});
-                return (
-                  <div key={p.id} className="flex items-center justify-between py-3 border-b border-stone-800 gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      {p.imagePath && (
-                        <img src={p.imagePath} alt={p.name} className="w-14 h-14 rounded-lg object-cover shrink-0" />
-                      )}
-                      <div className="min-w-0">
-                        <p className="text-[14.5px] font-semibold leading-tight text-stone-50">{p.name}</p>
-                        {p.description && <p className="text-[11.5px] text-stone-500 leading-snug mt-0.5 line-clamp-2">{p.description}</p>}
-                        <p className="text-[13.5px] text-amber-400 font-semibold mt-1">{money(p.price)}</p>
-                      </div>
-                    </div>
-                    {qty === 0 ? (
-                      <button onClick={() => addToCart(p)} className="shrink-0 w-9 h-9 rounded-full bg-amber-500 flex items-center justify-center" aria-label={`Adicionar ${p.name}`}>
-                        <Plus size={17} className="text-[var(--brand-accent-foreground)]" />
-                      </button>
-                    ) : (
-                      <div className="shrink-0 flex items-center gap-2.5 bg-stone-900 border border-stone-800 rounded-full px-1 py-1">
-                        <button onClick={() => removeFromCartLine(key)} className="w-7 h-7 flex items-center justify-center" aria-label="Diminuir quantidade">
-                          <Minus size={14} />
-                        </button>
-                        <span className="text-[13.5px] font-semibold w-4 text-center text-stone-50">{qty}</span>
-                        <button onClick={() => addToCartLine(key)} className="w-7 h-7 flex items-center justify-center" aria-label="Aumentar quantidade">
-                          <Plus size={14} />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ))
-        )}
-      </div>
-
-      {itemCount > 0 && (
-        <button onClick={onOpenCart} className="absolute bottom-5 left-5 right-5 bg-amber-500 text-[var(--brand-accent-foreground)] rounded-xl py-3.5 px-4 flex items-center justify-between font-semibold shadow-lg shadow-black/30">
-          <span className="flex items-center gap-2 text-[14px]">
-            <ShoppingBag size={17} />
-            Ver carrinho · {itemCount} {itemCount === 1 ? "item" : "itens"}
-          </span>
-          <span className="text-[14px]">{money(subtotal)}</span>
-        </button>
-      )}
-    </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-function CartScreen({ items, subtotal, logoUrl, addToCartLine, removeFromCartLine, onNotesChange, onBack, onCheckout }) {
+function CartScreen({ items, subtotal, logoUrl, addToCartLine, removeFromCartLine, onNotesChange, onEditLine, onBack, onCheckout }) {
   const [openNote, setOpenNote] = useState(null);
   return (
     <>
       <TopBar title="Seu carrinho" onBack={onBack} logoUrl={logoUrl} />
-      <div className="flex-1 overflow-y-auto px-5 py-4">
+      <div className="flex-1 overflow-y-auto px-5 py-4 max-w-xl mx-auto w-full">
         {items.length === 0 ? (
           <p className="text-stone-500 text-sm mt-8 text-center">Carrinho vazio.</p>
         ) : (
           items.map((it) => (
-            <div key={it.key} className="py-3 border-b border-stone-800">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[14.5px] font-semibold text-stone-50">{it.name}</p>
-                  <p className="text-[13px] text-stone-500 mt-0.5">{money(it.price)} cada</p>
-                  {variationsText(it.selectedVariations) && (
-                    <p className="text-[12.5px] text-stone-400 mt-0.5">{variationsText(it.selectedVariations)}</p>
-                  )}
-                </div>
-                <div className="shrink-0 flex items-center gap-2.5 bg-stone-900 border border-stone-800 rounded-full px-1 py-1">
-                  <button onClick={() => removeFromCartLine(it.key)} className="w-7 h-7 flex items-center justify-center" aria-label="Diminuir quantidade">
-                    <Minus size={14} />
-                  </button>
-                  <span className="text-[13.5px] font-semibold w-4 text-center text-stone-50">{it.quantity}</span>
-                  <button onClick={() => addToCartLine(it.key)} className="w-7 h-7 flex items-center justify-center" aria-label="Aumentar quantidade">
-                    <Plus size={14} />
-                  </button>
-                </div>
-              </div>
-              <button
-                onClick={() => setOpenNote(openNote === it.key ? null : it.key)}
-                className="mt-2 text-[12px] font-medium text-amber-400"
-              >
-                {it.notes?.trim() ? "Editar observação" : "+ Adicionar observação"}
-              </button>
-              {openNote === it.key && (
-                <textarea
-                  value={it.notes ?? ""}
-                  onChange={(e) => onNotesChange(it.key, e.target.value)}
-                  placeholder="Ex.: sem cebola, capricha no queijo..."
-                  rows={2}
-                  className="mt-2 w-full bg-stone-900 border border-stone-800 rounded-lg px-3 py-2 text-[13.5px] text-stone-100 outline-none focus:border-amber-500"
-                />
-              )}
-            </div>
+            <CartLine
+              key={it.key}
+              it={it}
+              addToCartLine={addToCartLine}
+              removeFromCartLine={removeFromCartLine}
+              onNotesChange={onNotesChange}
+              openNote={openNote}
+              setOpenNote={setOpenNote}
+              onEditLine={onEditLine}
+              hasVariations={hasVariations(it)}
+            />
           ))
         )}
       </div>
       {items.length > 0 && (
-        <div className="px-5 pb-6 pt-3 border-t border-stone-800">
+        <div className="px-5 pb-6 pt-3 border-t border-stone-800 max-w-xl mx-auto w-full">
           <p className="text-[11.5px] text-stone-500 mb-3">A taxa de entrega é calculada no próximo passo.</p>
           <button onClick={onCheckout} className="w-full bg-amber-500 text-[var(--brand-accent-foreground)] rounded-xl h-12 font-semibold text-[14.5px]">
-            Continuar · {money(subtotal)}
+            Continuar · {formatBRL(subtotal)}
           </button>
         </div>
       )}
@@ -754,7 +719,7 @@ function CheckoutScreen(props) {
           else setStep("payment");
         }}
       />
-      <div className="flex-1 overflow-y-auto px-5 py-5">
+      <div className="flex-1 overflow-y-auto px-5 py-5 max-w-xl mx-auto w-full">
         {error && (
           <div className="flex items-center gap-2 text-red-400 text-[13px] bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2.5 mb-4">
             <AlertTriangle size={14} className="shrink-0" /> {error}
@@ -842,17 +807,17 @@ function CheckoutScreen(props) {
                       <span className="block text-[12px] text-stone-500">{variationsText(it.selectedVariations)}</span>
                     )}
                   </span>
-                  <span className="text-stone-500 shrink-0">{money(it.price * it.quantity)}</span>
+                  <span className="text-stone-500 shrink-0">{formatBRL(it.price * it.quantity)}</span>
                 </div>
               ))}
               <div className="border-t border-stone-800 mt-2 pt-2 flex justify-between text-[14px] font-bold text-stone-50">
-                <span>Subtotal</span><span>{money(subtotal)}</span>
+                <span>Subtotal</span><span>{formatBRL(subtotal)}</span>
               </div>
               <div className="flex justify-between text-[13.5px] py-1">
-                <span className="text-stone-300">Taxa de entrega</span><span className="text-stone-500">{money(deliveryFee)}</span>
+                <span className="text-stone-300">Taxa de entrega</span><span className="text-stone-500">{formatBRL(deliveryFee)}</span>
               </div>
               <div className="flex justify-between text-[15px] font-extrabold pt-1">
-                <span className="text-stone-50">Total</span><span className="text-amber-400">{money(subtotal + deliveryFee)}</span>
+                <span className="text-stone-50">Total</span><span className="text-amber-400">{formatBRL(subtotal + deliveryFee)}</span>
               </div>
             </div>
             <div className="rounded-lg bg-stone-900 border border-stone-800 p-4 mb-4 space-y-1.5">
@@ -866,7 +831,7 @@ function CheckoutScreen(props) {
         )}
       </div>
 
-      <div className="px-5 pb-6 pt-3 border-t border-stone-800">
+      <div className="px-5 pb-6 pt-3 border-t border-stone-800 max-w-xl mx-auto w-full">
         <button
           disabled={
             submitting ||
@@ -883,7 +848,7 @@ function CheckoutScreen(props) {
           }}
           className="w-full bg-amber-500 text-[var(--brand-accent-foreground)] rounded-xl h-12 font-semibold text-[14.5px] disabled:opacity-40"
         >
-          {submitting ? "Enviando…" : step === "review" ? `Confirmar pedido · ${money(subtotal + deliveryFee)}` : "Continuar"}
+          {submitting ? "Enviando…" : step === "review" ? `Confirmar pedido · ${formatBRL(subtotal + deliveryFee)}` : "Continuar"}
         </button>
       </div>
     </>
@@ -922,14 +887,14 @@ function ConfirmationScreen({ order, status, phone, onCancel, onReset, submittin
       : "Você pode acompanhar o andamento aqui — esta tela atualiza sozinha.";
 
   return (
-    <div className="flex-1 flex flex-col px-6 pt-10 pb-8 overflow-y-auto">
+    <div className="flex-1 flex flex-col px-6 pt-10 pb-8 overflow-y-auto max-w-xl mx-auto w-full">
       <div className="text-center mb-8">
         <div className={`w-14 h-14 rounded-full border flex items-center justify-center mx-auto mb-4 ${failed || cancelled ? "bg-red-500/15 border-red-500/40" : "bg-amber-500/15 border-amber-500/40"}`}>
           {cancelled ? <X size={24} className="text-red-400" /> : failed ? <AlertTriangle size={24} className="text-red-400" /> : <Check size={26} className="text-amber-400" />}
         </div>
         <h1 className="text-xl font-extrabold text-stone-50">{title}</h1>
         {!failed && !cancelled && (
-          <p className="text-[13.5px] text-stone-500 mt-1">Tempo estimado: {estimatedMinutes} min · Total {money(total)}</p>
+          <p className="text-[13.5px] text-stone-500 mt-1">Tempo estimado: {estimatedMinutes} min · Total {formatBRL(total)}</p>
         )}
       </div>
 

@@ -276,6 +276,7 @@ export default function CatalogTab({ showToast }) {
               product={p}
               categoryName={p.categoryName ?? "Sem categoria"}
               ifoodIntegrationEnabled={storeSettings?.ifoodIntegrationEnabled ?? false}
+          deliveryEnabled={storeSettings?.usesDelivery ?? false}
               kitchenEnabled={kitchenEnabled}
               onOpen={() => setEditingProduct(p)}
               onToggleActive={() => handleToggleProductActive(p)}

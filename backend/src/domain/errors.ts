@@ -98,4 +98,17 @@ export const Errors = {
       `Estoque insuficiente de ${name} (disponível: ${available}).`,
       { productId, name, available }
     ),
+  variationRequired: (productName: string, groups: string[]) =>
+    new AppError(
+      "variation_required",
+      422,
+      `Escolha as opções obrigatórias de ${productName}.`,
+      { productName, groups }
+    ),
+  variationInvalid: (productName: string, group: string, option: string) =>
+    new AppError("variation_invalid", 422, `Opção indisponível em ${productName}: ${group} → ${option}.`, {
+      productName,
+      group,
+      option,
+    }),
 };

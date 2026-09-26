@@ -52,6 +52,9 @@ export const products = sqliteTable("product", {
   imagePath: text("image_path"), // caminho servido via /uploads/<id>.<ext>
   ifoodEnabled: integer("ifood_enabled", { mode: "boolean" }).notNull().default(false),
   ifoodSku: text("ifood_sku"),
+  // Vitrine da página pública (/pedido): entra na seção "Destaques"
+  // (migration 0020). Curadoria pura — o produto segue na sua categoria.
+  featured: integer("featured", { mode: "boolean" }).notNull().default(false),
   // Estoque (migration 0016): config do produto — o saldo em si fica no
   // ledger stock_movement (soma dos deltas), nunca coluna cacheada.
   costPrice: real("cost_price").notNull().default(0), // custo unitário (margem)

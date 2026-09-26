@@ -6,7 +6,7 @@ import {
 import { formatBRL, parseBRL, maskCurrencyInput } from "@/shared/lib";
 import { Field, ToggleRow, inputClass } from "@/shared/components";
 
-export default function ProductModal({ product, categories, kitchenGroups, kitchenEnabled, ifoodIntegrationEnabled, inventoryEnabled = false, onClose, onSaved, showToast }) {
+export default function ProductModal({ product, categories, kitchenGroups, kitchenEnabled, ifoodIntegrationEnabled, deliveryEnabled = true, inventoryEnabled = false, onClose, onSaved, showToast }) {
   const [name, setName] = useState(product?.name ?? "");
   const [description, setDescription] = useState(product?.description ?? "");
   const [price, setPrice] = useState(product ? formatBRL(product.price) : "");
@@ -32,6 +32,8 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
   const [newOption, setNewOption] = useState({});
   const [active, setActive] = useState(product?.active ?? true);
   const [ifoodEnabled, setIfoodEnabled] = useState(product?.ifoodEnabled ?? false);
+  // Vitrine da página pública: entra na seção "Destaques" do /pedido.
+  const [featured, setFeatured] = useState(product?.featured ?? false);
   const [ifoodSku, setIfoodSku] = useState(product?.ifoodSku ?? "");
   const [image, setImage] = useState({ file: null, preview: product?.imagePath ?? "" });
   const [removeImage, setRemoveImage] = useState(false);
@@ -106,6 +108,10 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
         active,
         ifoodEnabled: ifoodIntegrationEnabled ? ifoodEnabled : false,
         ifoodSku: ifoodIntegrationEnabled && ifoodEnabled ? ifoodSku.trim() : null,
+        // Sem a página pública (uses_delivery off) o toggle nem aparece — manda
+        // só quando ele existe, para um edit não relacionado (preço, foto) não
+        // apagar a curadoria de destaques. No create, ausente = default false.
+        ...(deliveryEnabled ? { featured } : {}),
         costPrice: parseBRL(costPrice),
         lowStockThreshold: Number(lowStockThreshold || 0),
         trackStock,
@@ -308,6 +314,20 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
                 <div className="text-stone-600 text-xs">
                   Integração com iFood desabilitada nas configurações — a flag não se aplica a este produto.
                 </div>
+              )}
+            </div>
+            <div className="border-t border-stone-800 pt-3">
+              {deliveryEnabled ? (
+                <ToggleRow label="Em destaque na página de pedidos" checked={featured} onChange={setFeatured} />
+              ) : (
+                <div className="text-stone-600 text-xs">
+                  Delivery desabilitado nas configurações — a página de pedidos externos não está no ar, então o destaque não aparece.
+                </div>
+              )}
+              {deliveryEnabled && (
+                <p className="text-stone-600 text-xs mt-1.5">
+                  Destaques ficam na vitrine do /pedido. O produto continua aparecendo normalmente na categoria dele.
+                </p>
               )}
             </div>
           </div>

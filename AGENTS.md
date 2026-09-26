@@ -193,6 +193,42 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
 - **Mutations**: aguardar e então recarregar; sem otimismo. Tratar erros de
   domínio com toasts (`src/components/Toast.jsx`).
 - **UI em PT-BR**; ícones via `lucide-react`; estilos com Tailwind 4 (CSS-first).
+- **Variações de produto**: contrato único em `src/domain/variations.ts` (backend)
+  e `VariationGroup` espelhado no menu público (`GET /public/menu` já devolve
+  `required`/`allowMultiple`; o `normalizeVariations` do product continua
+  re-exportado). O modal é **compartilhado**
+  (`src/shared/components/VariationModal.jsx`, re-exportado em
+  `src/features/orders/`); o garçom usa sem campo de observação. Regra de linha:
+  chave = produto + variações, então o mesmo produto com escolhas diferentes são
+  linhas separadas. Cliente valida no modal (UX) **e** o `POST /public/orders`
+  barra grupo obrigatório ausente/inválido com 422 antes de qualquer escrita.
+  Lógica pura do carrinho público em
+  `src/features/customer-menu/cartLogic.js` (testada sem DOM): chave de linha,
+  agrupamento por produto, grupos obrigatórios e a regra do stepper
+  (`productStepperState` — o "+" abre o modal quando falta opção obrigatória).
+- **Destaques da página pública**: `product.featured` (migration `0020`, default
+  `false`) alimenta a vitrine "Destaques" do `/pedido` — 3 colunas, card
+  `ProductTile`; o produto continua na sua categoria (comportamento iFood). Marcado
+  no cadastro (`ProductModal`, toggle "Em destaque na página de pedidos"; o campo
+  só vai no payload quando o toggle existe — um edit com `uses_delivery` off não
+  apaga a curadoria). O layout da página é o de loja do iFood: header com logo no
+  meio, barra de busca + pills `sticky` que só aparece ao rolar (ou se não há o
+  que rolar), pills por âncora (`scrollIntoView`) em vez de filtro, e a busca
+  virando lista de "Resultados". Regra do scroll: a fonte é a coluna esquerda no
+  desktop (`clientHeight > 0`) e o documento no celular.
+- **Ficha completa antes de adicionar**: **não existe botão de "+"** nos cards —
+  o clique abre o `VariationModal` compartilhado com `imagePath` + `showQuantity`
+  (foto, variações, quantidade, total no CTA), para produto **com ou sem
+  variação**. Os props são opcionais e desligados por padrão (o garçom continua
+  com só as opções; `onConfirm(sel, notes, qty)` só recebe qty com
+  `showQuantity`). `ProductStepper` foi removido (com `productStepperState`/
+  `baseLineKey` do cartLogic). O card mostra badge "N no carrinho" e as linhas
+  com variação (botões de linha levam produto + variação no `aria-label`).
+- **Sem painel de carrinho fixo na lateral**: o "Seu pedido" sticky do desktop
+  foi removido — página coluna única, carrinho aberto pela barra `fixed`
+  (full-width no celular, `lg:right-8 lg:w-80` no desktop, cantos inferiores).
+  Teste de integração da página (`CustomerMenuPage.test.jsx`) é o que pega
+  ReferenceError de import perdido — `tsc`/build não pegam.
 - Rodar `npm run lint` (oxlint) antes de terminar.
 
 ### PWA / build

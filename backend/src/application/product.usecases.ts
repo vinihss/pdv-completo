@@ -7,42 +7,11 @@ import { Errors } from "../domain/errors.js";
 import { config } from "../config/env.js";
 import { logAction } from "../infra/audit-log.js";
 import { stockBalances, currentStock, applyStockMovementTx } from "./stock/stock.usecases.js";
+import { normalizeVariations, type VariationGroup } from "../domain/variations.js";
 
-// Variações: formato estruturado de grupos (§01 backend-spec, tabela product).
-//   [{ name: "Ponto da carne", options: ["Mal passado", ...], required?, allowMultiple? }]
-// Arrays legados (lista plana de strings, ex. seed antigo) são normalizados na
-// leitura para um único grupo "Opção" — compativel com `selectedVariations`
-// persistido como Record<grupo, opção> (e opção múltipla como string[]).
-export interface VariationGroup {
-  name: string;
-  options: string[];
-  required: boolean;
-  allowMultiple: boolean;
-}
-
-export function normalizeVariations(raw: unknown): VariationGroup[] {
-  if (!Array.isArray(raw) || raw.length === 0) return [];
-
-  // Legado: ["Limão", "Morango"] → [{ name: "Opção", options: [...] }]
-  if (typeof raw[0] === "string") {
-    const options = (raw as unknown[])
-      .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-      .map((v) => v.trim());
-    return options.length ? [{ name: "Opção", options, required: false, allowMultiple: false }] : [];
-  }
-
-  return (raw as any[])
-    .filter((g): g is Record<string, unknown> => !!g && typeof g === "object")
-    .map((g) => ({
-      name: typeof g.name === "string" ? g.name.trim() : "",
-      options: Array.isArray(g.options)
-        ? g.options.filter((o): o is string => typeof o === "string" && o.trim().length > 0).map((o) => o.trim())
-        : [],
-      required: Boolean(g.required),
-      allowMultiple: Boolean(g.allowMultiple),
-    }))
-    .filter((g) => g.name.length > 0 && g.options.length > 0);
-}
+// Re-exportado pra não quebrar os consumidores históricos (menu público,
+// cadastro de produto). A implementação é pura e mora em domain/variations.ts.
+export { normalizeVariations, type VariationGroup };
 
 // Caminho HTTP da foto, relativo à raiz: /uploads/<id>.<ext>
 function imageUrl(filename: string | null | undefined): string | null {
@@ -79,6 +48,7 @@ function serialize(p: typeof products.$inferSelect, refs: ProductRefs, quantity 
     imagePath: imageUrl(p.imagePath),
     ifoodEnabled: p.ifoodEnabled,
     ifoodSku: p.ifoodSku,
+    featured: p.featured,
     costPrice: p.costPrice,
     lowStockThreshold: p.lowStockThreshold,
     trackStock: p.trackStock,
@@ -152,6 +122,7 @@ export async function createProductUsecase(
     variations?: unknown[];
     ifoodEnabled?: boolean;
     ifoodSku?: string | null;
+    featured?: boolean;
     active?: boolean;
     costPrice?: number;
     lowStockThreshold?: number;
@@ -180,6 +151,7 @@ export async function createProductUsecase(
         variations: JSON.stringify(input.variations ?? []),
         ifoodEnabled: input.ifoodEnabled ?? false,
         ifoodSku: input.ifoodSku ?? null,
+        featured: input.featured ?? false,
         costPrice: input.costPrice ?? 0,
         lowStockThreshold: input.lowStockThreshold ?? 0,
         trackStock: input.trackStock ?? false,
@@ -221,6 +193,7 @@ export async function updateProductUsecase(
     variations?: unknown[];
     ifoodEnabled?: boolean;
     ifoodSku?: string | null;
+    featured?: boolean;
     active?: boolean;
     costPrice?: number;
     lowStockThreshold?: number;
@@ -250,6 +223,7 @@ export async function updateProductUsecase(
         ...(input.variations !== undefined ? { variations: JSON.stringify(input.variations ?? []) } : {}),
         ...(input.ifoodEnabled !== undefined ? { ifoodEnabled: input.ifoodEnabled } : {}),
         ...(input.ifoodSku !== undefined ? { ifoodSku: input.ifoodSku } : {}),
+        ...(input.featured !== undefined ? { featured: input.featured } : {}),
         ...(input.costPrice !== undefined ? { costPrice: input.costPrice } : {}),
         ...(input.lowStockThreshold !== undefined ? { lowStockThreshold: input.lowStockThreshold } : {}),
         ...(input.trackStock !== undefined ? { trackStock: input.trackStock } : {}),

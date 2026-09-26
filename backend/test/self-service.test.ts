@@ -27,6 +27,17 @@ function enableDelivery() {
 
 const courierToken = () => tokenOf(COURIER, "courier");
 
+// Produto com grupo de variação OBRIGATÓRIO — é o caso que o checkout
+// precisa barrar (X-Burger sem "Ponto da carne" não pode virar pedido).
+const VARIED_PRODUCT = "p-var";
+function seedVariedProduct() {
+  rawSqlite.exec(`
+    INSERT OR IGNORE INTO product (id, name, price, category_id, variations)
+      VALUES ('${VARIED_PRODUCT}', 'X-Burger', 28, '${FIXTURE.category}',
+              '[{"name":"Ponto da carne","options":["Mal passado","Ao ponto"],"required":true}]');
+  `);
+}
+
 // outbox_event.id é UUID (PK textual) — ordem de emissão é o rowid do
 // SQLite, não o id (ordenar por id seria alfabético e aleatório).
 const outboxTypes = (room: string): string[] =>
@@ -388,5 +399,88 @@ describe("self-service: stage público, cancelamento e continuação", () => {
     const depois = await handleIncomingWhatsAppMessage(phone, "e aí?");
     expect(depois.replyText).toContain("cardápio");
     expect(depois.replyText).not.toContain("order=");
+  });
+
+  it("menu público expõe groups com required/allowMultiple (mesmo formato do garçom)", async () => {
+    seedVariedProduct();
+    const res = await api("get", "/public/menu");
+    expect(res.status).toBe(200);
+    const product = res.json.categories
+      .flatMap((c: any) => c.products)
+      .find((p: any) => p.id === VARIED_PRODUCT);
+    expect(product.variations).toEqual([
+      { name: "Ponto da carne", options: ["Mal passado", "Ao ponto"], required: true, allowMultiple: false },
+    ]);
+    // produto sem variações vem com null (o modal não abre)
+    const semVariacao = res.json.categories
+      .flatMap((c: any) => c.products)
+      .find((p: any) => p.id === FIXTURE.product);
+    expect(semVariacao.variations).toBeNull();
+  });
+
+  it("menu público marca os destaques (product.featured) para a vitrine", async () => {
+    seedVariedProduct();
+    const porPadrao = await api("get", "/public/menu");
+    const find = (json: any, id: string) =>
+      json.categories.flatMap((c: any) => c.products).find((p: any) => p.id === id);
+    // Default da migration 0020: nada é destaque até o gerente marcar.
+    expect(find(porPadrao.json, VARIED_PRODUCT).featured).toBe(false);
+    expect(find(porPadrao.json, FIXTURE.product).featured).toBe(false);
+
+    // Marca via API do gerente e o menu passa a anunciar.
+    rawSqlite.exec(`UPDATE product SET featured = 1 WHERE id = '${VARIED_PRODUCT}'`);
+    const marcado = await api("get", "/public/menu");
+    expect(find(marcado.json, VARIED_PRODUCT).featured).toBe(true);
+    // ...e o produto continua na sua categoria: destaque é vitrine, não exclusão.
+    const categoria = marcado.json.categories.find((c: any) => c.id === FIXTURE.category);
+    expect(categoria.products.map((p: any) => p.id)).toContain(VARIED_PRODUCT);
+  });
+
+  it("checkout barra grupo obrigatório não escolhido com 422 e não cria nada", async () => {
+    seedVariedProduct();
+    const ip = nextIp();
+    const phone = nextPhone();
+    const body = (items: any[]) => ({
+      correlationId: crypto.randomUUID(),
+      channel: "web",
+      customerPhone: phone,
+      customerName: "Cliente Teste",
+      newAddress: { street: "Rua A", number: "10", neighborhood: "Centro", city: "Sao Paulo" },
+      items,
+      paymentMethodIntent: "cash",
+    });
+
+    const semOpcao = await api("post", "/public/orders", {
+      ip,
+      body: body([{ productId: VARIED_PRODUCT, quantity: 1 }]),
+    });
+    expect(semOpcao.status).toBe(422);
+    expect(semOpcao.json.error).toMatchObject({ code: "variation_required" });
+    expect(semOpcao.json.error.details.groups).toEqual(["Ponto da carne"]);
+
+    // Nada foi criado — a validação roda antes de qualquer escrita.
+    const written = rawSqlite
+      .prepare(`SELECT COUNT(*) n FROM "order" WHERE customer_id IN (SELECT id FROM customer WHERE phone = ?)`)
+      .get(phone) as { n: number };
+    expect(written.n).toBe(0);
+
+    // Opção fora do catálogo também é recusada.
+    const invalida = await api("post", "/public/orders", {
+      ip,
+      body: body([{ productId: VARIED_PRODUCT, quantity: 1, selectedVariations: { "Ponto da carne": "Bem passado" } }]),
+    });
+    expect(invalida.status).toBe(422);
+    expect(invalida.json.error).toMatchObject({ code: "variation_invalid" });
+
+    // Com a opção válida, o pedido passa e a variação chega no item.
+    const ok = await api("post", "/public/orders", {
+      ip,
+      body: body([{ productId: VARIED_PRODUCT, quantity: 1, selectedVariations: { "Ponto da carne": "Ao ponto" } }]),
+    });
+    expect(ok.status).toBe(201);
+    const item = rawSqlite
+      .prepare(`SELECT selected_variations FROM order_item WHERE order_id = ?`)
+      .get(ok.json.orderId) as { selected_variations: string };
+    expect(JSON.parse(item.selected_variations)).toEqual({ "Ponto da carne": "Ao ponto" });
   });
 });

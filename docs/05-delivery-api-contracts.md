@@ -65,10 +65,28 @@ Sem parâmetros. Retorna produtos ativos e visíveis nesse canal (respeitando `w
 200 → {
   categories: [{
     id: string, name: string,
-    products: [{ id, name, price, variations: Record<string, string[]> | null }]
+    products: [{
+      id, name, description, price,
+      imagePath: string | null,     // "/uploads/<arquivo>"
+      // Mesmo formato do payload interno de produto (features/orders usa o
+      // mesmo VariationModal): o cliente precisa de `required` pra bloquear o
+      // pedido sem opção obrigatória e de `allowMultiple` pra grupos de extras.
+      variations: [{ name, options: string[], required: boolean, allowMultiple: boolean }] | null,
+      // Vitrine da página: true = entra na seção "Destaques" (migration 0020).
+      // Curadoria pura — o produto segue listado na sua categoria.
+      featured: boolean
+    }]
   }]
 }
 ```
+
+`variations: null` = produto sem opções. Legado (`variations: ["Limão","Morango"]`
+no banco) é normalizado em um grupo `"Opção"` — o cliente nunca vê o formato cru.
+
+`featured` vem de `product.featured`, marcado pelo gerente no cadastro do produto
+("Em destaque na página de pedidos"). Default `false` — instalação existente não
+muda de layout até alguém marcar. A seção de destaques é montada no cliente a
+partir deste payload; o backend não tem endpoint próprio pra isso.
 
 ### `POST /public/customers/lookup`
 
@@ -111,10 +129,19 @@ body: {
   paymentMethodIntent: "cash" | "card" | "pix" | "other"
 }
 
-201 → { orderId, total, deliveryFee, estimatedMinutes }
+201 → { orderId, deliveryId, total, deliveryFee, estimatedMinutes }   // customerStage/timeline vêm do GET de status, não do create
 400 → validation_failed
 409 → address_limit_reached  (se newAddress e cliente já tem 3)
+422 → variation_required      (linha sem grupo obrigatório selecionado; details.groups = grupos faltantes)
+422 → variation_invalid       (opção que não existe mais no catálogo; details.{group, option})
 ```
+
+As duas validações de variação rodam **antes de qualquer escrita** (antes de
+criar comanda, itens, pagamento e entrega): `addItemsUsecase` persiste
+`selectedVariations` sem conferir contra o produto, então sem essa guarda um
+"X-Burger" sem "Ponto da carne" virava pedido e a cozinha recebia algo
+impossível de produzir. Erro 422 (não 400) porque é o corpo que precisa de
+correção pontual, não a requisição inteira.
 
 Internamente: resolve/cria cliente → resolve/cria endereço → chama `openOrderUsecase({ tabLabel: "Delivery - <nome>", channel })` + `addItemsUsecase` → grava `orders.deliveryFee` a partir de `store_settings.delivery_fee`.
 

@@ -102,12 +102,71 @@ Timeout de 1h (não mais os 15 min do desenho original, que faziam sentido pra u
 
 Navegação livre em página única, sem máquina de estados persistida no servidor. O carrinho vive no estado do navegador **e** num rascunho no servidor (ver "Continuação do pedido" abaixo):
 
-1. **Cardápio** — consumo de `GET /public/menu`, navegação livre por categoria/produto/variação.
+1. **Cardápio** — consumo de `GET /public/menu`, navegação livre por categoria/produto/variação. Produto com variações abre o `VariationModal` (mesmo componente do lançamento do garçom, em `frontend/src/shared/components/VariationModal.jsx`): o mesmo produto com escolhas diferentes vira **linhas distintas** no carrinho, e uma linha resgatada do servidor sem opção obrigatória pode ser corrigida antes do checkout. Sem variação, o "+" mexe direto na linha.
 2. **Carrinho** — revisão e ajuste de quantidades/observações, com opção de voltar ao cardápio.
 3. **Identificação** — telefone como chave; mesma lógica de busca/cadastro de cliente e endereço do bot.
 4. **Pagamento** — forma pretendida + total com taxa de entrega visível.
 5. **Confirmação e acompanhamento** — pedido criado via `POST /public/orders` (`createSelfServiceOrderUsecase()`); a tela de acompanhamento consome o **stage canônico** (`customerStage`/`timeline` de `GET /public/orders/:id/status`), atualizada por WebSocket público com polling de 4s como fallback — sem refresh manual.
    - **Cancelamento pelo cliente** disponível enquanto o stage for `received`, `preparing`, `ready` ou `failed` (`POST /public/orders/:id/cancel`, telefone confere com o dono). Depois que o entregador sai em rota, a tela oferece contato com o estabelecimento em vez do botão.
+
+### Layout da página (responsivo)
+
+Uma tela só, sem menu lateral e **sem painel de carrinho fixado na lateral**, no
+formato de loja do iFood — desenhado primeiro para o celular e escalando para o
+desktop. Tema escuro/âmbar, igual ao resto do app.
+
+1. **Topo**: header com o **logo no meio** (grade de 3 colunas; badge "WhatsApp" à
+   direita quando o cliente chegou pelo link do bot) e nome do estabelecimento
+   centralizado. some ao rolar.
+2. **Barra de busca + categorias**: `sticky top-0`, **escondida no topo** e
+   revelada ao rolar (cliente sobe a página → ela desce junto). Se o cardápio não
+   tem o que rolar, ela fica sempre visível — busca que só aparece depois de
+   rolar seria inacessível num cardápio curto. Busca e pilha de chips vivem na
+   mesma barra; a barra é montada só quando `showBar` (rolou, tem busca, ou não
+   há rolagem).
+3. **Destaques**: primeira seção, **3 colunas** (`xl` 4), card vertical com foto
+   quadrada, **preço e título abaixo**. Alimentada por `product.featured`
+   (migration 0020) — o produto continua aparecendo na sua categoria, igual ao
+   iFood.
+4. **Categorias**: uma seção por categoria, **um produto abaixo do outro com a
+   imagem à direita** (2 colunas no `lg`, 3 no `xl` — a linha não estica na
+   largura). É onde mora o detalhe: descrição, aviso de opções e as linhas já
+   escolhidas.
+
+### Ficha completa do produto (nada entra no carrinho em um toque)
+
+**Não existe botão de "+"** nos cards (`ProductTile`/`ProductCard`): o clique no
+card abre a **ficha completa do produto** — foto grande, descrição, variações,
+**controle de quantidade** e total no botão — antes de qualquer coisa entrar no
+carrinho. Vale para produto **sem variação também** (antes ele ia direto). A
+ficha é o mesmo `VariationModal` compartilhado com o garçom, estendido com os
+props `imagePath` + `showQuantity` (desligados por padrão: o garçom continua
+vendo só as opções; a página pública liga os dois). `onConfirm(sel, notes, qty)`
+só recebe o 3º argumento quando `showQuantity` está ligado.
+
+O card ainda mostra o que já está no carrinho: badge "N no carrinho" e, nas
+categorias, as linhas com variação (que o cliente ajusta por ali, sem reabrir a
+ficha — os botões de linha levam produto + variação no `aria-label`).
+
+As pills de categoria **não filtram**: elas rolam até a seção
+(`scrollIntoView` + `scroll-mt`, com `id="sec-<id>"`), e a pill da seção visível
+fica acesa. Só a busca filtra, e com texto a página vira uma lista plana
+"Resultados" (sem pills, porque não há seção para pular). A seção em tela é
+calculada no scroll com `getBoundingClientRect` (com `requestAnimationFrame`) em
+vez de `IntersectionObserver`, porque a fonte de scroll muda entre celular
+(documento) e desktop (a coluna esquerda) e o cálculo serve para os dois.
+
+### Carrinho
+
+O painel "Seu pedido" fixado à direita do desktop **foi removido** — a página é
+coluna única em todas as larguras. O carrinho é aberto pela **barra flutuante**
+`fixed`: barra full-width no rodapé do celular, cartão no canto inferior direito
+(`lg:right-8 lg:w-80`) no desktop. Ela abre a tela cheia de carrinho ("Seu
+carrinho"), que segue para o checkout.
+
+A lógica de linha (chave, agrupamento por produto, grupos obrigatórios) fica
+pura em `frontend/src/features/customer-menu/cartLogic.js`, testada sem DOM. Os
+cards (`ProductTile`, `ProductCard`) são apresentação fina sobre ela.
 
 ### Continuação do pedido (carrinho server-side)
 

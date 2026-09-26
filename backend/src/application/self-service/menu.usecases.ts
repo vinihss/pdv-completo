@@ -1,21 +1,15 @@
 import { eq } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { categories, products } from "../../infra/db/schema.js";
-import { normalizeVariations } from "../product.usecases.js";
+import { parseVariations, type VariationGroup } from "../../domain/variations.js";
 
-// Cardápio público expõe variações no formato do contrato §05
-// (Record<grupo, opções[]>); sem grupo = null.
-function publicVariations(rawVariations: string): Record<string, string[]> | null {
-  // `variations` é text no SQLite (drizzle sem mode:'json') — parse antes de normalizar.
-  let parsed: unknown = [];
-  try {
-    parsed = JSON.parse(rawVariations);
-  } catch {
-    parsed = [];
-  }
-  const groups = normalizeVariations(parsed);
-  if (groups.length === 0) return null;
-  return Object.fromEntries(groups.map((g) => [g.name, g.options]));
+// Cardápio público expõe as variações no MESMO formato do payload interno de
+// produto (`VariationGroup[]`: name/options/required/allowMultiple) — o cliente
+// precisa de `required` pra não aceitar pedido sem opção obrigatória (ex.: ponto
+// da carne) e de `allowMultiple` pra grupos de extras. Sem grupo = null.
+function publicVariations(rawVariations: string): VariationGroup[] | null {
+  const groups = parseVariations(rawVariations);
+  return groups.length === 0 ? null : groups;
 }
 
 // Lê direto de category/product — nenhum catálogo duplicado (§04 "Decisões de arquitetura").
@@ -43,6 +37,9 @@ export async function getPublicMenuUsecase() {
           price: p.price,
           variations: publicVariations(p.variations),
           imagePath: p.imagePath ? `/uploads/${p.imagePath}` : null,
+          // Vitrine: a página monta a seção "Destaques" com os marcados
+          // (o produto continua na sua categoria — docs/04).
+          featured: p.featured,
         })),
     })),
   };
