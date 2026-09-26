@@ -134,11 +134,11 @@ export default function ReportsTab({ showToast }) {
                       {view.sessions.map((s) => (
                         <div key={s.id} className="flex items-center justify-between text-sm bg-stone-900 border border-stone-800 rounded-xl px-3 py-2">
                           <div>
-                            <div className="font-medium">Aberto {toDate(s.openedAt).toLocaleString()}</div>
+                            <div className="font-medium">Aberto {toDate(s.openedAt)?.toLocaleString() ?? "—"}</div>
                             <div className="text-stone-500 text-xs">
                               {s.isOpen
                                 ? "ainda aberto"
-                                : `fechado ${s.closedAt && toDate(s.closedAt).toLocaleString()}`}
+                                : `fechado ${toDate(s.closedAt)?.toLocaleString() ?? "—"}`}
                               {s.openedByName ? ` · ${s.openedByName}` : ""}
                             </div>
                           </div>

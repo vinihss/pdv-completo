@@ -42,8 +42,8 @@ export default function CashDrawerDetailModal({ drawerId, onClose, showToast, on
             </div>
 
             <div className="text-xs text-stone-500 mb-4">
-              Aberto por {detail.openedByName ?? "—"} em {toDate(detail.openedAt).toLocaleString()} ·{" "}
-              fechado por {detail.closedByName ?? "—"} em {detail.closedAt && toDate(detail.closedAt).toLocaleString()}
+              Aberto por {detail.openedByName ?? "—"} em {toDate(detail.openedAt)?.toLocaleString() ?? "—"} ·{" "}
+              fechado por {detail.closedByName ?? "—"} em {toDate(detail.closedAt)?.toLocaleString() ?? "—"}
               {detail.closingNote && (
                 <div className="mt-2 text-stone-400 bg-stone-950 border border-stone-800 rounded-xl px-3 py-2">
                   <b>Observação:</b> {detail.closingNote}

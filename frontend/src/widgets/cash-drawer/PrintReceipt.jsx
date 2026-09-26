@@ -53,8 +53,8 @@ export default function PrintReceipt({ drawerId, onDone }) {
         <h1 className="text-center text-base font-bold tracking-wide">{storeName || "PDV"}</h1>
         <p className="text-center text-[11px] mb-3 tracking-widest">FECHAMENTO DE CAIXA</p>
 
-        {line({ label: "Aberto", value: detail.openedAt && toDate(detail.openedAt).toLocaleString() })}
-        {line({ label: "Fechado", value: detail.closedAt ? toDate(detail.closedAt).toLocaleString() : "—" })}
+        {line({ label: "Aberto", value: toDate(detail.openedAt)?.toLocaleString() ?? "—" })}
+        {line({ label: "Fechado", value: toDate(d.closedAt)?.toLocaleString() ?? "—" })}
         {line({ label: "Operador", value: detail.openedByName ?? "—" })}
         <div className="border-b border-dashed border-black my-2" />
 

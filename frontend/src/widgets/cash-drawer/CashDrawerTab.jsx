@@ -115,7 +115,7 @@ export default function CashDrawerTab({ showToast }) {
         {open ? (
           <>
             <div className="text-stone-500 text-xs mb-3">
-              Aberto por {current.openedByName ?? "—"} às {toDate(current.openedAt).toLocaleTimeString()}
+              Aberto por {current.openedByName ?? "—"} às {toDate(current.openedAt)?.toLocaleTimeString() ?? "—"}
               <span className="text-stone-600"> · aberto há {fmtElapsed(current.openedAt, now)}</span>
             </div>
             <div className="text-3xl font-display font-bold text-emerald-400">{formatBRL(current.expectedCash)}</div>
@@ -163,7 +163,7 @@ export default function CashDrawerTab({ showToast }) {
                   )}
                   {m.note && <span className="text-stone-500 text-xs ml-2">{m.note}</span>}
                   <div className="text-stone-600 text-xs">
-                    {toDate(m.createdAt).toLocaleTimeString()} · {m.createdByName ?? m.createdBy}
+                    {toDate(m.createdAt)?.toLocaleTimeString() ?? "—"} · {m.createdByName ?? m.createdBy}
                   </div>
                 </div>
                 <span className={`font-semibold ${m.type === "sangria" ? "text-red-400" : "text-emerald-400"}`}>
@@ -187,10 +187,10 @@ export default function CashDrawerTab({ showToast }) {
               <div>
                 <div className="flex items-center gap-1.5 font-medium">
                   <History size={13} className="text-stone-500" />
-                  {toDate(d.openedAt).toLocaleString()}
+                  {toDate(d.openedAt)?.toLocaleString() ?? "—"}
                 </div>
                 <div className="text-stone-500 text-xs">
-                  fechado {d.closedAt ? toDate(d.closedAt).toLocaleString() : "—"}
+                  fechado {toDate(d.closedAt)?.toLocaleString() ?? "—"}
                 </div>
               </div>
               <div className="text-right">
