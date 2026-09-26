@@ -102,7 +102,7 @@ Timeout de 1h (não mais os 15 min do desenho original, que faziam sentido pra u
 
 Navegação livre em página única, sem máquina de estados persistida no servidor. O carrinho vive no estado do navegador **e** num rascunho no servidor (ver "Continuação do pedido" abaixo):
 
-1. **Cardápio** — consumo de `GET /public/menu`, navegação livre por categoria/produto/variação. Produto com variações abre o `VariationModal` (mesmo componente do lançamento do garçom, em `frontend/src/shared/components/VariationModal.jsx`): o mesmo produto com escolhas diferentes vira **linhas distintas** no carrinho, e uma linha resgatada do servidor sem opção obrigatória pode ser corrigida antes do checkout. Sem variação, o "+" mexe direto na linha.
+1. **Cardápio** — consumo de `GET /public/menu`, navegação livre por categoria/produto/variação. **Nada entra no carrinho em um toque**: o clique em qualquer produto abre a **ficha completa** (o `VariationModal` de `frontend/src/shared/components/VariationModal.jsx`, estendido com `imagePath` + `showQuantity` — foto grande, descrição, variações, quantidade e total no CTA), com ou sem variação. O mesmo componente é o do lançamento do garçom (sem esses props, só as opções). O mesmo produto com escolhas diferentes vira **linhas distintas** no carrinho, e uma linha resgatada do servidor sem opção obrigatória pode ser corrigida antes do checkout (nessa edição a ficha abre sem imagem/quantidade — a quantidade muda na tela do carrinho).
 2. **Carrinho** — revisão e ajuste de quantidades/observações, com opção de voltar ao cardápio.
 3. **Identificação** — telefone como chave; mesma lógica de busca/cadastro de cliente e endereço do bot.
 4. **Pagamento** — forma pretendida + total com taxa de entrega visível.

@@ -204,8 +204,8 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
   barra grupo obrigatório ausente/inválido com 422 antes de qualquer escrita.
   Lógica pura do carrinho público em
   `src/features/customer-menu/cartLogic.js` (testada sem DOM): chave de linha,
-  agrupamento por produto, grupos obrigatórios e a regra do stepper
-  (`productStepperState` — o "+" abre o modal quando falta opção obrigatória).
+  agrupamento por produto e grupos obrigatórios (a antiga "regra do stepper"
+  saiu junto com `ProductStepper`).
 - **Destaques da página pública**: `product.featured` (migration `0020`, default
   `false`) alimenta a vitrine "Destaques" do `/pedido` — 3 colunas, card
   `ProductTile`; o produto continua na sua categoria (comportamento iFood). Marcado
