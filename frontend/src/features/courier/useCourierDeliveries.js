@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { listMyDeliveries } from "@/shared/api/courier";
+import { listMyDeliveries } from "@/entities/delivery";
 import { useAuth } from "@/app/providers/auth";
 import { useRealtime } from "@/shared/hooks";
 

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { X, ArrowRightLeft, PlusCircle, MinusCircle } from "lucide-react";
-import { registerStockMovement } from "@/shared/api/stock";
+import { registerStockMovement } from "@/entities/stock";
 import { Field, inputClass } from "@/shared/components";
 
 // Entrada de mercadoria (compra) ou ajuste de contagem (Δ sinalizado):

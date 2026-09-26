@@ -15,7 +15,7 @@ import { CashDrawerTab } from "@/features/cashdrawer";
 import { StockTab } from "@/features/inventory";
 import { PurchaseTab } from "@/features/purchase";
 import { useAuth } from "@/app/providers/auth";
-import { listStock } from "@/shared/api/stock";
+import { listStock } from "@/entities/stock";
 import { useRealtime } from "@/shared/hooks";
 
 const BASE_TABS = [

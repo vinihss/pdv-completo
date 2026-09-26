@@ -38,7 +38,7 @@ src/
 - **Primitivas vão para `shared/components`**; hooks genéricos em
   `shared/hooks`; utils puras em `shared/lib`.
 - **Imports sempre via alias `@`** → resolve para `src/` (configurado em
-  `vite.config.js` e `jsconfig.json`). Ex.: `import { openOrder } from "@/shared/api/orders"`.
+  `vite.config.js` e `jsconfig.json`). Ex.: `import { openOrder } from "@/entities/order"`.
 - **Barrel `index.js` por pasta**: `features/orders/index.js` re-exporta os
   componentes/hooks do domínio, permitindo `import { OrdersRoot } from "@/features/orders"`.
 - **Telas por papel viram orquestradores finos** que montam `features/*`
@@ -55,5 +55,8 @@ src/
 
 ## Client HTTP por domínio
 
-Em `shared/api/`: `http.js` é o núcleo (token, unauthorized, request/upload);
-cada arquivo exporta funções por recurso. Importe apenas o que a feature usa.
+`shared/api/http.js` é o **único** módulo de infraestrutura de rede (token,
+unauthorized, `request`/`upload`). A API de cada domínio de negócio mora na
+respectiva entity: `entities/<dominio>/api/`, importada pela API pública da
+entity (`import { listStock } from "@/entities/stock"`). Nunca crie um arquivo
+de API em `shared/`. Estratégia completa em `docs/09-frontend-fsd.md`.

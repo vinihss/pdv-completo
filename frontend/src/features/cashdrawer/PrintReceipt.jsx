@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { getCashDrawerDetail } from "@/shared/api/cash";
-import { getStoreInfo } from "@/shared/api/store";
+import { getCashDrawerDetail } from "@/entities/cash";
+import { getStoreInfo } from "@/entities/store";
 import { toDate } from "@/shared/lib";
 
 const fmt = (n) => `R$ ${Number(n ?? 0).toFixed(2)}`;

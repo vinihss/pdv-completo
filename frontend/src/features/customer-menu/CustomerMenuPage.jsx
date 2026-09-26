@@ -1,20 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ChevronLeft, MapPin, Check, AlertTriangle, X, PartyPopper } from "lucide-react";
-import {
-  getStoreInfo,
-} from "@/shared/api/store";
-import {
-  getPublicMenu,
-  lookupPublicCustomer,
-  createPublicOrder,
-  getPublicOrderStatus,
-  getActivePublicOrder,
-  cancelPublicOrder,
-  getPublicCart,
-  savePublicCart,
-  clearPublicCart,
-} from "@/shared/api/public";
+import { getStoreInfo } from "@/entities/store";
+import { getPublicCart, savePublicCart, clearPublicCart } from "@/entities/cart";
+import { lookupPublicCustomer } from "@/entities/customer";
+import { createPublicOrder, getPublicOrderStatus, getActivePublicOrder, cancelPublicOrder } from "@/entities/order";
+import { getPublicMenu } from "@/entities/product";
 import { usePublicRealtime } from "@/shared/hooks";
 import { applyBrandPrimary, variationsText, formatBRL } from "@/shared/lib";
 import { VariationModal } from "@/shared/components";

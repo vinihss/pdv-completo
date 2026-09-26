@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { openOrder } from "@/shared/api/orders";
+import { openOrder } from "@/entities/order";
 import { useAuth } from "@/app/providers/auth";
 import { useOrders } from "./useOrders.js";
 import { useToast, Toast } from "@/shared/components";

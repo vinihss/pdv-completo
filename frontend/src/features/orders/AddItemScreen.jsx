@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Search, X, Check, AlertTriangle } from "lucide-react";
-import { listCategories, listAllProducts } from "@/shared/api/catalog";
-import { addItems as addOrderItems } from "@/shared/api/orders";
+import { listCategories } from "@/entities/category";
+import { listAllProducts } from "@/entities/product";
+import { addItems as addOrderItems } from "@/entities/order";
 import { useAuth } from "@/app/providers/auth";
 import { money } from "./order.utils.js";
 import VariationModal from "./VariationModal.jsx";

@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import {
   ChevronLeft, Plus, Check, Trash2, AlertTriangle, Clock,
 } from "lucide-react";
-import { updateItemStatus, deleteItem, closeOrder } from "@/shared/api/orders";
+import { updateItemStatus, deleteItem, closeOrder } from "@/entities/order";
 import { useAuth } from "@/app/providers/auth";
 import { StatusBadge } from "@/shared/components";
 import {

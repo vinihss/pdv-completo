@@ -1,4 +1,4 @@
-import { request } from "./http.js";
+import { request } from "@/shared/api/http";
 
 export function getIfoodStatus() {
   return request("GET", "/ifood/status");

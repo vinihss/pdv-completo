@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { X, ArrowDownCircle, ArrowUpCircle, RotateCcw, Scale } from "lucide-react";
-import { listStockMovements } from "@/shared/api/stock";
+import { listStockMovements } from "@/entities/stock";
 import { formatDateTime } from "@/shared/lib";
 
 const TYPE_META = {

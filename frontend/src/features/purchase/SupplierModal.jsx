@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { X } from "lucide-react";
-import { createSupplier } from "@/shared/api/purchase";
+import { createSupplier } from "@/entities/stock";
 import { Field, inputClass } from "@/shared/components";
 
 // Cadastro rápido de fornecedor pelo gerente.

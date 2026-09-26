@@ -1,4 +1,4 @@
-import { request } from "./http.js";
+import { request } from "@/shared/api/http";
 
 export function searchCustomers(search) {
   return request("GET", `/customers${search ? `?search=${encodeURIComponent(search)}` : ""}`);

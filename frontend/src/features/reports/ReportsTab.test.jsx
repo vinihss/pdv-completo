@@ -1,15 +1,15 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 
-vi.mock("@/shared/api/reports", () => ({
+vi.mock("@/entities/reports", () => ({
   salesReport: vi.fn(),
 }));
-vi.mock("@/shared/api/cash", () => ({
+vi.mock("@/entities/cash", () => ({
   getCashDrawerSummary: vi.fn(),
 }));
 
-import { salesReport } from "@/shared/api/reports";
-import { getCashDrawerSummary } from "@/shared/api/cash";
+import { salesReport } from "@/entities/reports";
+import { getCashDrawerSummary } from "@/entities/cash";
 import ReportsTab from "./ReportsTab.jsx";
 
 const reportFixture = {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { auditLog } from "@/shared/api/reports";
+import { auditLog } from "@/entities/audit";
 
 const ACTION_LABEL = {
   order_opened: "Comanda aberta",

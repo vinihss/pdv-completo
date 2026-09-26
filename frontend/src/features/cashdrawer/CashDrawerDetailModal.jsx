@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { X, Printer } from "lucide-react";
-import { getCashDrawerDetail } from "@/shared/api/cash";
+import { getCashDrawerDetail } from "@/entities/cash";
 import { toDate } from "@/shared/lib";
 
 const fmt = (n) => `R$ ${Number(n || 0).toFixed(2)}`;

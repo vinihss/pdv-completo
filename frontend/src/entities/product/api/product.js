@@ -1,4 +1,4 @@
-import { request, upload } from "./http.js";
+import { request, upload } from "@/shared/api/http";
 
 // ---------- Products ----------
 
@@ -44,40 +44,4 @@ export function uploadProductImage(id, file) {
 
 export function removeProductImage(id) {
   return request("DELETE", `/products/${id}/image`);
-}
-
-// ---------- Categories ----------
-
-export function listCategories() {
-  return request("GET", "/categories");
-}
-
-export function createCategory(body) {
-  return request("POST", "/categories", body);
-}
-
-export function updateCategory(id, body) {
-  return request("PATCH", `/categories/${id}`, body);
-}
-
-export function deleteCategory(id) {
-  return request("DELETE", `/categories/${id}`);
-}
-
-// ---------- Kitchen groups (estações de produção) ----------
-
-export function listKitchenGroups() {
-  return request("GET", "/kitchen-groups");
-}
-
-export function createKitchenGroup(body) {
-  return request("POST", "/kitchen-groups", body);
-}
-
-export function updateKitchenGroup(id, body) {
-  return request("PATCH", `/kitchen-groups/${id}`, body);
-}
-
-export function deleteKitchenGroup(id) {
-  return request("DELETE", `/kitchen-groups/${id}`);
 }

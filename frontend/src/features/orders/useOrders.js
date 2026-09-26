@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { listOrders, getOrder } from "@/shared/api/orders";
+import { listOrders, getOrder } from "@/entities/order";
 import { useAuth } from "@/app/providers/auth";
 import { useRealtime } from "@/shared/hooks";
 

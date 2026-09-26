@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { MapPin, Check, AlertTriangle, X, Package } from "lucide-react";
-import { dispatchDelivery, deliverDelivery, failDelivery } from "@/shared/api/courier";
+import { dispatchDelivery, deliverDelivery, failDelivery } from "@/entities/delivery";
 import { useCourierDeliveries } from "./useCourierDeliveries.js";
 import { useToast, Toast } from "@/shared/components";
 

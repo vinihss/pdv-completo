@@ -1,5 +1,5 @@
-import { request } from "./http.js";
-import { newCorrelationId } from "../lib/uuid.js";
+import { request } from "@/shared/api/http";
+import { newCorrelationId } from "@/shared/lib/uuid";
 
 export function listOrders(status, limit) {
   const qs = new URLSearchParams();
@@ -11,11 +11,6 @@ export function listOrders(status, limit) {
 export function getOrder(id) {
   return request("GET", `/orders/${id}`);
 }
-
-export function listTables() {
-  return request("GET", "/tables");
-}
-
 export function openOrder(body) {
   return request("POST", "/orders", { correlationId: newCorrelationId(), ...body });
 }

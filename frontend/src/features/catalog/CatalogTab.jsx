@@ -1,11 +1,8 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { Search, Plus, Eye, EyeOff, ChevronUp, ChevronDown, Trash2, ChefHat } from "lucide-react";
-import {
-  listCategories, listKitchenGroups, listAllProducts,
-  createCategory, updateCategory, deleteCategory,
-  createKitchenGroup, updateKitchenGroup, deleteKitchenGroup,
-  setProductActive,
-} from "@/shared/api/catalog";
+import { listCategories, createCategory, updateCategory, deleteCategory } from "@/entities/category";
+import { listKitchenGroups, createKitchenGroup, updateKitchenGroup, deleteKitchenGroup } from "@/entities/kitchen-group";
+import { listAllProducts, setProductActive } from "@/entities/product";
 import { useAuth } from "@/app/providers/auth";
 import { Section, inputClass, ConfirmModal } from "@/shared/components";
 import { ProductRow } from "./ProductRow.jsx";

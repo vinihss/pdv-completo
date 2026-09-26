@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { X } from "lucide-react";
-import { listTables } from "@/shared/api/orders";
-import { searchCustomers, createCustomer } from "@/shared/api/customers";
+import { listTables } from "@/entities/table";
+import { searchCustomers, createCustomer } from "@/entities/customer";
 
 export default function NewOrderModal({ usesTables, onClose, onConfirm }) {
   const [mode, setMode] = useState(usesTables ? "table" : "tab");

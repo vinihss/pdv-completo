@@ -1,5 +1,5 @@
-import { request } from "./http.js";
-import { newCorrelationId } from "../lib/uuid.js";
+import { request } from "@/shared/api/http";
+import { newCorrelationId } from "@/shared/lib/uuid";
 
 export function getCurrentCashDrawer() {
   return request("GET", "/cash-drawer/current");

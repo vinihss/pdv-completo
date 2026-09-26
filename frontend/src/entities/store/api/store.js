@@ -1,4 +1,4 @@
-import { request, upload } from "./http.js";
+import { request, upload } from "@/shared/api/http";
 
 export function getStoreInfo() {
   return request("GET", "/store-info");

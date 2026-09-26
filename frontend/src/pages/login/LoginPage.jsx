@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Delete, ChefHat, UtensilsCrossed, ClipboardList, Lock, Loader2, Wallet } from "lucide-react";
-import { listLoginUsers } from "@/shared/api/auth";
-import { getStoreInfo } from "@/shared/api/store";
+import { listLoginUsers } from "@/entities/session";
+import { getStoreInfo } from "@/entities/store";
 import { useAuth } from "@/app/providers/auth";
 import { applyBrandPrimary } from "@/shared/lib";
 

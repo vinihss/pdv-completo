@@ -1,8 +1,6 @@
 import React, { useState } from "react";
 import { Package, Upload, ImageOff, X, Plus, Trash2 } from "lucide-react";
-import {
-  updateProduct, createProduct, uploadProductImage, removeProductImage,
-} from "@/shared/api/catalog";
+import { updateProduct, createProduct, uploadProductImage, removeProductImage } from "@/entities/product";
 import { formatBRL, parseBRL, maskCurrencyInput } from "@/shared/lib";
 import { Field, ToggleRow, inputClass } from "@/shared/components";
 

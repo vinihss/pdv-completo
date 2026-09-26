@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { Plus, RefreshCcw, X } from "lucide-react";
-import { listUsers, createUser, updateUser, resetPin } from "@/shared/api/users";
+import { listUsers, createUser, updateUser, resetPin } from "@/entities/user";
 import { Field, inputClass, ConfirmModal } from "@/shared/components";
 
 const ROLE_LABEL = { waiter: "Garçom", kitchen: "Cozinha", manager: "Gerente", courier: "Entregador", cashier: "Caixa" };

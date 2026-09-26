@@ -137,13 +137,42 @@ Cada fase termina com `npm run build`, `npm run test` (50 testes) e
 | Fase | Conteúdo | Risco |
 |---|---|---|
 | **0. Limpeza** | 6 pastas vazias + `shared/api/index.js` morto. ✅ `d1b90ad` | nenhum |
-| **1. Sessão** | `auth/AuthContext` → `app/providers/auth`; `auth/Login` → `pages/login` | baixo |
-| **2. API → entities** | 14 arquivos de `shared/api` → `entities/<dominio>/api`;Mocks de teste atualizados | médio |
+| **1. Sessão** | `auth/AuthContext` → `app/providers/auth`; `auth/Login` → `pages/login`. ✅ `d4edf70` | baixo |
+| **2. API → entities** | 14 arquivos de `shared/api` → `entities/<dominio>/api`; mocks de teste atualizados. ✅ | médio |
 | **3. Unificação** | `entities/delivery` (delivery+courier), `entities/stock` (inventory+purchase), `entities/payment` | médio |
 | **4. Pages** | 7 telas viram `pages/*`; `router.jsx` só compõe páginas | médio |
 | **5. Widgets** | `StatusBadge`, `Money`, `Modal` genérico, `CashDrawerTab`, `IfoodTab` | baixo |
 | **6. Features** | 5 pastas com casos de uso escondidos viram `features/*` | **alto** |
 | **7. Bugs** | unificar moeda (§7), `cancelled` no badge, `formatMinSec` | baixo |
+
+### O que a Fase 2 entregou
+
+`shared/api/` ficou com **um único arquivo**, `http.js`. As 14 APIs de
+domínio viraram 16 entities com barrel próprio:
+
+| Entity | Aggregate | Entity | Aggregate |
+|---|---|---|---|
+| `order` | comandas + pedidos públicos | `delivery` | entregas (gerente + entregador) |
+| `product` | produtos + cardápio público | `stock` | estoque, compras, fornecedores, valorização |
+| `category` | categorias | `cash` | gaveta |
+| `kitchen-group` | estações de produção | `store` | loja e settings |
+| `table` | mesas | `user` | equipe |
+| `customer` | clientes (interno + público) | `ifood` | integração iFood |
+| `cart` | carrinho server-side | `reports` | relatório de vendas |
+| `audit` | trilha de auditoria | `session` | login |
+
+Três divisões foram necessárias porque os arquivos antigos empacotavam
+agregados diferentes: `catalog.js` virou `product` + `category` +
+`kitchen-group`; `orders.js` virou `order` + `table`; `public.js` virou
+`product/public` + `customer/public` + `order/public` + `cart`. As fusões
+inversas foram `courier.js` → `delivery` e `purchase.js` → `stock`, o que
+elimina o ciclo `inventory ↔ purchase` (cada aba chamava o endpoint da outra).
+
+Endpoints públicos (`/public/*`) ficam em `api/public.js` dentro da entity
+correta, separando **domínio** de **superfície de autenticação**.
+
+Os 80 exports foram conferidos programaticamente contra o código real: cada
+nome declarado em barrel existe no arquivo que o define.
 
 Ordem não é negociável: **não se move `orders/*` antes de `pages/`** (Fase 6
 é a última justamente por isso).

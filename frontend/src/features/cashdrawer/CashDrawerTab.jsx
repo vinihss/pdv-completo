@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { Wallet, Lock, History, ArrowDownCircle, ArrowUpCircle } from "lucide-react";
-import { getCurrentCashDrawer, listCashDrawers, openCashDrawer, registerCashMovement, closeCashDrawer } from "@/shared/api/cash";
+import { getCurrentCashDrawer, listCashDrawers, openCashDrawer, registerCashMovement, closeCashDrawer } from "@/entities/cash";
 import { Section } from "@/shared/components";
 import { useRealtime } from "@/shared/hooks";
 import { useAuth } from "@/app/providers/auth";

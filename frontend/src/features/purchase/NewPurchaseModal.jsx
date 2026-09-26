@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { X, Plus, Trash2, PackagePlus } from "lucide-react";
-import { createPurchase } from "@/shared/api/purchase";
+import { createPurchase } from "@/entities/stock";
 import { formatBRL, parseBRL, maskCurrencyInput } from "@/shared/lib";
 import { Field, inputClass } from "@/shared/components";
 

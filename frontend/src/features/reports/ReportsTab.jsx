@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { salesReport } from "@/shared/api/reports";
-import { getCashDrawerSummary } from "@/shared/api/cash";
+import { salesReport } from "@/entities/reports";
+import { getCashDrawerSummary } from "@/entities/cash";
 import { Section, Field, inputClass } from "@/shared/components";
 import { toDate } from "@/shared/lib";
 import { buildCashReportView, browserTzOffset, fmtMoney } from "./cashReportView.js";

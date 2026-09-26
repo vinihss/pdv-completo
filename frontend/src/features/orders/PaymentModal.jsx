@@ -3,7 +3,7 @@ import {
   Banknote, CreditCard, QrCode, MoreHorizontal, AlertTriangle, X,
   Plus, Trash2, Minus, Users, Check,
 } from "lucide-react";
-import { setPayments, confirmPayment } from "@/shared/api/orders";
+import { setPayments, confirmPayment } from "@/entities/order";
 import { orderTotal, money, round2 } from "./order.utils.js";
 import PixQrScreen from "./PixQrScreen.jsx";
 

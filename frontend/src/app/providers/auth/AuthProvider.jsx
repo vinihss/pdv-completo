@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
-import { login as loginApi } from "@/shared/api/auth";
-import { getStoreSettings } from "@/shared/api/store";
+import { login as loginApi } from "@/entities/session";
+import { getStoreSettings } from "@/entities/store";
 import { setAuthToken, setUnauthorizedHandler } from "@/shared/api/http";
 import { applyBrandPrimary } from "@/shared/lib";
 

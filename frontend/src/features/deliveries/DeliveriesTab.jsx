@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { RefreshCcw, AlertTriangle, X } from "lucide-react";
-import { assignCourier } from "@/shared/api/deliveries";
-import { cancelOrder } from "@/shared/api/orders";
+import { assignCourier } from "@/entities/delivery";
+import { cancelOrder } from "@/entities/order";
 import { useDeliveries } from "./useDeliveries.js";
 import { inputClass } from "@/shared/components";
 

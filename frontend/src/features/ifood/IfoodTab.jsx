@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { RefreshCcw } from "lucide-react";
-import { getIfoodStatus, syncIfoodCatalog } from "@/shared/api/ifood";
+import { getIfoodStatus, syncIfoodCatalog } from "@/entities/ifood";
 
 export default function IfoodTab({ showToast }) {
   const [status, setStatus] = useState(null);
