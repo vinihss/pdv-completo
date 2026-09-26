@@ -1,6 +1,7 @@
 import React from "react";
 import { X, Trash2 } from "lucide-react";
-import { money, variationsText } from "@/entities/order";
+import { variationsText } from "@/entities/order";
+import { formatBRL } from "@/shared/lib";
 
 export default function ReviewCartModal({ lines, total, onClose, onRemoveLine, onChangeNotes, onConfirm }) {
   return (
@@ -22,7 +23,7 @@ export default function ReviewCartModal({ lines, total, onClose, onRemoveLine, o
                     {variation && <div className="text-stone-500 text-xs">{variation}</div>}
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-emerald-400 text-sm font-semibold">{money(line.product.price * line.quantity)}</span>
+                    <span className="text-emerald-400 text-sm font-semibold">{formatBRL(line.product.price * line.quantity)}</span>
                     <button onClick={() => onRemoveLine(key)} className="text-stone-600 hover:text-red-400">
                       <Trash2 size={14} />
                     </button>
@@ -40,7 +41,7 @@ export default function ReviewCartModal({ lines, total, onClose, onRemoveLine, o
         </div>
         <div className="flex items-center justify-between mb-4 pt-3 border-t border-stone-800 shrink-0">
           <span className="text-stone-400 text-sm">Total</span>
-          <span className="font-display text-lg font-bold text-emerald-400">{money(total)}</span>
+          <span className="font-display text-lg font-bold text-emerald-400">{formatBRL(total)}</span>
         </div>
         <button
           onClick={onConfirm}

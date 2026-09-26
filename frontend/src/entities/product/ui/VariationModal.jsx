@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { X, Minus, Plus } from "lucide-react";
-import { money } from "@/shared/lib";
+import { formatBRL } from "@/shared/lib";
 
 /**
  * Seleção de variações de um produto — compartilhado entre o lançamento do
@@ -120,7 +120,7 @@ export default function VariationModal({
         <div className="flex items-start justify-between gap-3 mb-4">
           <div className="min-w-0">
             <h3 className="font-display text-lg font-bold leading-tight">{product.name}</h3>
-            {typeof price === "number" && <p className="text-amber-400 font-semibold text-sm mt-0.5">{money(price)}</p>}
+            {typeof price === "number" && <p className="text-amber-400 font-semibold text-sm mt-0.5">{formatBRL(price)}</p>}
             {product.description && <p className="text-stone-400 text-[13px] mt-1 leading-snug">{product.description}</p>}
           </div>
           {!imagePath && (
@@ -207,7 +207,7 @@ export default function VariationModal({
         >
           <span>{confirmLabel}</span>
           {showQuantity && total !== null && (
-            <span> · {money(total)}</span>
+            <span> · {formatBRL(total)}</span>
           )}
         </button>
         </div>

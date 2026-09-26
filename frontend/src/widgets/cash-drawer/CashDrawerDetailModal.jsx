@@ -2,8 +2,8 @@ import React, { useState, useEffect } from "react";
 import { X, Printer } from "lucide-react";
 import { getCashDrawerDetail } from "@/entities/cash";
 import { toDate } from "@/shared/lib";
+import { formatBRL } from "@/shared/lib";
 
-const fmt = (n) => `R$ ${Number(n || 0).toFixed(2)}`;
 
 export default function CashDrawerDetailModal({ drawerId, onClose, showToast, onPrint }) {
   const [detail, setDetail] = useState(null);
@@ -32,11 +32,11 @@ export default function CashDrawerDetailModal({ drawerId, onClose, showToast, on
         {detail && (
           <>
             <div className="grid grid-cols-3 gap-2 mb-4">
-              <MiniStat label="Esperado" value={fmt(detail.closingExpected ?? detail.expectedCash)} className="text-stone-200" />
-              <MiniStat label="Contado" value={fmt(detail.closingCounted)} className="text-stone-200" />
+              <MiniStat label="Esperado" value={formatBRL(detail.closingExpected ?? detail.expectedCash)} className="text-stone-200" />
+              <MiniStat label="Contado" value={formatBRL(detail.closingCounted)} className="text-stone-200" />
               <MiniStat
                 label="Diferença"
-                value={`${detail.closingDifference > 0 ? "+" : ""}${fmt(detail.closingDifference)}`}
+                value={`${detail.closingDifference > 0 ? "+" : ""}${formatBRL(detail.closingDifference)}`}
                 className={detail.closingDifference === 0 ? "text-emerald-400" : detail.closingDifference > 0 ? "text-emerald-400" : "text-red-400"}
               />
             </div>
@@ -54,8 +54,8 @@ export default function CashDrawerDetailModal({ drawerId, onClose, showToast, on
             <DetailList title={`Vendas em dinheiro (${detail.cashSales.length})`}>
               {detail.cashSales.length === 0 && <Empty text="Nenhuma venda em dinheiro no período." />}
               {detail.cashSales.map((s) => (
-                <Row key={s.orderId} title={s.label} sub={s.received != null ? `Recebido ${fmt(s.received)} · Troco ${fmt(s.change ?? 0)}` : undefined}>
-                  <span className="text-emerald-400 font-semibold">{fmt(s.amount)}</span>
+                <Row key={s.orderId} title={s.label} sub={s.received != null ? `Recebido ${formatBRL(s.received)} · Troco ${formatBRL(s.change ?? 0)}` : undefined}>
+                  <span className="text-emerald-400 font-semibold">{formatBRL(s.amount)}</span>
                 </Row>
               ))}
             </DetailList>
@@ -69,7 +69,7 @@ export default function CashDrawerDetailModal({ drawerId, onClose, showToast, on
                   sub={[m.note, m.createdByName && `${m.createdByName}`].filter(Boolean).join(" · ") || undefined}
                 >
                   <span className={`font-semibold ${m.type === "sangria" ? "text-red-400" : "text-emerald-400"}`}>
-                    {m.type === "sangria" ? "−" : "+"} {fmt(m.amount)}
+                    {m.type === "sangria" ? "−" : "+"} {formatBRL(m.amount)}
                   </span>
                 </Row>
               ))}

@@ -50,9 +50,12 @@ describe("cashReportView", () => {
     expect(view.openExpected).toBe(119);
   });
 
-  it("fmtMoney formata monetário e tolera null", () => {
-    expect(fmtMoney(10.5)).toBe("R$ 10.50");
-    expect(fmtMoney(null)).toBe("R$ 0.00");
+  it("fmtMoney formata monetário em pt-BR e tolera null", () => {
+    // O \u00a0 é obrigatório: Intl usa espaço não separável entre "R$" e o
+    // número em pt-BR, então um espaço comum aqui quebraria a comparação.
+    expect(fmtMoney(10.5)).toBe("R$\u00a010,50");
+    expect(fmtMoney(1234.5)).toBe("R$\u00a01.234,50");
+    expect(fmtMoney(null)).toBe("R$\u00a00,00");
   });
 
   it("browserTzOffset produz ±HH:MM", () => {

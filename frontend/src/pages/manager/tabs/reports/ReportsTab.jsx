@@ -4,6 +4,7 @@ import { getCashDrawerSummary } from "@/entities/cash";
 import { Section, Field, inputClass } from "@/shared/components";
 import { toDate } from "@/shared/lib";
 import { buildCashReportView, browserTzOffset, fmtMoney } from "@/entities/reports";
+import { formatBRL } from "@/shared/lib";
 
 export default function ReportsTab({ showToast }) {
   const [report, setReport] = useState(null);
@@ -51,17 +52,17 @@ export default function ReportsTab({ showToast }) {
       {report && !loading && (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <StatCard label="Total vendido" value={`R$ ${report.summary.totalRevenue.toFixed(2)}`} />
+            <StatCard label="Total vendido" value={formatBRL(report.summary.totalRevenue)} />
             <StatCard label="Comandas" value={report.summary.orderCount} />
-            <StatCard label="Ticket médio" value={`R$ ${report.summary.avgTicket.toFixed(2)}`} />
-            <StatCard label="Troco (dinheiro)" value={`R$ ${report.summary.changeTotal.toFixed(2)}`} />
+            <StatCard label="Ticket médio" value={formatBRL(report.summary.avgTicket)} />
+            <StatCard label="Troco (dinheiro)" value={formatBRL(report.summary.changeTotal)} />
           </div>
           <Section title="Por forma de pagamento">
             <div className="grid grid-cols-2 gap-2">
               {Object.entries(report.summary.byPaymentMethod).map(([m, v]) => (
                 <div key={m} className="flex items-center justify-between text-sm">
                   <span className="text-stone-400 capitalize">{{ cash: "Dinheiro", card: "Cartão", pix: "Pix", other: "Outro" }[m]}</span>
-                  <span className="font-semibold">R$ {v.toFixed(2)}</span>
+                  <span className="font-semibold">{formatBRL(v)}</span>
                 </div>
               ))}
             </div>
@@ -77,10 +78,10 @@ export default function ReportsTab({ showToast }) {
                       <div className="text-stone-500 text-xs">{p.quantity}x vendidos</div>
                     </div>
                     <div className="text-right shrink-0">
-                      <div className="font-semibold text-emerald-400">R$ {p.revenue.toFixed(2)}</div>
+                      <div className="font-semibold text-emerald-400">{formatBRL(p.revenue)}</div>
                       {p.cost > 0 ? (
                         <div className="text-stone-500 text-xs">
-                          custo R$ {p.cost.toFixed(2)} · lucro R$ {p.profit.toFixed(2)} · margem {margin.toFixed(0)}%
+                          custo {formatBRL(p.cost)} · lucro {formatBRL(p.profit)} · margem {margin.toFixed(0)}%
                         </div>
                       ) : (
                         <div className="text-stone-600 text-xs">sem custo cadastrado</div>
@@ -102,7 +103,7 @@ export default function ReportsTab({ showToast }) {
                     <div className="font-medium">{o.label}</div>
                     <div className="text-stone-500 text-xs">{o.closedAt} · {o.paymentMethod}</div>
                   </div>
-                  <span className="text-emerald-400 font-semibold">R$ {o.total.toFixed(2)}</span>
+                  <span className="text-emerald-400 font-semibold">{formatBRL(o.total)}</span>
                 </div>
               ))}
               {report.data.length === 0 && <div className="text-stone-600 text-center py-6 text-sm">Nenhuma comanda no período.</div>}

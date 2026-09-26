@@ -7,10 +7,6 @@ export function formatBRL(value) {
   return brl.format(n);
 }
 
-export function money(value) {
-  return formatBRL(value);
-}
-
 // Converte "R$ 1.234,56" (ou qualquer texto) no número correspondente.
 export function parseBRL(text) {
   const digits = String(text ?? "").replace(/\D/g, "");

@@ -141,7 +141,7 @@ src/
 Cada fase termina com `npm run build` e `npm run test` verdes, `npm run lint`
 sem warning novo, e é um commit isolado. O número de testes de fronteira
 cresce a cada fase, porque a contagem acompanha quantos barrels existem:
-hoje são 85 no total (50 de comportamento + 35 de arquitetura).
+hoje são 87 no total (50 de comportamento + 37 de arquitetura).
 
 | Fase | Conteúdo | Risco |
 |---|---|---|
@@ -150,9 +150,9 @@ hoje são 85 no total (50 de comportamento + 35 de arquitetura).
 | **2. API → entities** | 14 arquivos de `shared/api` → `entities/<dominio>/api`; mocks de teste atualizados. ✅ | médio |
 | **3. Unificação** | UI e modelo das entities: `VariationModal` → `product`, `StatusBadge` → `order`, `DeliveryStatusBadge` → `delivery`, `pix.js` → `payment`, `order.utils` → `order/model`, `cartLogic` → `cart/model`, `cashReportView` → `reports/model`, `ACTION_LABEL` → `audit/model`. ✅ | médio |
 | **4. Pages** | 7 telas viram `pages/*`; 10 abas do gerente viram `pages/manager/tabs/`; blocos compartilhados viram widgets. ✅ | médio |
-| **5. Widgets** | `Money`, `Modal` genérico | baixo |
+| **5. Widgets + moeda** | `Modal` genérico; unificação de moeda → `formatBRL` única. ✅ | baixo |
 | **6. Features** | 5 pastas com casos de uso escondidos viram `features/*` | **alto** |
-| **7. Bugs** | unificar moeda (§7), `cancelled` no badge, `formatMinSec` | baixo |
+| **7. Bugs** | `cancelled` no `StatusBadge`, `formatMinSec` | baixo |
 
 ### O que a Fase 4 entregou
 
@@ -279,27 +279,38 @@ Ordem não é negociável: **não se move `orders/*` antes de `pages/`** (Fase 6
    é o que torna `entities/*/api` testável de unidade, mas é um passo
    separado e opcional.
 
-## 7. Bug de moeda (corrigido de propósito)
+## 7. Bug de moeda (corrigido — Fase 5)
 
-Existem 5 implementações de `money` e 7 usos inline de `.toFixed(2)`.
+**Antes:** 5 implementações de `money` e 7 usos inline de `.toFixed(2)`.
+`shared/lib/money.js` usava `Intl.NumberFormat("pt-BR")` → `R$ 1.234,56`, e
+`order.utils.js:6` fazia `` `R$ ${Number(v).toFixed(2)}` `` → `R$ 1234.56`.
+Idem em `cashdrawer` (4×) e `reports`. Resultado: **o mesmo valor aparecia
+com separador de milhar no cardápio do cliente e sem no garçom e no caixa**,
+inclusive em string de usuário (`PaymentModal`: "Falta R$ ${money(remaining)}").
 
-`shared/lib/money.js` usa `Intl.NumberFormat("pt-BR")` → `R$ 1.234,56`.
-`features/orders/order.utils.js:6` faz `` `R$ ${Number(v).toFixed(2)}` `` →
-`R$ 1234.56`. Idem em `cashdrawer` (4×) e `reports`.
+**Depois:** `formatBRL` é a única implementação. `money` foi apagado — tanto
+o local de `order/model` quanto o alias de `shared/lib` — e os 4 `fmt` locais
+do `cash-drawer`, o `fmtMoney` do `cashReportView` e os 6 inline do
+`ReportsTab` delegam para ela. Isso **muda o que o garçom e o caixa veem**,
+de `R$ 1234.56` para `R$ 1.234,56`: comportamento correto em PT-BR, aprovado
+explicitamente. Coberto por teste automatizado; **falta o smoke manual dos
+perfis garçom e caixa** para confirmar visualmente.
 
-Resultado hoje: **o mesmo valor aparece com separador de milhar no cardápio
-do cliente e sem no garçom e no caixa**, inclusive em string de usuário
-(`PaymentModal.jsx:100`: "Falta R$ ${money(remaining)}").
+Duas asserções de teste foram atualizadas para o formato novo, e o teste de
+`fmtMoney` passou a fixar o separador de milhar também. Note que o `Intl`
+pt-BR usa **espaço não separável** (U+00A0) entre `R$` e o número: comparar
+com um espaço comum falha, e é por isso que o literal do teste usa `\u00a0`.
 
-Decisão: consolidar tudo em `formatBRL` (pt-BR). Isso **muda o que o garçom e
-o caixa veem** — de `R$ 1234.56` para `R$ 1.234,56`. É o comportamento
-correto em PT-BR e foi aprovado, mas é mudança visível: vale smoke manual dos
-perfis garçom e caixa.
-
-**Exceções (não unificar):**
-- `PaymentModal.jsx:68-90` — `.toFixed(2)` monta payload numérico da API.
-- `pix.js:58` — campo 54 do BR Code tem formato fixo.
+**Exceções (não unificar), agora listadas no teste de fronteiras:**
+- `PaymentModal.jsx` — `.toFixed(2)` monta o payload numérico da API
+  (`amount`/`received`), que o backend parseia como decimal.
+- `pix.js:58` — campo 54 do BR Code tem formato fixo de 2 casas.
+- `CloseCashDrawerModal.jsx` — valor inicial de um `<input type="number">`;
+  `"1.234,56"` quebraria o `Number()` do onChange.
 - `maskCurrencyInput`/`parseBRL` já usam `brl` corretamente.
+
+O teste `moeda tem fonte única` (2 casos) falha se surgir um `toFixed(2)` fora
+dessas três exceções, ou um `money`/`fmtMoney`/`fmt` local novo.
 
 ## 8. Fora de escopo
 

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import QRCode from "qrcode";
 import { buildPixPayload } from "@/entities/payment";
-import { orderTotal, orderLabel, money } from "@/entities/order";
+import { orderTotal, orderLabel } from "@/entities/order";
+import { formatBRL } from "@/shared/lib";
 
 export default function PixQrScreen({ order, amount, storeSettings, onBack, onConfirm, submitting }) {
   const [dataUrl, setDataUrl] = useState(null);
@@ -29,7 +30,7 @@ export default function PixQrScreen({ order, amount, storeSettings, onBack, onCo
     <div>
       <div className="text-center pt-1">
         <div className="text-stone-400 text-sm mb-1">Escaneie o QR com o app do banco</div>
-        <div className="font-display text-3xl font-bold text-emerald-400">{money(value)}</div>
+        <div className="font-display text-3xl font-bold text-emerald-400">{formatBRL(value)}</div>
       </div>
       <div className="flex justify-center my-5">
         {dataUrl ? (

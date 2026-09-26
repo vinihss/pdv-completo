@@ -4,13 +4,13 @@ import {
 } from "lucide-react";
 import { updateItemStatus, deleteItem, closeOrder } from "@/entities/order";
 import { useAuth } from "@/app/providers/auth";
+import { formatBRL } from "@/shared/lib";
 import { StatusBadge } from "@/entities/order";
 import {
   orderLabel,
   orderTotal,
   pendingItems,
   variationsText,
-  money,
 } from "@/entities/order";
 import { AddItemScreen } from "@/features/orders";
 import { PaymentModal } from "@/features/orders";
@@ -92,7 +92,7 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
         </button>
         <div className="flex-1">
           <h1 className="font-display text-lg font-bold leading-tight">{orderLabel(order)}</h1>
-          <p className="text-stone-500 text-xs">{order.items.length} {order.items.length === 1 ? "item" : "itens"} · {money(orderTotal(order))}</p>
+          <p className="text-stone-500 text-xs">{order.items.length} {order.items.length === 1 ? "item" : "itens"} · {formatBRL(orderTotal(order))}</p>
         </div>
       </div>
 
@@ -119,7 +119,7 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
                 {variations && <div className="text-stone-500 text-xs mt-0.5">{variations}</div>}
                 {it.notes && <div className="text-stone-600 text-xs italic mt-0.5">{it.notes}</div>}
               </div>
-              <div className="text-stone-400 text-sm shrink-0">{money(it.unitPrice * it.quantity)}</div>
+              <div className="text-stone-400 text-sm shrink-0">{formatBRL(it.unitPrice * it.quantity)}</div>
               <div className="flex items-center gap-2 shrink-0">
                 {kitchenEnabled && <StatusBadge status={it.status} />}
                 {canDelete && (
@@ -174,8 +174,8 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
                   {!p.confirmed && <span className="ml-1.5 text-amber-400">aguardando confirmação</span>}
                 </span>
                 <div className="text-right">
-                  <div className="font-semibold text-stone-200">{money(p.amount)}</div>
-                  {p.change > 0 && <div className="text-emerald-400">troco {money(p.change)}</div>}
+                  <div className="font-semibold text-stone-200">{formatBRL(p.amount)}</div>
+                  {p.change > 0 && <div className="text-emerald-400">troco {formatBRL(p.change)}</div>}
                 </div>
               </div>
             );

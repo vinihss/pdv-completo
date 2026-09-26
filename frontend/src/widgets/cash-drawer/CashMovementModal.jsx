@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { X } from "lucide-react";
 import { Field, inputClass } from "@/shared/components";
+import { formatBRL } from "@/shared/lib";
 
 const META = {
   sangria: { title: "Sangria", desc: "Retirada de dinheiro do caixa.", button: "Registrar sangria" },
@@ -51,7 +52,7 @@ export default function CashMovementModal({ type, expected, onClose, onConfirm }
             />
             <span>
               <b className="text-amber-400">Zera o caixa.</b>
-              <span className="text-stone-300"> O disponível fica R$ 0,00{remaining < 0 ? ` ( −${Math.abs(remaining).toFixed(2)})` : ""} — marque para confirmar.</span>
+              <span className="text-stone-300"> O disponível fica R$ 0,00{remaining < 0 ? ` ( −${formatBRL(Math.abs(remaining))})` : ""} — marque para confirmar.</span>
             </span>
           </label>
         )}

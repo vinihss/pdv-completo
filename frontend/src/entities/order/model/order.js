@@ -2,10 +2,6 @@ import { formatDateTime, variationsText } from "@/shared/lib";
 
 export { formatDateTime, variationsText };
 
-export function money(v) {
-  return `R$ ${Number(v).toFixed(2)}`;
-}
-
 export function round2(v) {
   return Math.round((Number(v) + Number.EPSILON) * 100) / 100;
 }

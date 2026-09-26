@@ -10,8 +10,8 @@ import CashMovementModal from "./CashMovementModal.jsx";
 import CloseCashDrawerModal from "./CloseCashDrawerModal.jsx";
 import CashDrawerDetailModal from "./CashDrawerDetailModal.jsx";
 import PrintReceipt from "./PrintReceipt.jsx";
+import { formatBRL } from "@/shared/lib";
 
-const fmt = (n) => `R$ ${Number(n || 0).toFixed(2)}`;
 
 // "há 3h 12min" para a sessão aberta.
 function fmtElapsed(iso, now) {
@@ -118,11 +118,11 @@ export default function CashDrawerTab({ showToast }) {
               Aberto por {current.openedByName ?? "—"} às {toDate(current.openedAt).toLocaleTimeString()}
               <span className="text-stone-600"> · aberto há {fmtElapsed(current.openedAt, now)}</span>
             </div>
-            <div className="text-3xl font-display font-bold text-emerald-400">{fmt(current.expectedCash)}</div>
+            <div className="text-3xl font-display font-bold text-emerald-400">{formatBRL(current.expectedCash)}</div>
             <div className="text-stone-500 text-xs mt-1">esperado na gaveta</div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs text-stone-400">
-              <span>Fundo: <b className="text-stone-200">{fmt(current.openingAmount)}</b></span>
-              <span>Vendas em dinheiro: <b className="text-stone-200">{fmt(current.cashSalesTotal)}</b> ({current.cashSalesCount})</span>
+              <span>Fundo: <b className="text-stone-200">{formatBRL(current.openingAmount)}</b></span>
+              <span>Vendas em dinheiro: <b className="text-stone-200">{formatBRL(current.cashSalesTotal)}</b> ({current.cashSalesCount})</span>
             </div>
             <div className="flex gap-2 mt-5">
               <ActionButton onClick={() => setMovementType("sangria")} icon={ArrowDownCircle} label="Sangria" />
@@ -167,7 +167,7 @@ export default function CashDrawerTab({ showToast }) {
                   </div>
                 </div>
                 <span className={`font-semibold ${m.type === "sangria" ? "text-red-400" : "text-emerald-400"}`}>
-                  {m.type === "sangria" ? "−" : "+"} {fmt(m.amount)}
+                  {m.type === "sangria" ? "−" : "+"} {formatBRL(m.amount)}
                 </span>
               </div>
             ))}
@@ -199,11 +199,11 @@ export default function CashDrawerTab({ showToast }) {
                     <span className="text-emerald-400">OK</span>
                   ) : (
                     <span className={d.closingDifference > 0 ? "text-emerald-400" : "text-red-400"}>
-                      {d.closingDifference > 0 ? "+" : ""}{fmt(d.closingDifference)}
+                      {d.closingDifference > 0 ? "+" : ""}{formatBRL(d.closingDifference)}
                     </span>
                   )}
                 </div>
-                <div className="text-stone-500 text-xs">esperado {fmt(d.closingExpected)}</div>
+                <div className="text-stone-500 text-xs">esperado {formatBRL(d.closingExpected)}</div>
               </div>
             </button>
           ))}

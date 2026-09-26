@@ -169,3 +169,38 @@ describe("imports de entity passam pela API pública", () => {
     expect(offenders).toEqual([]);
   });
 });
+
+// 6. Moeda tem uma implementação só. Regressão real: o cardápio do cliente
+//    mostrava "R$ 1.234,56" (Intl pt-BR) e o garçom/caixa "R$ 1234.56"
+//    (toFixed) — o mesmo valor, duas escritas. As exceções de toFixed(2) são
+//    payload numérico de API, campo 54 do BR Code e <input type="number">.
+describe("moeda tem fonte única", () => {
+  const MONEY_ALLOWED = new Set([
+    "features/orders/PaymentModal.jsx", // amount/received no payload
+    "entities/payment/lib/pix.js", // campo 54 do BR Code
+    "widgets/cash-drawer/CloseCashDrawerModal.jsx", // <input type="number">
+  ]);
+
+  it("nenhum toFixed(2) fora das exceções documentadas", () => {
+    const offenders = [];
+    for (const f of allFiles) {
+      const rel = relative(SRC, f);
+      if (MONEY_ALLOWED.has(rel)) continue;
+      // este próprio arquivo contém o padrão que procura
+      if (rel === "__tests__/fsd-boundaries.test.js") continue;
+      if (/toFixed\(\s*2\s*\)/.test(readFileSync(f, "utf8"))) offenders.push(rel);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("nenhuma implementação local de formatação de moeda", () => {
+    const offenders = [];
+    for (const f of allFiles) {
+      const rel = relative(SRC, f);
+      if (rel === "shared/lib/money.js" || rel === "__tests__/fsd-boundaries.test.js") continue;
+      const src = readFileSync(f, "utf8");
+      if (/^\s*(const|function)\s+(money|fmtMoney|fmt)\s*[=(]/m.test(src)) offenders.push(rel);
+    }
+    expect(offenders).toEqual([]);
+  });
+});

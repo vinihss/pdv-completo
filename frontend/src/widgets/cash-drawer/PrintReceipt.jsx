@@ -2,8 +2,8 @@ import React, { useEffect, useState } from "react";
 import { getCashDrawerDetail } from "@/entities/cash";
 import { getStoreInfo } from "@/entities/store";
 import { toDate } from "@/shared/lib";
+import { formatBRL } from "@/shared/lib";
 
-const fmt = (n) => `R$ ${Number(n ?? 0).toFixed(2)}`;
 
 function line({ label, value, strong }) {
   return (
@@ -58,11 +58,11 @@ export default function PrintReceipt({ drawerId, onDone }) {
         {line({ label: "Operador", value: detail.openedByName ?? "—" })}
         <div className="border-b border-dashed border-black my-2" />
 
-        {line({ label: "Fundo inicial", value: fmt(detail.openingAmount) })}
-        {line({ label: "Vendas em dinheiro", value: fmt(detail.cashSalesTotal) })}
-        {line({ label: "Esperado", value: fmt(detail.closingExpected ?? detail.expectedCash), strong: true })}
-        {line({ label: "Contado", value: fmt(detail.closingCounted) })}
-        {line({ label: "Diferença", value: `${diff > 0 ? "+" : ""}${fmt(diff)}`, strong: true })}
+        {line({ label: "Fundo inicial", value: formatBRL(detail.openingAmount) })}
+        {line({ label: "Vendas em dinheiro", value: formatBRL(detail.cashSalesTotal) })}
+        {line({ label: "Esperado", value: formatBRL(detail.closingExpected ?? detail.expectedCash), strong: true })}
+        {line({ label: "Contado", value: formatBRL(detail.closingCounted) })}
+        {line({ label: "Diferença", value: `${diff > 0 ? "+" : ""}${formatBRL(diff)}`, strong: true })}
         {detail.closingNote && line({ label: "Observação", value: detail.closingNote })}
 
         {detail.cashSales.length > 0 && (
@@ -71,7 +71,7 @@ export default function PrintReceipt({ drawerId, onDone }) {
             {detail.cashSales.map((s) => (
               <div key={s.orderId} className="flex justify-between text-[11px] py-0.5">
                 <span className="truncate pr-2">{s.label}</span>
-                <span>{fmt(s.amount)}</span>
+                <span>{formatBRL(s.amount)}</span>
               </div>
             ))}
           </>
@@ -87,7 +87,7 @@ export default function PrintReceipt({ drawerId, onDone }) {
                   {m.refOrderLabel ? `(${m.refOrderLabel})` : ""}
                   {m.note ? ` — ${m.note}` : ""}
                 </span>
-                <span>{m.type === "sangria" ? "−" : "+"} {fmt(m.amount)}</span>
+                <span>{m.type === "sangria" ? "−" : "+"} {formatBRL(m.amount)}</span>
               </div>
             ))}
           </>

@@ -4,7 +4,7 @@ import { listCategories } from "@/entities/category";
 import { listAllProducts } from "@/entities/product";
 import { addItems as addOrderItems } from "@/entities/order";
 import { useAuth } from "@/app/providers/auth";
-import { money } from "@/entities/order";
+import { formatBRL } from "@/shared/lib";
 import { VariationModal } from "@/entities/product";
 import ReviewCartModal from "./ReviewCartModal.jsx";
 
@@ -152,7 +152,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
                   <img src={p.imagePath} alt={p.name} className="w-full h-24 object-cover rounded-xl -mt-1 mb-2" />
                 )}
                 <div className="font-semibold text-sm mb-1 pr-6">{p.name}</div>
-                <div className="text-emerald-400 text-sm font-bold">{money(p.price)}</div>
+                <div className="text-emerald-400 text-sm font-bold">{formatBRL(p.price)}</div>
                 {p.description && <div className="text-stone-500 text-xs mt-1 line-clamp-2">{p.description}</div>}
                 {p.variations?.length > 0 && <div className="text-stone-500 text-xs mt-1">Opções disponíveis</div>}
                 {outOfStock && (
@@ -177,7 +177,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
           >
             <span className="flex items-center gap-2">
               <Check size={18} strokeWidth={2.5} />
-              {cartCount} {cartCount === 1 ? "item" : "itens"} · {money(cartTotal)}
+              {cartCount} {cartCount === 1 ? "item" : "itens"} · {formatBRL(cartTotal)}
             </span>
             <span className="text-sm">Revisar e confirmar →</span>
           </button>

@@ -4,7 +4,8 @@ import {
   Plus, Trash2, Minus, Users, Check,
 } from "lucide-react";
 import { setPayments, confirmPayment } from "@/entities/order";
-import { orderTotal, money, round2 } from "@/entities/order";
+import { orderTotal, round2 } from "@/entities/order";
+import { formatBRL } from "@/shared/lib";
 import PixQrScreen from "./PixQrScreen.jsx";
 
 const PAYMENT_META = {
@@ -97,8 +98,8 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
   function remainingLabel() {
     if (lines.length === 0) return "Adicione uma ou mais formas de pagamento.";
     if (balanced) return "Valores conferem com o total da comanda.";
-    if (remaining > 0) return `Falta R$ ${money(remaining)} para cobrir o total.`;
-    return `Os valores excedem o total em R$ ${money(-remaining)}.`;
+    if (remaining > 0) return `Falta R$ ${formatBRL(remaining)} para cobrir o total.`;
+    return `Os valores excedem o total em R$ ${formatBRL(-remaining)}.`;
   }
 
   async function handleSave() {
@@ -174,7 +175,7 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="font-display text-lg font-bold">Pagamento</h3>
-            <p className="text-stone-500 text-xs">{money(total)}</p>
+            <p className="text-stone-500 text-xs">{formatBRL(total)}</p>
           </div>
           <button onClick={onClose} className="text-stone-500"><X size={20} /></button>
         </div>
@@ -225,7 +226,7 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
                     {l.method === "cash" && (
                       <label className="block">
                         <span className={`text-[11px] ${cashShort ? "text-red-400" : "text-stone-500"}`}>
-                          {cashShort ? "Faltam R$ " + money(-change) : "Recebido (R$)"}
+                          {cashShort ? "Faltam R$ " + formatBRL(-change) : "Recebido (R$)"}
                         </span>
                         <input
                           type="number"
@@ -242,7 +243,7 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
                     )}
                   </div>
                   {l.method === "cash" && !cashShort && change > 0.004 && (
-                    <div className="mt-2 text-xs text-emerald-400">Troco: {money(change)}</div>
+                    <div className="mt-2 text-xs text-emerald-400">Troco: {formatBRL(change)}</div>
                   )}
                 </div>
               );
@@ -325,7 +326,7 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
 
         {!balanced && (
           <p className="text-xs text-stone-500 mb-3 text-center">
-            Ajuste os valores até que a soma bata com o total ({money(total)}).
+            Ajuste os valores até que a soma bata com o total ({formatBRL(total)}).
           </p>
         )}
 

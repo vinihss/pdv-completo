@@ -1,11 +1,11 @@
 import React from "react";
 import { Search, Plus, Zap, Check } from "lucide-react";
+import { formatBRL } from "@/shared/lib";
 import {
   orderLabel,
   orderTotal,
   orderHasReady,
   orderAllDelivered,
-  money,
   formatDateTime,
 } from "@/entities/order";
 
@@ -113,7 +113,7 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
                     Delivery{o.channel === "whatsapp" ? " · WhatsApp" : ""}
                   </span>
                 )}
-                <div className="text-emerald-400 font-semibold text-sm mb-1">{money(orderTotal(o))}</div>
+                <div className="text-emerald-400 font-semibold text-sm mb-1">{formatBRL(orderTotal(o))}</div>
                 <div className="text-stone-500 text-xs">
                   Aberta em {formatDateTime(o.openedAt)}
                   {closed && <span className="text-stone-600"> · Fechada em {formatDateTime(o.closedAt)}</span>}

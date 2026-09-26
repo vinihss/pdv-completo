@@ -84,7 +84,7 @@ describe("ReportsTab", () => {
       expect(screen.getByText(/1 sessão\(ões\) em aberto/)).toBeDefined();
     });
     // A sessão fechada aparece com a diferença OK
-    expect(screen.getByText("esperado R$ 54.00")).toBeDefined();
+    expect(screen.getByText("esperado R$ 54,00")).toBeDefined();
 
     expect(getCashDrawerSummary).toHaveBeenCalled();
     const params = getCashDrawerSummary.mock.calls[0][0];

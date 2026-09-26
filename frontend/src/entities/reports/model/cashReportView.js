@@ -1,3 +1,5 @@
+import { formatBRL } from "@/shared/lib";
+
 // Lógica pura do relatório de caixa, isolada do JSX para ser testável.
 // O backend já agrega totais só de sessões fechadas (ver cash-flow.usecases).
 // Aqui cuidamos de exibição segura (sessão aberta não tem counted/difference).
@@ -40,6 +42,4 @@ export function buildCashReportView(cash) {
   };
 }
 
-export function fmtMoney(n) {
-  return `R$ ${Number(n ?? 0).toFixed(2)}`;
-}
+export const fmtMoney = formatBRL;
