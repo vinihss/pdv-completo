@@ -1,9 +1,20 @@
 # ============================================================
 # Caddy — proxy reverso com HTTPS automático (Let's Encrypt).
-# Troque {$DOMAIN} pelo domínio real (ver deploy/.env).
+#
+# Dois domínios:
+#   umamisushiarte.com.br      → redirect para o Instagram
+#   app.umamisushiarte.com.br  → aplicação (backend + frontend)
+#
+# Ambos precisam ter DNS apontando pro IP do servidor.
 # ============================================================
 
-{$DOMAIN} {
+# ---------- Domínio principal: redirect pro Instagram ----------
+umamisushiarte.com.br {
+	redir https://www.instagram.com/umamisushoarte permanent
+}
+
+# ---------- Subdomínio: aplicação ----------
+app.umamisushiarte.com.br {
 	# API REST
 	handle /api/* {
 		uri strip_prefix /api
