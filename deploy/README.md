@@ -58,6 +58,8 @@ Configure em **Settings → Secrets and variables → Actions**:
 - `HOSTINGER_SSH_KEY` (chave privada OpenSSH/PEM)
 - `HOSTINGER_APP_PATH` (caminho absoluto do clone no VPS, ex.: `/opt/pdv-completo`)
 - `HOSTINGER_KNOWN_HOSTS` (opcional, recomendado)
+- `DEPLOY_JWT_SECRET` (**secret obrigatório**) — valor forte para `JWT_SECRET` do backend
+- `DEPLOY_DOMAIN` (**variable recomendado**; pode ser secret) — domínio da aplicação, ex.: `app.seudominio.com.br`
 
 ### Chave SSH e known_hosts (sem expor segredo)
 
@@ -95,15 +97,16 @@ git clone https://github.com/vinihss/pdv-completo.git /opt/pdv-completo
 cd /opt/pdv-completo
 ```
 
-Crie o arquivo de produção **somente no VPS**:
+Crie o arquivo de produção **somente no VPS** (opcional para bootstrap local):
 
 ```bash
 cp deploy/.env.example deploy/.env
 nano deploy/.env
 ```
 
-Defina ao menos `DOMAIN` e `JWT_SECRET` forte.  
-Se `deploy/.env` não existir, o deploy falha com mensagem clara.
+No deploy via GitHub Actions, o workflow agora **gera/atualiza automaticamente**
+`deploy/.env` no VPS com `DEPLOY_DOMAIN` e `DEPLOY_JWT_SECRET` antes do
+`docker compose up`, preservando outras variáveis já existentes no arquivo.
 
 ## Passo a passo
 
@@ -118,7 +121,7 @@ cd /opt/pdv/deploy
 # 3. Configure as variáveis
 cp .env.example .env
 nano .env
-#   DOMAIN=pdv.seudominio.com.br
+#   DOMAIN=app.seudominio.com.br
 #   JWT_SECRET=<gere com: openssl rand -hex 32>
 
 # 4. Suba tudo
@@ -137,8 +140,8 @@ Depois disso, entre com esse PIN e cadastre o resto (categorias, produtos,
 garçons, cozinha) pela própria tela de Configurações/Equipe — não precisa
 mexer no servidor de novo pra isso.
 
-Depois desse passo, `https://pdv.seudominio.com.br` já serve o app com certificado
-válido, e a API responde em `https://pdv.seudominio.com.br/api/...`.
+Depois desse passo, `https://app.seudominio.com.br` já serve o app com certificado
+válido, e a API responde em `https://app.seudominio.com.br/api/...`.
 
 ## Seed de demonstração vs. seed de produção
 
@@ -223,7 +226,7 @@ Depois ajuste a `main` no GitHub para evitar redeploy do commit ruim.
 
 Não precisa publicar em loja de app nenhuma. No celular do garçom:
 
-1. Abra `https://pdv.seudominio.com.br` no Chrome (Android) ou Safari (iOS)
+1. Abra `https://app.seudominio.com.br` no Chrome (Android) ou Safari (iOS)
 2. Toque no menu → **"Adicionar à tela inicial"** (Android) ou **"Adicionar
    à Tela de Início"** (iOS, no botão de compartilhar)
 3. Um ícone aparece na tela inicial, abre em tela cheia como um app nativo

@@ -37,7 +37,7 @@ export const config = {
   // Em produção (deploy real, exposto à internet), restringe a quem pode
   // chamar a API via browser. Em dev, undefined = todas as origens liberadas
   // (útil pra tocar o Vite em outra porta sem precisar configurar nada).
-  corsOrigin: process.env.CORS_ORIGIN, // ex: "https://pdv.seudominio.com.br"
+  corsOrigin: process.env.CORS_ORIGIN, // ex: "https://app.seudominio.com.br"
   // WhatsApp Cloud API — vazios em dev; whatsapp.routes.ts recusa
   // (não trava o boot) se estiverem faltando quando o webhook é chamado.
   whatsappVerifyToken: process.env.WHATSAPP_VERIFY_TOKEN,

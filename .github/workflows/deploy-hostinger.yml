@@ -114,15 +114,18 @@ jobs:
           HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
           HOSTINGER_APP_PATH: ${{ secrets.HOSTINGER_APP_PATH }}
           HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT != '' && secrets.HOSTINGER_PORT || '22' }}
+          DEPLOY_DOMAIN: ${{ vars.DEPLOY_DOMAIN != '' && vars.DEPLOY_DOMAIN || secrets.DEPLOY_DOMAIN }}
+          DEPLOY_JWT_SECRET: ${{ secrets.DEPLOY_JWT_SECRET }}
         run: |
           set -Eeuo pipefail
 
-          if [[ -z "${HOSTINGER_APP_PATH}" ]]; then
-            echo "Secret obrigatório ausente: HOSTINGER_APP_PATH." >&2
+          if [[ -z "${HOSTINGER_APP_PATH}" || -z "${DEPLOY_DOMAIN}" || -z "${DEPLOY_JWT_SECRET}" ]]; then
+            echo "Variáveis obrigatórias ausentes: HOSTINGER_APP_PATH, DEPLOY_DOMAIN e DEPLOY_JWT_SECRET." >&2
             exit 1
           fi
 
-          ssh -p "${HOSTINGER_PORT}" "${HOSTINGER_USER}@${HOSTINGER_HOST}" "APP_PATH='${HOSTINGER_APP_PATH}' bash -s" <<'SSH'
+          ssh -p "${HOSTINGER_PORT}" "${HOSTINGER_USER}@${HOSTINGER_HOST}" \
+            "APP_PATH='${HOSTINGER_APP_PATH}' DEPLOY_DOMAIN='${DEPLOY_DOMAIN}' DEPLOY_JWT_SECRET='${DEPLOY_JWT_SECRET}' bash -s" <<'SSH'
           set -Eeuo pipefail
 
           cd "${APP_PATH}"
@@ -131,10 +134,14 @@ jobs:
           git checkout -f main
           git reset --hard origin/main
 
-          if [[ ! -f deploy/.env ]]; then
-            echo "ERRO: arquivo deploy/.env não encontrado em ${APP_PATH}/deploy/.env. Crie o arquivo de produção no VPS antes de executar o deploy." >&2
-            exit 1
-          fi
+          touch deploy/.env
+          tmp_env="$(mktemp)"
+          {
+            printf 'DOMAIN=%s\n' "${DEPLOY_DOMAIN}"
+            printf 'JWT_SECRET=%s\n' "${DEPLOY_JWT_SECRET}"
+            grep -Ev '^(DOMAIN|JWT_SECRET)=' deploy/.env || true
+          } > "${tmp_env}"
+          mv "${tmp_env}" deploy/.env
 
           docker compose -f deploy/docker-compose.yml up -d --build --remove-orphans
 
