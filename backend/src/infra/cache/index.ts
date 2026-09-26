@@ -1,5 +1,5 @@
 export { MemoryCache } from "./memory-cache.js";
-export { ICacheClient, CacheEntry, CacheOptions } from "./cache-client.js";
+export type { ICacheClient, CacheEntry, CacheOptions } from "./cache-client.js";
 
 import { MemoryCache } from "./memory-cache.js";
 import { ICacheClient } from "./cache-client.js";

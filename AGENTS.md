@@ -118,6 +118,7 @@ e `/realtime` pro backend).
 | `npm run seed` | backend | seed de dev (usuários/PINs fictícios) |
 | `npm run seed:prod` | backend | seed de primeiro deploy (sem dados fictícios) |
 | `npm run db:migrate` | backend | aplica `migrations/*.sql` manualmente (também roda no boot em modo local) |
+| `npm run db:deactivate-demo` | backend | desativa o cardápio fictício do `seed` (use `-- --dry-run` para só listar) |
 | `npm run test` | backend | vitest (banco dedicado `data/test.db`; caixa, comandas, idempotência, maintenance, stock) |
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
@@ -165,6 +166,18 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
 - **Migrations**: toda mudança de schema exige um novo arquivo `.sql` numerado
   (zero-padded, ordem lexicográfica) em `backend/migrations/`. Rodam no boot em
   modo local e via `npm run db:migrate` em produção.
+- **Migration de cardápio (0021)**: `0021_menu_unami.sql` carrega o cardápio do
+  restaurante Unami (11 categorias, 63 produtos) a partir de `full_atualizado.md`.
+  É **dado, não schema** — só `INSERT` com ID determinístico (`cat-unami-*` /
+  `p-unami-NNN`) e `ON CONFLICT (id) DO UPDATE` restrito aos campos de catálogo
+  (name/description/price/categoria/cozinha): reaplicar **não** sobrescreve
+  `active`, `featured`, `cost_price`, `track_stock`, `unit` nem `variations`
+  cadastrados depois no app. Desativar o cardápio fictício do `seed` é
+  **script** (`npm run db:deactivate-demo`), não migration: o seed grava os
+  produtos demo *depois* de `runMigrations()`, então um `UPDATE` em migration
+  nunca os encontraria em banco novo — e em banco já populado derrubaria
+  produtos legítimos de teste (`test/stock.test.ts` cria "Batata frita" R$ 22,00,
+  `test/helpers.ts` cria "Chopp 300ml" R$ 9,50).
 - **Estoque é ledger, não coluna denormalizada**: o saldo de um produto é a soma
   dos `quantity_delta` de `stock_movement` (`sale`/`refund`/`purchase`/
   `adjustment`). O débito acontece em `addItemsUsecase` **dentro da transação**

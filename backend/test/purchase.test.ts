@@ -4,10 +4,13 @@ import { rawSqlite } from "../src/infra/db/client.js";
 
 const PROD = { id: "p-pur", name: "Malte lúpulo", price: 15, costPrice: 8, threshold: 2, stock: 20 };
 
+// Sem `published` no filtro: o dispatcher marca `published = 1` ao despachar, e
+// isso é detalhe de entrega, não do contrato de emissão (ver guard de main() em
+// src/http/server.ts — nos testes o outbox só cresce por enqueueEvent).
 function outbox(room: string, type: string) {
   return rawSqlite
     .prepare(
-      `SELECT payload FROM outbox_event WHERE room = ? AND event_type = ? AND published = 0`
+      `SELECT payload FROM outbox_event WHERE room = ? AND event_type = ? ORDER BY rowid`
     )
     .all(room, type) as { payload: string }[];
 }

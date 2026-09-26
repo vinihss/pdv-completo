@@ -12,16 +12,19 @@ const TRACKED = {
   baseline: 10,
 };
 
+// Sem `published` no filtro: o dispatcher marca `published = 1` ao despachar, e
+// isso é detalhe de entrega, não do contrato de emissão (ver guard de main() em
+// src/http/server.ts — nos testes o outbox só cresce por enqueueEvent).
 function outboxTypes(room: string): string[] {
   const rows = rawSqlite
-    .prepare(`SELECT event_type FROM outbox_event WHERE room = ? AND published = 0`)
+    .prepare(`SELECT event_type FROM outbox_event WHERE room = ? ORDER BY rowid`)
     .all(room) as { event_type: string }[];
   return rows.map((r) => r.event_type);
 }
 
 function outboxPayloads(room: string, eventType: string): any[] {
   const rows = rawSqlite
-    .prepare(`SELECT payload FROM outbox_event WHERE room = ? AND event_type = ? AND published = 0`)
+    .prepare(`SELECT payload FROM outbox_event WHERE room = ? AND event_type = ? ORDER BY rowid`)
     .all(room, eventType) as { payload: string }[];
   return rows.map((r) => JSON.parse(r.payload));
 }

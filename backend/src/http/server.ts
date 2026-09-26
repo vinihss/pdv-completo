@@ -7,6 +7,7 @@ import fastifyStatic from "@fastify/static";
 import fastifyMultipart from "@fastify/multipart";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
 import { config } from "../config/env.js";
 import { runMigrations } from "../infra/db/migrate.js";
@@ -165,7 +166,26 @@ async function main() {
   process.on("SIGTERM", shutdown);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// `main()` só roda quando este arquivo é o entrypoint do processo. A suíte de
+// testes importa `buildApp` deste módulo (test/helpers.ts) e precisa apenas da
+// factory — sem `main()` cada `import` subia um listener real na porta 3000 e
+// ligava o dispatcher do outbox, que marcava `published = 1` nos eventos a cada
+// 200ms e tornava as asserções que leem `outbox_event` dependentes de timing.
+//
+// A comparação ignora a extensão porque o mesmo arquivo roda como `.ts` no dev
+// (`tsx src/http/server.ts`) e como `.js` no build (`node dist/http/server.js`),
+// e o tsx também aceita `server.js` na linha de comando: sem normalizar, esse
+// último caso não casaria e o processo sairia em silêncio, sem servidor.
+function isEntrypoint(): boolean {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  const stripExt = (p: string) => path.resolve(p).replace(/\.(js|mjs|cjs|ts|mts|cts)$/, "");
+  return stripExt(entry) === stripExt(fileURLToPath(import.meta.url));
+}
+
+if (isEntrypoint()) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

@@ -12,6 +12,7 @@
     "seed:prod": "tsx src/infra/db/seed-prod.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/infra/db/migrate.ts",
+    "db:deactivate-demo": "tsx src/infra/db/deactivate-demo-catalog.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

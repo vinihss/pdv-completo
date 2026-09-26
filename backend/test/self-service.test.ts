@@ -40,16 +40,22 @@ function seedVariedProduct() {
 
 // outbox_event.id é UUID (PK textual) — ordem de emissão é o rowid do
 // SQLite, não o id (ordenar por id seria alfabético e aleatório).
+// O filtro é por room/event_type, SEM `published`: o dispatcher marca
+// `published = 1` ao despachar, e isso é detalhe de entrega, não do contrato de
+// emissão. Filtrar por pendência fazia a asserção depender de timing — o
+// `stages[0]` do teste de 'ready' sumia quando um ciclo do dispatcher rodava
+// entre a criação do pedido e a leitura. Como `main()` não roda no import (ver
+// guard em src/http/server.ts), o outbox nos testes só cresce por enqueueEvent.
 const outboxTypes = (room: string): string[] =>
   (rawSqlite
-    .prepare(`SELECT event_type FROM outbox_event WHERE room = ? AND published = 0 ORDER BY rowid`)
+    .prepare(`SELECT event_type FROM outbox_event WHERE room = ? ORDER BY rowid`)
     .all(room) as { event_type: string }[]).map((r) => r.event_type);
 
 const outboxPayloads = (room: string, eventType: string): any[] =>
   (
     rawSqlite
       .prepare(
-        `SELECT payload FROM outbox_event WHERE room = ? AND event_type = ? AND published = 0 ORDER BY rowid`
+        `SELECT payload FROM outbox_event WHERE room = ? AND event_type = ? ORDER BY rowid`
       )
       .all(room, eventType) as { payload: string }[]
   ).map((r) => JSON.parse(r.payload));

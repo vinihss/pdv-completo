@@ -2,11 +2,14 @@ import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
 import { api, seedFixture, resetState, closeTestApp, cashier, manager, waiter, kitchen, FIXTURE } from "./helpers.js";
 import { rawSqlite } from "../src/infra/db/client.js";
 
-// Tipos de evento pendentes (outbox) de um room — o dispatcher não roda nos
-// testes (só no main), então os eventos persistidos são exatamente os emitidos.
+// Tipos de evento enfileirados (outbox) de um room. O filtro é por room, sem
+// `published`: o dispatcher marca `published = 1` ao despachar, o que é detalhe
+// de entrega e não faz parte do contrato de emissão. Como `main()` não roda no
+// import (ver guard em src/http/server.ts), o outbox nos testes só cresce por
+// enqueueEvent — logo as linhas persistidas são exatamente as emitidas.
 function outboxTypes(room: string): string[] {
   const rows = rawSqlite
-    .prepare(`SELECT event_type FROM outbox_event WHERE room = ? AND published = 0`)
+    .prepare(`SELECT event_type FROM outbox_event WHERE room = ? ORDER BY rowid`)
     .all(room) as { event_type: string }[];
   return rows.map((r) => r.event_type);
 }
