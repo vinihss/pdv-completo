@@ -4,6 +4,7 @@ import { orders, orderItems, orderPayments, deliveries, storeSettings } from "..
 import { SYSTEM_USER_ID } from "../../domain/constants.js";
 import { round2 } from "../../domain/money.js";
 import { Errors } from "../../domain/errors.js";
+import { canTransitionDelivery } from "../../domain/customer-order-state.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
 
@@ -149,9 +150,12 @@ export function cancelIfoodOrder(orderRef: string, reason: string): boolean {
       .where(eq(orders.id, order.id))
       .run();
 
+    // 0018: cancelamento (iFood é a fonte da verdade) vira "cancelled" —
+    // distinto de "failed" ("problema na entrega"); transições válidas na
+    // máquina declarativa (customer-order-state.ts).
     const delivery = tx.query.deliveries.findFirst({ where: eq(deliveries.orderId, order.id) }).sync();
-    if (delivery && delivery.status !== "delivered") {
-      tx.update(deliveries).set({ status: "failed" }).where(eq(deliveries.id, delivery.id)).run();
+    if (delivery && delivery.status !== "delivered" && canTransitionDelivery(delivery.status, "cancelled")) {
+      tx.update(deliveries).set({ status: "cancelled" }).where(eq(deliveries.id, delivery.id)).run();
     }
 
     enqueueEvent(tx, "deliveries", "ifood.order.cancelled", { orderId: order.id, externalRef: orderRef, reason });

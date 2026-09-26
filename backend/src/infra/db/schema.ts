@@ -333,11 +333,26 @@ export const deliveries = sqliteTable("delivery", {
   orderId: text("order_id").notNull().unique().references(() => orders.id, { onDelete: "cascade" }),
   courierId: text("courier_id").references(() => users.id, { onDelete: "set null" }),
   address: text("address").notNull(), // snapshot formatado, copiado do checkout
-  status: text("status", { enum: ["awaiting_courier", "out_for_delivery", "delivered", "failed"] })
+  // 0018: "cancelled" é o cancelamento (manager ou cliente) — distinto de
+  // "failed" ("problema na entrega"); transições válidas na máquina
+  // declarativa em src/domain/customer-order-state.ts.
+  status: text("status", { enum: ["awaiting_courier", "out_for_delivery", "delivered", "failed", "cancelled"] })
     .notNull()
     .default("awaiting_courier"),
   dispatchedAt: text("dispatched_at"),
   deliveredAt: text("delivered_at"),
   notes: text("notes"),
   createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
+});
+
+// Carrinho server-side do cliente (0019) — continuação do pedido sem
+// localStorage, chaveado pelo telefone (mesma chave de identificação do
+// fluxo self-service). items é JSON string com o shape do body de
+// POST /public/orders; rascunho sem validação (validação no submit).
+// Uso em src/application/self-service/cart.usecases.ts.
+export const customerCarts = sqliteTable("customer_cart", {
+  phone: text("phone").primaryKey(),
+  items: text("items").notNull().default("[]"), // JSON string
+  updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
+  expiresAt: text("expires_at").notNull(),
 });

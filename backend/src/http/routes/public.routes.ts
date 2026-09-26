@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { withIdempotency } from "../middlewares/idempotency.middleware.js";
-import { publicLookupRateLimit, publicWriteRateLimit, publicOrderRateLimit } from "../middlewares/rate-limit.middleware.js";
+import { publicLookupRateLimit, publicWriteRateLimit, publicOrderRateLimit, publicCartRateLimit } from "../middlewares/rate-limit.middleware.js";
 import { getPublicMenuUsecase } from "../../application/self-service/menu.usecases.js";
 import { getStoreSettingsUsecase } from "../../application/store-settings.usecases.js";
 import { Errors } from "../../domain/errors.js";
@@ -13,7 +13,14 @@ import {
 import {
   createSelfServiceOrderUsecase,
   getSelfServiceOrderStatusUsecase,
+  getActiveSelfServiceOrderByPhoneUsecase,
 } from "../../application/self-service/order-intake.usecase.js";
+import { cancelSelfServiceOrderUsecase } from "../../application/self-service/cancel-order.usecase.js";
+import {
+  getCustomerCartUsecase,
+  saveCustomerCartUsecase,
+  clearCustomerCartUsecase,
+} from "../../application/self-service/cart.usecases.js";
 
 const addressFields = {
   label: z.string().optional(),
@@ -58,6 +65,29 @@ const createOrderSchema = z.object({
     .min(1),
   paymentMethodIntent: z.enum(["cash", "card", "pix", "other"]),
 });
+
+const cancelOrderSchema = z.object({
+  correlationId: z.string(),
+  // Segurança: o endpoint é público — o telefone é o dono do pedido (match
+  // com customer.phone); o UUID sozinho não autoriza.
+  customerPhone: z.string().min(1),
+});
+
+const activeOrderSchema = z.object({ phone: z.string().min(1) });
+
+const cartItemSchema = z.object({
+  productId: z.string(),
+  quantity: z.number().int().positive(),
+  selectedVariations: z.record(z.string(), z.string().or(z.array(z.string()))).optional(),
+  notes: z.string().optional(),
+});
+
+const saveCartSchema = z.object({
+  phone: z.string().min(1),
+  items: z.array(cartItemSchema).max(50),
+});
+
+const cartQuerySchema = z.object({ phone: z.string().min(1) });
 
 // Sem authMiddleware — endpoints de cliente final, consumidos pela página
 // externa (e internamente pelo webhook do WhatsApp, como chamada de função,
@@ -114,8 +144,50 @@ export async function publicRoutes(app: FastifyInstance) {
     return reply.code(result.status).send(result.body);
   });
 
+  // Cancelamento pelo cliente — só o dono (phone match) e só em stage
+  // cancelável (antes do entregador sair em rota, ou entrega falhada com
+  // pedido aberto). Idempotente via correlationId.
+  app.post("/public/orders/:id/cancel", { preHandler: publicWriteRateLimit }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = cancelOrderSchema.parse(req.body);
+    const result = await withIdempotency(`POST /public/orders/${id}/cancel`, body.correlationId, body, async () => {
+      const cancelled = await cancelSelfServiceOrderUsecase({ orderId: id, customerPhone: body.customerPhone });
+      return { status: 200, body: cancelled };
+    });
+    return reply.code(result.status).send(result.body);
+  });
+
+  // Pedido em andamento pra retomada — cliente que fechou o browser ou
+  // voltou depois vê o banner "Ver status" na página (e o bot manda o
+  // mesmo link). Superfície de leitura (mesmo modelo de confiança do lookup).
+  app.post("/public/orders/active", { preHandler: publicLookupRateLimit }, async (req) => {
+    const body = activeOrderSchema.parse(req.body);
+    return getActiveSelfServiceOrderByPhoneUsecase(body.phone);
+  });
+
   app.get("/public/orders/:id/status", async (req) => {
     const { id } = req.params as { id: string };
     return getSelfServiceOrderStatusUsecase(id);
+  });
+
+  // ---------- Carrinho server-side (continuação do pedido) ----------
+  // Rascunho chaveado por telefone — cliente que fechou/reload no meio do
+  // checkout reabre o link e continua de onde parou. Sem validação de
+  // produto/estoque (rascunho); validação acontece no submit.
+  app.get("/public/cart", { preHandler: publicLookupRateLimit }, async (req) => {
+    const { phone } = cartQuerySchema.parse(req.query);
+    return { items: (await getCustomerCartUsecase(phone)) ?? [] };
+  });
+
+  app.put("/public/cart", { preHandler: publicCartRateLimit }, async (req) => {
+    const body = saveCartSchema.parse(req.body);
+    await saveCustomerCartUsecase(body.phone, body.items);
+    return { ok: true };
+  });
+
+  app.delete("/public/cart", { preHandler: publicWriteRateLimit }, async (req) => {
+    const body = cartQuerySchema.parse(req.body);
+    await clearCustomerCartUsecase(body.phone);
+    return { ok: true };
   });
 }

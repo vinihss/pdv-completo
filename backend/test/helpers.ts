@@ -74,21 +74,32 @@ export function resetState() {
     DELETE FROM outbox_event;
     DELETE FROM cash_drawer;
     DELETE FROM "order";
+    DELETE FROM customer_cart;
+    DELETE FROM customer_address;
+    DELETE FROM whatsapp_conversation;
+    DELETE FROM customer;
     UPDATE restaurant_table SET status = 'free' WHERE id = '${FIXTURE.table}';
   `);
 }
 
 export type ApiResult = { status: number; json: any; body: string };
 
+// `ip` injeta X-Forwarded-For (o app roda com trustProxy: 1) — necessário
+// pros testes que exercitam as rotas públicas: elas têm rate limit por IP
+// (5 pedidos/min pra POST /public/orders), então cada teste precisa do seu
+// próprio "cliente" pra não se auto-bloquear.
 export async function api(
   method: "get" | "post" | "put" | "patch" | "delete",
   url: string,
-  opts: { token?: string; body?: any } = {}
+  opts: { token?: string; body?: any; ip?: string } = {}
 ): Promise<ApiResult> {
   const res = await (await testApp()).inject({
     method,
     url,
-    headers: opts.token ? { authorization: `Bearer ${opts.token}` } : undefined,
+    headers: {
+      ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
+      ...(opts.ip ? { "x-forwarded-for": opts.ip } : {}),
+    },
     payload: opts.body,
   });
   let json: any = null;

@@ -83,8 +83,14 @@ Motivo da mudança: o desenho original (cinco estados — `welcome → browsing 
 
 Comportamento do bot, sem máquina de estados de carrinho:
 
-1. Primeira mensagem (ou depois de 1h de inatividade) → saudação completa + link.
-2. Mensagens seguintes na mesma janela de 1h → só reenvia o link, sem repetir a saudação.
+1. **Cliente com pedido em aberto** → mensagem de acompanhamento ("seu pedido está *X*") com o link direto da tela de status (`?order=<id>` + `phone`), em vez do cardápio — quem já pediu não quer cardápio, quer saber onde está. O rótulo do stage vem na própria mensagem, porque em `out_for_delivery` o botão de cancelar da página não vai adiantar.
+2. Primeira mensagem (ou depois de 1h de inatividade) → saudação completa + link do cardápio.
+3. Mensagens seguintes na mesma janela de 1h → só reenvia o link, sem repetir a saudação.
+
+O pedido em andamento é resolvido por telefone
+(`getActiveSelfServiceOrderByPhoneUsecase`) — o mesmo lookup do banner da
+página, então o link que o bot manda e o banner que a página mostra nunca
+divergem.
 
 `whatsapp_conversation.state` continua existindo, mas reaproveitado só com os valores `welcome`/`done` pra marcar "ainda não cumprimentado nesta janela" / "já cumprimentado" — os valores `browsing`/`cart`/`checkout` do enum ficaram sem uso; os campos `cart_items`, `customer_name` e `delivery_address` da tabela também não são mais escritos por este fluxo (mantidos no schema por estabilidade, não removidos numa migration só por causa disso).
 
@@ -94,13 +100,38 @@ Timeout de 1h (não mais os 15 min do desenho original, que faziam sentido pra u
 
 ## Fluxo da página externa
 
-Navegação livre em página única, sem máquina de estados persistida no servidor — o carrinho vive no estado do navegador até o checkout:
+Navegação livre em página única, sem máquina de estados persistida no servidor. O carrinho vive no estado do navegador **e** num rascunho no servidor (ver "Continuação do pedido" abaixo):
 
 1. **Cardápio** — consumo de `GET /public/menu`, navegação livre por categoria/produto/variação.
-2. **Carrinho** — revisão e ajuste de quantidades, com opção de voltar ao cardápio.
+2. **Carrinho** — revisão e ajuste de quantidades/observações, com opção de voltar ao cardápio.
 3. **Identificação** — telefone como chave; mesma lógica de busca/cadastro de cliente e endereço do bot.
 4. **Pagamento** — forma pretendida + total com taxa de entrega visível.
-5. **Confirmação e acompanhamento** — pedido criado via `POST /public/orders` (`createSelfServiceOrderUsecase()`); status atualiza ao vivo na própria página via WebSocket, sem precisar dar refresh.
+5. **Confirmação e acompanhamento** — pedido criado via `POST /public/orders` (`createSelfServiceOrderUsecase()`); a tela de acompanhamento consome o **stage canônico** (`customerStage`/`timeline` de `GET /public/orders/:id/status`), atualizada por WebSocket público com polling de 4s como fallback — sem refresh manual.
+   - **Cancelamento pelo cliente** disponível enquanto o stage for `received`, `preparing`, `ready` ou `failed` (`POST /public/orders/:id/cancel`, telefone confere com o dono). Depois que o entregador sai em rota, a tela oferece contato com o estabelecimento em vez do botão.
+
+### Continuação do pedido (carrinho server-side)
+
+O estado do navegador morre com a aba — fechar/recarregar no meio do checkout
+perdia o pedido em andamento. Duas superfícies resolvem, sem `localStorage`
+(fonte da verdade no servidor, como o resto do sistema):
+
+1. **Rascunho do carrinho** (`GET/PUT/DELETE /public/cart`) — chaveado por
+   telefone, TTL de 24h, guardado em `customer_cart`. A página grava com debounce
+   (~800ms) a cada mudança de linha e força o flush ao entrar no checkout, e
+   hidrata de volta ao abrir (item que saiu do menu é descartado). Só os itens
+   são persistidos: endereço e pagamento são re-derivados. Web direta sem
+   telefone tem o carrinho só em memória — perda aceita, já que pedir telefone
+   antes do checkout custaria mais caro do que o problema que resolve.
+   O rascunho é apagado quando o pedido é criado.
+2. **Pedido em andamento** (`POST /public/orders/active`, por telefone) — vira
+   o banner "Você tem um pedido em andamento" no cardápio. O bot manda o mesmo
+   link com `?order=<orderId>`, e a página aceita esse parâmetro direto pra
+   abrir o acompanhamento (o `orderId` é a "senha" de fato, como já era no
+   `GET .../status`).
+
+O acompanhamento por WebSocket é o mesmo endpoint público `/realtime/public`,
+que aceita **só** a sala `order:<orderId>`; qualquer outra sala (ou pedido
+inexistente) recebe `join.denied`.
 
 ## Fluxo de gerência de entrega
 
@@ -110,7 +141,13 @@ Estados em `delivery.status`, aplicável a qualquer pedido com `orders.channel` 
 2. **Itens prontos na cozinha**, em paralelo — `order_items` em `ready`. Fluxo de cozinha inalterado; não é um estado de `delivery`, é só o momento em que a comida fica pronta para o entregador levar.
 3. **`out_for_delivery`** — manager atribui `courier_id` (`assign`, sem mudar o status); entregador confirma saída (`dispatch`, `dispatched_at`).
 4. **`delivered`** — entregador confirma entrega (`delivered_at`). Dispara notificação WhatsApp de status, independente de o pedido ter vindo do bot ou da página.
-   - Desvio possível: **`failed`**, a partir de `out_for_delivery`, com `notes` registrando o motivo — tratamento manual pelo manager.
+   - Desvio possível: **`failed`**, a partir de `out_for_delivery`, com `notes` registrando o motivo — tratamento manual pelo manager. O pedido continua aberto: o cliente pode cancelar (evitando cobrança) ou o manager reordena.
+5. **`cancelled`** — desvio de `awaiting_courier`, `out_for_delivery` (cancelamento de comanda pelo manager) ou `failed` (cliente ou manager cancelou o pedido aberto). É aplicado **na mesma transação** do cancelamento da comanda, junto do cancelamento do iFood (`status-pushback.ts`, que antes marcava `failed` e agora marca `cancelled` — o iFood ser a fonte da verdade é cancelamento, não falha de entrega). Terminal.
+
+As transições válidas são uma matriz única (`DELIVERY_TRANSITIONS` em
+`domain/customer-order-state.ts`) consumida por dispatch/deliver/fail,
+cancelamento de comanda e pushback do iFood — quem chama decide o `status`
+novo, a máquina diz se pode.
 
 `orders.status` (`open`/`closed`) continua controlando o encerramento financeiro — fecha quando o pagamento é confirmado, com o gatilho passando a ser a confirmação do entregador em vez do garçom fechando a comanda.
 
@@ -160,11 +197,21 @@ delivery
   order_id          text, FK -> orders, único (1:1)
   courier_id        text, FK -> users, nullable
   address           text          // snapshot, copiado do checkout
-  status            enum: "awaiting_courier" | "out_for_delivery" | "delivered" | "failed"
+  status            enum: "awaiting_courier" | "out_for_delivery" | "delivered" | "failed" | "cancelled"
   dispatched_at     text, nullable
   delivered_at      text, nullable
   notes             text, nullable
+
+customer_cart
+  phone       text, PK        // identidade do rascunho = telefone do checkout
+  items       text (JSON)     // [{ productId, quantity, selectedVariations, notes }]
+  updated_at  text
+  expires_at  text            // TTL 24h, expurgado pelo job de manutenção
 ```
+
+`"cancelled"` em `delivery.status` entrou em migration à parte
+(`0018_delivery_cancelled.sql` — recria a tabela, porque o SQLite não altera
+enum), junto do `customer_cart` (`0019_customer_cart.sql`).
 
 ## Superfícies de UI
 
@@ -188,13 +235,23 @@ Mockups das três telas novas (página do cliente, entregador, painel do manager
 backend/src/application/self-service/
   menu.usecases.ts               # cardápio público, lê direto de product/category existentes
   customer-address.usecases.ts   # busca/cadastro de cliente e endereço, limite de 3
-  order-intake.usecase.ts        # createSelfServiceOrder() — ponto único de checkout
+  order-intake.usecase.ts        # createSelfServiceOrder() — ponto único de checkout,
+                                 # getSelfServiceOrderStatus(), getActiveSelfServiceOrderByPhone()
   delivery.usecases.ts           # assign, dispatch, deliver, fail — gerência de entrega
+  customer-stage.ts              # deriva o stage canônico e emite customer.stage_changed
+  cart.usecases.ts               # rascunho do carrinho por telefone (TTL 24h)
+  cancel-order.usecase.ts        # cancelamento pelo cliente (dono + stage cancelável)
+
+backend/src/domain/
+  customer-order-state.ts        # stages, labels, timeline, transições de delivery
 
 backend/src/http/routes/
-  public.routes.ts               # GET /public/menu, POST /public/customers[/lookup|/:id/addresses], POST /public/orders
+  public.routes.ts               # GET /public/menu, POST /public/customers[/lookup|/:id/addresses],
+                                 # POST /public/orders, POST /public/orders/active,
+                                 # POST /public/orders/:id/cancel, GET|PUT|DELETE /public/cart
   courier.routes.ts              # GET /courier/deliveries, PATCH .../dispatch|deliver|fail
   delivery-manager.routes.ts     # GET /manager/deliveries|couriers, PATCH .../assign
+  realtime.routes.ts             # + /realtime/public (sala única order:<orderId>, sem JWT)
 
 backend/src/domain/constants.ts  # SYSTEM_USER_ID — ator técnico para pedidos self-service
 ```
@@ -219,9 +276,10 @@ Interface de entregador: rota nova dentro do mesmo frontend, com layout próprio
 - **Contratos de API**: especificados em `05-delivery-api-contracts.md`, implementados.
 - **Usecases e rotas** (checkout, entrega, cardápio público): implementados e testados — ver seção "Novos módulos e endpoints".
 - **Bot do WhatsApp**: implementado na versão simplificada ("checkout por fora") — cumprimenta e linka a página, não conduz carrinho. Testado de ponta a ponta.
-- **`whatsapp.notifier.ts`**: ainda stub — `whatsapp.client.ts` só loga o que enviaria, sem credencial real da Meta configurada.
+- **`whatsapp.notifier.ts`**: ainda stub — `whatsapp.client.ts` só loga o que enviaria, sem credencial real da Meta configurada. Os gatilhos já existem e são chamados em cada transição (saída, entrega, falha, pedido pronto, cancelamento).
 - **Protótipos**: os quatro (bot, página, entregador, painel do manager) desenhados, navegáveis e testados manualmente.
 - **Taxa por zona/distância**: fora do MVP; schema já comporta porque a taxa é gravada por pedido e os endereços já são estruturados.
 - **Migrations Drizzle**: geradas em `migrations/0002_delivery_self_service.sql` e `src/infra/db/schema.ts`, testadas contra a `0001_init.sql`.
 - **Telas do entregador, da página externa e do painel do manager**: mockups desenhados e validados; implementação de frontend ainda não iniciada.
-- **Usecases** (`self-service`, `delivery`): próxima etapa.
+- **Máquina de estado do cliente**: implementada — stage canônico derivado dos 3 eixos internos, timeline, matriz de transições de delivery, evento `customer.stage_changed` e cancelamento pelo cliente (detalhes em `05-delivery-api-contracts.md`).
+- **Continuação do pedido**: implementada sem `localStorage` — rascunho do carrinho no servidor (`customer_cart`, TTL 24h) + banner de pedido em andamento por telefone + retomada por `?order=<orderId>`; WebSocket público com polling de 4s como fallback. Etapa e endereço do checkout são re-derivados, não persistidos.

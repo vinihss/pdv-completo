@@ -42,3 +42,15 @@ export async function notifyDelivered(orderId: string): Promise<void> {
 export async function notifyFailed(orderId: string, reason: string): Promise<void> {
   await notify(orderId, `Tivemos um problema pra entregar seu pedido (${reason}). Vamos entrar em contato pra resolver.`);
 }
+
+// Disparado quando o ÚLTIMO item do pedido de delivery fica pronto
+// (cozinha marcou tudo — order.usecases.ts#updateItemStatusUsecase).
+export async function notifyReady(orderId: string): Promise<void> {
+  await notify(orderId, "Seu pedido está pronto! 🍔 Saindo para entrega em breve.");
+}
+
+// Cancelamento (pelo cliente — cancel-order.usecase.ts; ou pelo manager
+// via cancelOrderUsecase, quando a comanda tem telefone).
+export async function notifyCancelled(orderId: string, reason: string): Promise<void> {
+  await notify(orderId, `Seu pedido foi cancelado (${reason}). Se quiser, faça um novo pedido por aqui. 🙏`);
+}

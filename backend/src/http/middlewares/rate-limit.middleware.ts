@@ -49,6 +49,11 @@ export const publicLookupRateLimit = createRateLimit({ windowMs: 60_000, max: 20
 
 export const publicWriteRateLimit = createRateLimit({ windowMs: 60_000, max: 10, keyPrefix: "write-ip", keyFn: (req) => req.ip });
 
+// Carrinho server-side (rascunho): o PUT do client é debounced (~800ms),
+// mas edição contínua de quantidades pode gerar rajadas legítimas — limite
+// mais frouxo que o de escrita, ainda assim limitado por IP.
+export const publicCartRateLimit = createRateLimit({ windowMs: 60_000, max: 60, keyPrefix: "cart-ip", keyFn: (req) => req.ip });
+
 // Pedido é o mais sensível: cria comanda de verdade e (agora que o notifier
 // existe) dispara mensagem pro telefone do cliente. Duplo limite — por IP
 // (evita spam de uma origem) E por telefone (evita alguém trocando de IP

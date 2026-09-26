@@ -2,8 +2,10 @@ import { eq, inArray, and, notInArray } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { deliveries, users, orders, orderItems } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
+import { canTransitionDelivery, type DeliveryStatus } from "../../domain/customer-order-state.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
+import { emitCustomerStageChangedTx } from "./customer-stage.js";
 import { registerPaymentUsecase, closeOrderUsecase } from "../order/order.usecases.js";
 import { notifyDispatched, notifyDelivered, notifyFailed } from "../../integrations/whatsapp/whatsapp.notifier.js";
 
@@ -32,7 +34,7 @@ async function getOwnedDelivery(deliveryId: string, courierId: string) {
 // ---------- GET /courier/deliveries ----------
 export async function listCourierDeliveriesUsecase(input: {
   courierId: string;
-  statuses?: Array<"awaiting_courier" | "out_for_delivery" | "delivered" | "failed">;
+  statuses?: DeliveryStatus[];
 }) {
   const rows = await db.query.deliveries.findMany({
     where: (d, { and, eq: eqOp }) =>
@@ -48,7 +50,10 @@ export async function listCourierDeliveriesUsecase(input: {
 // ---------- PATCH /courier/deliveries/:id/dispatch ----------
 export async function dispatchDeliveryUsecase(input: { deliveryId: string; courierId: string }) {
   const delivery = await getOwnedDelivery(input.deliveryId, input.courierId);
-  if (delivery.status !== "awaiting_courier") throw Errors.invalidTransition("Entrega não está aguardando entregador.");
+  // Transição validada pela máquina declarativa (customer-order-state.ts) —
+  // regra única compartilhada com deliver/fail/cancelamento.
+  if (!canTransitionDelivery(delivery.status, "out_for_delivery"))
+    throw Errors.invalidDeliveryTransition("Entrega não está aguardando entregador.");
 
   const updated = db.transaction((tx) => {
     const result = tx
@@ -58,6 +63,7 @@ export async function dispatchDeliveryUsecase(input: { deliveryId: string; couri
       .returning()
       .get();
     enqueueEvent(tx, DELIVERY_ROOM, "delivery.status_changed", serialize(result));
+    emitCustomerStageChangedTx(tx, result.orderId);
     logAction(tx, input.courierId, "delivery_dispatched", result.orderId, {});
     return result;
   });
@@ -70,7 +76,8 @@ export async function dispatchDeliveryUsecase(input: { deliveryId: string; couri
 // ---------- PATCH /courier/deliveries/:id/deliver ----------
 export async function deliverDeliveryUsecase(input: { deliveryId: string; courierId: string }) {
   const delivery = await getOwnedDelivery(input.deliveryId, input.courierId);
-  if (delivery.status !== "out_for_delivery") throw Errors.invalidTransition("Entrega não está em trânsito.");
+  if (!canTransitionDelivery(delivery.status, "delivered"))
+    throw Errors.invalidDeliveryTransition("Entrega não está em trânsito.");
 
   const updated = db.transaction((tx) => {
     const result = tx
@@ -80,6 +87,7 @@ export async function deliverDeliveryUsecase(input: { deliveryId: string; courie
       .returning()
       .get();
     enqueueEvent(tx, DELIVERY_ROOM, "delivery.status_changed", serialize(result));
+    emitCustomerStageChangedTx(tx, result.orderId);
     // Notificação WhatsApp de status: disparo real fica pra quando
     // whatsapp.notifier.ts existir (fora do escopo desta etapa) — aqui só
     // fica registrado no outbox como evento consumível por esse worker depois.
@@ -116,7 +124,8 @@ export async function deliverDeliveryUsecase(input: { deliveryId: string; courie
 // ---------- PATCH /courier/deliveries/:id/fail ----------
 export async function failDeliveryUsecase(input: { deliveryId: string; courierId: string; reason: string }) {
   const delivery = await getOwnedDelivery(input.deliveryId, input.courierId);
-  if (delivery.status !== "out_for_delivery") throw Errors.invalidTransition("Entrega não está em trânsito.");
+  if (!canTransitionDelivery(delivery.status, "failed"))
+    throw Errors.invalidDeliveryTransition("Entrega não está em trânsito.");
 
   const updated = db.transaction((tx) => {
     const result = tx
@@ -126,6 +135,7 @@ export async function failDeliveryUsecase(input: { deliveryId: string; courierId
       .returning()
       .get();
     enqueueEvent(tx, DELIVERY_ROOM, "delivery.status_changed", serialize(result));
+    emitCustomerStageChangedTx(tx, result.orderId);
     logAction(tx, input.courierId, "delivery_failed", result.orderId, { reason: input.reason });
     return result;
   });
@@ -136,9 +146,7 @@ export async function failDeliveryUsecase(input: { deliveryId: string; courierId
 }
 
 // ---------- GET /manager/deliveries ----------
-export async function listManagerDeliveriesUsecase(input: {
-  statuses?: Array<"awaiting_courier" | "out_for_delivery" | "delivered" | "failed">;
-}) {
+export async function listManagerDeliveriesUsecase(input: { statuses?: DeliveryStatus[] }) {
   const rows = await db.query.deliveries.findMany({
     where: input.statuses?.length ? inArray(deliveries.status, input.statuses) : undefined,
     orderBy: (d, { asc }) => asc(d.createdAt),

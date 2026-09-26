@@ -77,4 +77,37 @@ export async function realtimeRoutes(app: FastifyInstance) {
       }
     });
   });
+
+  // ---------- WS público (máquina de estado do cliente) ----------
+  // Acompanhamento da tela de confirmação (/pedido) sem JWT — o client
+  // anônimo entra em `order:<orderId>` via mensagem join; o UUID é a
+  // "senha" de fato (só quem tem o orderId acompanha — mesmo modelo de
+  // confiança do GET /public/orders/:id/status). Join é restrito a rooms
+  // `order:<uuid>`: nenhum room interno (cash-drawer, deliveries, ...)
+  // é alcançável por cliente anônimo.
+  app.get("/realtime/public", { websocket: true }, (socket) => {
+    const ORDER_ROOM_RE = /^order:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const conn = wsGateway.addConnection(socket as any, []);
+
+    socket.on("message", (raw: Buffer) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === "join" && typeof msg.room === "string" && ORDER_ROOM_RE.test(msg.room)) {
+          wsGateway.joinRoom(conn, msg.room);
+          return;
+        }
+        if (msg.type === "join") {
+          socket.send(JSON.stringify({ type: "join.denied", room: msg.room }));
+          return;
+        }
+        if (msg.type === "sync.request") {
+          // Sem buffer de eventos perdidos: o client refaz o GET de status
+          // ao reconectar (mesmo padrão dos clients autenticados).
+          socket.send(JSON.stringify({ type: "sync.response", payload: { events: [] }, emittedAt: new Date().toISOString() }));
+        }
+      } catch {
+        // mensagem malformada — ignora
+      }
+    });
+  });
 }

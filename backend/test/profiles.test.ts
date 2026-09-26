@@ -49,7 +49,14 @@ describe("tela de login por perfil (GET /auth/users)", () => {
     seedFixture();
     rawSqlite.prepare(`INSERT OR IGNORE INTO "user" (id, name, role, pin_hash) VALUES (?, 'Entregador Teste', 'courier', 'x')`).run(COURIER_ID);
   });
-  afterAll(() => closeTestApp());
+  // Restaura os toggles de rollout: sem isso os arquivos seguintes herdam
+  // kitchen_enabled/uses_delivery zerados (em modo sem cozinha os itens
+  // nascem "delivered" — a suíte de self-service depende do modo com cozinha).
+  afterAll(async () => {
+    setStoreFlag("uses_delivery", true);
+    setStoreFlag("kitchen_enabled", true);
+    await closeTestApp();
+  });
   beforeEach(() => resetState());
 
   it("esconde entregador quando uses_delivery está desligado (e cozinha quando desligada)", async () => {

@@ -1,12 +1,15 @@
-import { eq } from "drizzle-orm";
+import { eq, and, inArray, desc } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
-import { customers, customerAddresses, deliveries, storeSettings } from "../../infra/db/schema.js";
+import { customers, customerAddresses, deliveries, storeSettings, orders, orderItems } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
 import { SYSTEM_USER_ID } from "../../domain/constants.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
 import { openOrderUsecase, addItemsUsecase, getOrderUsecase, registerPaymentUsecase } from "../order/order.usecases.js";
 import { formatAddress, addCustomerAddressUsecase } from "./customer-address.usecases.js";
+import { deriveCustomerStage, stageTimeline, CUSTOMER_STAGES } from "../../domain/customer-order-state.js";
+import { emitCustomerStageChangedTx } from "./customer-stage.js";
+import { round2 } from "../../domain/money.js";
 
 const DELIVERY_ROOM = "deliveries"; // painel do manager e listagem do entregador escutam aqui
 
@@ -113,6 +116,9 @@ export async function createSelfServiceOrderUsecase(input: {
       .get();
 
     enqueueEvent(tx, DELIVERY_ROOM, "delivery.created", { deliveryId: created.id, orderId: order.id });
+    // Stage inicial "received" — o WS público (retomada por ?order=<id>)
+    // e o polling do cliente partem do estado canônico da máquina.
+    emitCustomerStageChangedTx(tx, order.id);
     logAction(tx, SYSTEM_USER_ID, "delivery_created", order.id, { channel: input.channel, addressText });
 
     return created;
@@ -131,12 +137,77 @@ export async function createSelfServiceOrderUsecase(input: {
   };
 }
 
+/**
+ * Status público do pedido pra o cliente — inclui o estado canônico da
+ * máquina (customer-order-state.ts) além dos eixos brutos (mantidos pra
+ * compat do polling). total/estimatedMinutes alimentam a retomada por
+ * ?order=<id> (o orderId é a "senha" de fato — já era visível hoje).
+ */
 export async function getSelfServiceOrderStatusUsecase(orderId: string) {
   const order = await getOrderUsecase(orderId);
   const delivery = await db.query.deliveries.findFirst({ where: eq(deliveries.orderId, orderId) });
+
+  const stage = deriveCustomerStage(
+    { status: order.status },
+    order.items.map((i: any) => ({ status: i.status })),
+    delivery ? { status: delivery.status } : null
+  );
+  const meta = CUSTOMER_STAGES[stage];
+  const total = round2(
+    order.items
+      .filter((i: any) => i.status !== "cancelled")
+      .reduce((sum: number, i: any) => sum + i.unitPrice * i.quantity, 0) + (order.deliveryFee ?? 0)
+  );
+
   return {
     orderStatus: order.status,
     itemsStatus: order.items.map((i: any) => ({ id: i.id, status: i.status })),
     deliveryStatus: delivery?.status ?? null,
+    customerStage: { stage, label: meta.label, terminal: meta.terminal },
+    timeline: stageTimeline(stage),
+    total,
+    // Mesma estimativa da criação — sem modelo de tempo de preparo ainda.
+    estimatedMinutes: 45,
+  };
+}
+
+/**
+ * Pedido em andamento pra retomada — cliente que fechou o browser ou
+ * voltou depois vê "Você tem um pedido em andamento" (página e WhatsApp).
+ * Andamento = orders.status "open" (não fechado/cancelado) do canal
+ * self-service; o stage pode ser terminal-fracassado ("failed") — o
+ * cliente precisa ver isso também pra poder cancelar ou reordenar.
+ */
+export async function getActiveSelfServiceOrderByPhoneUsecase(phone: string) {
+  const customer = await db.query.customers.findFirst({ where: eq(customers.phone, phone) });
+  if (!customer) return null;
+
+  const active = await db.query.orders.findFirst({
+    where: and(eq(orders.customerId, customer.id), inArray(orders.channel, ["whatsapp", "web"]), eq(orders.status, "open")),
+    orderBy: desc(orders.openedAt),
+  });
+  if (!active) return null;
+
+  const items = await db.query.orderItems.findMany({ where: eq(orderItems.orderId, active.id) });
+  const delivery = await db.query.deliveries.findFirst({ where: eq(deliveries.orderId, active.id) });
+
+  const stage = deriveCustomerStage(
+    { status: active.status },
+    items.map((i) => ({ status: i.status })),
+    delivery ? { status: delivery.status } : null
+  );
+  const meta = CUSTOMER_STAGES[stage];
+  const total = round2(
+    items
+      .filter((i) => i.status !== "cancelled")
+      .reduce((sum, i) => sum + i.unitPrice * i.quantity, 0) + (active.deliveryFee ?? 0)
+  );
+
+  return {
+    orderId: active.id,
+    customerStage: { stage, label: meta.label, terminal: meta.terminal },
+    total,
+    estimatedMinutes: 45,
+    openedAt: active.openedAt,
   };
 }

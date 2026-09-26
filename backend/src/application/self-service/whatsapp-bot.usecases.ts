@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { whatsappConversations } from "../../infra/db/schema.js";
 import { config } from "../../config/env.js";
+import { getActiveSelfServiceOrderByPhoneUsecase } from "./order-intake.usecase.js";
 
 const GREETING_TIMEOUT_MS = 60 * 60_000; // 1h — depois disso, cumprimenta nome de novo em vez de só lembrar
 
@@ -34,6 +35,20 @@ export async function handleIncomingWhatsAppMessage(phone: string, _rawText: str
     await db.insert(whatsappConversations).values({ phone, ...values });
   }
 
+  // Cliente com pedido em aberto não quer cardápio — quer saber onde está.
+  // O link vai direto pro acompanhamento (?order=<id>), que é a retomada
+  // descrita em 04-delivery-self-service-integration.md. O stage também vem
+  // na mensagem: se ele já saiu em rota, "cancelar" na página não adiantaria.
+  const active = await getActiveSelfServiceOrderByPhoneUsecase(phone);
+  if (active) {
+    return {
+      replyText:
+        `Oi! Seu pedido está *${active.customerStage.label}*. ` +
+        `Pra acompanhar ou cancelar, é só abrir o link abaixo:\n\n${buildMenuLink(phone, active.orderId)}\n\n` +
+        `Qualquer coisa, é só mandar mensagem por aqui de novo.`,
+    };
+  }
+
   const link = buildMenuLink(phone);
 
   if (recentlyGreeted) {
@@ -47,10 +62,11 @@ export async function handleIncomingWhatsAppMessage(phone: string, _rawText: str
   };
 }
 
-function buildMenuLink(phone: string): string {
+function buildMenuLink(phone: string, orderId?: string): string {
   const url = new URL(config.externalMenuUrl);
   url.pathname = "/pedido"; // rota real do frontend (src/App.jsx) — ver CustomerMenuPage.jsx
   url.searchParams.set("via", "whatsapp");
   url.searchParams.set("phone", phone);
+  if (orderId) url.searchParams.set("order", orderId); // abre direto no acompanhamento
   return url.toString();
 }

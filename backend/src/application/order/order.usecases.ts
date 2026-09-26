@@ -10,11 +10,15 @@ import {
   restaurantTables,
   customers,
   stockMovements,
+  deliveries,
 } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
 import { round2, moneyEq } from "../../domain/money.js";
+import { canTransitionDelivery } from "../../domain/customer-order-state.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
+import { emitCustomerStageChangedTx } from "../self-service/customer-stage.js";
+import { notifyReady } from "../../integrations/whatsapp/whatsapp.notifier.js";
 import { findOpenDrawerTx } from "../cash-flow/cash-flow.usecases.js";
 import { applyStockMovementTx, stockBalance, computeMovingAverageTx, INVENTORY_ROOM } from "../stock/stock.usecases.js";
 
@@ -340,6 +344,10 @@ export async function updateItemStatusUsecase(input: {
   if (input.newStatus === "ready" && !["kitchen", "manager"].includes(input.userRole)) throw Errors.forbiddenRole();
   if (input.newStatus === "delivered" && !["waiter", "manager"].includes(input.userRole)) throw Errors.forbiddenRole();
 
+  // Último item pronto do pedido self-service muda o stage (preparing →
+  // ready) e notifica o cliente no WhatsApp — a página pública e o bot
+  // consomem o evento customer.stage_changed (room order:<orderId>).
+  let readyNotifyOrderId: string | null = null;
   const updated = db.transaction((tx) => {
     const result = tx
       .update(orderItems)
@@ -367,11 +375,30 @@ export async function updateItemStatusUsecase(input: {
       changedBy: input.userId,
     });
 
+    // Só pra comanda de delivery (whatsapp/web) — comanda de mesa não tem
+    // máquina de cliente (nobody assina order:<orderId> de mesa). O stage
+    // só muda de fato quando o ÚLTIMO item ativo fica pronto.
+    const isSelfService = parentOrder?.channel === "whatsapp" || parentOrder?.channel === "web";
+    if (isSelfService && input.newStatus === "ready") {
+      const activeItems = tx
+        .query.orderItems.findMany({ where: eq(orderItems.orderId, input.orderId) })
+        .sync()
+        .filter((i: any) => i.status !== "cancelled");
+      if (activeItems.length > 0 && activeItems.every((i: any) => i.status === "ready" || i.status === "delivered")) {
+        emitCustomerStageChangedTx(tx, input.orderId);
+        readyNotifyOrderId = input.orderId;
+      }
+    }
+
     const action = input.newStatus === "delivered" ? "item_delivered" : "item_ready";
     logAction(tx, input.userId, action, input.orderId, { itemId: input.itemId });
 
     return result[0];
   });
+
+  if (readyNotifyOrderId) {
+    notifyReady(readyNotifyOrderId).catch((err) => console.error("falha ao notificar pedido pronto pro cliente:", err));
+  }
 
   return { ...updated, selectedVariations: JSON.parse(updated.selectedVariations) };
 }
@@ -830,6 +857,29 @@ export async function cancelOrderUsecase(input: { orderId: string; userId: strin
       orderId: order.id,
       tableId: order.tableId,
     });
+
+    // Propagação do cancelamento pra entrega: comanda cancelada não pode
+    // deixar a entrega órfã (awaiting/out_for_delivery pra sempre no painel
+    // do entregador, cliente em "Pedido recebido" eterno — inconsistência
+    // que o caminho iFood já resolvia, ver status-pushback.ts). Mesma
+    // transação da escrita de domínio (AGENTS.md). "delivered" não muda —
+    // comanda com entrega concluída está fechada e nunca chega aqui
+    // (orderNotOpen).
+    const delivery = tx.query.deliveries.findFirst({ where: eq(deliveries.orderId, input.orderId) }).sync();
+    if (delivery && delivery.status !== "delivered" && canTransitionDelivery(delivery.status, "cancelled")) {
+      tx.update(deliveries).set({ status: "cancelled" }).where(eq(deliveries.id, delivery.id)).run();
+      enqueueEvent(tx, "deliveries", "delivery.status_changed", {
+        id: delivery.id,
+        orderId: input.orderId,
+        courierId: delivery.courierId,
+        address: delivery.address,
+        status: "cancelled",
+        dispatchedAt: delivery.dispatchedAt,
+        deliveredAt: delivery.deliveredAt,
+        notes: delivery.notes,
+      });
+      emitCustomerStageChangedTx(tx, input.orderId);
+    }
 
     logAction(tx, input.userId, "order_cancelled", input.orderId, { reason: input.reason });
     return result;

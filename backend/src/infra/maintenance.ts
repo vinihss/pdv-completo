@@ -1,6 +1,6 @@
 import { and, eq, lt } from "drizzle-orm";
 import { db } from "./db/client.js";
-import { outboxEvents, idempotencyKeys } from "./db/schema.js";
+import { outboxEvents, idempotencyKeys, customerCarts } from "./db/schema.js";
 
 const INTERVAL_MS = 5 * 60_000;
 const OUTBOX_RETENTION_MS = 60 * 60_000; // publicados ficam 1h pra auditoria/debug
@@ -10,7 +10,9 @@ const OUTBOX_RETENTION_MS = 60 * 60_000; // publicados ficam 1h pra auditoria/de
  * - `outbox_event` publicados além da janela de retenção (já entregues, sem valor);
  * - `idempotency_key` com `expires_at` no passado (a janela de idempotência
  *   expirou; uma nova chamada com o mesmo correlationId deve poder reprocessar,
- *   ver idempotency.middleware.ts).
+ *   ver idempotency.middleware.ts);
+ * - `customer_cart` com `expires_at` no passado (carrinho server-side
+ *   abandonado — cart.usecases.ts).
  */
 export async function runMaintenanceOnce() {
   const outboxCutoff = new Date(Date.now() - OUTBOX_RETENTION_MS).toISOString();
@@ -22,7 +24,9 @@ export async function runMaintenanceOnce() {
   const nowIso = new Date().toISOString();
   const purgeKeys = await db.delete(idempotencyKeys).where(lt(idempotencyKeys.expiresAt, nowIso)).run();
 
-  return { outbox: purgeOutbox.changes, idempotencyKeys: purgeKeys.changes };
+  const purgeCarts = await db.delete(customerCarts).where(lt(customerCarts.expiresAt, nowIso)).run();
+
+  return { outbox: purgeOutbox.changes, idempotencyKeys: purgeKeys.changes, customerCarts: purgeCarts.changes };
 }
 
 export function startMaintenanceJobs() {
