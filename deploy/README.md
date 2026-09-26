@@ -118,7 +118,7 @@ cd /opt/pdv/deploy
 # 3. Configure as variáveis
 cp .env.example .env
 nano .env
-#   DOMAIN=pdv.seudominio.com.br
+#   DOMAIN=app.seudominio.com.br
 #   JWT_SECRET=<gere com: openssl rand -hex 32>
 
 # 4. Suba tudo
@@ -137,8 +137,8 @@ Depois disso, entre com esse PIN e cadastre o resto (categorias, produtos,
 garçons, cozinha) pela própria tela de Configurações/Equipe — não precisa
 mexer no servidor de novo pra isso.
 
-Depois desse passo, `https://pdv.seudominio.com.br` já serve o app com certificado
-válido, e a API responde em `https://pdv.seudominio.com.br/api/...`.
+Depois desse passo, `https://app.seudominio.com.br` já serve o app com certificado
+válido, e a API responde em `https://app.seudominio.com.br/api/...`.
 
 ## Seed de demonstração vs. seed de produção
 
@@ -223,7 +223,7 @@ Depois ajuste a `main` no GitHub para evitar redeploy do commit ruim.
 
 Não precisa publicar em loja de app nenhuma. No celular do garçom:
 
-1. Abra `https://pdv.seudominio.com.br` no Chrome (Android) ou Safari (iOS)
+1. Abra `https://app.seudominio.com.br` no Chrome (Android) ou Safari (iOS)
 2. Toque no menu → **"Adicionar à tela inicial"** (Android) ou **"Adicionar
    à Tela de Início"** (iOS, no botão de compartilhar)
 3. Um ícone aparece na tela inicial, abre em tela cheia como um app nativo
