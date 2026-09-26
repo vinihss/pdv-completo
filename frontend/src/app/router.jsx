@@ -25,7 +25,7 @@ export function AppFrame({ children }) {
               <span className="text-xs font-bold">{storeSettings?.merchantName?.[0] ?? "B"}</span>
             </div>
           )}
-          <span className="text-sm font-semibold text-stone-400 truncate">{storeSettings?.merchantName ?? "Bar do Zé"}</span>
+          <span className="text-sm font-semibold text-stone-400 truncate">{storeSettings?.merchantName ?? "PDV"}</span>
         </div>
         <button
           onClick={logout}

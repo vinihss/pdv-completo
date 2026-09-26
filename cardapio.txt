@@ -1,0 +1,64 @@
+nome_produto;categoria;descricao;preco
+Combo Gunkan (10 peças);Combos;2 Gunkan Salmão, 2 Gunkan Atum, 2 Gunkan Peixe Branco, 2 Gunkan Salmão Brie, 2 Gunkan Salmão Mel Picante;42,00
+Moria Wase (24 lâminas);Combos;4 Salmão, 4 Atum, 4 Peixe Branco, 4 Polvo, 4 Salmão Hara, 4 Haddock;89,00
+Especiarias (9 peças);Combos;Salmão Hara, Atum Shimeji Tamago, Vieira, Saboroso, Haddock, Polvo, Karubina, Enguia, Salmão Tostado;56,00
+Combo Umami (45 peças);Combos;10 Uramaki Philadelphia, 4 Joe Ebi, 4 Joe Shimeji, 4 Joe Crispy Alho-Poró, 4 Joe Tostado, 4 Nigiri Salmão Hara, 10 Sashimi Salmão, 5 Sashimi Atum;120,00
+Combo 39 peças;Combos;10 Ura Philadelphia, 10 Ura Skin, 5 Hossomaki Salmão, 2 Nigiri Salmão, 2 Nigiri Skin, 4 Gunkan Salmão, 6 Sashimi Salmão;99,00
+Combo 49 peças;Combos;10 Ura Philadelphia, 10 Ura Skin, 10 Hossomaki Salmão, 3 Nigiri Salmão, 3 Nigiri Skin, 4 Gunkan Salmão, 9 Sashimi Salmão;129,00
+Combo 59 peças;Combos;10 Ura Philadelphia, 10 Ura Camarão Crocante, 10 Ura Skin, 10 Hossomaki Salmão, 3 Nigiri Salmão, 3 Nigiri Skin, 4 Gunkan Salmão, 9 Sashimi Salmão;149,00
+Combo Nigiri (12 peças);Combos;2 Nigiri Salmão, 2 Nigiri Atum, 2 Nigiri Camarão, 2 Nigiri Polvo, 2 Nigiri Peixe Branco, 2 Nigiri Skin;62,00
+Kit (12 peças + Temaki);Combos;5 Ura Philadelphia, 5 Sashimi Salmão, 2 Gunkan Salmão, 1 Temaki;55,00
+Popu (54 peças);Combos;10 Ura Philadelphia, 10 Ura Skin, 10 Hossomaki Salmão, 10 Hossomaki Pepino, 10 Hot Philadelphia, 2 Nigiri Salmão, 2 Nigiri Skin;139,00
+Combo 19 peças;Combos;5 Ura Philadelphia, 5 Hossomaki Salmão, 2 Nigiri Salmão, 2 Gunkan Salmão, 5 Sashimi Salmão;69,00
+Combo 29 peças;Combos;10 Ura Philadelphia, 5 Hossomaki Salmão, 2 Nigiri Salmão, 2 Nigiri Skin, 3 Gunkan Salmão, 7 Sashimi Salmão;89,00
+Combinação sem lactose (24 peças);Combos;10 Ura Salmão, 5 Hossomaki Salmão, 2 Gunkan Salmão, 2 Nigiri Salmão, 5 Sashimi Salmão;79,00
+Hot Philadelphia (10 peças);Hot Rolls e Kids;Salmão, cream cheese, arroz, alga, tarê, gergelim;29,90
+Hot Camarão (10 peças);Hot Rolls e Kids;Camarão, cream cheese, arroz, alga, tarê, cebollete;39,90
+Hot Enjoy Cítrico (10 peças);Hot Rolls e Kids;Salmão, arroz, cream cheese, tarê, alga, crocante cítrico;39,90
+Kids Inca de Alcatra;Hot Rolls e Kids;Alcatra, macarrão na manteiga;24,90
+Sashimi Salmão (5 peças);Nigiri e Sashimi;Sashimi Salmão;33,90
+Sashimi Atum (5 peças);Nigiri e Sashimi;Sashimi Atum;18,90
+Sashimi Peixe Branco (5 peças);Nigiri e Sashimi;Sashimi Peixe Branco;39,90
+Sashimi Polvo (5 peças);Nigiri e Sashimi;Sashimi Polvo;39,90
+Sashimi Haddock (5 peças);Nigiri e Sashimi;Sashimi Haddock;36,90
+Sashimi Hara (5 peças);Nigiri e Sashimi;Sashimi Hara;39,90
+Nigiri Salmão (2 peças);Nigiri e Sashimi;Salmão e arroz;9,90
+Nigiri Atum (2 peças);Nigiri e Sashimi;Atum e arroz;8,90
+Nigiri Peixe Branco (2 peças);Nigiri e Sashimi;Peixe branco, arroz e limão;8,90
+Nigiri Salmão Tamago (2 peças);Nigiri e Sashimi;Salmão, arroz e creme tamago;12,90
+Nigiri Salmão Brie (2 peças);Nigiri e Sashimi;Salmão, arroz e queijo brie;13,90
+Gunkan Salmão (2 peças);Gunkan e Joe;Salmão, arroz, cream cheese, cebollete;22,00
+Gunkan Atum (2 peças);Gunkan e Joe;Atum, arroz, gergelim, kimuchi, cebollete;24,00
+Gunkan Peixe Branco (2 peças);Gunkan e Joe;Peixe branco, arroz, crispy de alho, cebollete;23,00
+Joe Shimeji (4 peças);Gunkan e Joe;Shimeji, salmão, cream cheese, manteiga com mel, tarê, gergelim, cebollete;12,90
+Joe Ebi (4 peças);Gunkan e Joe;Camarão, cream cheese, salmão, tarê, gergelim, cebollete;38,00
+Joe Ebi Crispy de Couve (4 peças);Gunkan e Joe;Camarão, salmão, cream cheese, sweet chili, crispy de couve;40,00
+Joe Ebi Alho-Poró (4 peças);Gunkan e Joe;Camarão, salmão, cream cheese, tarê, crispy de alho-poró;40,00
+Salmão Mel Picante (2 peças);Gunkan e Joe;Salmão, arroz, cream cheese, sriracha, mel;22,00
+Salmão Brie (2 peças);Gunkan e Joe;Salmão, arroz, queijo brie, mel;24,00
+Salmão Tostado (2 peças);Gunkan e Joe;Salmão, cream cheese, aspargo, creme tamago, layu;26,00
+Uramaki Philadelphia (10 peças);Uramaki e Hossomaki;Salmão, cream cheese, arroz, alga, gergelim;34,90
+Uramaki Skin Especial (10 peças);Uramaki e Hossomaki;Skin grelhado, cream cheese, arroz, alga, gergelim, lâmina de salmão, tarê, crispy de couve;38,90
+Uramaki Tuna (10 peças);Uramaki e Hossomaki;Tartar de atum, cebolete, molho kimuchi, arroz, alga, gergelim;31,90
+Uramaki Philadelphia Crocante Cítrico (10 peças);Uramaki e Hossomaki;Salmão, cream cheese, arroz, alga, gergelim, farofa cítrica;37,90
+Uramaki Camarão Crocante (10 peças);Uramaki e Hossomaki;Camarão crocante, cream cheese, arroz, alga, gergelim, lâmina de salmão, tarê, crispy de alho-poró;39,90
+Hossomaki Salmão (10 peças);Uramaki e Hossomaki;Salmão e arroz envoltos em alga;24,90
+Hossomaki Atum (10 peças);Uramaki e Hossomaki;Atum e arroz envoltos em alga;20,90
+Hossomaki Pepino (10 peças);Uramaki e Hossomaki;Pepino e arroz envoltos em alga;18,90
+Salmão grelhado ao ponto de Endro;Pratos Quentes;Salmão, arroz tempura, aspargos, tomate confit, cebola, molho de maracujá;49,90
+Polvo ao Açaí Picante;Pratos Quentes;Polvo, arroz tempura, aspargos, tomate confit, cebola, molho de açaí;59,90
+Poke Tradicional;Poke e Yakisoba;Salmão, atum, peixe branco, avocado, cebola roxa, sunomono, alga, edamame, cebollete, gergelim, chips de batata, polvo, aspargo;49,90
+Poke Salmão Trufado;Poke e Yakisoba;Salmão, avocado, sunomono, alga, edamame, azeite trufado, flor de sal, limão siciliano, chips de batata;54,90
+Yakisoba Frango;Poke e Yakisoba;Frango, cenoura, acelga, pimentão, aspargo, macarrão, brócolis;49,00
+Yakisoba Alcatra;Poke e Yakisoba;Alcatra, acelga, cenoura, pimentão, aspargo, macarrão, brócolis;52,00
+Yakisoba Salmão;Poke e Yakisoba;Salmão, acelga, cenoura, pimentão, aspargo, macarrão, brócolis;37,90
+Yakisoba Camarão;Poke e Yakisoba;Camarão, acelga, cenoura, pimentão, aspargo, macarrão, brócolis;44,90
+Yakisoba Vegano;Poke e Yakisoba;Acelga, cenoura, pimentão, aspargo, macarrão, brócolis;24,90
+Chocolate;Hot Doce e Rolinho Primavera;Massa Haromaki, ganache, amendoim;19,90
+Doce de leite;Hot Doce e Rolinho Primavera;Massa Haromaki, doce de leite, banana;19,90
+Romeu e Julieta (Rolinho Primavera);Hot Doce e Rolinho Primavera;Massa Haromaki, goiabada, queijo mussarela;11,90
+S/Lactose 24;Combinados;10 Ura Salmão, 5 Hossomaki Salmão, 2 Gunkan Salmão, 2 Nigiri Salmão, 5 Sashimi Salmão;99,90
+Ceviche;Entradas e Especiais;Salmão, atum, peixe branco, molho verde, cebola roxa, leite de tigre, pimenta dedo-de-moça;39,00
+Tira de Peixe Branco;Entradas e Especiais;Lâminas de peixe branco, molho de maracujá, azeite, cebolete, raspas de limão siciliano;0,00
+Salmão Hara;Especiarias 2 Peças;Azeite Trufado, flor de sol, ovos, Limão siciliano e cebolete;19,90
+Atum Shimeji Tamago;Especiarias 2 Peças;Atum, Shimeji, Tamago e layu;18,90

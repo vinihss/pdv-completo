@@ -1,7 +1,7 @@
 {
-  "name": "Bar do Zé — PDV",
+  "name": "PDV",
   "short_name": "PDV",
-  "description": "Comandas, cozinha e gestão — Bar do Zé",
+  "description": "Comandas, cozinha e gestão — PDV",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

@@ -158,7 +158,7 @@ export default function Login() {
                 <Lock size={26} className="text-stone-950" strokeWidth={2.5} />
               </div>
             )}
-            <h1 className="font-display text-2xl font-bold">{storeName || "Bar do Zé"}</h1>
+            <h1 className="font-display text-2xl font-bold">{storeName || "PDV"}</h1>
             <p className="text-stone-500 text-sm mt-1">Selecione seu nome para continuar</p>
           </div>
 
