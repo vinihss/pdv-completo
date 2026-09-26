@@ -1,0 +1,189 @@
+name: Deploy Hostinger VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-hostinger-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate-backend:
+    name: Validar backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Instalar dependências (backend)
+        working-directory: backend
+        run: npm ci
+
+      - name: Build (backend)
+        working-directory: backend
+        run: npm run build
+
+      - name: Testes (backend)
+        working-directory: backend
+        run: npm run test
+
+  validate-frontend:
+    name: Validar frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependências (frontend)
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint (frontend)
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build (frontend)
+        working-directory: frontend
+        run: npm run build
+
+      - name: Testes (frontend)
+        working-directory: frontend
+        run: npm run test
+
+  deploy:
+    name: Deploy em produção (Hostinger VPS)
+    runs-on: ubuntu-latest
+    needs:
+      - validate-backend
+      - validate-frontend
+
+    steps:
+      - name: Preparar SSH
+        shell: bash
+        env:
+          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
+          HOSTINGER_SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+          HOSTINGER_KNOWN_HOSTS: ${{ secrets.HOSTINGER_KNOWN_HOSTS }}
+          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT != '' && secrets.HOSTINGER_PORT || '22' }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ -z "${HOSTINGER_HOST}" || -z "${HOSTINGER_USER}" || -z "${HOSTINGER_SSH_KEY}" ]]; then
+            echo "Secrets obrigatórios ausentes: HOSTINGER_HOST, HOSTINGER_USER e HOSTINGER_SSH_KEY." >&2
+            exit 1
+          fi
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${HOSTINGER_SSH_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          if [[ -n "${HOSTINGER_KNOWN_HOSTS}" ]]; then
+            printf '%s\n' "${HOSTINGER_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -p "${HOSTINGER_PORT}" -H "${HOSTINGER_HOST}" > ~/.ssh/known_hosts
+          fi
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy remoto com Docker Compose
+        shell: bash
+        env:
+          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
+          HOSTINGER_APP_PATH: ${{ secrets.HOSTINGER_APP_PATH }}
+          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT != '' && secrets.HOSTINGER_PORT || '22' }}
+        run: |
+          set -Eeuo pipefail
+
+          if [[ -z "${HOSTINGER_APP_PATH}" ]]; then
+            echo "Secret obrigatório ausente: HOSTINGER_APP_PATH." >&2
+            exit 1
+          fi
+
+          ssh -p "${HOSTINGER_PORT}" "${HOSTINGER_USER}@${HOSTINGER_HOST}" "APP_PATH='${HOSTINGER_APP_PATH}' bash -s" <<'SSH'
+          set -Eeuo pipefail
+
+          cd "${APP_PATH}"
+
+          git fetch --prune origin
+          git checkout -f main
+          git reset --hard origin/main
+
+          if [[ ! -f deploy/.env ]]; then
+            echo "ERRO: arquivo deploy/.env não encontrado em ${APP_PATH}/deploy/.env. Crie o arquivo de produção no VPS antes de executar o deploy." >&2
+            exit 1
+          fi
+
+          docker compose -f deploy/docker-compose.yml up -d --build --remove-orphans
+
+          for service in caddy backend frontend; do
+            echo "Aguardando serviço ${service} ficar em execução..."
+
+            for attempt in {1..30}; do
+              if docker compose -f deploy/docker-compose.yml ps --status running --services | grep -Fxq "${service}"; then
+                break
+              fi
+
+              if [[ "${attempt}" -eq 30 ]]; then
+                echo "ERRO: serviço ${service} não ficou em execução." >&2
+                docker compose -f deploy/docker-compose.yml ps
+                docker compose -f deploy/docker-compose.yml logs --tail=100 "${service}" || true
+                exit 1
+              fi
+
+              sleep 2
+            done
+
+            container_id="$(docker compose -f deploy/docker-compose.yml ps -q "${service}")"
+            if [[ -n "${container_id}" ]]; then
+              health_status="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "${container_id}")"
+
+              if [[ "${health_status}" == "unhealthy" ]]; then
+                echo "ERRO: serviço ${service} está unhealthy." >&2
+                docker compose -f deploy/docker-compose.yml logs --tail=100 "${service}" || true
+                exit 1
+              fi
+
+              if [[ "${health_status}" == "starting" ]]; then
+                for health_attempt in {1..30}; do
+                  health_status="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "${container_id}")"
+                  if [[ "${health_status}" == "healthy" || "${health_status}" == "no-healthcheck" ]]; then
+                    break
+                  fi
+
+                  if [[ "${health_attempt}" -eq 30 ]]; then
+                    echo "ERRO: timeout aguardando healthcheck de ${service}." >&2
+                    docker compose -f deploy/docker-compose.yml logs --tail=100 "${service}" || true
+                    exit 1
+                  fi
+
+                  sleep 2
+                done
+              fi
+            fi
+          done
+
+          docker compose -f deploy/docker-compose.yml ps
+          SSH
