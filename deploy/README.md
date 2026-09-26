@@ -25,6 +25,85 @@ mas isso é trabalho adicional não incluído aqui.
    IP do servidor — o Caddy precisa disso resolvendo *antes* de subir, pra
    conseguir emitir o certificado TLS automaticamente
 3. Portas **80** e **443** liberadas no firewall do servidor
+4. Repositório clonado em um diretório fixo no VPS (ex.: `/opt/pdv-completo`)
+
+> ⚠️ A pipeline abaixo é para **Hostinger VPS** (ou servidor Linux equivalente
+> com Docker + SSH). **Não use em hospedagem compartilhada/hPanel sem Docker e
+> sem acesso SSH adequado**.
+
+## Deploy contínuo com GitHub Actions (Hostinger VPS)
+
+O repositório possui o workflow **`.github/workflows/deploy-hostinger.yml`** com:
+
+- gatilho em `push` para `main`;
+- gatilho manual (`workflow_dispatch`);
+- validações antes do deploy:
+  - backend: `npm ci`, `npm run build`, `npm run test`;
+  - frontend: `npm ci`, `npm run lint`, `npm run build`, `npm run test`;
+- deploy remoto por SSH com `set -Eeuo pipefail`;
+- sincronização limpa do código no VPS com `git fetch --prune`, `git checkout -f main` e `git reset --hard origin/main`;
+- deploy com `docker compose -f deploy/docker-compose.yml up -d --build --remove-orphans`;
+- checagem de status/saúde dos serviços após subir.
+
+O workflow **não** roda `docker compose down -v` e não remove volumes
+persistentes, preservando dados do SQLite e uploads.
+
+### Secrets necessários no GitHub Actions
+
+Configure em **Settings → Secrets and variables → Actions**:
+
+- `HOSTINGER_HOST` (IP ou domínio do VPS)
+- `HOSTINGER_PORT` (opcional; se ausente/vazio usa `22`)
+- `HOSTINGER_USER` (usuário SSH)
+- `HOSTINGER_SSH_KEY` (chave privada OpenSSH/PEM)
+- `HOSTINGER_APP_PATH` (caminho absoluto do clone no VPS, ex.: `/opt/pdv-completo`)
+- `HOSTINGER_KNOWN_HOSTS` (opcional, recomendado)
+
+### Chave SSH e known_hosts (sem expor segredo)
+
+No seu computador local:
+
+```bash
+ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/pdv_hostinger_deploy
+```
+
+1. Adicione `~/.ssh/pdv_hostinger_deploy.pub` em `~/.ssh/authorized_keys` do
+   usuário do VPS (`HOSTINGER_USER`).
+2. Copie o conteúdo de `~/.ssh/pdv_hostinger_deploy` para o secret
+   `HOSTINGER_SSH_KEY`.
+3. **Nunca** comite chave privada no repositório.
+
+Para o `known_hosts`:
+
+```bash
+ssh-keyscan -p 22 -H SEU_HOST_OU_IP
+```
+
+Copie a saída para o secret `HOSTINGER_KNOWN_HOSTS`. Se ele não for informado,
+o workflow gera `known_hosts` com `ssh-keyscan` durante a execução.
+
+### Setup inicial do VPS para uso da pipeline
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git
+curl -fsSL https://get.docker.com | sh
+
+sudo mkdir -p /opt/pdv-completo
+sudo chown -R "$USER":"$USER" /opt/pdv-completo
+git clone https://github.com/vinihss/pdv-completo.git /opt/pdv-completo
+cd /opt/pdv-completo
+```
+
+Crie o arquivo de produção **somente no VPS**:
+
+```bash
+cp deploy/.env.example deploy/.env
+nano deploy/.env
+```
+
+Defina ao menos `DOMAIN` e `JWT_SECRET` forte.  
+Se `deploy/.env` não existir, o deploy falha com mensagem clara.
 
 ## Passo a passo
 
@@ -105,17 +184,40 @@ simples de copiar pro destino externo:
 
 ## Atualizando o app depois do primeiro deploy
 
+Via CI/CD (recomendado), basta fazer push/merge na `main` ou executar manualmente
+o workflow **Deploy Hostinger VPS** na aba Actions.
+
+Fallback manual:
+
 ```bash
-cd /opt/pdv
+cd /opt/pdv-completo
 git pull   # ou reenvie os arquivos atualizados
-cd deploy
-docker compose up -d --build
+docker compose -f deploy/docker-compose.yml up -d --build --remove-orphans
 ```
 
 As migrations rodam automaticamente no boot do backend (ver
 `src/infra/db/migrate.ts`) — não precisa rodar nada manual pra aplicar
 mudanças de schema, desde que você adicione o novo arquivo `.sql` em
 `backend/migrations/` antes de subir.
+
+## Rollback simples
+
+Se precisar voltar para um commit anterior:
+
+```bash
+cd /opt/pdv-completo
+git fetch --prune origin
+git reset --hard <commit-ou-tag-estavel>
+docker compose -f deploy/docker-compose.yml up -d --build --remove-orphans
+```
+
+Depois ajuste a `main` no GitHub para evitar redeploy do commit ruim.
+
+### Cuidados com backup do SQLite
+
+- Faça backup antes de rollback e antes de mudanças críticas.
+- Preserve o volume `pdv_backend_data` (dados) e `pdv_backend_uploads` (uploads).
+- Nunca use `docker compose down -v` em produção sem plano de restauração.
 
 ## Deixando o app disponível pros garçons (PWA)
 
