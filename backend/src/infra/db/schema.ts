@@ -240,6 +240,10 @@ export const storeSettings = sqliteTable("store_settings", {
   kitchenPrepUrgentMin: integer("kitchen_prep_urgent_min").notNull().default(6),
   kitchenPickupUrgentMin: integer("kitchen_pickup_urgent_min").notNull().default(5),
   deliveryFee: real("delivery_fee").notNull().default(0),
+  restaurantLat: real("restaurant_lat"),
+  restaurantLong: real("restaurant_long"),
+  freeDeliveryMin: real("free_delivery_min").notNull().default(0),
+  deliveryFeeTiers: text("delivery_fee_tiers").notNull().default("[]"),
 });
 
 export const auditLog = sqliteTable("audit_log", {
@@ -313,6 +317,8 @@ export const customerAddresses = sqliteTable("customer_address", {
   neighborhood: text("neighborhood").notNull(),
   city: text("city").notNull(),
   reference: text("reference"),
+  latitude: real("latitude"),
+  longitude: real("longitude"),
   isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
 });
@@ -321,7 +327,7 @@ export const customerAddresses = sqliteTable("customer_address", {
 // webhook, então o carrinho em construção vive aqui até a confirmação final.
 export const whatsappConversations = sqliteTable("whatsapp_conversation", {
   phone: text("phone").primaryKey(),
-  state: text("state", { enum: ["welcome", "browsing", "cart", "checkout", "done"] }).notNull().default("welcome"),
+  state: text("state", { enum: ["welcome", "browsing", "cart", "checkout", "done", "awaiting_location", "awaiting_confirmation", "awaiting_correction"] }).notNull().default("welcome"),
   cartItems: text("cart_items").notNull().default("[]"), // JSON string
   customerName: text("customer_name"),
   deliveryAddress: text("delivery_address"),
@@ -336,6 +342,8 @@ export const deliveries = sqliteTable("delivery", {
   orderId: text("order_id").notNull().unique().references(() => orders.id, { onDelete: "cascade" }),
   courierId: text("courier_id").references(() => users.id, { onDelete: "set null" }),
   address: text("address").notNull(), // snapshot formatado, copiado do checkout
+  distanceKm: real("distance_km"),
+  estimatedMinutes: integer("estimated_minutes"),
   // 0018: "cancelled" é o cancelamento (manager ou cliente) — distinto de
   // "failed" ("problema na entrega"); transições válidas na máquina
   // declarativa em src/domain/customer-order-state.ts.
@@ -357,5 +365,12 @@ export const customerCarts = sqliteTable("customer_cart", {
   phone: text("phone").primaryKey(),
   items: text("items").notNull().default("[]"), // JSON string
   updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
+  expiresAt: text("expires_at").notNull(),
+});
+
+export const geocodingCache = sqliteTable("geocoding_cache", {
+  cacheKey: text("cache_key").primaryKey(),
+  response: text("response").notNull(),
+  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
   expiresAt: text("expires_at").notNull(),
 });

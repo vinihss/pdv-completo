@@ -21,6 +21,7 @@ import {
   saveCustomerCartUsecase,
   clearCustomerCartUsecase,
 } from "../../application/self-service/cart.usecases.js";
+import { calcularEntregaUsecase } from "../../application/delivery/calcular-entrega.usecase.js";
 
 const addressFields = {
   label: z.string().optional(),
@@ -189,5 +190,16 @@ export async function publicRoutes(app: FastifyInstance) {
     const body = cartQuerySchema.parse(req.body);
     await clearCustomerCartUsecase(body.phone);
     return { ok: true };
+  });
+
+  const calcularEntregaSchema = z.object({
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+    itemsTotal: z.number().min(0).optional(),
+  });
+
+  app.post("/calcular-entrega", { preHandler: publicWriteRateLimit }, async (req) => {
+    const body = calcularEntregaSchema.parse(req.body);
+    return calcularEntregaUsecase(body);
   });
 }
