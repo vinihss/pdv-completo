@@ -13,11 +13,19 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // mesmo alias do vite.config.js — sem ele o scan de dependências do
+      // vitest reclama de @inspector/react ao encarar src/main.jsx
+      "@inspector/react": path.resolve(__dirname, "./vendor/inspector-react"),
     },
   },
   test: {
     environment: "jsdom",
     globals: true,
     include: ["src/**/*.test.{js,jsx}"],
+    // Um jsdom por arquivo consumia ~12s e 7+ instâncias, e a suíte chegou a
+    // reportar arquivos inteiros falhando sob pressão de memória da máquina
+    // (2,5GB livres de 19,8GB, com ~7GB em chromium de outras apps), sem
+    // falha determinística. vmThreads cria o ambiente uma vez por worker.
+    pool: "vmThreads",
   },
 });

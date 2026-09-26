@@ -195,14 +195,30 @@ Verificados e **já estavam corretos** (nada a fazer): `usePublicRealtime` já �
 um hook único em `shared/hooks` (não há duplicata), e o toggle do iFood já entra
 no payload, porque `handleSave` envia o form inteiro para `updateStoreSettings`.
 
-### Pendência encontrada na Fase 7 (não corrigida — escopo)
+### Robustez: `toDate()` sem guarda (corrigido)
 
-`shared/lib/format.js::toDate` pode retornar `null`, e vários call sites fazem
-`toDate(x).toLocaleString()` **sem guarda** — `ReportsTab.jsx:137` e
-`CashDrawerTab.jsx:190` entre outros. Se `openedAt` vier nulo/inválido, isso
-lança. Não mexi porque a correção muda o formato exibido (`.toLocaleString()` vs
-`formatDateTime`), o que é decisão de produto. A correção barata seria um
-`formatDateTimeOrDash`-style seguro, ou `toDate()?.toLocaleString() ?? "—"`.
+`shared/lib/format.js::toDate` devolve `null` para timestamp ausente ou
+inválido, e 7 call sites faziam `toDate(x).toLocaleString()` direto — em
+`ReportsTab`, `CashDrawerTab`, `CashDrawerDetailModal` e `PrintReceipt`. Com
+`openedAt`/`closedAt`/`createdAt` nulo, isso lançava em vez de renderizar.
+Agora é `toDate(x)?.toLocaleString() ?? "—"` em todos. **O formato exibido não
+mudou**: a decisão foi guarda mínima com fallback, em vez de migrar para
+`formatDateTime` (que padronizaria, mas alteraria o que o usuário vê em caixa
+e relatório). O guarda `x && toDate(x)…` que existia em alguns lugares ficou
+redundante e foi removido — `toDate(null)` já devolve `null`, então o `?? "—"`
+cobre os dois casos.
+
+### Estabilidade da suíte
+
+`vitest.config.js` agora usa `pool: "vmThreads"`, a sugestão que o próprio
+vitest imprimia ao final das execuções. Antes, `jsdom` era criado uma vez por
+arquivo (7–9 instâncias, ~12s) e a suíte chegou a reportar arquivos inteiros
+falhando sob pressão de memória da máquina, **sem falha determinística** — não
+reproduzi em 20+ execuções, mas também não posso provar que era só contenção de
+recursos. Com `vmThreads` o ambiente é criado uma vez por worker: 8 execuções
+seguidas passaram 90/90 e a duração caiu de ~7,3s para ~4,5s. O alias
+`@inspector/react` foi replicado do `vite.config.js` para o `vitest.config.js`,
+senão o scan de dependências reclamava ao encarar `src/main.jsx`.
 
 ### O que a Fase 3 entregou
 
