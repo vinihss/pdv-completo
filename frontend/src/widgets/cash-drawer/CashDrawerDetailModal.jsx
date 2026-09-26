@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { X, Printer } from "lucide-react";
+import { Printer } from "lucide-react";
 import { getCashDrawerDetail } from "@/entities/cash";
 import { toDate } from "@/shared/lib";
 import { formatBRL } from "@/shared/lib";
+import { Modal } from "@/shared/components";
 
 
 export default function CashDrawerDetailModal({ drawerId, onClose, showToast, onPrint }) {
@@ -15,18 +16,21 @@ export default function CashDrawerDetailModal({ drawerId, onClose, showToast, on
   }, [drawerId, showToast]);
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center sm:justify-center z-50">
-      <div className="w-full sm:max-w-md bg-stone-900 border border-stone-800 rounded-t-3xl sm:rounded-3xl p-6 fade-up max-h-[85vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-display text-lg font-bold">Detalhe do caixa</h3>
-          <div className="flex items-center gap-1">
-            <button onClick={() => onPrint?.()} title="Imprimir cupom" className="text-stone-500 hover:text-stone-300">
-              <Printer size={18} />
-            </button>
-            <button onClick={onClose} className="text-stone-500"><X size={20} /></button>
-          </div>
-        </div>
-
+    <Modal
+      title="Detalhe do caixa"
+      onClose={onClose}
+      headerRight={
+        <button
+          onClick={() => onPrint?.()}
+          title="Imprimir cupom"
+          aria-label="Imprimir cupom"
+          className="w-10 h-10 flex items-center justify-center rounded-full text-stone-500 hover:text-stone-200 transition-colors shrink-0"
+        >
+          <Printer size={18} />
+        </button>
+      }
+    >
+      <div className="p-5">
         {!detail && <div className="text-stone-600 text-center py-8">Carregando…</div>}
 
         {detail && (
@@ -77,7 +81,7 @@ export default function CashDrawerDetailModal({ drawerId, onClose, showToast, on
           </>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }
 

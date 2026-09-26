@@ -141,7 +141,7 @@ src/
 Cada fase termina com `npm run build` e `npm run test` verdes, `npm run lint`
 sem warning novo, e é um commit isolado. O número de testes de fronteira
 cresce a cada fase, porque a contagem acompanha quantos barrels existem:
-hoje são 87 no total (50 de comportamento + 37 de arquitetura).
+hoje são 137 no total (100 de comportamento + 37 de arquitetura).
 
 | Fase | Conteúdo | Risco |
 |---|---|---|
@@ -236,8 +236,8 @@ saiu de lá foi para a entity que é dona do vocabulário:
 | `ACTION_LABEL` (dentro de `AuditTab`) | `entities/audit/model` | dicionário de ações do audit log |
 | `DeliveryStatusBadge` (dentro de `DeliveriesTab`) | `entities/delivery/ui` | badge de entrega, usado por 2 papéis |
 
-`shared` ficou com 3 primitivas (`Toast`, `Form`, `ConfirmModal`) e 4 libs
-genéricas (`format`, `money`, `theme`, `uuid`).
+`shared` ficou com 5 primitivas (`Toast`, `Form`, `ConfirmModal`, `Modal`,
+`ScreenHeader`) e 4 libs genéricas (`format`, `money`, `theme`, `uuid`).
 
 O atalho `features/orders/VariationModal.jsx` (que só re-exportava o
 compartilhado) foi removido: agora os dois consumidores importam de
@@ -245,7 +245,7 @@ compartilhado) foi removido: agora os dois consumidores importam de
 
 ### Fronteiras agora são testadas
 
-`src/__tests__/fsd-boundaries.test.js` (42 casos) roda em `npm run test` e
+`src/__tests__/fsd-boundaries.test.js` (37 casos) roda em `npm run test` e
 falha em cinco situações que o build não pega:
 
 1. `shared/api/` deixar de ter só `http.js`.
@@ -301,6 +301,39 @@ nome declarado em barrel existe no arquivo que o define.
 Ordem não é negociável: **não se move `orders/*` antes de `pages/`** (Fase 6
 é a última justamente por isso).
 
+### Convenção de overlay (Fase 5)
+
+Toda sobreposição do app passa por uma de três primitivas de `shared/components`:
+
+| Primitiva | Quando | Comportamento |
+|---|---|---|
+| `Modal` | formulário/carrinho/detalhe (18 usos) | **tela cheia em qualquer device** (o tablet do garçom é o alvo): cabeçalho fixo com título e **X à direita**, corpo rolável, `footer` de ação sempre visível. Fecha por X, **Esc** ou **arrastando para baixo** (toque) |
+| `ScreenHeader` | tela que já é fullscreen (`OrderDetailScreen`, `AddItemScreen`) | mesma métrica do `Modal`, com o controle **à esquerda** (é navegação, não descarte) e **Esc** para voltar |
+| `ConfirmModal` | confirmação binária curta | **card centralizado** — o peso do aviso vem do card pequeno; Esc cancela; `destructive` para exclusão/cancelamento |
+
+Regras que caem disso:
+
+- **Não existe overlay ad-hoc.** `fixed inset-0 bg-black/70` só aparece dentro
+  de `ConfirmModal` — foi o que o `rg` acusou ao final da migração.
+- **Esc é sempre "a camada de cima fecha"** — via `useEscapeLayer`
+  (`shared/hooks/useEscapeLayer.js`). Um listener por componente resolveria
+  pela ordem de *registro*, e ela não é a ordem visual: o React roda efeito de
+  filho antes do pai (num `Modal` dentro de outro, quem registra por último é o
+  de fora) e o header da tela pode ter registrado antes de um modal que abriu
+  depois. A pilha compara os elementos por `compareDocumentPosition` (overlay é
+  `fixed` com z-index igual, então o último da árvore é o último pintado) e
+  entrega a tecla só ao topo. Captura + `stopImmediatePropagation` + guarda de
+  `repeat`/`defaultPrevented` vivem na pilha.
+- **`Modal` trava o scroll do fundo** (`document.body.style.overflow`) e
+  restaura no unmount. Não havia nada disso no app: o corpo rolava por trás.
+- **Gesto de descarte é conservador de propósito**: fecha com arrasto > 120px
+  ou flick > 40px **e** > 0,6px/ms, com trava de eixo em 8px (diagonal é
+  scroll, não descarte) e com o corpo já rolado pertence ao scroll nativo.
+- `Modal` **não pode** usar `formatBRL`/`.toFixed(2)`: é primitiva de `shared`.
+  Os modais de dinheiro formatam no pai e recebem string/valor já pronto.
+- `PaymentModal.jsx` e `CloseCashDrawerModal.jsx` **ficam onde estão** despite o
+  nome: o `fsd-boundaries.test.js` tem allowlist (`MONEY_ALLOWED`) para os dois.
+
 ## 6. Regras de verificação
 
 1. `npm run build` **não** pega `ReferenceError` de import perdido em módulo
@@ -314,11 +347,13 @@ Ordem não é negociável: **não se move `orders/*` antes de `pages/`** (Fase 6
    padrão `importOriginal` é obrigatório ao mockar barrel que também expõe
    UI ou model.
 3. `src/__tests__/fsd-boundaries.test.js` é a rede de segurança estrutural
-   (42 casos): barrels consistentes, `shared` sem vocabulário de domínio,
+   (37 casos): barrels consistentes, `shared` sem vocabulário de domínio,
    direção de dependências e import só pela API pública.
 4. `npm run lint` (oxlint) tem 2 warnings pré-existentes em
-   `AuthContext.jsx:79` e `Toast.jsx:3` (`only-export-components`) e 1 em
-   `Login.jsx:91` (`exhaustive-deps`). Não são Blocking.
+   `AuthProvider.jsx:79` e `Toast.jsx:3` (`only-export-components`) e 1 em
+   `public/sw.js` (`no-unused-vars`). Não são blocking. O
+   `exhaustive-deps` de `LoginPage.jsx` foi resolvido com `useCallback` nos
+   handlers de PIN.
 5. `http.js` guarda estado global mutável (`authToken`, `onUnauthorized`).
    Isso **força** `vi.mock` de módulo inteiro nos testes; injetar dependência
    é o que torna `entities/*/api` testável de unidade, mas é um passo

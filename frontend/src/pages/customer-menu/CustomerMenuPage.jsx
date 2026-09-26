@@ -7,6 +7,7 @@ import { lookupPublicCustomer } from "@/entities/customer";
 import { createPublicOrder, getPublicOrderStatus, getActivePublicOrder, cancelPublicOrder } from "@/entities/order";
 import { getPublicMenu } from "@/entities/product";
 import { usePublicRealtime } from "@/shared/hooks";
+import { Modal } from "@/shared/components";
 import { applyBrandPrimary, variationsText, formatBRL } from "@/shared/lib";
 import { VariationModal } from "@/entities/product";
 import { lineKey, toServerLine, variationGroups, hasVariations, missingRequiredGroups } from "@/entities/cart";
@@ -928,10 +929,29 @@ function ConfirmationScreen({ order, status, phone, onCancel, onReset, submittin
       )}
 
       {cancelOpen && (
-        <div className="fixed inset-0 z-40 bg-stone-950/90 flex items-end justify-center sm:items-center px-5 pb-6">
-          <div className="w-full max-w-[430px] bg-stone-900 border border-stone-800 rounded-3xl p-6">
-            <p className="text-[15px] font-bold text-stone-50">Cancelar pedido?</p>
-            <p className="text-[13px] text-stone-500 mt-1.5">
+        <Modal
+          title="Cancelar pedido?"
+          onClose={() => setCancelOpen(false)}
+          footer={
+            <div className="flex gap-3">
+              <button
+                onClick={() => setCancelOpen(false)}
+                className="flex-1 h-11 rounded-xl border border-stone-800 text-[14px] font-semibold text-stone-300"
+              >
+                Voltar
+              </button>
+              <button
+                onClick={() => onCancel(digitsOnly(cancelPhone))}
+                disabled={submitting || !digitsOnly(cancelPhone)}
+                className="flex-1 h-11 rounded-xl bg-red-500/90 text-white font-semibold text-[14px] disabled:opacity-40"
+              >
+                {submitting ? "Cancelando…" : "Confirmar cancelamento"}
+              </button>
+            </div>
+          }
+        >
+          <div className="p-5">
+            <p className="text-[13px] text-stone-500">
               {failed
                 ? "A entrega falhou e este pedido ainda está aberto — cancelar evita cobrança."
                 : "Enquanto o pedido não sair para entrega, o cancelamento é imediato."}
@@ -951,23 +971,8 @@ function ConfirmationScreen({ order, status, phone, onCancel, onReset, submittin
                 <AlertTriangle size={13} className="shrink-0 mt-0.5" /> {cancelError}
               </div>
             )}
-            <div className="flex gap-3 mt-4">
-              <button
-                onClick={() => setCancelOpen(false)}
-                className="flex-1 h-11 rounded-xl border border-stone-800 text-[14px] font-semibold text-stone-300"
-              >
-                Voltar
-              </button>
-              <button
-                onClick={() => onCancel(digitsOnly(cancelPhone))}
-                disabled={submitting || !digitsOnly(cancelPhone)}
-                className="flex-1 h-11 rounded-xl bg-red-500/90 text-white font-semibold text-[14px] disabled:opacity-40"
-              >
-                {submitting ? "Cancelando…" : "Confirmar cancelamento"}
-              </button>
-            </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {!failed && !cancelled && (

@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import {
-  ChevronLeft, Plus, Check, Trash2, AlertTriangle, Clock,
+  Plus, Check, Trash2, Clock, AlertTriangle,
 } from "lucide-react";
+import { ConfirmModal, ScreenHeader } from "@/shared/components";
 import { updateItemStatus, deleteItem, closeOrder } from "@/entities/order";
 import { useAuth } from "@/app/providers/auth";
 import { formatBRL } from "@/shared/lib";
@@ -85,15 +86,13 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
   }
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-50 pb-32">
-      <div className="px-5 pt-6 pb-4 sticky top-12 bg-stone-950/95 backdrop-blur z-10 border-b border-stone-900 flex items-center gap-3">
-        <button onClick={onBack} className="text-stone-400 hover:text-stone-200">
-          <ChevronLeft size={22} />
-        </button>
-        <div className="flex-1">
-          <h1 className="font-display text-lg font-bold leading-tight">{orderLabel(order)}</h1>
-          <p className="text-stone-500 text-xs">{order.items.length} {order.items.length === 1 ? "item" : "itens"} · {formatBRL(orderTotal(order))}</p>
-        </div>
+    <div className="min-h-screen bg-stone-950 text-stone-50 pb-32 flex flex-col">
+      <div className="sticky top-0 bg-stone-950/95 backdrop-blur z-10">
+        <ScreenHeader
+          title={orderLabel(order)}
+          subtitle={`${order.items.length} ${order.items.length === 1 ? "item" : "itens"} · ${formatBRL(orderTotal(order))}`}
+          onBack={onBack}
+        />
       </div>
 
       <div className="px-5 pt-4 divide-y divide-stone-900">
@@ -128,6 +127,7 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
                       e.stopPropagation();
                       setConfirmDelete(it);
                     }}
+                    aria-label={`Remover ${it.name} da comanda`}
                     className="text-stone-600 hover:text-red-400 p-1"
                   >
                     <Trash2 size={15} />
@@ -232,28 +232,14 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
       )}
 
       {confirmDelete && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6">
-          <div className="w-full max-w-xs bg-stone-900 border border-stone-800 rounded-2xl p-5 fade-up">
-            <div className="flex items-center gap-2 text-amber-400 mb-3">
-              <AlertTriangle size={18} />
-              <span className="font-semibold text-sm">Remover item?</span>
-            </div>
-            <p className="text-stone-400 text-sm mb-5">
-              {confirmDelete.quantity}× {confirmDelete.name} será removido da comanda. Essa ação não pode ser desfeita.
-            </p>
-            <div className="flex gap-2">
-              <button onClick={() => setConfirmDelete(null)} className="flex-1 bg-stone-800 text-stone-300 font-semibold py-2.5 rounded-xl">
-                Cancelar
-              </button>
-              <button
-                onClick={() => handleDeleteConfirmed(confirmDelete)}
-                className="flex-1 bg-red-500 hover:bg-red-400 text-stone-950 font-semibold py-2.5 rounded-xl"
-              >
-                Remover
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          title="Remover item?"
+          message={`${confirmDelete.quantity}× ${confirmDelete.name} será removido da comanda. Essa ação não pode ser desfeita.`}
+          confirmLabel="Remover"
+          destructive
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={() => handleDeleteConfirmed(confirmDelete)}
+        />
       )}
     </div>
   );

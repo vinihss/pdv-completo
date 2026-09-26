@@ -1,10 +1,10 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { X, Plus, Truck, PackagePlus, ChevronRight } from "lucide-react";
+import { Plus, Truck, PackagePlus, ChevronRight } from "lucide-react";
 import { listSuppliers, listPurchases, getPurchase, updateSupplier, listStock } from "@/entities/stock";
 import { useAuth } from "@/app/providers/auth";
 import { useRealtime } from "@/shared/hooks";
 import { formatBRL, formatDateTime } from "@/shared/lib";
-import { ToggleRow } from "@/shared/components";
+import { ToggleRow, Modal } from "@/shared/components";
 import NewPurchaseModal from "./NewPurchaseModal.jsx";
 import SupplierModal from "./SupplierModal.jsx";
 
@@ -19,40 +19,36 @@ function SuppliersList({ suppliers, onChanged, onOpenCreate, onClose, showToast 
     }
   }
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center sm:justify-center z-50">
-      <div className="w-full sm:max-w-md bg-stone-900 border border-stone-800 rounded-t-3xl sm:rounded-3xl p-6 fade-up max-h-[92vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-display text-lg font-bold">Fornecedores</h3>
-          <button onClick={onClose} className="text-stone-500"><X size={20} /></button>
-        </div>
-        <div className="space-y-2">
-          {suppliers.map((s) => (
-            <div key={s.id} className="bg-stone-800/60 rounded-xl px-3 py-2.5 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-sm font-medium truncate">{s.name}</div>
-                <div className="text-stone-500 text-[11px] truncate">
-                  {s.phone ?? "Sem telefone"}
-                  {s.taxId ? ` · ${s.taxId}` : ""}
-                </div>
-              </div>
-              <div className="shrink-0 w-24">
-                <ToggleRow label="" checked={s.active} onChange={() => toggle(s)} />
+    <Modal title="Fornecedores" onClose={onClose}>
+      <div className="p-5 space-y-2">
+        {suppliers.map((s) => (
+          <div key={s.id} className="bg-stone-800/60 rounded-xl px-3 py-2.5 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium truncate">{s.name}</div>
+              <div className="text-stone-500 text-[11px] truncate">
+                {s.phone ?? "Sem telefone"}
+                {s.taxId ? ` · ${s.taxId}` : ""}
               </div>
             </div>
-          ))}
-          {suppliers.length === 0 && (
-            <div className="text-stone-600 text-center py-10 text-sm">Nenhum fornecedor cadastrado.</div>
-          )}
-          <button onClick={onOpenCreate} className="flex items-center gap-1.5 text-amber-500 text-sm font-semibold">
-            <Plus size={14} /> Novo fornecedor
-          </button>
-        </div>
+            <div className="shrink-0 w-24">
+              <ToggleRow label="" checked={s.active} onChange={() => toggle(s)} />
+            </div>
+          </div>
+        ))}
+        {suppliers.length === 0 && (
+          <div className="text-stone-600 text-center py-10 text-sm">Nenhum fornecedor cadastrado.</div>
+        )}
+        <button onClick={onOpenCreate} className="flex items-center gap-1.5 text-amber-500 text-sm font-semibold">
+          <Plus size={14} /> Novo fornecedor
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }
 
 // Detalhe da compra: linhas + custo médio atual de cada produto envolvido.
+// O Modal fica montado durante o carregamento (com "Carregando…" no corpo) para
+// não piscar: antes, `return null` desmontava a tela inteira.
 function PurchaseDetail({ purchaseId, onClose }) {
   const [purchase, setPurchase] = useState(null);
   useEffect(() => {
@@ -61,41 +57,42 @@ function PurchaseDetail({ purchaseId, onClose }) {
       .catch(() => onClose());
   }, [purchaseId, onClose]);
 
-  if (!purchase) return null;
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center sm:justify-center z-50">
-      <div className="w-full sm:max-w-md bg-stone-900 border border-stone-800 rounded-t-3xl sm:rounded-3xl p-6 fade-up max-h-[92vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-display text-lg font-bold">Compra</h3>
-          <button onClick={onClose} className="text-stone-500"><X size={20} /></button>
-        </div>
-        <div className="text-stone-500 text-xs mb-4">
-          {purchase.supplierName ?? "Sem fornecedor"}
-          {purchase.invoiceNumber ? ` · ${purchase.invoiceNumber}` : ""}
-          {purchase.issuedOn ? ` · ${purchase.issuedOn}` : ""}
-        </div>
-        <div className="space-y-2 mb-4">
-          {purchase.items.map((i) => (
-            <div key={i.id} className="bg-stone-800/60 rounded-xl px-3 py-2.5 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-sm font-medium truncate">{i.productName}</div>
-                <div className="text-stone-500 text-[11px]">
-                  {i.quantity} un × {formatBRL(i.unitCost)}
-                  {i.batchNo ? ` · lote ${i.batchNo}` : ""}
-                  {purchase.averages?.[i.productId] != null ? ` · médio atual ${formatBRL(purchase.averages[i.productId])}` : ""}
-                </div>
-              </div>
-              <span className="text-sm font-bold shrink-0">{formatBRL(i.lineTotal)}</span>
+    <Modal title="Compra" onClose={onClose}>
+      <div className="p-5">
+        {!purchase ? (
+          <div className="text-stone-600 text-center py-10 text-sm">Carregando…</div>
+        ) : (
+          <>
+            <div className="text-stone-500 text-xs mb-4">
+              {purchase.supplierName ?? "Sem fornecedor"}
+              {purchase.invoiceNumber ? ` · ${purchase.invoiceNumber}` : ""}
+              {purchase.issuedOn ? ` · ${purchase.issuedOn}` : ""}
             </div>
-          ))}
-        </div>
-        <div className="flex items-center justify-between border-t border-stone-800 pt-3">
-          <span className="text-stone-400 text-sm">Total</span>
-          <span className="font-display font-bold text-lg">{formatBRL(purchase.total)}</span>
-        </div>
-        {purchase.note && <div className="text-stone-500 text-xs mt-2">{purchase.note}</div>}
+            <div className="space-y-2 mb-4">
+              {purchase.items.map((i) => (
+                <div key={i.id} className="bg-stone-800/60 rounded-xl px-3 py-2.5 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">{i.productName}</div>
+                    <div className="text-stone-500 text-[11px]">
+                      {i.quantity} un × {formatBRL(i.unitCost)}
+                      {i.batchNo ? ` · lote ${i.batchNo}` : ""}
+                      {purchase.averages?.[i.productId] != null ? ` · médio atual ${formatBRL(purchase.averages[i.productId])}` : ""}
+                    </div>
+                  </div>
+                  <span className="text-sm font-bold shrink-0">{formatBRL(i.lineTotal)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between border-t border-stone-800 pt-3">
+              <span className="text-stone-400 text-sm">Total</span>
+              <span className="font-display font-bold text-lg">{formatBRL(purchase.total)}</span>
+            </div>
+            {purchase.note && <div className="text-stone-500 text-xs mt-2">{purchase.note}</div>}
+          </>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }
 

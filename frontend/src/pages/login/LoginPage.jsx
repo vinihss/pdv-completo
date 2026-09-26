@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Delete, ChefHat, UtensilsCrossed, ClipboardList, Lock, Loader2, Wallet } from "lucide-react";
 import { listLoginUsers } from "@/entities/session";
 import { getStoreInfo } from "@/entities/store";
@@ -19,6 +19,12 @@ const MIN_PIN = 4;
 
 function initials(name) {
   return name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
+}
+
+// Só dígitos, no máximo MAX_PIN: mesma regra para o keypad, para o teclado
+// físico e para o input transparente (teclado nativo do celular).
+function onlyDigits(value) {
+  return (value ?? "").replace(/\D/g, "").slice(0, MAX_PIN);
 }
 
 export default function Login() {
@@ -65,37 +71,60 @@ export default function Login() {
     setError(null);
   }
 
-  function pressDigit(d) {
-    if (checking || pin.length >= MAX_PIN) return;
-    const next = pin + d;
-    setPin(next);
+  const pressDigit = useCallback((d) => {
+    if (checking) return;
+    setPin((p) => (p.length >= MAX_PIN ? p : p + d));
     setError(null);
-    if (next.length === MAX_PIN) attemptLogin(next);
-  }
+  }, [checking]);
 
-  function backspace() {
+  const backspace = useCallback(() => {
     if (checking) return;
     setPin((p) => p.slice(0, -1));
     setError(null);
-  }
+  }, [checking]);
 
-  // Ouvinte do Teclado para a tela de PIN
+  const attemptLogin = useCallback(async (candidatePin) => {
+    setChecking(true);
+    try {
+      await login(selectedUser.id, candidatePin);
+    } catch (e) {
+      setChecking(false);
+      setError(e.code === "too_many_attempts" ? "Muitas tentativas. Aguarde um minuto." : "PIN incorreto. Tente novamente.");
+      setPin("");
+      setShake(true);
+      clearTimeout(errorTimer.current);
+      errorTimer.current = setTimeout(() => setShake(false), 420);
+    }
+  }, [login, selectedUser]);
+
+  // Só entra com 4+ dígitos: o PIN do cadastro vai de 4 a 6, e completar a
+  // sequência não pode ser o gatilho — o envio é explícito (Enter ou "Entrar").
+  const confirmPin = useCallback(() => {
+    if (checking) return;
+    if (pin.length >= MIN_PIN) attemptLogin(pin);
+  }, [checking, pin, attemptLogin]);
+
+  // Teclado físico. Dígitos e backspace são ignorados quando o evento veio do
+  // input de PIN (data-pin-input): quem corta em MAX_PIN é o onChange dele.
+  // Enter e Esc valem nos dois caminhos.
   useEffect(() => {
     function loginNumericPadHelper(evento) {
       // Só escuta o teclado se estiver na tela de PIN
       if (screen !== "pin") return;
 
+      const fromPinInput = evento.target?.dataset?.pinInput === "true";
+
       // Se for um número de 0 a 9 (teclado normal ou numérico)
-      if (/^[0-9]\$/.test(evento.key)) {
+      if (!fromPinInput && /^[0-9]$/.test(evento.key)) {
         evento.preventDefault();
         pressDigit(evento.key);
-      } 
+      }
       // Se for a tecla para apagar
-      else if (evento.key === "Backspace") {
+      else if (!fromPinInput && evento.key === "Backspace") {
         evento.preventDefault();
         backspace();
-      } 
-      // Se for Enter e já tiver o mínimo de dígitos
+      }
+      // Se for a tecla Enter, confirma o PIN
       else if (evento.key === "Enter") {
         evento.preventDefault();
         confirmPin();
@@ -108,30 +137,12 @@ export default function Login() {
     }
 
     window.addEventListener('keydown', loginNumericPadHelper);
-    
+
     // Remove o evento ao desmontar ou atualizar estados para evitar bugs
     return () => {
       window.removeEventListener('keydown', loginNumericPadHelper);
     };
-  }, [screen, pin, checking]); // Dependências necessárias para ler os estados corretos
-  
-  async function attemptLogin(candidatePin) {
-    setChecking(true);
-    try {
-      await login(selectedUser.id, candidatePin);
-    } catch (e) {
-      setChecking(false);
-      setError(e.code === "too_many_attempts" ? "Muitas tentativas. Aguarde um minuto." : "PIN incorreto. Tente novamente.");
-      setPin("");
-      setShake(true);
-      clearTimeout(errorTimer.current);
-      errorTimer.current = setTimeout(() => setShake(false), 420);
-    }
-  }
-
-  function confirmPin() {
-    if (pin.length >= MIN_PIN) attemptLogin(pin);
-  }
+  }, [screen, pressDigit, backspace, confirmPin]); // Dependências necessárias para ler os estados corretos
 
   useEffect(() => () => clearTimeout(errorTimer.current), []);
 
@@ -193,7 +204,7 @@ export default function Login() {
 
       {screen === "pin" && selectedUser && (
         <div className={`w-full max-w-xs fade-up ${shake ? "shake-anim" : ""}`}>
-          <div className="text-center mb-8">
+          <div className="text-center mb-6">
             <div className="w-16 h-16 rounded-full bg-stone-800 flex items-center justify-center font-display text-xl font-bold text-amber-400 mx-auto mb-3">
               {initials(selectedUser.name)}
             </div>
@@ -201,17 +212,37 @@ export default function Login() {
             <p className="text-stone-500 text-sm mt-1">Digite seu PIN</p>
           </div>
 
-          <div className="flex items-center justify-center gap-3 mb-2 h-4">
-            {Array.from({ length: Math.max(pin.length, MIN_PIN) }).map((_, i) => (
-              <span
-                key={i}
-                className={`w-3 h-3 rounded-full dot-pop ${
-                  i < pin.length ? (error ? "bg-red-500" : "bg-amber-400") : "bg-stone-700"
-                }`}
-              />
-            ))}
+          {/* Input real (transparente) sobre os pontos: tocar na linha abre o
+              teclado numérico do celular, e o PIN digitado passa pelos mesmos
+              cortes do keypad. Os pontos continuam sendo a leitura visual. */}
+          <div className="relative">
+            <div className="flex items-center justify-center gap-3 h-10">
+              {Array.from({ length: Math.max(pin.length, MIN_PIN) }).map((_, i) => (
+                <span
+                  key={i}
+                  className={`w-3 h-3 rounded-full dot-pop ${
+                    i < pin.length ? (error ? "bg-red-500" : "bg-amber-400") : "bg-stone-700"
+                  }`}
+                />
+              ))}
+            </div>
+            <input
+              data-pin-input="true"
+              type="password"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus={false}
+              maxLength={MAX_PIN}
+              value={pin}
+              onChange={(e) => {
+                setPin(onlyDigits(e.target.value));
+                setError(null);
+              }}
+              aria-label="PIN"
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            />
           </div>
-          <div className="h-5 text-center mb-6">
+          <div className="h-5 text-center mb-4">
             {error && <span className="text-red-400 text-xs font-medium">{error}</span>}
             {checking && !error && <span className="text-stone-500 text-xs">Verificando…</span>}
           </div>
@@ -220,6 +251,7 @@ export default function Login() {
             {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
               <button
                 key={d}
+                type="button"
                 onClick={() => pressDigit(d)}
                 disabled={checking}
                 className="font-display text-2xl font-bold bg-stone-900 border border-stone-800 hover:bg-stone-800 active:scale-95 disabled:opacity-40 rounded-2xl py-5 transition-transform"
@@ -231,6 +263,7 @@ export default function Login() {
               Voltar (Esc)
             </button>
             <button
+              type="button"
               onClick={() => pressDigit("0")}
               disabled={checking}
               className="font-display text-2xl font-bold bg-stone-900 border border-stone-800 hover:bg-stone-800 active:scale-95 disabled:opacity-40 rounded-2xl py-5 transition-transform"
@@ -238,6 +271,7 @@ export default function Login() {
               0
             </button>
             <button
+              type="button"
               onClick={backspace}
               disabled={checking || pin.length === 0}
               className="flex items-center justify-center text-stone-500 hover:text-red-400 disabled:opacity-40 rounded-2xl py-5 transition-colors"
@@ -245,6 +279,16 @@ export default function Login() {
               <Delete size={22} />
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={confirmPin}
+            disabled={checking || pin.length < MIN_PIN}
+            className="w-full mt-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-stone-950 font-semibold py-4 rounded-2xl flex items-center justify-center gap-2 transition-colors"
+          >
+            {checking ? <Loader2 size={18} className="animate-spin" /> : null}
+            {checking ? "Verificando…" : "Entrar"}
+          </button>
         </div>
       )}
     </div>

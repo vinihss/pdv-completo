@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { X, ArrowDownCircle, ArrowUpCircle, RotateCcw, Scale } from "lucide-react";
+import { ArrowDownCircle, ArrowUpCircle, RotateCcw, Scale } from "lucide-react";
 import { listStockMovements } from "@/entities/stock";
 import { formatDateTime } from "@/shared/lib";
+import { Modal } from "@/shared/components";
 
 const TYPE_META = {
   sale: { label: "Venda", icon: ArrowDownCircle, color: "text-red-400" },
@@ -24,13 +25,8 @@ export default function MovementsList({ productId, productName, onClose }) {
   }, [productId]);
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center sm:justify-center z-50">
-      <div className="w-full sm:max-w-md bg-stone-900 border border-stone-800 rounded-t-3xl sm:rounded-3xl p-6 fade-up max-h-[92vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-display text-lg font-bold">Movimentos{productName ? ` · ${productName}` : ""}</h3>
-          <button onClick={onClose} className="text-stone-500"><X size={20} /></button>
-        </div>
-
+    <Modal title="Movimentos" subtitle={productName} onClose={onClose}>
+      <div className="p-5">
         {loading ? (
           <div className="text-stone-600 text-center py-10 text-sm">Carregando…</div>
         ) : (
@@ -63,6 +59,6 @@ export default function MovementsList({ productId, productName, onClose }) {
           </div>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }

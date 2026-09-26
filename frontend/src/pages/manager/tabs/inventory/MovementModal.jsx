@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { X, ArrowRightLeft, PlusCircle, MinusCircle } from "lucide-react";
+import { ArrowRightLeft, PlusCircle, MinusCircle } from "lucide-react";
 import { registerStockMovement } from "@/entities/stock";
-import { Field, inputClass } from "@/shared/components";
+import { Field, inputClass, Modal } from "@/shared/components";
 
 // Entrada de mercadoria (compra) ou ajuste de contagem (Δ sinalizado):
 // - Compra: quantidade POSITIVA (só entra estoque);
@@ -38,13 +38,21 @@ export default function MovementModal({ product, onClose, onSaved, showToast }) 
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center sm:justify-center z-50">
-      <div className="w-full sm:max-w-md bg-stone-900 border border-stone-800 rounded-t-3xl sm:rounded-3xl p-6 fade-up max-h-[92vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-display text-lg font-bold">Estoque · {product.name}</h3>
-          <button onClick={onClose} className="text-stone-500"><X size={20} /></button>
-        </div>
-
+    <Modal
+      title="Estoque"
+      subtitle={product.name}
+      onClose={onClose}
+      footer={
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl"
+        >
+          {saving ? "Registrando…" : type === "purchase" ? "Registrar entrada" : "Registrar ajuste"}
+        </button>
+      }
+    >
+      <div className="p-5">
         <div className="grid grid-cols-2 gap-2 mb-4">
           <button
             onClick={() => setType("purchase")}
@@ -88,15 +96,7 @@ export default function MovementModal({ product, onClose, onSaved, showToast }) 
             Saldo atual: <b className="text-stone-200">{product.quantity}</b> · saldo após o movimento fica registrado no histórico.
           </div>
         </div>
-
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3 rounded-xl"
-        >
-          {saving ? "Registrando…" : type === "purchase" ? "Registrar entrada" : "Registrar ajuste"}
-        </button>
       </div>
-    </div>
+    </Modal>
   );
 }
