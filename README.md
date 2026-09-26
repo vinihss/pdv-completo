@@ -1,3 +1,5 @@
+[![Deploy Hostinger VPS](https://github.com/vinihss/pdv-completo/actions/workflows/deploy-hostinger.yml/badge.svg)](https://github.com/vinihss/pdv-completo/actions/workflows/deploy-hostinger.yml)
+
 # PDV — Restaurante/Pub
 
 Implementação completa (backend real + frontend consumindo a API, sem mocks)
