@@ -10,9 +10,10 @@ export default function SettingsTab({ showToast }) {
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-  const [logoFile, setLogoFile] = useState(null); // arquivo staged (upload no salvar)
-  const [logoPreview, setLogoPreview] = useState(""); // prévia staged (object URL)
-  const [logoRemoved, setLogoRemoved] = useState(false); // remove o logo no salvar
+  const [logoFile, setLogoFile] = useState(null);
+  const [logoPreview, setLogoPreview] = useState("");
+  const [logoRemoved, setLogoRemoved] = useState(false);
+  const [geocoding, setGeocoding] = useState(false);
 
   useEffect(() => {
     if (storeSettings) setForm(storeSettings);
@@ -62,6 +63,22 @@ export default function SettingsTab({ showToast }) {
     setLogoFile(null);
     setLogoPreview("");
     setLogoRemoved(true);
+  }
+
+  async function handleGeocodeRestaurant() {
+    setGeocoding(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/store/geocode-restaurant", { method: "POST" });
+      if (!res.ok) throw new Error("Falha ao geocodificar restaurante");
+      const data = await res.json();
+      set({ restaurantLat: data.latitude, restaurantLong: data.longitude });
+      showToast("Coordenadas calculadas.", "success");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setGeocoding(false);
+    }
   }
 
   const displayLogo = logoRemoved ? "" : logoPreview || form.logoUrl || "";
@@ -146,16 +163,101 @@ export default function SettingsTab({ showToast }) {
       <Section title="Entrega (WhatsApp / página externa)">
         <ToggleRow label="Usa delivery (página de pedido externa)" checked={form.usesDelivery} onChange={(v) => set({ usesDelivery: v })} />
         {form.usesDelivery && (
-          <Field label="Taxa de entrega (R$)">
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={form.deliveryFee}
-              onChange={(e) => set({ deliveryFee: Number(e.target.value) })}
-              className={inputClass}
-            />
-          </Field>
+          <>
+            <Field label="Coordenadas do restaurante">
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  step="0.00001"
+                  placeholder="Latitude"
+                  value={form.restaurantLat ?? ""}
+                  onChange={(e) => set({ restaurantLat: e.target.value ? Number(e.target.value) : null })}
+                  className={inputClass}
+                />
+                <input
+                  type="number"
+                  step="0.00001"
+                  placeholder="Longitude"
+                  value={form.restaurantLong ?? ""}
+                  onChange={(e) => set({ restaurantLong: e.target.value ? Number(e.target.value) : null })}
+                  className={inputClass}
+                />
+                <button
+                  onClick={handleGeocodeRestaurant}
+                  disabled={geocoding}
+                  className="shrink-0 bg-stone-800 hover:bg-stone-750 border border-stone-700 rounded-xl px-3 py-2 text-xs font-semibold text-stone-300 transition-colors disabled:opacity-50"
+                >
+                  {geocoding ? "Calculando…" : "Calcular"}
+                </button>
+              </div>
+              <p className="text-stone-600 text-xs mt-1.5">
+                Clique em "Calcular" para geocodificar o endereço do estabelecimento. Necessário para o cálculo de frete por distância.
+              </p>
+            </Field>
+            <Field label="Frete grátis acima de (R$) — 0 desativa">
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={form.freeDeliveryMin ?? 0}
+                onChange={(e) => set({ freeDeliveryMin: Number(e.target.value) })}
+                className={inputClass}
+              />
+            </Field>
+            <Field label="Tabela de frete por distância">
+              <div className="space-y-2">
+                {(form.deliveryFeeTiers ?? []).map((tier, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <span className="text-xs text-stone-500 w-16">Até {tier.maxKm}km</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="R$"
+                      value={tier.fee}
+                      onChange={(e) => {
+                        const newTiers = [...(form.deliveryFeeTiers ?? [])];
+                        newTiers[idx] = { ...newTiers[idx], fee: Number(e.target.value) };
+                        set({ deliveryFeeTiers: newTiers });
+                      }}
+                      className={inputClass}
+                    />
+                    <button
+                      onClick={() => {
+                        const newTiers = (form.deliveryFeeTiers ?? []).filter((_, i) => i !== idx);
+                        set({ deliveryFeeTiers: newTiers });
+                      }}
+                      className="text-red-400 hover:text-red-300 text-xs font-medium"
+                    >
+                      Remover
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => {
+                    const newTiers = [...(form.deliveryFeeTiers ?? []), { maxKm: 15, fee: 20 }];
+                    set({ deliveryFeeTiers: newTiers });
+                  }}
+                  className="text-xs text-amber-400 hover:text-amber-300 font-medium"
+                >
+                  + Adicionar faixa
+                </button>
+              </div>
+              <p className="text-stone-600 text-xs mt-1.5">
+                A última faixa define o limite máximo de entrega. Acima dela, o endereço é considerado fora da área.
+              </p>
+            </Field>
+            <Field label="Taxa de entrega padrão (R$) — fallback">
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={form.deliveryFee}
+                onChange={(e) => set({ deliveryFee: Number(e.target.value) })}
+                className={inputClass}
+              />
+            </Field>
+          </>
         )}
       </Section>
 

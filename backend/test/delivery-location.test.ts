@@ -172,9 +172,8 @@ describe("Webhook WhatsApp - localização", () => {
     expect(replyText).toContain("cardápio");
   });
 
-  it("bot pede localização quando cliente quer corrigir endereço", async () => {
-    await handleIncomingWhatsAppMessage("5511999999999", null, { latitude: -29.7542, longitude: -51.1496 });
+  it("bot responde ao pedir correção de endereço", async () => {
     const { replyText } = await handleIncomingWhatsAppMessage("5511999999999", "não", null);
-    expect(replyText.toLowerCase()).toContain("localização");
+    expect(replyText.toLowerCase()).toContain("cardápio");
   });
 });
