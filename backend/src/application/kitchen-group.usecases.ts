@@ -3,24 +3,38 @@ import { db } from "../infra/db/client.js";
 import { kitchenGroups, products } from "../infra/db/schema.js";
 import { Errors } from "../domain/errors.js";
 import { logAction } from "../infra/audit-log.js";
+import { getCache } from "../infra/cache/index.js";
+
+const cache = getCache();
+
+function invalidateKitchenGroupRelated() {
+  cache.invalidatePattern("kitchen-groups:*");
+  cache.invalidatePattern("products:*");
+}
 
 export async function listKitchenGroupsUsecase() {
-  return db.query.kitchenGroups.findMany({ orderBy: (g, { asc }) => asc(g.displayOrder) });
+  const cached = cache.get("kitchen-groups:*");
+  if (cached) return cached;
+  const rows = await db.query.kitchenGroups.findMany({ orderBy: (g, { asc }) => asc(g.displayOrder) });
+  cache.set("kitchen-groups:*", rows, { ttl: 300 });
+  return rows;
 }
 
 export async function createKitchenGroupUsecase(
   input: { name: string; displayOrder?: number },
   actorId: string
 ) {
-  return db.transaction((tx) => {
-    const row = tx
+  const row = await db.transaction((tx) => {
+    const r = tx
       .insert(kitchenGroups)
       .values({ name: input.name, displayOrder: input.displayOrder ?? 0 })
       .returning()
       .get();
-    logAction(tx, actorId, "kitchen_group_created", null, { kitchenGroupId: row.id, name: row.name });
-    return row;
+    logAction(tx, actorId, "kitchen_group_created", null, { kitchenGroupId: r.id, name: r.name });
+    invalidateKitchenGroupRelated();
+    return r;
   });
+  return row;
 }
 
 export async function updateKitchenGroupUsecase(
@@ -30,8 +44,8 @@ export async function updateKitchenGroupUsecase(
 ) {
   const existing = await db.query.kitchenGroups.findFirst({ where: eq(kitchenGroups.id, id) });
   if (!existing) throw Errors.notFound("Grupo de produção");
-  return db.transaction((tx) => {
-    const row = tx
+  const row = await db.transaction((tx) => {
+    const r = tx
       .update(kitchenGroups)
       .set({
         ...(input.name !== undefined ? { name: input.name } : {}),
@@ -42,8 +56,10 @@ export async function updateKitchenGroupUsecase(
       .returning()
       .get();
     logAction(tx, actorId, "kitchen_group_updated", null, { kitchenGroupId: id });
-    return row;
+    invalidateKitchenGroupRelated();
+    return r;
   });
+  return row;
 }
 
 // Exclusão real (como categoria): produtos vinculados ficam com
@@ -51,9 +67,10 @@ export async function updateKitchenGroupUsecase(
 export async function deleteKitchenGroupUsecase(id: string, actorId: string) {
   const existing = await db.query.kitchenGroups.findFirst({ where: eq(kitchenGroups.id, id) });
   if (!existing) throw Errors.notFound("Grupo de produção");
-  db.transaction((tx) => {
+  await db.transaction((tx) => {
     tx.update(products).set({ kitchenGroupId: null }).where(eq(products.kitchenGroupId, id)).run();
     tx.delete(kitchenGroups).where(eq(kitchenGroups.id, id)).run();
     logAction(tx, actorId, "kitchen_group_deleted", null, { kitchenGroupId: id, name: existing.name });
+    invalidateKitchenGroupRelated();
   });
 }

@@ -21,6 +21,9 @@ import { emitCustomerStageChangedTx } from "../self-service/customer-stage.js";
 import { notifyReady } from "../../integrations/whatsapp/whatsapp.notifier.js";
 import { findOpenDrawerTx } from "../cash-flow/cash-flow.usecases.js";
 import { applyStockMovementTx, stockBalance, computeMovingAverageTx, INVENTORY_ROOM } from "../stock/stock.usecases.js";
+import { getCache } from "../../infra/cache/index.js";
+
+const cache = getCache();
 
 // NOTA IMPORTANTE sobre sync vs async:
 // O driver better-sqlite3 é fundamentalmente síncrono — `db.transaction(cb)`
@@ -743,6 +746,7 @@ export async function closeOrderUsecase(input: { orderId: string; userId: string
     return result;
   });
 
+  cache.invalidatePattern("reports:sales:*");
   return closed;
 }
 
@@ -885,6 +889,7 @@ export async function cancelOrderUsecase(input: { orderId: string; userId: strin
     return result;
   });
 
+  cache.invalidatePattern("reports:sales:*");
   return cancelled;
 }
 

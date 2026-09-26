@@ -4,6 +4,7 @@ import { rawSqlite } from "../src/infra/db/client.js";
 import { runMigrations } from "../src/infra/db/migrate.js";
 import { buildApp } from "../src/http/server.js";
 import { config } from "../src/config/env.js";
+import { resetCache } from "../src/infra/cache/index.js";
 
 let _app: FastifyInstance | undefined;
 
@@ -39,6 +40,7 @@ export const FIXTURE = {
 };
 
 export function seedFixture() {
+  resetCache();
   runMigrations();
   // INSERT OR IGNORE: o banco persiste por toda a sessão de testes (só é
   // recriado no global setup), então múltiplos arquivos chamam seedFixture.
@@ -61,6 +63,7 @@ export function seedFixture() {
 // Zera o estado mutável entre testes, mantendo a fixture base. A ordem dos
 // DELETEs respeita as FKs (movimento/audit referenciam order e cash_drawer).
 export function resetState() {
+  resetCache();
   rawSqlite.exec(`
     DELETE FROM purchase_item;
     DELETE FROM purchase;

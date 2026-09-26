@@ -6,6 +6,13 @@ import { storeSettings } from "../infra/db/schema.js";
 import { Errors } from "../domain/errors.js";
 import { config } from "../config/env.js";
 import { logAction } from "../infra/audit-log.js";
+import { getCache } from "../infra/cache/index.js";
+
+const cache = getCache();
+
+function invalidateStoreSettingsRelated() {
+  cache.invalidate("store-settings:singleton");
+}
 
 function serialize(s: typeof storeSettings.$inferSelect) {
   return {
@@ -30,9 +37,13 @@ function serialize(s: typeof storeSettings.$inferSelect) {
 }
 
 export async function getStoreSettingsUsecase() {
+  const cached = cache.get<ReturnType<typeof serialize>>("store-settings:singleton");
+  if (cached) return cached;
   const s = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
   if (!s) throw Errors.notFound("Configuração da loja");
-  return serialize(s);
+  const result = serialize(s);
+  cache.set("store-settings:singleton", result, { ttl: 300 });
+  return result;
 }
 
 export async function updateStoreSettingsUsecase(input: {
@@ -81,6 +92,7 @@ export async function updateStoreSettingsUsecase(input: {
     .where(eq(storeSettings.id, "singleton"))
     .returning();
 
+  invalidateStoreSettingsRelated();
   return serialize(updated);
 }
 
@@ -130,6 +142,7 @@ export async function saveStoreLogoUsecase(input: { buffer: Buffer; ext: string 
     logAction(tx, actorId, "store_logo_changed", null, { logoPath: filename });
     return row;
   });
+  invalidateStoreSettingsRelated();
   return serialize(updated);
 }
 
@@ -144,5 +157,6 @@ export async function clearStoreLogoUsecase(actorId: string) {
     logAction(tx, actorId, "store_logo_removed", null);
     return row;
   });
+  invalidateStoreSettingsRelated();
   return serialize(updated);
 }

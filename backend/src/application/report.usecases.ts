@@ -9,6 +9,13 @@ import {
   products,
 } from "../infra/db/schema.js";
 import { round2 } from "../domain/money.js";
+import { getCache } from "../infra/cache/index.js";
+
+const cache = getCache();
+
+function reportKey(input: { dateFrom?: string; dateTo?: string; customerQuery?: string; productId?: string }): string {
+  return `reports:sales:${JSON.stringify(input)}`;
+}
 
 export async function salesReportUsecase(input: {
   dateFrom?: string;
@@ -18,6 +25,10 @@ export async function salesReportUsecase(input: {
   limit: number;
   offset: number;
 }) {
+  const key = reportKey(input);
+  const cached = cache.get<{ data: unknown[]; total: number; summary: unknown }>(key);
+  if (cached) return cached;
+
   const conditions = [eq(orders.status, "closed")];
 
   if (input.dateFrom) conditions.push(gte(orders.closedAt, input.dateFrom));
@@ -184,7 +195,7 @@ export async function salesReportUsecase(input: {
     .sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? ""))
     .slice(input.offset, input.offset + input.limit);
 
-  return {
+  const result = {
     data: page,
     total: orderCount,
     summary: {
@@ -196,4 +207,6 @@ export async function salesReportUsecase(input: {
       changeTotal: changeTotalRound,
     },
   };
+  cache.set(key, result, { ttl: 300 });
+  return result;
 }
