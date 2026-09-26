@@ -24,6 +24,19 @@ Tela inicial não é login tradicional (usuário/senha) — é uma **seleção d
   → erro: mensagem de PIN inválido, sem detalhar motivo (bloqueio, etc — evita dar pista pra tentativa de força bruta)
 ```
 
+A tela de PIN tem **duas vias de entrada, mesma regra** (só dígitos, corte em 6):
+
+- **keypad na tela** (1-9, 0, apagar, "Voltar (Esc)") — o principal no tablet;
+- **input real** sobre a linha de pontos, com `inputMode="numeric"` e
+  `autoComplete="one-time-code"`: tocar nos pontos abre o teclado nativo do
+  celular, e o teclado físico também digita (inclusive `Backspace`).
+
+O envio é **explícito**: botão "Entrar" ou `Enter`. Completar 6 dígitos **não**
+dispara login (PIN válido tem de 4 a 6, então a sequência não pode ser o
+gatilho) e o botão fica desabilitado abaixo de 4 dígitos. `Esc` volta para a
+seleção de usuário. Implementação: `frontend/src/pages/login/LoginPage.jsx`
+(testes em `LoginPage.test.jsx`).
+
 Troca de usuário: qualquer tela tem acesso rápido a "trocar usuário", que descarta o token local e volta pra essa tela — sem precisar de "logout" formal.
 
 **Grid de usuários é filtrado por `store_settings.kitchen_enabled`**: se a cozinha estiver desativada (seção 5), usuários com role `kitchen` não aparecem na seleção — não faz sentido oferecer login pra uma estação que o estabelecimento não usa. Isso é um filtro de exibição, não uma restrição de conta: o usuário `kitchen` continua existindo, só não aparece até o gerente reativar o recurso.
@@ -93,13 +106,15 @@ Diferente da primeira versão desta spec, adicionar item **não commita direto n
       - um badge numérico fixo no canto do card mostra a quantidade já adicionada daquele produto nesta visita
   → assim que o carrinho tem 1+ item, uma barra fixa aparece no rodapé:
       "N itens · R$ total — Revisar e confirmar →"
-  → toque na barra abre uma folha de revisão (bottom sheet) listando cada linha do carrinho:
+  → toque na barra abre a **revisão do carrinho em tela cheia** (`Modal` compartilhado,
+    cabeçalho fixo com X à direita, Esc e arrasto para baixo fecham) listando cada
+    linha do carrinho:
       - nome do produto + variação
       - stepper de quantidade (–/+)
       - botão de remover a linha
       - total geral
   → dois botões no rodapé da revisão:
-      - "Continuar adicionando" → fecha a folha, garçom volta pro grid sem perder o carrinho
+      - "Continuar adicionando" → fecha a revisão, garçom volta pro grid sem perder o carrinho
       - "Confirmar adição" → commita todas as linhas de uma vez (POST /orders/:id/items em lote,
         idempotente via correlationId por linha)
   → ao confirmar: tela de sucesso breve (ícone de check + "N itens lançados em {comanda}")

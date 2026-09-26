@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { Search, X, Check, AlertTriangle } from "lucide-react";
+import { Search, Check, AlertTriangle } from "lucide-react";
+import { ScreenHeader } from "@/shared/components";
 import { listCategories } from "@/entities/category";
 import { listAllProducts } from "@/entities/product";
 import { addItems as addOrderItems } from "@/entities/order";
@@ -87,12 +88,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
 
   return (
     <div className="fixed inset-0 bg-stone-950 text-stone-50 z-40 flex flex-col">
-      <div className="px-5 pt-6 pb-4 border-b border-stone-900 flex items-center gap-3 shrink-0">
-        <button onClick={onClose} className="text-stone-400 hover:text-stone-200">
-          <X size={20} />
-        </button>
-        <h1 className="font-display text-lg font-bold flex-1">Adicionar item</h1>
-      </div>
+      <ScreenHeader title="Adicionar item" onBack={onClose} backLabel="Fechar lançamento" backIcon="close" />
 
       <div className="px-5 pt-4 shrink-0">
         <div className="relative mb-3">

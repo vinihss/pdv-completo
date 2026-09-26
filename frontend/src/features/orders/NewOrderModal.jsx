@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { listTables } from "@/entities/table";
 import { searchCustomers, createCustomer } from "@/entities/customer";
+import { Modal } from "@/shared/components";
 
 export default function NewOrderModal({ usesTables, onClose, onConfirm }) {
   const [mode, setMode] = useState(usesTables ? "table" : "tab");
@@ -54,15 +55,20 @@ export default function NewOrderModal({ usesTables, onClose, onConfirm }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center sm:justify-center z-40">
-      <div className="w-full sm:max-w-sm bg-stone-900 border border-stone-800 rounded-t-3xl sm:rounded-3xl p-6 fade-up">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="font-display text-lg font-bold">Nova comanda</h2>
-          <button onClick={onClose} className="text-stone-500 hover:text-stone-300">
-            <X size={20} />
-          </button>
-        </div>
-
+    <Modal
+      title="Nova comanda"
+      onClose={onClose}
+      footer={
+        <button
+          onClick={handleConfirm}
+          disabled={submitting}
+          className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl transition-colors"
+        >
+          {submitting ? "Abrindo…" : "Abrir comanda"}
+        </button>
+      }
+    >
+      <div className="p-5">
         <div className="flex gap-2 mb-5">
           {usesTables && (
             <button
@@ -155,16 +161,8 @@ export default function NewOrderModal({ usesTables, onClose, onConfirm }) {
           />
         )}
 
-        {error && <div className="text-red-400 text-xs font-medium mb-3">{error}</div>}
-
-        <button
-          onClick={handleConfirm}
-          disabled={submitting}
-          className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl transition-colors"
-        >
-          {submitting ? "Abrindo…" : "Abrir comanda"}
-        </button>
+        {error && <div className="text-red-400 text-xs font-medium">{error}</div>}
       </div>
-    </div>
+    </Modal>
   );
 }

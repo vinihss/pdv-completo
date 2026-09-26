@@ -1,6 +1,5 @@
 import React, { useState } from "react";
-import { X } from "lucide-react";
-import { Field, inputClass } from "@/shared/components";
+import { Field, inputClass, Modal } from "@/shared/components";
 import { formatBRL } from "@/shared/lib";
 
 const META = {
@@ -32,13 +31,17 @@ export default function CashMovementModal({ type, expected, onClose, onConfirm }
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center sm:justify-center z-50">
-      <div className="w-full sm:max-w-xs bg-stone-900 border border-stone-800 rounded-t-3xl sm:rounded-3xl p-6 fade-up">
-        <div className="flex items-center justify-between mb-1">
-          <h3 className="font-display text-lg font-bold">{meta.title}</h3>
-          <button onClick={onClose} className="text-stone-500"><X size={20} /></button>
-        </div>
-        <div className="text-stone-500 text-xs mb-4">{meta.desc}</div>
+    <Modal
+      title={meta.title}
+      subtitle={meta.desc}
+      onClose={onClose}
+      footer={
+        <button onClick={handleSubmit} disabled={saving || (zeroes && !confirmZero)} className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl">
+          {saving ? "Registrando…" : zeroes && !confirmZero ? "Confirme acima para continuar" : meta.button}
+        </button>
+      }
+    >
+      <div className="p-5">
         <Field label="Valor (R$)">
           <input type="number" inputMode="decimal" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} autoFocus />
         </Field>
@@ -61,10 +64,7 @@ export default function CashMovementModal({ type, expected, onClose, onConfirm }
             <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Motivo" className={inputClass} />
           </Field>
         </div>
-        <button onClick={handleSubmit} disabled={saving || (zeroes && !confirmZero)} className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3 rounded-xl">
-          {saving ? "Registrando…" : zeroes && !confirmZero ? "Confirme acima para continuar" : meta.button}
-        </button>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -122,7 +122,7 @@ e `/realtime` pro backend).
 | `npm run test` | backend | vitest (banco dedicado `data/test.db`; caixa, comandas, idempotência, maintenance, stock) |
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
-| `npm run test` | frontend | vitest (jsdom + Testing Library; relatório de caixa/reports) |
+| `npm run test` | frontend | vitest (jsdom + Testing Library; 16 suítes: modal/header/variação, login por PIN, detalhe da comanda, modais de compra/equipe, caixa/reports, página pública) |
 
 ## Convenções e regras ao editar código
 
@@ -242,6 +242,39 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
   (full-width no celular, `lg:right-8 lg:w-80` no desktop, cantos inferiores).
   Teste de integração da página (`CustomerMenuPage.test.jsx`) é o que pega
   ReferenceError de import perdido — `tsc`/build não pegam.
+- **Sobreposição tem dono: `Modal`, `ScreenHeader` ou `ConfirmModal`** (todos em
+  `src/shared/components`, com teste próprio). Nada de overlay ad-hoc — se
+  aparecer `fixed inset-0 bg-black/70` fora do `ConfirmModal`, volta pro
+  `Modal`.
+  - `Modal`: **tela cheia em qualquer device** (o tablet do garçom é o alvo):
+    cabeçalho fixo com título e **X à direita**, corpo rolável, `footer` de ação
+    sempre visível. Fecha por X, **Esc** ou **arrasto para baixo**. Cobre os
+    ~18 modais do app (lançamento, revisão, pagamento, PIX, caixa, catálogo,
+    estoque, compras, fornecedores, equipe e o cancelamento do pedido público).
+  - `ScreenHeader`: telas que **já** são fullscreen (`OrderDetailScreen`,
+    `AddItemScreen`) — mesma métrica do `Modal`, controle **à esquerda** (é
+    navegação, não descarte) e Esc para voltar.
+  - `ConfirmModal`: confirmação binária curta continua **card centralizado**
+    (o peso do aviso vem do card); Esc cancela, `destructive` para exclusão.
+  - Regras que valem para as duas camadas com `onClose`/`onBack`: o Esc passa
+    por `useEscapeLayer` (`src/shared/hooks/useEscapeLayer.js`), que guarda uma
+    **pilha de camadas** e entrega a tecla só ao topo — um listener por
+    componente resolveria pela ordem de *registro*, e ela não é a ordem visual
+    (efeito de filho roda antes do pai). Captura + `stopImmediatePropagation` +
+    guarda de `repeat`/`defaultPrevented`; `Modal` trava o scroll do fundo e
+    restaura no unmount. Gesto de descarte conservador: > 120px ou flick > 40px
+    **e** > 0,6px/ms, trava de eixo em 8px, e corpo já rolado pertence ao
+    scroll nativo.
+  - `Modal` não pode formatar dinheiro (`formatBRL`/`.toFixed(2)` é proibido em
+    `shared`): o pai formata e passa pronto. `PaymentModal.jsx` e
+    `CloseCashDrawerModal.jsx` **não** movem de lugar — estão no allowlist
+    `MONEY_ALLOWED` do `fsd-boundaries.test.js`.
+- **Login por PIN tem duas vias de entrada, mesma regra** (só dígitos, corte em
+  6): o keypad na tela e um input real sobre a linha de pontos com
+  `inputMode="numeric"` + `autoComplete="one-time-code"` (teclado nativo do
+  celular + físico). O envio é **explícito** — botão "Entrar" ou `Enter`;
+  completar 6 dígitos **não** loga (PIN vai de 4 a 6) e o botão desabilita abaixo
+  de 4. `Esc` volta para a seleção. Detalhe em `docs/02-frontend-spec.md` §3.
 - Rodar `npm run lint` (oxlint) antes de terminar.
 
 ### PWA / build
@@ -297,7 +330,7 @@ dentro da fase, a ordem indicada.
 
 ### Fase 3 — Qualidade e refactor
 
-- **3.1 Testes**: ✅ backend coberto por vitest (banco `data/test.db` limpo no global setup; suítes `backend/test/cash-flow.test.ts` — fluxo de caixa: sessão única, sangria/suprimento/fechamento, idempotência, hard block de dinheiro sem caixa, estorno automático e resumo por período incluindo `openCount`/`openExpected` e `closing_note`/`tz`; `test/order-flow.test.ts` — validação de mesa (1.6) e eventos outbox de fechamento/cancelamento/pagamento/delete (1.2/1.8); `test/idempotency.test.ts` — retry de `failed`/expirado, 409 processing, cache de completed (1.4); `test/maintenance.test.ts` — outbox corrompido não derruba (1.5) e cleanup (2.5); `test/profiles.test.ts` — perfis caixa/entregador: filtro de login por `kitchen_enabled`/`uses_delivery`, acesso por papel (403 em gerência/comandas), cadastro de entregador pelo gerente com PIN e fluxo complete assign → dispatch → deliver fechando a comanda). ✅ frontend também: vitest + jsdom + Testing Library (rodar `npm run test` no `frontend/`), com a lógica pura de `reports/cashReportView.js` e regressão de render do `ReportsTab` com sessão de caixa aberta no período. Ainda falta: cobrir os fluxos críticos de UI (login, entrega, fechamento com item pendente).
+- **3.1 Testes**: ✅ backend coberto por vitest (banco `data/test.db` limpo no global setup; suítes `backend/test/cash-flow.test.ts` — fluxo de caixa: sessão única, sangria/suprimento/fechamento, idempotência, hard block de dinheiro sem caixa, estorno automático e resumo por período incluindo `openCount`/`openExpected` e `closing_note`/`tz`; `test/order-flow.test.ts` — validação de mesa (1.6) e eventos outbox de fechamento/cancelamento/pagamento/delete (1.2/1.8); `test/idempotency.test.ts` — retry de `failed`/expirado, 409 processing, cache de completed (1.4); `test/maintenance.test.ts` — outbox corrompido não derruba (1.5) e cleanup (2.5); `test/profiles.test.ts` — perfis caixa/entregador: filtro de login por `kitchen_enabled`/`uses_delivery`, acesso por papel (403 em gerência/comandas), cadastro de entregador pelo gerente com PIN e fluxo complete assign → dispatch → deliver fechando a comanda). ✅ frontend também: vitest + jsdom + Testing Library (rodar `npm run test` no `frontend/`), com a lógica pura de `reports/cashReportView.js`, regressão de render do `ReportsTab` com sessão de caixa aberta no período, as primitivas de overlay (`Modal`/`ScreenHeader`/`ConfirmModal`) e o **login por PIN** (teclado físico, input do celular, `Enter`/botão, sem auto-envio em 6 dígitos). Ainda falta: cobrir os fluxos críticos de UI (entrega, fechamento com item pendente).
 - **3.2 Lint/typecheck no backend** (hoje só `tsc` no build, sem lint).
 - **3.3 N+1 em `listOrdersUsecase`**: 4 queries por comanda
   (`order.usecases.ts:358`) — trocar por join em lote.

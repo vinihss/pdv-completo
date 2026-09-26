@@ -1,15 +1,16 @@
-import React, { useEffect, useState } from "react";
-import { X, Minus, Plus } from "lucide-react";
+import React, { useState } from "react";
+import { Minus, Plus } from "lucide-react";
 import { formatBRL } from "@/shared/lib";
+import { Modal } from "@/shared/components";
 
 /**
  * Seleção de variações de um produto — compartilhado entre o lançamento do
  * garçom (features/orders/AddItemScreen) e o cardápio público do cliente
- * (features/customer-menu). Ambos consomem o mesmo payload: `product.variations`
+ * (pages/customer-menu). Ambos consomem o mesmo payload: `product.variations`
  * no formato `[{ name, options, required?, allowMultiple? }]`.
  *
- * Sheet de baixo no celular, card centralizado a partir de `sm` (o cliente
- * chega pelo WhatsApp, metade dos acessos é desktop).
+ * Tela cheia (o `Modal` compartilhado): nome no cabeçalho, X à direita, opções
+ * roláveis e confirmação no rodapé fixo.
  *
  * `onConfirm(selectedVariations, notes, quantity)` — `notes` só chega preenchido
  * quando o chamador liga `allowNotes` (página pública deixa o cliente
@@ -40,14 +41,6 @@ export default function VariationModal({
   const [missing, setMissing] = useState([]); // groups obrigatórios sem seleção
   const [notes, setNotes] = useState(initialNotes);
   const [qty, setQty] = useState(Math.max(1, initialQuantity));
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   function toggleOption(group, option) {
     setSelected((prev) => {
@@ -95,40 +88,30 @@ export default function VariationModal({
   const total = typeof price === "number" ? price * qty : null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center sm:justify-center z-50">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Opções de ${product.name}`}
-        className="w-full sm:max-w-sm bg-stone-900 border border-stone-800 rounded-t-3xl sm:rounded-3xl max-h-[88vh] overflow-y-auto fade-up"
-      >
-        {/* ficha completa: foto grande, com o nome/preço logo abaixo */}
-        {imagePath && (
-          <div className="relative">
-            <img src={imagePath} alt={product.name} className="w-full aspect-[16/10] object-cover" />
-            <button
-              onClick={onClose}
-              className="absolute top-3 right-3 w-8 h-8 rounded-full bg-stone-950/70 flex items-center justify-center text-stone-300 hover:text-stone-100"
-              aria-label="Fechar"
-            >
-              <X size={17} />
-            </button>
-          </div>
-        )}
+    <Modal
+      title={product.name}
+      onClose={onClose}
+      ariaLabel={`Opções de ${product.name}`}
+      footer={
+        <button
+          onClick={handleConfirm}
+          className="w-full bg-amber-500 hover:bg-amber-400 text-stone-950 font-semibold py-3.5 rounded-xl"
+        >
+          <span>{confirmLabel}</span>
+          {showQuantity && total !== null && <span> · {formatBRL(total)}</span>}
+        </button>
+      }
+    >
+      {/* ficha completa: foto grande, com o nome/preço logo abaixo */}
+      {imagePath && <img src={imagePath} alt={product.name} className="w-full aspect-[16/10] object-cover" />}
 
-        <div className="p-6">
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <div className="min-w-0">
-            <h3 className="font-display text-lg font-bold leading-tight">{product.name}</h3>
-            {typeof price === "number" && <p className="text-amber-400 font-semibold text-sm mt-0.5">{formatBRL(price)}</p>}
+      <div className="p-5">
+        {(typeof price === "number" || product.description) && (
+          <div className="mb-4">
+            {typeof price === "number" && <p className="text-amber-400 font-semibold text-sm">{formatBRL(price)}</p>}
             {product.description && <p className="text-stone-400 text-[13px] mt-1 leading-snug">{product.description}</p>}
           </div>
-          {!imagePath && (
-            <button onClick={onClose} className="text-stone-500 shrink-0 hover:text-stone-300" aria-label="Fechar">
-              <X size={20} />
-            </button>
-          )}
-        </div>
+        )}
 
         <div className="space-y-4">
           {groups.map((g) => (
@@ -200,18 +183,7 @@ export default function VariationModal({
             </div>
           )}
         </div>
-
-        <button
-          onClick={handleConfirm}
-          className="w-full bg-amber-500 hover:bg-amber-400 text-stone-950 font-semibold py-3 rounded-xl mt-5"
-        >
-          <span>{confirmLabel}</span>
-          {showQuantity && total !== null && (
-            <span> · {formatBRL(total)}</span>
-          )}
-        </button>
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -1,11 +1,12 @@
 import React, { useState } from "react";
 import {
-  Banknote, CreditCard, QrCode, MoreHorizontal, AlertTriangle, X,
+  Banknote, CreditCard, QrCode, MoreHorizontal, AlertTriangle,
   Plus, Trash2, Minus, Users, Check,
 } from "lucide-react";
 import { setPayments, confirmPayment } from "@/entities/order";
 import { orderTotal, round2 } from "@/entities/order";
 import { formatBRL } from "@/shared/lib";
+import { Modal } from "@/shared/components";
 import PixQrScreen from "./PixQrScreen.jsx";
 
 const PAYMENT_META = {
@@ -148,14 +149,11 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
   if (pixQueue) {
     const storeSettingsForPix = { pixKey, merchantName, merchantCity };
     return (
-      <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center sm:justify-center z-50">
-        <div className="w-full sm:max-w-sm bg-stone-900 border border-stone-800 rounded-t-3xl sm:rounded-3xl p-6 fade-up">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-display text-lg font-bold">
-              Pix {pixQueue.length > 1 ? `(${pixQueue.length} restantes)` : ""}
-            </h3>
-            <button onClick={() => setPixQueue(null)} className="text-stone-500"><X size={20} /></button>
-          </div>
+      <Modal
+        title={`Pix${pixQueue.length > 1 ? ` (${pixQueue.length} restantes)` : ""}`}
+        onClose={() => setPixQueue(null)}
+      >
+        <div className="p-5">
           <PixQrScreen
             order={order}
             amount={pixQueue[0].amount}
@@ -165,21 +163,26 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
             submitting={submitting}
           />
         </div>
-      </div>
+      </Modal>
     );
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center sm:justify-center z-50">
-      <div className="w-full sm:max-w-md bg-stone-900 border border-stone-800 rounded-t-3xl sm:rounded-3xl p-6 pb-8 max-h-[92vh] overflow-y-auto fade-up">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="font-display text-lg font-bold">Pagamento</h3>
-            <p className="text-stone-500 text-xs">{formatBRL(total)}</p>
-          </div>
-          <button onClick={onClose} className="text-stone-500"><X size={20} /></button>
-        </div>
-
+    <Modal
+      title="Pagamento"
+      subtitle={formatBRL(total)}
+      onClose={onClose}
+      footer={
+        <button
+          onClick={handleSave}
+          disabled={!canSave}
+          className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed text-stone-950 font-semibold py-3.5 rounded-xl"
+        >
+          {submitting ? "Registrando…" : lines.some((l) => l.method === "pix") ? "Registrar e gerar Pix" : "Registrar pagamento"}
+        </button>
+      }
+    >
+      <div className="p-5">
         <div
           className={`mb-4 text-xs rounded-xl px-3 py-2.5 border ${
             balanced
@@ -325,19 +328,11 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
         </div>
 
         {!balanced && (
-          <p className="text-xs text-stone-500 mb-3 text-center">
+          <p className="text-xs text-stone-500 text-center">
             Ajuste os valores até que a soma bata com o total ({formatBRL(total)}).
           </p>
         )}
-
-        <button
-          onClick={handleSave}
-          disabled={!canSave}
-          className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed text-stone-950 font-semibold py-3.5 rounded-xl"
-        >
-          {submitting ? "Registrando…" : lines.some((l) => l.method === "pix") ? "Registrar e gerar Pix" : "Registrar pagamento"}
-        </button>
       </div>
-    </div>
+    </Modal>
   );
 }
