@@ -58,6 +58,8 @@ Configure em **Settings → Secrets and variables → Actions**:
 - `HOSTINGER_SSH_KEY` (chave privada OpenSSH/PEM)
 - `HOSTINGER_APP_PATH` (caminho absoluto do clone no VPS, ex.: `/opt/pdv-completo`)
 - `HOSTINGER_KNOWN_HOSTS` (opcional, recomendado)
+- `DEPLOY_JWT_SECRET` (**secret obrigatório**) — valor forte para `JWT_SECRET` do backend
+- `DEPLOY_DOMAIN` (**variable recomendado**; pode ser secret) — domínio da aplicação, ex.: `app.seudominio.com.br`
 
 ### Chave SSH e known_hosts (sem expor segredo)
 
@@ -95,15 +97,16 @@ git clone https://github.com/vinihss/pdv-completo.git /opt/pdv-completo
 cd /opt/pdv-completo
 ```
 
-Crie o arquivo de produção **somente no VPS**:
+Crie o arquivo de produção **somente no VPS** (opcional para bootstrap local):
 
 ```bash
 cp deploy/.env.example deploy/.env
 nano deploy/.env
 ```
 
-Defina ao menos `DOMAIN` e `JWT_SECRET` forte.  
-Se `deploy/.env` não existir, o deploy falha com mensagem clara.
+No deploy via GitHub Actions, o workflow agora **gera/atualiza automaticamente**
+`deploy/.env` no VPS com `DEPLOY_DOMAIN` e `DEPLOY_JWT_SECRET` antes do
+`docker compose up`, preservando outras variáveis já existentes no arquivo.
 
 ## Passo a passo
 
