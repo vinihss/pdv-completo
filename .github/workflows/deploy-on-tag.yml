@@ -1,0 +1,92 @@
+name: Deploy on Tag
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - working-directory: backend
+        run: |
+          npm ci
+          npm run build
+          npm run test
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+          npm run test
+
+  deploy:
+    needs: [test-backend, test-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy no VPS via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.HOSTINGER_HOST }}
+          port: ${{ secrets.HOSTINGER_PORT || '22' }}
+          username: ${{ secrets.HOSTINGER_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          known_hosts: ${{ secrets.HOSTINGER_KNOWN_HOSTS }}
+          script: |
+            set -Eeuo pipefail
+
+            APP_PATH="${{ secrets.HOSTINGER_APP_PATH }}"
+            TAG="${GITHUB_REF_NAME}"
+
+            cd "$APP_PATH"
+
+            echo "[deploy] Versão atual: $(git describe --tags --always 2>/dev/null || echo 'desconhecida')"
+            echo "[deploy] Deploy da tag: $TAG"
+
+            # Backup antes do deploy (não corromper dados)
+            echo "[deploy] Criando backup antes do deploy..."
+            ./deploy/backup.sh /opt/backups
+
+            # Atualiza código para a tag
+            echo "[deploy] Atualizando código para $TAG..."
+            git fetch --prune origin
+            git checkout -f "$TAG"
+
+            # Sobe containers sem remover volumes (preserva dados)
+            echo "[deploy] Subindo containers..."
+            docker compose -f deploy/docker-compose.yml up -d --build --remove-orphans
+
+            # Aguarda health check
+            echo "[deploy] Aguardando health check..."
+            for i in $(seq 1 30); do
+              if docker compose -f deploy/docker-compose.yml exec -T backend wget -qO- http://localhost:3000/health >/dev/null 2>&1; then
+                echo "[deploy] Backend saudável."
+                break
+              fi
+              if [ "$i" -eq 30 ]; then
+                echo "[deploy] ERRO: backend não respondeu em 60s."
+                docker compose -f deploy/docker-compose.yml logs backend --tail=50
+                exit 1
+              fi
+              sleep 2
+            done
+
+            echo "[deploy] Deploy da tag $TAG concluído com sucesso."
+            echo "[deploy] URL: https://$(grep '^DOMAIN=' deploy/.env | cut -d= -f2)"
