@@ -9,7 +9,7 @@
 # ============================================================
 
 # ---------- Domínio principal: redirect pro Instagram ----------
-umamisushiarte.com.br {
+umamisushiarte.com.br, www.umamisushiarte.com.br {
 	redir https://www.instagram.com/umamisushoarte permanent
 }
 
