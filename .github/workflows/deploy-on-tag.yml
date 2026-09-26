@@ -76,7 +76,7 @@ jobs:
             # Aguarda health check
             echo "[deploy] Aguardando health check..."
             for i in $(seq 1 30); do
-              if docker compose -f deploy/docker-compose.yml exec -T backend wget -qO- http://localhost:3000/health >/dev/null 2>&1; then
+              if docker compose -f deploy/docker-compose.yml exec -T backend node -e "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" >/dev/null 2>&1; then
                 echo "[deploy] Backend saudável."
                 break
               fi

@@ -65,14 +65,14 @@ docker compose -f docker-compose.yml up -d --build --remove-orphans
 
 # ---------- 3. Aguardar health check ----------
 log "Aguardando backend ficar saudável..."
-MAX_WAIT=60
+MAX_WAIT=180
 WAITED=0
-until docker compose -f docker-compose.yml exec -T backend wget -qO- http://localhost:3000/health >/dev/null 2>&1; do
-  WAITED=$((WAITED + 2))
+until docker compose -f docker-compose.yml exec -T backend node -e "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" >/dev/null 2>&1; do
+  WAITED=$((WAITED + 3))
   if [ "$WAITED" -ge "$MAX_WAIT" ]; then
     err "Backend não respondeu em ${MAX_WAIT}s. Verifique os logs: docker compose -f docker-compose.yml logs backend"
   fi
-  sleep 2
+  sleep 3
 done
 log "Backend saudável."
 
