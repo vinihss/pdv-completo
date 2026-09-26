@@ -1,62 +1,100 @@
 # Arquitetura do frontend (PDV)
 
-Estrutura feature-first, pensada para facilitar extensão e personalização —
-inclusive por agentes de IA. Regra de ouro: **cada domínio de negócio vive em
-uma pasta `features/<domínio>/` com seus próprios componentes, hooks e utils.**
+Estrutura **FSD** (*Feature-Sliced Design*), pensada para facilitar extensão e
+personalização — inclusive por agentes de IA. Estratégia completa e histórico
+das fases em `docs/09-frontend-fsd.md`.
 
-## Visão da estrutura
+Regra de ouro: **cada camada só importa de camadas abaixo dela**, e `shared`
+só guarda o que não tem vocabulário de domínio.
+
+## Estrutura
 
 ```
 src/
-├── app/              # Roteamento, AppFrame (chrome da loja), root por papel
-├── features/         # ★ um diretório por domínio de negócio
-│   ├── orders/       # comandas (garçom + gerente)
-│   ├── catalog/      # categorias, grupos de produção, produtos
-│   ├── users/        # equipe
-│   ├── deliveries/   # entregas (painel do gerente)
-│   ├── courier/      # app do entregador
-│   ├── kitchen/      # tela da cozinha
-│   ├── reports/      # relatório de vendas
-│   ├── audit/        # auditoria
-│   ├── settings/     # configurações da loja
-│   ├── ifood/        # integração iFood
-│   ├── customer-menu/# página pública de pedido (/pedido)
-│   └── auth/         # login, AuthContext/useAuth
-├── shared/
-│   ├── api/          # client HTTP por domínio (http.js + domínios)
-│   ├── components/   # primitivas reutilizáveis (Toast, Form, ConfirmModal, ...)
-│   ├── hooks/        # hooks genéricos (useRealtime, ...)
-│   └── lib/          # utils puras (format, money, theme, pix, uuid)
-├── config/           # (CSS/design tokens)
-├── App.jsx
-└── main.jsx
+├── app/                  # bootstrap: router + providers
+│   ├── router.jsx        # AppFrame e mapa de telas por papel
+│   └── providers/auth/   # AuthProvider, useAuth
+├── pages/                # 7 telas compostas por papel
+│   ├── pdv/              # garçom
+│   ├── manager/          # gerente (registro de abas)
+│   │   └── tabs/         # conteúdo privado da tela do gerente
+│   ├── kitchen/  cashier/  courier/
+│   ├── customer-menu/    # página pública de pedido (/pedido)
+│   └── login/
+├── widgets/              # blocos de UI reusados por 2+ pages
+│   ├── order-board/      # comandas: garçom e aba "Comandas" do gerente
+│   └── cash-drawer/      # gaveta: perfil caixa e aba "Caixa" do gerente
+├── features/             # ações do usuário com estado próprio
+│   └── orders/           # abrir comanda, lançar item, revisar, pagar, QR Pix
+├── entities/             # domínio: api + model + ui
+│   ├── order/ product/ category/ kitchen-group/ table/
+│   ├── delivery/ stock/ cash/ customer/ store/ user/ session/
+│   ├── cart/ payment/ reports/ audit/ ifood/
+├── shared/               # genérico, sem domínio
+│   ├── api/http.js       # ÚNICO núcleo de rede (request, upload, token)
+│   ├── components/       # Toast, Form, ConfirmModal
+│   ├── hooks/            # useRealtime
+│   └── lib/              # format, money, theme, uuid
+└── __tests__/            # fsd-boundaries.test.js: regras de arquitetura
 ```
 
 ## Convenções (o que agentes devem memorizar)
 
-- **1 feature = 1 pasta.** Componentes, hooks e utils de um domínio ficam juntos.
-- **Primitivas vão para `shared/components`**; hooks genéricos em
-  `shared/hooks`; utils puras em `shared/lib`.
-- **Imports sempre via alias `@`** → resolve para `src/` (configurado em
-  `vite.config.js` e `jsconfig.json`). Ex.: `import { openOrder } from "@/entities/order"`.
-- **Barrel `index.js` por pasta**: `features/orders/index.js` re-exporta os
-  componentes/hooks do domínio, permitindo `import { OrdersRoot } from "@/features/orders"`.
-- **Telas por papel viram orquestradores finos** que montam `features/*`
-  (ex.: `features/manager/ManagerApp.jsx` só gerencia abas).
+- **Direção de dependência:** `app → pages → widgets → features → entities →
+  shared`. `page` nunca é importado por `page`; o que duas pages compartilham
+  vira widget. `shared` nunca importa camada de domínio.
+- **Exceção única:** `features/*` e `entities/*` podem importar
+  `@/app/providers/auth` (o `useAuth` é consumido por 13 features). Está
+  listado em `APP_EXCEPTIONS` no teste de fronteiras.
+- **Imports sempre via alias `@`** (configurado em `vite.config.js` e
+  `jsconfig.json`). Ex.: `import { openOrder } from "@/entities/order"`.
+- **Uma API pública por pasta** (`index.js`). Nunca importe arquivo interno:
+  `@/entities/order`, e não `@/entities/order/api/order.js`.
+- **Barrel sempre em dia.** O teste de fronteiras falha se um `index.js`
+  declarar um nome que o arquivo não exporta, ou deixar de re-exportar algo.
+- **API de domínio mora na entity**, nunca em `shared/api`. Só
+  `shared/api/http.js` é infraestrutura.
 - **Server-authoritative**: mutation `await` + reload via REST; WebSocket
   (`useRealtime`) só para refresh direcionado. Sem otimismo.
+- **Sem lib de estado** (Redux/Zustand/React Query) e **sem TypeScript** — o
+  projeto é JSX puro.
 
-## Como adicionar um novo domínio
+## Onde colocar coisa nova
 
-1. Crie `src/features/novo-domino/`.
-2. Coloque os componentes, hooks (`use*.js`) e utils (`*.utils.js`) ali.
-3. Crie `index.js` como barrel.
-4. Registre no roteamento (`src/app/router.jsx`) se for uma nova tela/papel.
+| O que é | Vai em |
+|---|---|
+| Tela montada pelo router | `pages/<papel>/` |
+| Conteúdo privado de uma tela | `pages/<papel>/tabs/` |
+| Bloco reusado por 2+ telas | `widgets/<bloco>/` |
+| Ação do usuário (abrir, lançar, pagar) | `features/<acao>/` |
+| Conceito de negócio + seus endpoints | `entities/<dominio>/` |
+| Utilidade sem domínio | `shared/lib/`, `shared/components/`, `shared/hooks/` |
 
-## Client HTTP por domínio
+## Cliente HTTP
 
 `shared/api/http.js` é o **único** módulo de infraestrutura de rede (token,
-unauthorized, `request`/`upload`). A API de cada domínio de negócio mora na
-respectiva entity: `entities/<dominio>/api/`, importada pela API pública da
-entity (`import { listStock } from "@/entities/stock"`). Nunca crie um arquivo
-de API em `shared/`. Estratégia completa em `docs/09-frontend-fsd.md`.
+unauthorized, `request`/`upload`). A API de cada agregado mora em
+`entities/<dominio>/api/`, importada pela API pública da entity
+(`import { listStock } from "@/entities/stock"`). Endpoints `/public/*` ficam
+em `api/public.js` dentro da entity correta, separando domínio de superfície
+de autenticação.
+
+## Testes
+
+`npm run test` roda vitest (jsdom + Testing Library). Além dos testes de
+comportamento, `src/__tests__/fsd-boundaries.test.js` (35 casos) falha se a
+arquitetura quebrar: `shared/api` deixando de ter só `http.js`, nome de
+domínio em `shared`, barrel desatualizado, dependência apontando para cima,
+import de arquivo interno de entity, ou page importando page.
+
+Ao mockar uma entity em teste, use o padrão-preservar:
+
+```js
+vi.mock("@/entities/cart", async (importOriginal) => ({
+  ...(await importOriginal()),
+  getPublicCart: () => Promise.resolve(null),
+}));
+```
+
+Um mock declarativo da barrel **esconde o resto da entity** (UI e model) e
+quebra o render.

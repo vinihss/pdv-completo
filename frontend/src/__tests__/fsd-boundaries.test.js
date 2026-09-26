@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 // porque `npm run build` não pega nenhum destes casos: barrel desatualizado
 // em pasta que ninguém importa, ou import direto de arquivo interno.
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "..");
-const LAYERS = ["app", "pages", "widgets", "features", "entities", "shared"];
 
 function walk(dir, out = []) {
   if (!existsSync(dir)) return out;
@@ -22,7 +21,6 @@ const allFiles = walk(SRC).filter((f) => !f.includes("/node_modules/"));
 const importsOf = (f) =>
   [...readFileSync(f, "utf8").matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
 const layerOf = (f) => relative(SRC, f).split("/")[0];
-const inLayer = (imp, layer) => imp === `@/${layer}` || imp.startsWith(`@/${layer}/`);
 
 // 1. shared/api só pode conter infraestrutura (o núcleo HTTP).
 describe("shared/api contém apenas infraestrutura", () => {
@@ -146,6 +144,10 @@ describe("dependências entre camadas", () => {
         if (from === "shared" && to !== "shared") offenders.push(`${relative(SRC, f)} -> @/${to}`);
         // pages nunca é importado por layer abaixo de pages.
         if (to === "pages" && RANK[from] > RANK.pages) offenders.push(`${relative(SRC, f)} -> @/pages`);
+        // page não importa page: o que duas pages compartilham vira widget.
+        // (O bloco de comandas do garçom e a aba "Comandas" do gerente é
+        // exatamente esse caso — por isso vivem em widgets/order-board.)
+        if (from === "pages" && to === "pages") offenders.push(`${relative(SRC, f)} -> ${imp}`);
         // app só é consumido pelo próprio app e por pages — salvo a exceção de auth.
         if (to === "app" && RANK[from] > RANK.pages && !isAllowedAppImport(imp))
           offenders.push(`${relative(SRC, f)} -> ${imp}`);

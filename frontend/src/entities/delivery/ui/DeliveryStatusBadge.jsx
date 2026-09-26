@@ -8,9 +8,9 @@ const DELIVERY_STATUS_CLASS = {
   failed: "bg-red-500/15 text-red-400",
 };
 
-export default function DeliveryStatusBadge({ status }) {
+export default function DeliveryStatusBadge({ status, className = "" }) {
   return (
-    <span className={`text-[11px] font-bold px-2 py-1 rounded-full ${DELIVERY_STATUS_CLASS[status] ?? DELIVERY_STATUS_CLASS.awaiting_courier}`}>
+    <span className={`text-[11px] font-bold px-2 py-1 rounded-full ${DELIVERY_STATUS_CLASS[status] ?? DELIVERY_STATUS_CLASS.awaiting_courier} ${className}`}>
       {DELIVERY_STATUS_LABEL[status] ?? status}
     </span>
   );

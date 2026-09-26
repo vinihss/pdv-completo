@@ -2,13 +2,13 @@ import React from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { LogOut } from "lucide-react";
 import { AuthProvider, useAuth } from "@/app/providers/auth";
+import { PdvPage } from "@/pages/pdv";
+import { ManagerApp } from "@/pages/manager";
+import { KitchenDisplay } from "@/pages/kitchen";
+import { CourierApp } from "@/pages/courier";
+import { CashierApp } from "@/pages/cashier";
+import { CustomerMenuPage } from "@/pages/customer-menu";
 import { LoginPage } from "@/pages/login";
-import { OrdersRoot } from "@/features/orders";
-import { ManagerApp } from "@/features/manager";
-import { KitchenDisplay } from "@/features/kitchen";
-import { CourierApp } from "@/features/courier";
-import { CashierApp } from "@/features/cashier";
-import { CustomerMenuPage } from "@/features/customer-menu";
 
 export function AppFrame({ children }) {
   const { logout, storeSettings } = useAuth();
@@ -44,7 +44,7 @@ export function AppFrame({ children }) {
 
 // Mapa de telas por papel do usuário logado (extensível para novos papéis)
 const SCREENS_BY_ROLE = {
-  waiter: <OrdersRoot />,
+  waiter: <PdvPage />,
   manager: <ManagerApp />,
   kitchen: <KitchenDisplay />,
   courier: <CourierApp />,
@@ -62,7 +62,7 @@ export function Root() {
     return <LoginPage />;
   }
 
-  return <AppFrame>{SCREENS_BY_ROLE[session.user.role] ?? <OrdersRoot />}</AppFrame>;
+  return <AppFrame>{SCREENS_BY_ROLE[session.user.role] ?? <PdvPage />}</AppFrame>;
 }
 
 export function AppRouter() {

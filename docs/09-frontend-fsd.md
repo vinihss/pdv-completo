@@ -106,16 +106,18 @@ src/
 | `customer-menu/cartLogic.js` | `entities/cart/model` |
 | `cashdrawer/CashDrawerTab` | `widgets/cash-drawer` |
 | `cashdrawer/*Modal` (4) | `features/open-cash-drawer`, `cash-movement`, `close-cash-drawer`, `cash-drawer-detail` |
-| `catalog/CatalogTab` | `pages/catalog` (aba) |
-| `catalog/ProductModal` | `features/product-catalog` |
-| `deliveries/` + `courier/` | `entities/delivery` |
-| `inventory/` + `purchase/` | `entities/stock` |
-| `reports/ReportsTab` | `pages/reports` (aba) |
+| `catalog/CatalogTab` | `pages/manager/tabs/catalog` |
+| `catalog/ProductModal` | `pages/manager/tabs/catalog` (Fase 6: `features/product-catalog`) |
+| `deliveries/` + `courier/` | `entities/delivery` + `pages/manager/tabs/deliveries` |
+| `inventory/` + `purchase/` | `entities/stock` + `pages/manager/tabs/{inventory,purchase}` |
+| `reports/ReportsTab` | `pages/manager/tabs/reports` |
 | `reports/cashReportView.js` | `entities/reports/model` |
-| `audit/AuditTab` | `pages/audit` (aba) |
-| `ifood/IfoodTab` | `widgets/ifood-sync` |
-| `settings/SettingsTab` | `pages/settings` (aba) |
-| `users/UsersTab` | `pages/team` (aba) |
+| `audit/AuditTab` | `pages/manager/tabs/audit` |
+| `ifood/IfoodTab` | `pages/manager/tabs/ifood` |
+| `settings/SettingsTab` | `pages/manager/tabs/settings` |
+| `users/UsersTab` | `pages/manager/tabs/users` |
+| `orders/OrdersRoot`, `OrderListScreen`, `OrderDetailScreen`, `useOrders` | `widgets/order-board` |
+| `orders/` (os 5 casos de uso restantes) | `features/orders` (Fase 6) |
 | `shared/api/http.js` | `shared/api/` (fica) |
 | `shared/api/{orders,cash,...}.js` | `entities/<dominio>/api` |
 | `shared/components/{Toast,ConfirmModal,Form}` | `shared/ui` |
@@ -125,14 +127,21 @@ src/
 | `shared/lib/money` | `shared/lib` (consolidado, §7) |
 | `shared/lib/pix` | `entities/payment` (Fase 3) |
 
-> As abas do gerente (`catalog`, `reports`, `audit`, `settings`, `users`) são
-> *pages* no vocabulário FSD porque são compostas pelo `pages/manager` e não
-> importadas por features. Só há uma tela por papel em `app/router.jsx`.
+> **Não confundir três coisas diferentes.** Só há uma tela por papel em
+> `app/router.jsx`, e por isso existem 7 `pages/`. As 10 abas do gerente
+> (`catalog`, `reports`, `audit`, `settings`, `users`, `deliveries`, `ifood`,
+> `inventory`, `purchase`, `cashdrawer`) **não são pages**: são conteúdo
+> privado da tela do gerente e vivem em `pages/manager/tabs/` (`cashdrawer`
+> virou widget, ver Fase 4). E `cashdrawer` é widget — e não page — porque é
+> reusado por `pages/cashier`. Nenhuma delas é feature: feature é ação do
+> usuário com estado próprio, não painel administrativo.
 
 ## 5. Fases
 
-Cada fase termina com `npm run build`, `npm run test` (50 testes) e
-`npm run lint` verdes, e é um commit isolado.
+Cada fase termina com `npm run build` e `npm run test` verdes, `npm run lint`
+sem warning novo, e é um commit isolado. O número de testes de fronteira
+cresce a cada fase, porque a contagem acompanha quantos barrels existem:
+hoje são 85 no total (50 de comportamento + 35 de arquitetura).
 
 | Fase | Conteúdo | Risco |
 |---|---|---|
@@ -140,10 +149,31 @@ Cada fase termina com `npm run build`, `npm run test` (50 testes) e
 | **1. Sessão** | `auth/AuthContext` → `app/providers/auth`; `auth/Login` → `pages/login`. ✅ `d4edf70` | baixo |
 | **2. API → entities** | 14 arquivos de `shared/api` → `entities/<dominio>/api`; mocks de teste atualizados. ✅ | médio |
 | **3. Unificação** | UI e modelo das entities: `VariationModal` → `product`, `StatusBadge` → `order`, `DeliveryStatusBadge` → `delivery`, `pix.js` → `payment`, `order.utils` → `order/model`, `cartLogic` → `cart/model`, `cashReportView` → `reports/model`, `ACTION_LABEL` → `audit/model`. ✅ | médio |
-| **4. Pages** | 7 telas viram `pages/*`; `router.jsx` só compõe páginas | médio |
-| **5. Widgets** | `Money`, `Modal` genérico, `CashDrawerTab`, `IfoodTab` | baixo |
+| **4. Pages** | 7 telas viram `pages/*`; 10 abas do gerente viram `pages/manager/tabs/`; blocos compartilhados viram widgets. ✅ | médio |
+| **5. Widgets** | `Money`, `Modal` genérico | baixo |
 | **6. Features** | 5 pastas com casos de uso escondidos viram `features/*` | **alto** |
 | **7. Bugs** | unificar moeda (§7), `cancelled` no badge, `formatMinSec` | baixo |
+
+### O que a Fase 4 entregou
+
+As 6 telas restantes viraram `pages/*` (com `login` da Fase 1, são 7) e
+`app/router.jsx` passou a importar **só pages**. As 10 abas do gerente foram
+para `pages/manager/tabs/*`: são conteúdo privado da tela do gerente, e não
+ações do usuário (feature) nem blocos reusados (widget) — antes só pareciam
+features porque estavam em `features/`.
+
+Duas extrações de widget foram forçadas pela regra *page não importa page*:
+
+| Widget | Por que é widget | Consumido por |
+|---|---|---|
+| `widgets/order-board` | o bloco de comandas do garçom **é** a aba "Comandas" do gerente | `pages/pdv`, `pages/manager` |
+| `widgets/cash-drawer` | gaveta é a tela do perfil caixa **e** a aba "Caixa" do gerente | `pages/cashier`, `pages/manager` |
+
+`pages/pdv/PdvPage.jsx` é deliberadamente fino: renderiza `<OrderBoard />`. A
+screen do garçom não tem lógica própria além de ser a rota do waiter.
+
+`features/` ficou com **uma** pasta (`orders`, com os 5 casos de uso: abrir
+comanda, lançar item, revisar carrinho, pagar, QR Pix) — é o alvo da Fase 6.
 
 ### O que a Fase 3 entregou
 
@@ -183,6 +213,9 @@ falha em cinco situações que o build não pega:
    feature → `pages`, layer baixa → `app`).
 5. Import direto de arquivo interno de entity
    (`@/entities/order/api/order.js`) em vez da API pública.
+6. `page` importando `page` — o que duas pages compartilham tem que ser
+   widget (regra introduzida na Fase 4, depois de `pages/manager` passar a
+   importar `pages/pdv`).
 
 **Exceção codificada:** `features/*` e `entities/*` podem importar
 `@/app/providers/auth`. O contexto de sessão é infraestrutura de app, mas 13
