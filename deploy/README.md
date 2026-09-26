@@ -31,22 +31,23 @@ mas isso é trabalho adicional não incluído aqui.
 > com Docker + SSH). **Não use em hospedagem compartilhada/hPanel sem Docker e
 > sem acesso SSH adequado**.
 
-## Deploy contínuo com GitHub Actions (Hostinger VPS)
+## Deploy automático por tag (GitHub Actions → Hostinger VPS)
 
-O repositório possui o workflow **`.github/workflows/deploy-hostinger.yml`** com:
+O repositório possui o workflow **`.github/workflows/deploy-on-tag.yml`** com:
 
-- gatilho em `push` para `main`;
-- gatilho manual (`workflow_dispatch`);
+- gatilho em **push de tags** no formato `v*.*.*` (ex.: `v1.2.0`);
 - validações antes do deploy:
   - backend: `npm ci`, `npm run build`, `npm run test`;
   - frontend: `npm ci`, `npm run lint`, `npm run build`, `npm run test`;
-- deploy remoto por SSH com `set -Eeuo pipefail`;
-- sincronização limpa do código no VPS com `git fetch --prune`, `git checkout -f main` e `git reset --hard origin/main`;
-- deploy com `docker compose -f deploy/docker-compose.yml up -d --build --remove-orphans`;
-- checagem de status/saúde dos serviços após subir.
+- deploy remoto por SSH com backup prévio e health check;
+- deploy com `docker compose up -d --build --remove-orphans` — **sem** `down -v`,
+  preservando volumes e dados do SQLite.
 
-O workflow **não** roda `docker compose down -v` e não remove volumes
-persistentes, preservando dados do SQLite e uploads.
+### Como usar
+
+1. Crie uma tag semântica: `git tag v1.0.0 && git push origin v1.0.0`
+2. O workflow roda automaticamente: testes → backup → deploy → health check
+3. Acompanhe na aba **Actions** do repositório
 
 ### Secrets necessários no GitHub Actions
 
@@ -58,8 +59,6 @@ Configure em **Settings → Secrets and variables → Actions**:
 - `HOSTINGER_SSH_KEY` (chave privada OpenSSH/PEM)
 - `HOSTINGER_APP_PATH` (caminho absoluto do clone no VPS, ex.: `/opt/pdv-completo`)
 - `HOSTINGER_KNOWN_HOSTS` (opcional, recomendado)
-- `DEPLOY_JWT_SECRET` (**secret obrigatório**) — valor forte para `JWT_SECRET` do backend
-- `DEPLOY_DOMAIN` (**variable recomendado**; pode ser secret) — domínio da aplicação, ex.: `app.seudominio.com.br`
 
 ### Chave SSH e known_hosts (sem expor segredo)
 

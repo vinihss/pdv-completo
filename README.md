@@ -1,4 +1,4 @@
-[![Deploy Hostinger VPS](https://github.com/vinihss/pdv-completo/actions/workflows/deploy-hostinger.yml/badge.svg)](https://github.com/vinihss/pdv-completo/actions/workflows/deploy-hostinger.yml)
+[![Deploy on Tag](https://github.com/vinihss/pdv-completo/actions/workflows/deploy-on-tag.yml/badge.svg)](https://github.com/vinihss/pdv-completo/actions/workflows/deploy-on-tag.yml)
 
 # PDV — Restaurante/Pub
 
