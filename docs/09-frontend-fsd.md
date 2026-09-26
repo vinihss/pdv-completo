@@ -152,7 +152,7 @@ hoje são 87 no total (50 de comportamento + 37 de arquitetura).
 | **4. Pages** | 7 telas viram `pages/*`; 10 abas do gerente viram `pages/manager/tabs/`; blocos compartilhados viram widgets. ✅ | médio |
 | **5. Widgets + moeda** | `Modal` genérico; unificação de moeda → `formatBRL` única. ✅ | baixo |
 | **6. Features** | 5 pastas com casos de uso escondidos viram `features/*` | **alto** |
-| **7. Bugs** | `cancelled` no `StatusBadge`, `formatMinSec` | baixo |
+| **7. Bugs** | `cancelled` no `StatusBadge`; `formatMinSec` órfão e `minutesSince` duplicado. ✅ | baixo |
 
 ### O que a Fase 4 entregou
 
@@ -174,6 +174,35 @@ screen do garçom não tem lógica própria além de ser a rota do waiter.
 
 `features/` ficou com **uma** pasta (`orders`, com os 5 casos de uso: abrir
 comanda, lançar item, revisar carrinho, pagar, QR Pix) — é o alvo da Fase 6.
+
+### O que a Fase 7 entregou
+
+**`StatusBadge` não conhecia `cancelled`.** `cancelOrder` marca como `cancelled`
+todo item ainda não entregue (`order.usecases.ts`), e o `orderTotal` do front já
+os exclui da soma — mas o badge caía no fallback e renderizava a string crua
+**"cancelled"** (em inglês) num badge cinza de "Em preparo". Agora tem rótulo
+"Cancelado" e classe vermelha, com teste próprio (3 casos) que fixa inclusive a
+regressão do texto em inglês.
+
+**Duração de tempo tinha três implementações.** `shared/lib/format.js` tinha
+`formatMinSec` (`"3m 20s"`) que **ninguém usava**; a cozinha tinha uma cópia
+local com `"3:20"`, que é o formato de cronômetro correto para a tela. O morto
+foi removido, a cozinha passou a importar `minutesSince` do shared (elimina a
+cópia e ganha a guarda de `null`), e manteve o formatador `mm:ss` local — é
+específico da tela, não algo para o shared.
+
+Verificados e **já estavam corretos** (nada a fazer): `usePublicRealtime` já é
+um hook único em `shared/hooks` (não há duplicata), e o toggle do iFood já entra
+no payload, porque `handleSave` envia o form inteiro para `updateStoreSettings`.
+
+### Pendência encontrada na Fase 7 (não corrigida — escopo)
+
+`shared/lib/format.js::toDate` pode retornar `null`, e vários call sites fazem
+`toDate(x).toLocaleString()` **sem guarda** — `ReportsTab.jsx:137` e
+`CashDrawerTab.jsx:190` entre outros. Se `openedAt` vier nulo/inválido, isso
+lança. Não mexi porque a correção muda o formato exibido (`.toLocaleString()` vs
+`formatDateTime`), o que é decisão de produto. A correção barata seria um
+`formatDateTimeOrDash`-style seguro, ou `toDate()?.toLocaleString() ?? "—"`.
 
 ### O que a Fase 3 entregou
 

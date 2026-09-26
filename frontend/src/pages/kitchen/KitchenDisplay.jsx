@@ -4,12 +4,9 @@ import { listOrders, updateItemStatus } from "@/entities/order";
 import { listKitchenGroups } from "@/entities/kitchen-group";
 import { useAuth } from "@/app/providers/auth";
 import { useRealtime } from "@/shared/hooks";
-import { toDate, variationsText } from "@/shared/lib";
+import { minutesSince, variationsText } from "@/shared/lib";
 
-function minutesSince(ts, now) {
-  return Math.max(0, (now - toDate(ts).getTime()) / 60000);
-}
-
+// "3:20" — formato de cronômetro da tela da cozinha, não "3m 20s".
 function formatMinSec(minutesFloat) {
   const totalSec = Math.floor(minutesFloat * 60);
   const m = Math.floor(totalSec / 60);

@@ -33,13 +33,6 @@ export function minutesSince(ts, now = Date.now()) {
   return Math.max(0, (now - d.getTime()) / 60000);
 }
 
-export function formatMinSec(minutesFloat) {
-  const totalSec = Math.floor(minutesFloat * 60);
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${m}m ${String(s).padStart(2, "0")}s`;
-}
-
 export function initials(name) {
   return (name ?? "")
     .split(" ")
