@@ -31,24 +31,31 @@ const baseMenu = {
 };
 
 let currentMenu = baseMenu;
-vi.mock("@/entities/product", () => ({
+vi.mock("@/entities/product", async (importOriginal) => ({
+  ...(await importOriginal()),
   getPublicMenu: () => Promise.resolve(currentMenu),
 }));
-vi.mock("@/entities/order", () => ({
+vi.mock("@/entities/order", async (importOriginal) => ({
+  ...(await importOriginal()),
   createPublicOrder: () => Promise.resolve({ orderId: "o1" }),
   getPublicOrderStatus: () => Promise.resolve({ orderStatus: "open" }),
   cancelPublicOrder: () => Promise.resolve({ orderStatus: "cancelled" }),
   getActivePublicOrder: () => Promise.resolve(null),
 }));
-vi.mock("@/entities/cart", () => ({
+vi.mock("@/entities/cart", async (importOriginal) => ({
+  ...(await importOriginal()),
   getPublicCart: () => Promise.resolve(null),
   savePublicCart: () => Promise.resolve({}),
   clearPublicCart: () => Promise.resolve({}),
 }));
-vi.mock("@/entities/customer", () => ({
+vi.mock("@/entities/customer", async (importOriginal) => ({
+  ...(await importOriginal()),
   lookupPublicCustomer: () => Promise.resolve({ found: false }),
 }));
-vi.mock("@/entities/store", () => ({ getStoreInfo: () => Promise.resolve({ store: null }) }));
+vi.mock("@/entities/store", async (importOriginal) => ({
+  ...(await importOriginal()),
+  getStoreInfo: () => Promise.resolve({ store: null }),
+}));
 vi.mock("@/shared/hooks", () => ({ usePublicRealtime: () => ({ status: "offline", requestSync: () => {} }) }));
 
 async function renderPage() {

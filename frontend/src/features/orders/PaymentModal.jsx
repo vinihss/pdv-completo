@@ -4,7 +4,7 @@ import {
   Plus, Trash2, Minus, Users, Check,
 } from "lucide-react";
 import { setPayments, confirmPayment } from "@/entities/order";
-import { orderTotal, money, round2 } from "./order.utils.js";
+import { orderTotal, money, round2 } from "@/entities/order";
 import PixQrScreen from "./PixQrScreen.jsx";
 
 const PAYMENT_META = {

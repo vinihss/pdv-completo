@@ -5,7 +5,5 @@ export { default as AddItemScreen } from "./AddItemScreen.jsx";
 export { default as NewOrderModal } from "./NewOrderModal.jsx";
 export { default as PaymentModal } from "./PaymentModal.jsx";
 export { default as PixQrScreen } from "./PixQrScreen.jsx";
-export { default as VariationModal } from "./VariationModal.jsx";
 export { default as ReviewCartModal } from "./ReviewCartModal.jsx";
 export { useOrders } from "./useOrders.js";
-export * from "./order.utils.js";

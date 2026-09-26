@@ -1,10 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 
-vi.mock("@/entities/reports", () => ({
+vi.mock("@/entities/reports", async (importOriginal) => ({
+  ...(await importOriginal()),
   salesReport: vi.fn(),
 }));
-vi.mock("@/entities/cash", () => ({
+vi.mock("@/entities/cash", async (importOriginal) => ({
+  ...(await importOriginal()),
   getCashDrawerSummary: vi.fn(),
 }));
 

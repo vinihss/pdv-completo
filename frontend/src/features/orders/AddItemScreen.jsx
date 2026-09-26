@@ -4,8 +4,8 @@ import { listCategories } from "@/entities/category";
 import { listAllProducts } from "@/entities/product";
 import { addItems as addOrderItems } from "@/entities/order";
 import { useAuth } from "@/app/providers/auth";
-import { money } from "./order.utils.js";
-import VariationModal from "./VariationModal.jsx";
+import { money } from "@/entities/order";
+import { VariationModal } from "@/entities/product";
 import ReviewCartModal from "./ReviewCartModal.jsx";
 
 export default function AddItemScreen({ order, onClose, onConfirmed, showToast }) {

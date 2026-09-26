@@ -2,7 +2,7 @@ import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import ProductCard from "./ProductCard.jsx";
-import { lineKey } from "../cartLogic.js";
+import { lineKey } from "@/entities/cart";
 
 const XBURGER = {
   id: "p1",

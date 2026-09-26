@@ -1,7 +1,7 @@
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import VariationModal from "@/shared/components/VariationModal.jsx";
+import { VariationModal } from "@/entities/product";
 
 const XBURGER = {
   id: "p1",

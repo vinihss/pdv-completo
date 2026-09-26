@@ -1,6 +1,6 @@
 import React from "react";
 import { X, Trash2 } from "lucide-react";
-import { money, variationsText } from "./order.utils.js";
+import { money, variationsText } from "@/entities/order";
 
 export default function ReviewCartModal({ lines, total, onClose, onRemoveLine, onChangeNotes, onConfirm }) {
   return (

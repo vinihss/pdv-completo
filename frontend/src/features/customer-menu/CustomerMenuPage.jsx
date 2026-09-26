@@ -8,8 +8,8 @@ import { createPublicOrder, getPublicOrderStatus, getActivePublicOrder, cancelPu
 import { getPublicMenu } from "@/entities/product";
 import { usePublicRealtime } from "@/shared/hooks";
 import { applyBrandPrimary, variationsText, formatBRL } from "@/shared/lib";
-import { VariationModal } from "@/shared/components";
-import { lineKey, toServerLine, variationGroups, hasVariations, missingRequiredGroups } from "./cartLogic.js";
+import { VariationModal } from "@/entities/product";
+import { lineKey, toServerLine, variationGroups, hasVariations, missingRequiredGroups } from "@/entities/cart";
 import MenuScreen from "./components/MenuScreen.jsx";
 import CartLine from "./components/CartLine.jsx";
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import QRCode from "qrcode";
-import { buildPixPayload } from "@/shared/lib";
-import { orderTotal, orderLabel, money } from "./order.utils.js";
+import { buildPixPayload } from "@/entities/payment";
+import { orderTotal, orderLabel, money } from "@/entities/order";
 
 export default function PixQrScreen({ order, amount, storeSettings, onBack, onConfirm, submitting }) {
   const [dataUrl, setDataUrl] = useState(null);

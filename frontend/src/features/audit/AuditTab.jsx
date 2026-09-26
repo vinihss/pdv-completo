@@ -1,35 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { auditLog } from "@/entities/audit";
-
-const ACTION_LABEL = {
-  order_opened: "Comanda aberta",
-  item_added: "Item lançado",
-  item_removed: "Item removido",
-  item_ready: "Item marcado pronto",
-  item_delivered: "Item entregue",
-  payment_registered: "Pagamento registrado",
-  order_closed: "Comanda fechada",
-  payment_confirmed: "Pagamento confirmado",
-  payment_removed: "Pagamento removido",
-  order_cancelled: "Comanda cancelada",
-  cash_drawer_opened: "Caixa aberto",
-  cash_drawer_sangria: "Sangria",
-  cash_drawer_suprimento: "Suprimento",
-  cash_drawer_closed: "Caixa fechado",
-  product_created: "Produto criado",
-  product_updated: "Produto atualizado",
-  product_activated: "Produto ativado",
-  product_deactivated: "Produto desativado",
-  product_image_changed: "Foto do produto alterada",
-  product_image_removed: "Foto do produto removida",
-  category_created: "Categoria criada",
-  category_updated: "Categoria atualizada",
-  category_deleted: "Categoria excluída",
-  kitchen_group_created: "Grupo de produção criado",
-  kitchen_group_updated: "Grupo de produção atualizado",
-  kitchen_group_deleted: "Grupo de produção excluído",
-  stock_movement_manual: "Movimento de estoque",
-};
+import { auditLog, ACTION_LABEL } from "@/entities/audit";
 
 export default function AuditTab() {
   const [logs, setLogs] = useState([]);

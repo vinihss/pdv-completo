@@ -1,6 +1,6 @@
 import React from "react";
 import { formatBRL } from "@/shared/lib";
-import { productQty } from "../cartLogic.js";
+import { productQty } from "@/entities/cart";
 
 // Card dos Destaques (vitrine): 3 colunas, foto quadrada e abaixo o preço e o
 // título — na ordem que o cliente lê. Não há botão de "+": o clique abre a

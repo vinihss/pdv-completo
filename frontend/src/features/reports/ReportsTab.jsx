@@ -3,7 +3,7 @@ import { salesReport } from "@/entities/reports";
 import { getCashDrawerSummary } from "@/entities/cash";
 import { Section, Field, inputClass } from "@/shared/components";
 import { toDate } from "@/shared/lib";
-import { buildCashReportView, browserTzOffset, fmtMoney } from "./cashReportView.js";
+import { buildCashReportView, browserTzOffset, fmtMoney } from "@/entities/reports";
 
 export default function ReportsTab({ showToast }) {
   const [report, setReport] = useState(null);

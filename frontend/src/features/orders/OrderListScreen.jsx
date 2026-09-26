@@ -7,7 +7,7 @@ import {
   orderAllDelivered,
   money,
   formatDateTime,
-} from "./order.utils.js";
+} from "@/entities/order";
 
 export default function OrderListScreen({ orders, loading, kitchenEnabled, usesTables, filter, setFilter, search, setSearch, onOpenOrder, onNewOrder, onReloadAll }) {
   const chips = [

@@ -24,7 +24,7 @@ src/
 │   └── auth/         # login, AuthContext/useAuth
 ├── shared/
 │   ├── api/          # client HTTP por domínio (http.js + domínios)
-│   ├── components/   # primitivas reutilizáveis (StatusBadge, Toast, Form, ...)
+│   ├── components/   # primitivas reutilizáveis (Toast, Form, ConfirmModal, ...)
 │   ├── hooks/        # hooks genéricos (useRealtime, ...)
 │   └── lib/          # utils puras (format, money, theme, pix, uuid)
 ├── config/           # (CSS/design tokens)

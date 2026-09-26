@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { formatBRL, variationsText } from "@/shared/lib";
 import { Minus, Plus } from "lucide-react";
-import { linesOfProduct, lineKey, productQty } from "../cartLogic.js";
+import { linesOfProduct, lineKey, productQty } from "@/entities/cart";
 
 // Card de linha das categorias: um produto abaixo do outro, foto à direita
 // (texto ocupa a largura restante). Sem botão de "+": o clique no card abre a

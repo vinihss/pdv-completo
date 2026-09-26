@@ -1,7 +1,7 @@
 import React from "react";
 import { Minus, Plus } from "lucide-react";
 import { formatBRL, variationsText } from "@/shared/lib";
-import { variationGroups, missingRequiredGroups } from "../cartLogic.js";
+import { variationGroups, missingRequiredGroups } from "@/entities/cart";
 
 // ---------------------------------------------------------------------------
 // Linha de carrinho (usada na tela do carrinho no celular e no painel lateral

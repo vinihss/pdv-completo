@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { X, Minus, Plus } from "lucide-react";
-import { money } from "../lib/money.js";
+import { money } from "@/shared/lib";
 
 /**
  * Seleção de variações de um produto — compartilhado entre o lançamento do

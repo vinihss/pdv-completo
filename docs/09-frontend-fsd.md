@@ -123,7 +123,7 @@ src/
 | `shared/components/VariationModal` | `entities/product/ui` |
 | `shared/lib/{format,theme,uuid}` | `shared/lib` (ficam) |
 | `shared/lib/money` | `shared/lib` (consolidado, §7) |
-| `shared/lib/pix` | `entities/payment` |
+| `shared/lib/pix` | `entities/payment` (Fase 3) |
 
 > As abas do gerente (`catalog`, `reports`, `audit`, `settings`, `users`) são
 > *pages* no vocabulário FSD porque são compostas pelo `pages/manager` e não
@@ -139,11 +139,57 @@ Cada fase termina com `npm run build`, `npm run test` (50 testes) e
 | **0. Limpeza** | 6 pastas vazias + `shared/api/index.js` morto. ✅ `d1b90ad` | nenhum |
 | **1. Sessão** | `auth/AuthContext` → `app/providers/auth`; `auth/Login` → `pages/login`. ✅ `d4edf70` | baixo |
 | **2. API → entities** | 14 arquivos de `shared/api` → `entities/<dominio>/api`; mocks de teste atualizados. ✅ | médio |
-| **3. Unificação** | `entities/delivery` (delivery+courier), `entities/stock` (inventory+purchase), `entities/payment` | médio |
+| **3. Unificação** | UI e modelo das entities: `VariationModal` → `product`, `StatusBadge` → `order`, `DeliveryStatusBadge` → `delivery`, `pix.js` → `payment`, `order.utils` → `order/model`, `cartLogic` → `cart/model`, `cashReportView` → `reports/model`, `ACTION_LABEL` → `audit/model`. ✅ | médio |
 | **4. Pages** | 7 telas viram `pages/*`; `router.jsx` só compõe páginas | médio |
-| **5. Widgets** | `StatusBadge`, `Money`, `Modal` genérico, `CashDrawerTab`, `IfoodTab` | baixo |
+| **5. Widgets** | `Money`, `Modal` genérico, `CashDrawerTab`, `IfoodTab` | baixo |
 | **6. Features** | 5 pastas com casos de uso escondidos viram `features/*` | **alto** |
 | **7. Bugs** | unificar moeda (§7), `cancelled` no badge, `formatMinSec` | baixo |
+
+### O que a Fase 3 entregou
+
+`shared/components` e `shared/lib` passaram a ter só o que é genérico. O que
+saiu de lá foi para a entity que é dona do vocabulário:
+
+| Saiu de | Foi para | Por quê |
+|---|---|---|
+| `shared/lib/pix.js` | `entities/payment/lib` | BR Code é domínio de pagamento |
+| `shared/components/StatusBadge.jsx` | `entities/order/ui` | dicionário de status de item de comanda |
+| `shared/components/VariationModal.jsx` | `entities/product/ui` | variações são catálogo de produto |
+| `features/orders/order.utils.js` | `entities/order/model/order.js` | `orderTotal`, `orderLabel`, `pendingItems` são regra de negócio |
+| `features/customer-menu/cartLogic.js` | `entities/cart/model` | chave de linha do carrinho |
+| `features/reports/cashReportView.js` | `entities/reports/model` | regra de sessão de caixa |
+| `ACTION_LABEL` (dentro de `AuditTab`) | `entities/audit/model` | dicionário de ações do audit log |
+| `DeliveryStatusBadge` (dentro de `DeliveriesTab`) | `entities/delivery/ui` | badge de entrega, usado por 2 papéis |
+
+`shared` ficou com 3 primitivas (`Toast`, `Form`, `ConfirmModal`) e 4 libs
+genéricas (`format`, `money`, `theme`, `uuid`).
+
+O atalho `features/orders/VariationModal.jsx` (que só re-exportava o
+compartilhado) foi removido: agora os dois consumidores importam de
+`@/entities/product`.
+
+### Fronteiras agora são testadas
+
+`src/__tests__/fsd-boundaries.test.js` (42 casos) roda em `npm run test` e
+falha em cinco situações que o build não pega:
+
+1. `shared/api/` deixar de ter só `http.js`.
+2. Arquivo de `shared/` cujo nome carregue vocabulário de domínio
+   (`order`, `gaveta`, `entrega`…).
+3. Barrel desatualizado — exporta nome que o arquivo não tem, ou deixa de
+   re-exportar algo que ele tem. Foi assim que `isOpenSession` e
+   `sessionDiff` apareceram faltando em `entities/reports`.
+4. Dependência apontando para cima na hierarquia (`shared` → entity,
+   feature → `pages`, layer baixa → `app`).
+5. Import direto de arquivo interno de entity
+   (`@/entities/order/api/order.js`) em vez da API pública.
+
+**Exceção codificada:** `features/*` e `entities/*` podem importar
+`@/app/providers/auth`. O contexto de sessão é infraestrutura de app, mas 13
+features consomem `useAuth`; colocá-lo em `shared` faria `shared` depender de
+`entities`, que é pior. A exceção está listada em `APP_EXCEPTIONS` no teste
+com o motivo — qualquer outro import de `@/app` continua falhando, e é o
+ponto de revisão caso sessão vire entity.
 
 ### O que a Fase 2 entregou
 
@@ -182,13 +228,20 @@ Ordem não é negociável: **não se move `orders/*` antes de `pages/`** (Fase 6
 1. `npm run build` **não** pega `ReferenceError` de import perdido em módulo
    não importado pela árvore de produção. O teste de integração
    `CustomerMenuPage.test.jsx` é a rede de segurança real.
-2. Fases 2 e 3 quebram `vi.mock("@/shared/api/...")` em
-   `CustomerMenuPage.test.jsx:34` e `ReportsTab.test.jsx:4,7` — os mocks são
-   atualizados **na mesma fase**, não depois.
-3. `npm run lint` (oxlint) tem 2 warnings pré-existentes em
+2. Fases 2 e 3 quebram os `vi.mock` de API. Os mocks foram migrados para
+   `vi.mock("@/entities/x", async (importOriginal) => ({ ...(await importOriginal()), ... }))`:
+   um mock declarativo da barrel **esconde o resto da entity** — foi o que
+   quebrou `ProductCard` (usa `lineKey`/`productQty` de `@/entities/cart`) e
+   `ReportsTab` (usa `buildCashReportView` de `@/entities/reports`). O
+   padrão `importOriginal` é obrigatório ao mockar barrel que também expõe
+   UI ou model.
+3. `src/__tests__/fsd-boundaries.test.js` é a rede de segurança estrutural
+   (42 casos): barrels consistentes, `shared` sem vocabulário de domínio,
+   direção de dependências e import só pela API pública.
+4. `npm run lint` (oxlint) tem 2 warnings pré-existentes em
    `AuthContext.jsx:79` e `Toast.jsx:3` (`only-export-components`) e 1 em
    `Login.jsx:91` (`exhaustive-deps`). Não são Blocking.
-4. `http.js` guarda estado global mutável (`authToken`, `onUnauthorized`).
+5. `http.js` guarda estado global mutável (`authToken`, `onUnauthorized`).
    Isso **força** `vi.mock` de módulo inteiro nos testes; injetar dependência
    é o que torna `entities/*/api` testável de unidade, mas é um passo
    separado e opcional.

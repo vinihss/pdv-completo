@@ -4,14 +4,14 @@ import {
 } from "lucide-react";
 import { updateItemStatus, deleteItem, closeOrder } from "@/entities/order";
 import { useAuth } from "@/app/providers/auth";
-import { StatusBadge } from "@/shared/components";
+import { StatusBadge } from "@/entities/order";
 import {
   orderLabel,
   orderTotal,
   pendingItems,
   variationsText,
   money,
-} from "./order.utils.js";
+} from "@/entities/order";
 import AddItemScreen from "./AddItemScreen.jsx";
 import PaymentModal from "./PaymentModal.jsx";
 
