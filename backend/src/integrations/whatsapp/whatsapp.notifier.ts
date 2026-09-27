@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { orders, customers } from "../../infra/db/schema.js";
 import { sendTextMessage } from "./whatsapp.client.js";
+import { recordOutboundMessage } from "./state.js";
 
 /**
  * Gap real encontrado depois de implementado: o evento `delivery.*` já
@@ -28,7 +29,29 @@ async function customerPhone(orderId: string): Promise<string | null> {
 async function notify(orderId: string, message: string) {
   const phone = await customerPhone(orderId);
   if (!phone) return; // pedido de balcão sem telefone, ou dado inconsistente — não é erro, só não há quem notificar
-  await sendTextMessage(phone, message);
+  const sent = await sendTextMessage(phone, message);
+
+  // Guarda o wamid. É o que casa o `messages.statuses` que a Meta manda
+  // depois com ESTE pedido — sem esta linha, a aba do gerente não tem como
+  // mostrar "entregue" nem "falhou" para a mensagem do cliente.
+  // `sent.wabaId` vazio = caminho legado (token de env), onde não há linha
+  // em whatsapp_connection para a FK apontar.
+  if (sent && sent.wabaId) {
+    try {
+      await recordOutboundMessage({
+        wamid: sent.wamid,
+        wabaId: sent.wabaId,
+        toPhone: phone,
+        kind: "notification",
+        orderId,
+      });
+    } catch (err) {
+      // A notificação JÁ saiu do WhatsApp; falhar aqui só faria a
+      // usecase de entrega (que chama isto em fire-and-forget) logar um
+      // erro que o gerente não pode corrigir. O envio é o que importa.
+      console.error("[whatsapp] não consegui registrar a mensagem enviada:", err);
+    }
+  }
 }
 
 export async function notifyDispatched(orderId: string): Promise<void> {

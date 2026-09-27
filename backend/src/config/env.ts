@@ -46,10 +46,35 @@ export const config = {
   // chamar a API via browser. Em dev, undefined = todas as origens liberadas
   // (útil pra tocar o Vite em outra porta sem precisar configurar nada).
   corsOrigin: process.env.CORS_ORIGIN, // ex: "https://app.seudominio.com.br"
-  // WhatsApp Cloud API — vazios em dev; whatsapp.routes.ts recusa
-  // (não trava o boot) se estiverem faltando quando o webhook é chamado.
+  // ---------- WhatsApp Cloud API / Embedded Signup ----------
+  // O token NÃO vem mais de env: quem conecta é o dono da loja, pelo
+  // Embedded Signup, e o token fica por WABA em `whatsapp_connection`
+  // (migration 0002). O que fica em env é só o do APP da Meta — o mesmo
+  // para todas as lojas que se conectarem nele. Ver
+  // docs/10-whatsapp-embedded-signup.md.
+  //
+  // Nada aqui trava o boot: a integração só é inicializável quando o
+  // gerente usa (e a UI esconde o botão enquanto faltar algo), então uma
+  // instalação sem WhatsApp continua subindo normalmente.
+  metaAppId: process.env.META_APP_ID, // id do app Meta (vai ao browser pro FB SDK)
+  metaAppSecret: process.env.META_APP_SECRET, // troca o code server-side + assina appsecret_proof
+  // Configuração v4 do Embedded Signup, criada no painel da Meta
+  // (Business Settings > Embedded Signup). É ela que declara produtos,
+  // assets e permissões — o v4 não leva mais isso na chamada do JS.
+  whatsappSignupConfigId: process.env.WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID,
+  // A configuração do Builder é amarrada a uma versão do Graph API: app id
+  // e versão precisam sair do MESMO painel. v25.0 é a atual da doc do
+  // Embedded Signup v4.
+  whatsappGraphVersion: process.env.WHATSAPP_GRAPH_VERSION ?? "v25.0",
+  // Base da Graph — variável de ambiente para os testes apontarem para um
+  // stub local em vez da rede (mesmo truque do IFOOD_MOCK).
+  whatsappGraphBaseUrl: process.env.WHATSAPP_GRAPH_BASE_URL ?? "https://graph.facebook.com",
+  // Token do handshake do webhook (GET ?hub.mode=subscribe).
   whatsappVerifyToken: process.env.WHATSAPP_VERIFY_TOKEN,
-  whatsappAppSecret: process.env.WHATSAPP_APP_SECRET,
+  // Legado: token/número globais de quando o dono da WABA rodava o próprio
+  // PDV. Só entram em jogo se NÃO existir nenhuma whatsapp_connection ativa
+  // (ver state.ts#resolveConnection), e aí com um warn — o caminho oficial
+  // hoje é o Embedded Signup.
   whatsappAccessToken: process.env.WHATSAPP_ACCESS_TOKEN,
   whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
   // Página externa de cardápio/checkout — o bot linka pra cá em vez de

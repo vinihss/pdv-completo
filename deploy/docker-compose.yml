@@ -39,6 +39,14 @@ services:
       - CORS_ORIGIN=https://${DOMAIN}
       - PORT=3000
       - LOG_LEVEL=info
+      # ---------- WhatsApp Cloud API (Embedded Signup) ----------
+      # Sem isto a aba "WhatsApp" do gerente mostra "não configurado" — o
+      # resto do app funciona normal.
+      - META_APP_ID=${META_APP_ID:-}
+      - META_APP_SECRET=${META_APP_SECRET:-}
+      - WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID=${WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID:-}
+      - WHATSAPP_GRAPH_VERSION=${WHATSAPP_GRAPH_VERSION:-v25.0}
+      - WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN:-}
     volumes:
       - backend_uploads:/app/uploads
     depends_on:

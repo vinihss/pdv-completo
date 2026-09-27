@@ -37,6 +37,7 @@ docs/       Specs originais (backend, frontend, critérios de aceite)
 | `docs/03-acceptance-criteria.md` | Critérios de aceite em formato Dado/Quando/Então. |
 | `docs/07-estoque.md` | Spec do controle de estoque: ledger `stock_movement`, flags de rollout, endpoints, regras de corretude e testes. |
 | `docs/08-estoque-profissional.md` | Spec do estoque profissional: fornecedores, compras multi-item, custo médio móvel, valorização, pendências (contagem, lote, multi-depósito). |
+| `docs/10-whatsapp-embedded-signup.md` | WhatsApp Cloud API: Embedded Signup v4, token por WABA, webhooks de mensagem e de status, diagnóstico. |
 
 ## Como rodar
 
@@ -91,6 +92,23 @@ ele enxerga as comandas na mesma tela do garçom.
 
 Health check: `GET http://localhost:3000/health`
 
+- **WhatsApp é token por WABA, não por instalação**: o que fica no ambiente
+  (`META_APP_ID`/`META_APP_SECRET`/`WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID`) é do
+  **app da Meta**; o token do cliente vive em `whatsapp_connection` e **nunca
+  sai por rota** (`GET /whatsapp/status` devolve só estado sem token). Uma WABA
+  ativa por instalação (`uq_whatsapp_single_active`); reconectar a mesma atualiza
+  a linha. Webhook em `/webhooks/whatsapp` (**fora** de `/api` — os três
+  Caddyfiles e o `vite.config` têm rota `/webhooks/*` própria): assinatura
+  `X-Hub-Signature-256` conferida sobre o **corpo cru** (`req.rawBody`), fan-out
+  de todo o lote `entry × changes × messages`, dedupe por wamid
+  (`whatsapp_inbound_message` — a Meta reenvia por ~7 dias), resposta 200 antes
+  de processar, e status de saída casados por wamid em
+  `whatsapp_outbound_message` (grava `order_id`). Erro da Meta vira
+  `whatsapp_provider_error` (502), nunca 500 cru. Doc e diagnóstico em
+  `docs/10-whatsapp-embedded-signup.md`; suíte `test/whatsapp.test.ts` (35
+  testes, com stub da Graph em porta fixa apontada pelo `env` do
+  `vitest.config.ts` — o `config` de `env.ts` é snapshot no load).
+
 ### Frontend
 
 Em outro terminal:
@@ -122,7 +140,7 @@ e `/realtime` pro backend).
 | `npm run seed:prod` | backend | seed de primeiro deploy (sem dados fictícios) |
 | `npm run db:migrate` | backend | aplica `migrations/*.sql` (também roda no boot em modo local) |
 | `npm run db:deactivate-demo` | backend | desativa o cardápio fictício do `seed` (use `-- --dry-run` para só listar) |
-| `npm run test` | backend | vitest (Postgres dedicado `pdv_test` via `TEST_DATABASE_URL`; caixa, comandas, idempotência, maintenance, stock) |
+| `npm run test` | backend | vitest (Postgres dedicado `pdv_test` via `TEST_DATABASE_URL`; caixa, comandas, idempotência, maintenance, stock, whatsapp) |
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
 | `npm run test` | frontend | vitest (jsdom + Testing Library; 21 suítes: casca do app + menu, drawer/accordion, modal/header/variação, login por PIN, detalhe da comanda, modais de compra/equipe, caixa/reports, página pública) |
@@ -148,9 +166,10 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
 - **Sem `rowid`**: ordem de inserção de `stock_movement`, `outbox_event` e
   `purchase_item` vem da sequência `seq BIGSERIAL` (a média móvel é um replay
   do ledger, então a ordem precisa ser estável). Não trocar por `created_at`.
-- **Migrations**: uma só, `backend/migrations/0001_init.sql`, aplicada pelo
-  runner em `src/infra/db/migrate.ts` (advisory lock + tabela `_migrations`,
-  uma transação por arquivo). Roda no boot em modo local e via `npm run db:migrate`.
+- **Migrations**: `backend/migrations/0001_init.sql` (schema base) e
+  `0002_whatsapp_connections.sql` (token por WABA), aplicadas pelo runner em
+  `src/infra/db/migrate.ts` (advisory lock + tabela `_migrations`, uma
+  transação por arquivo). Roda no boot em modo local e via `npm run db:migrate`.
 - **Contagem**: `count()` do Drizzle (nunca `sql<number>\`count(*)\`` — no
   Postgres o tipo dobigint sai como string). `sum(real)` devolve `number`.
 - **Audit log + eventos outbox na mesma transação** da escrita de domínio.
@@ -453,6 +472,30 @@ dentro da fase, a ordem indicada.
 - **6.3 Pendências** — contagem/inventário, lote/validade por saída (FIFO/FEFO),
   multi-depósito, ficha técnica, relatórios de compra — ver
   `docs/08-estoque-profissional.md` §Pendências.
+
+### Fase 7 — WhatsApp (implementado)
+
+- **7.1 Embedded Signup v4 (backend)** — ✅ feito: migration `0002`
+  (`whatsapp_connection`, `whatsapp_outbound_message`,
+  `whatsapp_inbound_message`, `whatsapp_conversation.waba_id`), token por WABA
+  em texto puro, troca do code com validação de escopo via `debug_token`,
+  descoberta de `phone_number_id` quando o postMessage não traz, `register` +
+  `subscribed_apps` na ordem, `appsecret_proof` em toda chamada, uma WABA ativa
+  por instalação. Rotas manager-only em `whatsapp.routes.ts`; doc em
+  `docs/10-whatsapp-embedded-signup.md`; suíte `test/whatsapp.test.ts`.
+- **7.2 Webhooks** — ✅ feito: assinatura conferida sobre o corpo cru, fan-out
+  do lote, dedupe por wamid, roteamento por `phone_number_id` (cai na conexão
+  ativa só quando não há `metadata`), token expirado marca a conexão,
+  `messages.statuses` aplicado por wamid com log + evento no room `whatsapp`.
+- **7.3 UI do gerente** — ✅ feito: aba `WhatsAppTab` em
+  `pages/manager/tabs/whatsapp/` (card de estado, lista de variáveis faltando,
+  histórico com status e motivo da falha, `ConfirmModal` para desconectar),
+  `entities/whatsapp/` com a API e o `FB.login`/`postMessage` do Embedded
+  Signup (extração testada em `embeddedSignup.test.js`, com checagem de
+  `origin`), item no menu (`menuSections.js`) e no `SCREENS` do `ManagerApp`.
+- **7.4 Pendências** — revogação do token na API da Meta ao desconectar
+  (hoje o apagamento é local); reconciliação de `phone_numbers`;
+  `quality_rating` na UI; templates de mensagem com aprovação da Meta.
 
 ## Critérios de verificação gerais
 

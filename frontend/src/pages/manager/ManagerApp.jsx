@@ -8,6 +8,7 @@ import UsersTab from "./tabs/users/UsersTab.jsx";
 import ReportsTab from "./tabs/reports/ReportsTab.jsx";
 import AuditTab from "./tabs/audit/AuditTab.jsx";
 import IfoodTab from "./tabs/ifood/IfoodTab.jsx";
+import WhatsAppTab from "./tabs/whatsapp/WhatsAppTab.jsx";
 import SettingsTab from "./tabs/settings/SettingsTab.jsx";
 import StockTab from "./tabs/inventory/StockTab.jsx";
 import PurchaseTab from "./tabs/purchase/PurchaseTab.jsx";
@@ -37,6 +38,7 @@ export default function ManagerApp() {
     users: <UsersTab showToast={showToast} />,
     reports: <ReportsTab showToast={showToast} />,
     ifood: <IfoodTab showToast={showToast} />,
+    whatsapp: <WhatsAppTab showToast={showToast} />,
     audit: <AuditTab />,
     settings: <SettingsTab showToast={showToast} />,
   };

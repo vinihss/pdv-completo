@@ -1,5 +1,5 @@
 import {
-  BarChart3, Boxes, ChefHat, History, Package, Receipt, Settings, ShoppingCart, Store, Truck, Users, UtensilsCrossed, Wallet,
+  BarChart3, Boxes, ChefHat, History, MessageCircle, Package, Receipt, Settings, ShoppingCart, Store, Truck, Users, UtensilsCrossed, Wallet,
 } from "lucide-react";
 
 /**
@@ -21,6 +21,7 @@ const MANAGER = ({ inventoryEnabled, purchaseEnabled }) => [
       { id: "cash", label: "Caixa", icon: Wallet },
       { id: "deliveries", label: "Entregas", icon: Truck },
       { id: "ifood", label: "iFood", icon: Store },
+      { id: "whatsapp", label: "WhatsApp", icon: MessageCircle },
     ],
   },
   {
