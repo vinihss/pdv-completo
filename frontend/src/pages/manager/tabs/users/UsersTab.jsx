@@ -5,7 +5,7 @@ import { Field, inputClass, ConfirmModal, Modal } from "@/shared/components";
 
 const ROLE_LABEL = { waiter: "Garçom", kitchen: "Cozinha", manager: "Gerente", courier: "Entregador", cashier: "Caixa" };
 
-export default function UsersTab({ showToast: _showToast }) {
+export default function UsersTab({ showToast }) {
   const [users, setUsers] = useState([]);
   const [newUserOpen, setNewUserOpen] = useState(false);
   const [revealedPin, setRevealedPin] = useState(null);
@@ -16,10 +16,14 @@ export default function UsersTab({ showToast: _showToast }) {
   useEffect(() => { load(); }, [load]);
 
   async function handleCreate(name, role) {
-    const created = await createUser({ name, role });
-    setRevealedPin({ name: created.name, pin: created.pin });
-    setNewUserOpen(false);
-    await load();
+    try {
+      const created = await createUser({ name, role });
+      setRevealedPin({ name: created.name, pin: created.pin });
+      setNewUserOpen(false);
+      await load();
+    } catch (e) {
+      showToast(e.message, "error");
+    }
   }
 
   async function handleToggleActive(u) {
@@ -78,12 +82,20 @@ export function NewUserModal({ onClose, onCreate }) {
   const [name, setName] = useState("");
   const [role, setRole] = useState("waiter");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   async function handleSubmit() {
-    if (!name.trim()) return;
+    if (!name.trim()) {
+      setError("Informe o nome do usuário.");
+      return;
+    }
+    setError("");
     setSaving(true);
-    await onCreate(name.trim(), role);
-    setSaving(false);
+    try {
+      await onCreate(name.trim(), role);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -97,7 +109,16 @@ export function NewUserModal({ onClose, onCreate }) {
       }
     >
       <div className="p-5">
-        <Field label="Nome"><input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} /></Field>
+        <Field label="Nome">
+          <input
+            value={name}
+            onChange={(e) => { setName(e.target.value); if (e.target.value.trim()) setError(""); }}
+            className={inputClass + (error ? " border-red-500/60" : "")}
+            aria-invalid={!!error}
+            aria-describedby={error ? "new-user-name-error" : undefined}
+          />
+        </Field>
+        {error && <p id="new-user-name-error" className="text-red-400 text-xs mt-1">{error}</p>}
         <div className="mt-3">
           <Field label="Perfil">
             <select value={role} onChange={(e) => setRole(e.target.value)} className={inputClass}>
