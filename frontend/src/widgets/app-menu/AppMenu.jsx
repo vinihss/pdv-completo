@@ -1,0 +1,133 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { LogOut } from "lucide-react";
+import { AccordionMenu, Drawer } from "@/shared/components";
+import { useAuth } from "@/app/providers/auth";
+import { useNav, menuSectionsFor, hasExpandableSections, firstItemId } from "@/app/providers/nav";
+import { useLowStockCount } from "@/entities/stock";
+
+const ROLE_LABEL = {
+  waiter: "Garçom",
+  kitchen: "Cozinha",
+  manager: "Gerente",
+  cashier: "Caixa",
+  courier: "Entregador",
+};
+
+/**
+ * Menu principal do app: accordion de seções, entrando pela esquerda.
+ *
+ * Desktop (`lg`+) é uma coluna de largura fixa ao lado do conteúdo — 18rem
+ * para quem tem o que expandir (o gerente) e um trilho de 4rem para os perfis
+ * de tela única, que não podem perder 288px de largura para um menu com um
+ * item só. No celular é um painel de tela cheia, aberto pelo botão do header.
+ *
+ * As duas instâncias (coluna e painel) compartilham o estado das seções, senão
+ * girar o tablet perderia o que o usuário tinha aberto.
+ */
+export default function AppMenu() {
+  const { session, storeSettings, logout } = useAuth();
+  const { activeId, setActiveId, drawerOpen, closeDrawer } = useNav();
+  const lowCount = useLowStockCount();
+
+  const sections = useMemo(
+    () =>
+      menuSectionsFor(session?.user?.role, {
+        inventoryEnabled: storeSettings?.inventoryEnabled ?? false,
+        purchaseEnabled: storeSettings?.purchaseEnabled ?? false,
+      }),
+    [session?.user?.role, storeSettings?.inventoryEnabled, storeSettings?.purchaseEnabled]
+  );
+
+  const variant = hasExpandableSections(sections) ? "full" : "rail";
+
+  const [expanded, setExpanded] = useState(() => new Set());
+
+  // A seção da tela ativa começa aberta; as outras o usuário abre quando quiser
+  // (mais de uma aberta ao mesmo tempo: no desktop um 2º clique é caro).
+  useEffect(() => {
+    const owner = sections.find((s) => s.items.some((i) => i.id === activeId));
+    if (owner) setExpanded((prev) => (prev.has(owner.id) ? prev : new Set(prev).add(owner.id)));
+  }, [activeId, sections]);
+
+  // Tela guardada que não existe mais (item removido, toggle desligado, troca
+  // de papel): cai no primeiro item em vez de deixar a página em branco.
+  useEffect(() => {
+    const exists = activeId && sections.some((s) => s.items.some((i) => i.id === activeId));
+    if (!exists) {
+      const fallback = firstItemId(sections);
+      if (fallback) setActiveId(fallback);
+    }
+  }, [activeId, sections, setActiveId]);
+
+  const withBadges = useMemo(
+    () =>
+      sections.map((s) => ({
+        ...s,
+        items: s.items.map((i) => (i.id === "stock" && lowCount > 0 ? { ...i, badge: lowCount } : i)),
+      })),
+    [sections, lowCount]
+  );
+
+  function toggleSection(id) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const menu = (footer) => (
+    <AccordionMenu
+      sections={withBadges}
+      activeId={activeId}
+      onSelect={setActiveId}
+      variant={variant}
+      expanded={expanded}
+      onToggleSection={toggleSection}
+      footer={footer}
+    />
+  );
+
+  return (
+    <>
+      <aside
+        className={`hidden lg:flex shrink-0 flex-col sticky top-14 h-[calc(100vh-3.5rem)] border-r border-stone-800 bg-stone-900/40 ${
+          variant === "rail" ? "w-16" : "w-72"
+        }`}
+      >
+        <div className="flex-1 overflow-y-auto">{menu()}</div>
+        {variant === "full" && (
+          <div className="shrink-0 border-t border-stone-800 p-3">
+            <Identity name={session?.user?.name} role={session?.user?.role} />
+          </div>
+        )}
+      </aside>
+
+      <Drawer open={drawerOpen} onClose={closeDrawer} panelId="app-menu-painel" label="Menu principal" panelClassName="w-full border-r">
+        <div className="flex-1 overflow-y-auto">{menu()}</div>
+        <div className="shrink-0 border-t border-stone-800 p-3">
+          <Identity name={session?.user?.name} role={session?.user?.role} />
+          {/* No celular o scrim cobre o "Sair" do header — sem este botão o
+              entregador preso no painel não trocaria de usuário. */}
+          <button
+            type="button"
+            onClick={logout}
+            className="mt-2 w-full flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold text-stone-400 hover:text-red-400 hover:bg-stone-800/60 transition-colors"
+          >
+            <LogOut size={14} /> Trocar usuário
+          </button>
+        </div>
+      </Drawer>
+    </>
+  );
+}
+
+function Identity({ name, role }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-sm font-semibold text-stone-200 truncate">{name ?? "—"}</p>
+      <p className="text-[11px] text-stone-500 truncate">{ROLE_LABEL[role] ?? role}</p>
+    </div>
+  );
+}

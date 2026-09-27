@@ -53,11 +53,12 @@ Cinco pastas escondem mais de um caso de uso:
 src/
 ├── app/
 │   ├── providers/auth/       AuthContext + Login (vem do app/router)
+│   ├── providers/nav/        tela ativa do menu + seções por papel (menuSections)
 │   └── router.jsx
 ├── pages/                    7 telas compostas por papel
 │   ├── pdv/  manager/  kitchen/  cashier/  courier/  customer-menu/  login/
 ├── widgets/                  blocos de UI reutilizáveis
-│   ├── order-card/  status-badge/  money/  modal/  ...
+│   ├── order-card/  status-badge/  money/  modal/  app-menu/  ...
 ├── features/                 ações do usuário com estado próprio
 │   ├── add-item/  close-order/  cancel-order/  open-cash-drawer/
 │   ├── cash-movement/  print-kitchen-ticket/  print-receipt/  product-catalog/
@@ -67,8 +68,8 @@ src/
 └── shared/                   genérico
     ├── api/http.js           único núcleo HTTP
     ├── lib/                  format, theme, uuid (genéricos)
-    ├── hooks/                useRealtime
-    └── ui/                   Toast, ConfirmModal, Section/Field
+    ├── hooks/                useRealtime, useEscapeLayer, useBodyScrollLock, useFocusTrap
+    └── ui/                   Toast, ConfirmModal, Drawer, AccordionMenu, Section/Field
 ```
 
 ### Decisões de unificação
@@ -85,6 +86,13 @@ src/
   dicionário fixo.
 - `pix.js` (BR Code) → `entities/payment`, não `shared/lib`: é domínio de
   pagamento.
+- **Menu principal** → `widgets/app-menu` (a casca que conhece o papel) +
+  `shared/components/AccordionMenu.jsx` (a lista de seções, sem vocabulário) +
+  `app/providers/nav/menuSections.js` (o mapa papel → seções). O menu é o
+  único consumidor de `useNav()`, e ele mora em `app/providers/nav` porque
+  atravessa duas camadas irmãs: quem desenha o menu (`app/router.jsx`) e quem
+  desenha a tela (`pages/manager`). `pages` não pode importar `pages`, então
+  o estado da tela ativa não pode morar na página.
 
 ## 4. Classificação atual → destino
 
@@ -98,7 +106,7 @@ src/
 | `orders/NewOrderModal` | `features/open-order` |
 | `orders/PaymentModal`, `ReviewCartModal`, `PixQrScreen` | `features/close-order` |
 | `orders/order.utils.js` | `entities/order/model` |
-| `manager/ManagerApp` | `pages/manager` (registro de abas) |
+| `manager/ManagerApp` | `pages/manager` (mapa de telas, uma por item do menu) |
 | `cashier/CashierApp` | `pages/cashier` |
 | `courier/CourierApp` | `pages/courier` |
 | `kitchen/KitchenDisplay` | `pages/kitchen` |
@@ -121,6 +129,8 @@ src/
 | `shared/api/http.js` | `shared/api/` (fica) |
 | `shared/api/{orders,cash,...}.js` | `entities/<dominio>/api` |
 | `shared/components/{Toast,ConfirmModal,Form}` | `shared/ui` |
+| `shared/components/{Drawer,AccordionMenu}` | `shared/components` (ficam genéricos, junto dos overlays) |
+| `manager/ManagerApp` (menu lateral) | `widgets/app-menu` + `app/providers/nav` + `shared/components/AccordionMenu` |
 | `shared/components/StatusBadge` | `entities/order/ui` |
 | `shared/components/VariationModal` | `entities/product/ui` |
 | `shared/lib/{format,theme,uuid}` | `shared/lib` (ficam) |
@@ -128,7 +138,7 @@ src/
 | `shared/lib/pix` | `entities/payment` (Fase 3) |
 
 > **Não confundir três coisas diferentes.** Só há uma tela por papel em
-> `app/router.jsx`, e por isso existem 7 `pages/`. As 10 abas do gerente
+> `app/router.jsx`, e por isso existem 7 `pages/`. As telas do gerente
 > (`catalog`, `reports`, `audit`, `settings`, `users`, `deliveries`, `ifood`,
 > `inventory`, `purchase`, `cashdrawer`) **não são pages**: são conteúdo
 > privado da tela do gerente e vivem em `pages/manager/tabs/` (`cashdrawer`
@@ -398,5 +408,7 @@ dessas três exceções, ou um `money`/`fmtMoney`/`fmt` local novo.
   O `AGENTS.md` proíbe lib de estado ("server-authoritative"): a refatoração
   é **apenas de camadas**, mantendo JSX e o modelo de dados atual.
 - Trocar `fetch` por axios ou introduzir cache de cliente.
-- Separar `ManagerApp` em rotas próprias (hoje é um registro de abas; a spec
-  §4.4 pede isso, mas é decisão de produto, não de arquitetura).
+- Separar `ManagerApp` em rotas próprias (hoje é um mapa de tela para o item
+  ativo do menu; a spec §4.4 pede isso, mas é decisão de produto, não de
+  arquitetura). O `NavProvider` já é o ponto de troca: passar a usar a rota em
+  vez do estado é mexer só nele e no `AppMenu`.

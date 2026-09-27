@@ -1,7 +1,8 @@
 import React from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { LogOut } from "lucide-react";
+import { LogOut, Menu } from "lucide-react";
 import { AuthProvider, useAuth } from "@/app/providers/auth";
+import { NavProvider, useNav } from "@/app/providers/nav";
 import { PdvPage } from "@/pages/pdv";
 import { ManagerApp } from "@/pages/manager";
 import { KitchenDisplay } from "@/pages/kitchen";
@@ -9,12 +10,25 @@ import { CourierApp } from "@/pages/courier";
 import { CashierApp } from "@/pages/cashier";
 import { CustomerMenuPage } from "@/pages/customer-menu";
 import { LoginPage } from "@/pages/login";
+import { AppMenu } from "@/widgets/app-menu";
 
 export function AppFrame({ children }) {
   const { logout, storeSettings } = useAuth();
+  const { drawerOpen, openDrawer } = useNav();
   return (
-    <div className="relative">
-      <div className="sticky top-0 z-40 h-14 flex items-center justify-between px-4 bg-stone-900/95 backdrop-blur border-b border-stone-800">
+    <div className="relative min-h-screen">
+      <div className="sticky top-0 z-40 h-14 flex items-center gap-2 px-3 sm:px-4 bg-stone-900/95 backdrop-blur border-b border-stone-800">
+        {/* Só no celular: a partir de lg o menu é a coluna da esquerda. */}
+        <button
+          type="button"
+          onClick={openDrawer}
+          aria-label="Abrir menu"
+          aria-expanded={drawerOpen}
+          aria-controls="app-menu-painel"
+          className="lg:hidden w-10 h-10 -ml-1 flex items-center justify-center rounded-full text-stone-300 hover:text-stone-100 transition-colors shrink-0"
+        >
+          <Menu size={20} />
+        </button>
         <div className="flex items-center gap-2.5 min-w-0">
           {storeSettings?.logoUrl ? (
             <div className="h-9 w-9 rounded-full bg-stone-800 border border-stone-700 flex items-center justify-center overflow-hidden shrink-0">
@@ -31,13 +45,16 @@ export function AppFrame({ children }) {
           onClick={logout}
           title="Trocar usuário"
           aria-label="Trocar usuário"
-          className="flex items-center gap-1.5 text-stone-300 hover:text-red-400 text-xs font-semibold transition-colors"
+          className="flex items-center gap-1.5 text-stone-300 hover:text-red-400 text-xs font-semibold transition-colors shrink-0"
         >
           <LogOut size={16} />
           Sair
         </button>
       </div>
-      {children}
+      <div className="flex items-start">
+        <AppMenu />
+        <main className="flex-1 min-w-0">{children}</main>
+      </div>
     </div>
   );
 }
@@ -62,7 +79,11 @@ export function Root() {
     return <LoginPage />;
   }
 
-  return <AppFrame>{SCREENS_BY_ROLE[session.user.role] ?? <PdvPage />}</AppFrame>;
+  return (
+    <NavProvider role={session.user.role}>
+      <AppFrame>{SCREENS_BY_ROLE[session.user.role] ?? <PdvPage />}</AppFrame>
+    </NavProvider>
+  );
 }
 
 export function AppRouter() {

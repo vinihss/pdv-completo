@@ -41,7 +41,7 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-50 pb-24">
-      <div className="px-5 pt-6 pb-4 sticky top-12 bg-stone-950/95 backdrop-blur z-10 border-b border-stone-900">
+      <div className="px-5 pt-6 pb-4 sticky top-14 bg-stone-950/95 backdrop-blur z-10 border-b border-stone-900">
         <div className="flex items-center justify-between mb-4">
           <h1 className="font-display text-xl font-bold">Comandas</h1>
           <button

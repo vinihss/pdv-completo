@@ -6,8 +6,9 @@ import { useToast, Toast } from "@/shared/components";
 /**
  * Rota separada e minimalista, não uma view restrita do painel do manager
  * (decisão registrada em 04-delivery-self-service-integration.md
- * "Superfícies de UI") — sem sidebar, sem navegação, só a lista de tarefas
- * do entregador logado.
+ * "Superfícies de UI") — sem as telas do gerente, só a lista de tarefas do
+ * entregador logado. O menu do app entra como trilho de ícones (perfil de tela
+ * única); o roteamento e a lista são daqui.
  */
 export default function CourierApp() {
   const { deliveries, loading, reload } = useDeliveries("courier");
