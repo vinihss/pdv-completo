@@ -7,6 +7,7 @@ import { Errors } from "../domain/errors.js";
 import { config } from "../config/env.js";
 import { logAction } from "../infra/audit-log.js";
 import { getCache } from "../infra/cache/index.js";
+import { NominatimGeocodingService } from "../../integrations/maps/geocoding.service.ts";
 
 const cache = getCache();
 
@@ -77,6 +78,11 @@ export async function updateStoreSettingsUsecase(input: {
   if (!/^#[0-9a-fA-F]{6}$/.test(input.brandColor)) throw Errors.validationFailed({ field: "brandColor" });
   if (input.kitchenPrepUrgentMin <= input.kitchenPrepWarnMin) throw Errors.invalidKitchenThresholds();
 
+  const current = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
+  if (!current) throw Errors.notFound("Configuração da loja");
+
+  const nameOrCityChanged = input.merchantName !== current.merchantName || input.merchantCity !== current.merchantCity;
+
   const [updated] = await db
     .update(storeSettings)
     .set({
@@ -105,6 +111,26 @@ export async function updateStoreSettingsUsecase(input: {
     .returning();
 
   invalidateStoreSettingsRelated();
+
+  if (nameOrCityChanged) {
+    const geocodingService = new NominatimGeocodingService();
+    try {
+      const coords = await geocodingService.forwardGeocode(`${input.merchantName}, ${input.merchantCity}`);
+      await db.transaction(async (tx) => {
+        await tx
+          .update(storeSettings)
+          .set({ restaurantLat: coords.latitude, restaurantLong: coords.longitude })
+          .where(eq(storeSettings.id, "singleton"));
+        await logAction(tx, "system", "restaurant_geocoded", null, { latitude: coords.latitude, longitude: coords.longitude });
+      });
+      invalidateStoreSettingsRelated();
+      updated.restaurantLat = coords.latitude;
+      updated.restaurantLong = coords.longitude;
+    } catch (err) {
+      // Geocoding failure não invalida o save — apenas registra.
+    }
+  }
+
   return serialize(updated);
 }
 

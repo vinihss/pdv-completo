@@ -13,7 +13,6 @@ export default function SettingsTab({ showToast }) {
   const [logoFile, setLogoFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState("");
   const [logoRemoved, setLogoRemoved] = useState(false);
-  const [geocoding, setGeocoding] = useState(false);
 
   useEffect(() => {
     if (storeSettings) setForm(storeSettings);
@@ -65,21 +64,7 @@ export default function SettingsTab({ showToast }) {
     setLogoRemoved(true);
   }
 
-  async function handleGeocodeRestaurant() {
-    setGeocoding(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/store/geocode-restaurant", { method: "POST" });
-      if (!res.ok) throw new Error("Falha ao geocodificar restaurante");
-      const data = await res.json();
-      set({ restaurantLat: data.latitude, restaurantLong: data.longitude });
-      showToast("Coordenadas calculadas.", "success");
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setGeocoding(false);
-    }
-  }
+
 
   const displayLogo = logoRemoved ? "" : logoPreview || form.logoUrl || "";
 
@@ -165,34 +150,14 @@ export default function SettingsTab({ showToast }) {
         {form.usesDelivery && (
           <>
             <Field label="Coordenadas do restaurante">
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  step="0.00001"
-                  placeholder="Latitude"
-                  value={form.restaurantLat ?? ""}
-                  onChange={(e) => set({ restaurantLat: e.target.value ? Number(e.target.value) : null })}
-                  className={inputClass}
-                />
-                <input
-                  type="number"
-                  step="0.00001"
-                  placeholder="Longitude"
-                  value={form.restaurantLong ?? ""}
-                  onChange={(e) => set({ restaurantLong: e.target.value ? Number(e.target.value) : null })}
-                  className={inputClass}
-                />
-                <button
-                  onClick={handleGeocodeRestaurant}
-                  disabled={geocoding}
-                  className="shrink-0 bg-stone-800 hover:bg-stone-750 border border-stone-700 rounded-xl px-3 py-2 text-xs font-semibold text-stone-300 transition-colors disabled:opacity-50"
-                >
-                  {geocoding ? "Calculando…" : "Calcular"}
-                </button>
-              </div>
-              <p className="text-stone-600 text-xs mt-1.5">
-                Clique em "Calcular" para geocodificar o endereço do estabelecimento. Necessário para o cálculo de frete por distância.
-              </p>
+              {form.restaurantLat != null && form.restaurantLong != null ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-mono text-stone-400">{form.restaurantLat.toFixed(5)}, {form.restaurantLong.toFixed(5)}</span>
+                  <span className="text-[11px] text-stone-500">(calculada automaticamente)</span>
+                </div>
+              ) : (
+                <p className="text-stone-500 text-xs">Será calculada automaticamente ao salvar nome e cidade.</p>
+              )}
             </Field>
             <Field label="Frete grátis acima de (R$) — 0 desativa">
               <input
