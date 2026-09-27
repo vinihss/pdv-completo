@@ -165,10 +165,10 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
             </div>
           </div>
         </Field>
-        <Field label="Nome"><input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} /></Field>
+        <Field label="Nome" required><input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} /></Field>
         <Field label="Descrição"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Ex.: Prato do dia com arroz, feijão e salada..." className={inputClass + " resize-none"} /></Field>
         <Field label="Preço"><input inputMode="numeric" value={price} onChange={(e) => setPrice(maskCurrencyInput(e.target.value))} placeholder="R$ 0,00" className={inputClass} /></Field>
-        <Field label="Categoria">
+        <Field label="Categoria" required={!product}>
           <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className={inputClass}>
             <option value="">{product ? "— Sem categoria —" : "Selecione uma categoria..."}</option>
             {categoryOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
