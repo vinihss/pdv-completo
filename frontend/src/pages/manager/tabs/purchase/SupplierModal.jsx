@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { createSupplier } from "@/entities/stock";
+import { maskCnpjCpf } from "@/shared/lib";
 import { Field, inputClass, Modal } from "@/shared/components";
 
 // Cadastro rápido de fornecedor pelo gerente.
@@ -38,7 +39,7 @@ export default function SupplierModal({ onClose, onSaved, showToast }) {
       <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="p-5 space-y-3">
         <Field label="Nome" required><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Distribuidora Bebidas" className={inputClass} /></Field>
         <Field label="Telefone (opcional)"><input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(11) 99999-0000" className={inputClass} /></Field>
-        <Field label="CNPJ / CPF (opcional)"><input value={taxId} onChange={(e) => setTaxId(e.target.value)} className={inputClass} /></Field>
+        <Field label="CNPJ / CPF (opcional)"><input value={taxId} onChange={(e) => setTaxId(maskCnpjCpf(e.target.value))} inputMode="numeric" className={inputClass} /></Field>
       </form>
     </Modal>
   );
