@@ -28,10 +28,10 @@ async function assertVariationsSelectable(lines: IntakeLine[]) {
   const ids = [...new Set(lines.map((l) => l.productId))];
   if (ids.length === 0) return;
   const rows = await db.query.products.findMany({ where: inArray(products.id, ids) });
-  const byId = new Map(rows.map((p) => [p.id, p]));
+  const byId = new Map(rows.map((p: any) => [p.id, p]));
 
   for (const line of lines) {
-    const product = byId.get(line.productId);
+    const product = byId.get(line.productId) as any;
     if (!product) continue;
     const groups = parseVariations(product.variations);
 

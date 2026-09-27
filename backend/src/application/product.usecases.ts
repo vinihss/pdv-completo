@@ -79,7 +79,7 @@ export async function listProductsUsecase(input: {
   const cached = cache.get<{ data: unknown[]; total: number }>(key);
   if (cached) return cached;
 
-  const conditions = [];
+  const conditions: any[] = [];
   if (input.categoryId) conditions.push(eq(products.categoryId, input.categoryId));
   if (input.active !== undefined) conditions.push(eq(products.active, input.active));
   if (input.search) conditions.push(like(products.name, `%${input.search}%`));
@@ -104,8 +104,8 @@ export async function listProductsUsecase(input: {
     serialize(
       p,
       {
-        categoryName: p.categoryId ? catMap.get(p.categoryId) ?? null : null,
-        kitchenGroupName: p.kitchenGroupId ? groupMap.get(p.kitchenGroupId) ?? null : null,
+        categoryName: p.categoryId ? (catMap.get(p.categoryId) as string | undefined) ?? null : null,
+        kitchenGroupName: p.kitchenGroupId ? (groupMap.get(p.kitchenGroupId) as string | undefined) ?? null : null,
       },
       balances.get(p.id) ?? 0
     )

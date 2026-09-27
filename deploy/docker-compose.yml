@@ -1,6 +1,9 @@
 # ============================================================
 # Deploy completo: Caddy (HTTPS) + backend + frontend
 # Uso: cd deploy && cp .env.example .env && ajuste os valores && docker compose up -d
+#
+# Modo local (SQLite): DEPLOYMENT_MODE=local, DATABASE_URL=sqlite:/app/data/data.db
+# Modo cloud (Postgres): DEPLOYMENT_MODE=cloud, DATABASE_URL=postgres://...
 # ============================================================
 services:
   caddy:
@@ -20,11 +23,13 @@ services:
       - frontend
 
   backend:
-    build: ../backend
+    build:
+      context: ../backend
+      dockerfile: ${DOCKERFILE:-Dockerfile}
     restart: unless-stopped
     environment:
-      - DEPLOYMENT_MODE=local
-      - DATABASE_URL=sqlite:/app/data/data.db
+      - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-local}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:/app/data/data.db}
       - UPLOADS_DIR=/app/uploads
       - JWT_SECRET=${JWT_SECRET}
       - CORS_ORIGIN=https://${DOMAIN}
@@ -40,6 +45,26 @@ services:
     restart: unless-stopped
     # idem — só o Caddy acessa
 
+  # Serviço Postgres — só usado quando DEPLOYMENT_MODE=cloud
+  # Para usar: docker compose --profile cloud up -d
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    profiles:
+      - cloud
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-pdv}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-pdv_password}
+      - POSTGRES_DB=${POSTGRES_DB:-pdv}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Não expõe porta pro host — só o backend acessa via rede interna do compose
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pdv} -d ${POSTGRES_DB:-pdv}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   # Nomes explícitos (sem prefixo do projeto) para que o backup.sh e os
   # comandos de operação não dependam do nome da pasta do compose.
@@ -51,3 +76,5 @@ volumes:
     name: pdv_caddy_data # certificados TLS emitidos pelo Let's Encrypt, reaproveitados entre restarts
   caddy_config:
     name: pdv_caddy_config
+  postgres_data:
+    name: pdv_postgres_data # dados do Postgres — NUNCA apague sem backup

@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
 import { config } from "../config/env.js";
 import { runMigrations } from "../infra/db/migrate.js";
-import { rawSqlite } from "../infra/db/client.js";
+import { checkDatabaseHealth } from "../infra/db/client.js";
 import { startOutboxDispatcher } from "../infra/realtime/outbox-dispatcher.js";
 import { startMaintenanceJobs } from "../infra/maintenance.js";
 import { AppError } from "../domain/errors.js";
@@ -99,12 +99,11 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // ---------- Health check (§14.4) — sem autenticação ----------
   app.get("/health", async (_req, reply) => {
-    try {
-      rawSqlite.prepare("SELECT 1").get();
+    const healthy = await checkDatabaseHealth();
+    if (healthy) {
       return reply.code(200).send({ status: "ok", database: "connected" });
-    } catch {
-      return reply.code(503).send({ status: "degraded", database: "disconnected" });
     }
+    return reply.code(503).send({ status: "degraded", database: "disconnected" });
   });
 
   await app.register(authRoutes);

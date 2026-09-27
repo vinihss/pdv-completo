@@ -274,7 +274,7 @@ export async function getPurchaseUsecase(id: string) {
 
   // Média móvel por produto envolvido (para a UI mostrar o custo atual)
   const productIds = [...new Set(items.map((i) => i.productId))];
-  const averages = await averageCosts(productIds);
+  const averages = await averageCosts(productIds as string[]);
   const averagesMap: Record<string, number> = {};
   for (const [pid, v] of averages) averagesMap[pid] = v.avg;
 
