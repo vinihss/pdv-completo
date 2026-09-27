@@ -125,7 +125,7 @@ e `/realtime` pro backend).
 | `npm run test` | backend | vitest (Postgres dedicado `pdv_test` via `TEST_DATABASE_URL`; caixa, comandas, idempotência, maintenance, stock) |
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
-| `npm run test` | frontend | vitest (jsdom + Testing Library; 16 suítes: modal/header/variação, login por PIN, detalhe da comanda, modais de compra/equipe, caixa/reports, página pública) |
+| `npm run test` | frontend | vitest (jsdom + Testing Library; 21 suítes: casca do app + menu, drawer/accordion, modal/header/variação, login por PIN, detalhe da comanda, modais de compra/equipe, caixa/reports, página pública) |
 
 ## Convenções e regras ao editar código
 
@@ -256,15 +256,17 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
   (full-width no celular, `lg:right-8 lg:w-80` no desktop, cantos inferiores).
   Teste de integração da página (`CustomerMenuPage.test.jsx`) é o que pega
   ReferenceError de import perdido — `tsc`/build não pegam.
-- **Sobreposição tem dono: `Modal`, `ScreenHeader` ou `ConfirmModal`** (todos em
-  `src/shared/components`, com teste próprio). Nada de overlay ad-hoc — se
-  aparecer `fixed inset-0 bg-black/70` fora do `ConfirmModal`, volta pro
-  `Modal`.
+- **Sobreposição tem dono: `Modal`, `Drawer`, `ScreenHeader` ou `ConfirmModal`**
+  (todos em `src/shared/components`, com teste próprio). Nada de overlay
+  ad-hoc — se aparecer `fixed inset-0 bg-black/70` fora do `ConfirmModal` ou do
+  `Drawer`, volta para um deles.
   - `Modal`: **tela cheia em qualquer device** (o tablet do garçom é o alvo):
     cabeçalho fixo com título e **X à direita**, corpo rolável, `footer` de ação
     sempre visível. Fecha por X, **Esc** ou **arrasto para baixo**. Cobre os
     ~18 modais do app (lançamento, revisão, pagamento, PIX, caixa, catálogo,
     estoque, compras, fornecedores, equipe e o cancelamento do pedido público).
+  - `Drawer`: overlay **lateral** (painel que entra pela esquerda), o dono do
+    menu principal no celular. Só a entrada é animada (`slide-in-left`).
   - `ScreenHeader`: telas que **já** são fullscreen (`OrderDetailScreen`,
     `AddItemScreen`) — mesma métrica do `Modal`, controle **à esquerda** (é
     navegação, não descarte) e Esc para voltar.
@@ -275,14 +277,50 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
     **pilha de camadas** e entrega a tecla só ao topo — um listener por
     componente resolveria pela ordem de *registro*, e ela não é a ordem visual
     (efeito de filho roda antes do pai). Captura + `stopImmediatePropagation` +
-    guarda de `repeat`/`defaultPrevented`; `Modal` trava o scroll do fundo e
-    restaura no unmount. Gesto de descarte conservador: > 120px ou flick > 40px
+    guarda de `repeat`/`defaultPrevented`; `Modal` e `Drawer` travam o scroll
+    do fundo e restauram no unmount, e ambos usam os hooks compartilhados
+    `useBodyScrollLock`/`useFocusTrap` (não reimplementar isso por conta
+    própria). Gesto de descarte conservador: > 120px ou flick > 40px
     **e** > 0,6px/ms, trava de eixo em 8px, e corpo já rolado pertence ao
     scroll nativo.
   - `Modal` não pode formatar dinheiro (`formatBRL`/`.toFixed(2)` é proibido em
     `shared`): o pai formata e passa pronto. `PaymentModal.jsx` e
     `CloseCashDrawerModal.jsx` **não** movem de lugar — estão no allowlist
     `MONEY_ALLOWED` do `fsd-boundaries.test.js`.
+- **Menu principal = accordion na esquerda, nos 5 perfis logados**
+  (`widgets/app-menu/AppMenu.jsx`, dados em `app/providers/nav/menuSections.js`).
+  - **Desktop (`lg`+)**: coluna de largura fixa ao lado do conteúdo — `w-72`
+    (18rem) para quem tem o que expandir (o gerente) e **trilho de `w-16`**
+    (4rem) para os perfis de tela única (garçom, cozinha, caixa, entregador),
+    que não podem perder 288px por um menu de um item. `sticky top-14`, porque o
+    header da casca é `h-14`.
+  - **Mobile**: `Drawer` de tela cheia, aberto pelo botão `Menu` do header
+    (`lg:hidden`, `aria-controls="app-menu-painel"`). Escolher uma tela fecha o
+    painel; o rodapé do painel tem "Trocar usuário" porque o scrim cobre o
+    "Sair" do header.
+  - **Regra de degeneração**: seção com **um** item não vira cabeçalho — o
+    próprio item é a linha (nada de "Configurações" dentro de "Sistema"); menu
+    sem nenhuma seção com 2+ itens vira trilho de ícones.
+  - A seção da tela ativa começa aberta; mais de uma pode ficar aberta ao mesmo
+    tempo (no desktop um 2º clique é caro).
+  - **Quem guarda a tela ativa é o `NavProvider`**
+    (`app/providers/nav/`), não a página: a casca (`app/router.jsx`, que
+    desenha o menu) e a página do gerente são **irmãs** na árvore, então prop
+    não resolve. Persiste por papel em `sessionStorage` (`pdv:nav:<role>`) — com
+    a coluna sempre visível, voltar para "Comandas" a cada F5 seria um passo
+    atrás. `id` guardado que não existe mais (toggle desligado) cai no
+    primeiro item.
+  - A antiga barra de abas do gerente **saiu**: `ManagerApp` é um mapa
+    `SCREENS[activeId] ?? SCREENS.orders` e o badge de estoque baixo foi para
+    `entities/stock/model/useLowStockCount.js` (`GET /stock` é
+    `requireRole("manager")`, então o hook só busca para o gerente). O
+    `AccordionMenu` soma os badges da seção no cabeçalho, para o sinal
+    continuar visível com a seção recolhida.
+  - Os chips de filtro do garçom e as estações da cozinha **continuam na
+    lista** — o menu principal navega entre telas, não escolhe visão.
+  - `shared/components/AccordionMenu.jsx` é burro de propósito: recebe as
+    seções prontas e não sabe o que é comanda, estoque ou gerente (o vocabulário
+    de domínio mora em `app/`, porque `shared` não pode carregá-lo).
 - **Login por PIN tem duas vias de entrada, mesma regra** (só dígitos, corte em
   6): o keypad na tela e um input real sobre a linha de pontos com
   `inputMode="numeric"` + `autoComplete="one-time-code"` (teclado nativo do

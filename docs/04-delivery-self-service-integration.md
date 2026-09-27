@@ -280,7 +280,7 @@ Nem toda interação nova exige uma tela nova. Distinção importante:
 |---|---|---|
 | Cliente pelo WhatsApp | Não — interface é o próprio WhatsApp | Sem frontend nosso; só backend (webhook + client) |
 | Cliente pela página externa | **Sim, isolada** | Pública, sem login, layout próprio |
-| Entregador | **Sim, isolada** | Autenticada, dentro do mesmo frontend do PDV, layout próprio (sem sidebar/menu do gerente) |
+| Entregador | **Sim, isolada** | Autenticada, dentro do mesmo frontend do PDV, casca própria (sem as telas do gerente) — o menu do app entra só como **trilho de ícones** de 4rem com "Entregas", para não gastar 288px de largura com um item único |
 | Manager atribuindo entregador | Sim, mas **dentro do app existente** | Rota/aba nova no manager-app já existente |
 | Manager configurando taxa de entrega | Não — campo a mais | Tela de configurações já existente |
 
@@ -328,7 +328,7 @@ backend/src/integrations/whatsapp/
                              # worker consumir quando existir
 ```
 
-Interface de entregador: rota nova dentro do mesmo frontend, com layout próprio (sem o menu/sidebar do PDV) — não um app separado, não uma view restrita do painel do lojista. Login reaproveita `users`/`role: courier`.
+Interface de entregador: rota nova dentro do mesmo frontend, com casca própria (sem as telas do gerente) — não um app separado, não uma view restrita do painel do lojista. Login reaproveita `users`/`role: courier`. O menu principal do app é compartilhado por todos os papéis logados (`widgets/app-menu`); para um perfil de tela única ele degenera em **trilho de ícones** de 4rem — o entregador vê só o próprio ícone de "Entregas", e no celular o painel inteiro traz também o "Trocar usuário" (o scrim cobre o "Sair" do header).
 
 ## Decisões pendentes
 
