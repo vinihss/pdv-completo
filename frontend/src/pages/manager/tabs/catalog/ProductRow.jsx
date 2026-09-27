@@ -41,6 +41,11 @@ export function ProductRow({ product: p, categoryName, onOpen, onToggleActive, i
             {categoryName}
             {kitchenEnabled && p.kitchenGroupName ? ` · ${p.kitchenGroupName}` : ""}
           </div>
+          {p.description && (
+            <div className="text-stone-400 text-xs line-clamp-2 leading-snug">
+              {p.description}
+            </div>
+          )}
         </div>
       </div>
       <div className="flex items-center gap-3 shrink-0">
