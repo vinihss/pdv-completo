@@ -1,0 +1,27 @@
+# ============================================================
+# Backend PDV — imagem de produção para modo cloud (Postgres)
+# Não precisa de python3/make/g++ (sem better-sqlite3)
+# ============================================================
+FROM node:22-slim AS build
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# ---------- imagem final, sem ferramentas de build ----------
+FROM node:22-slim
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+COPY --from=build /app/dist ./dist
+COPY migrations ./migrations
+COPY migrations-pg ./migrations-pg
+COPY seed-data ./seed-data
+
+EXPOSE 3000
+CMD ["node", "dist/http/server.js"]

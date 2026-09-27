@@ -154,13 +154,13 @@ export async function listManagerDeliveriesUsecase(input: { statuses?: DeliveryS
 
   const courierIds = [...new Set(rows.map((d) => d.courierId).filter((id): id is string => !!id))];
   const couriers = courierIds.length
-    ? await db.query.users.findMany({ where: inArray(users.id, courierIds) })
+    ? await db.query.users.findMany({ where: inArray(users.id, courierIds as string[]) })
     : [];
   const courierById = new Map(couriers.map((c) => [c.id, c]));
 
   return rows.map((d) => ({
     ...serialize(d),
-    courier: d.courierId ? { id: d.courierId, name: courierById.get(d.courierId)?.name ?? null } : null,
+    courier: d.courierId ? { id: d.courierId, name: (courierById.get(d.courierId) as any)?.name ?? null } : null,
   }));
 }
 

@@ -34,7 +34,7 @@ type CategoryRow = { id: string; name: string; ativos_fora_do_demo: number; acti
 const dryRun = process.argv.slice(2).includes("--dry-run");
 
 function demoProducts(): ProductRow[] {
-  const byNameAndPrice = rawSqlite.prepare("SELECT id, name, price, active FROM product WHERE name = ? AND price = ?");
+  const byNameAndPrice = rawSqlite!.prepare("SELECT id, name, price, active FROM product WHERE name = ? AND price = ?");
   return DEMO_PRODUCTS.flatMap((d) => byNameAndPrice.all(d.name, d.price) as ProductRow[]);
 }
 
@@ -45,7 +45,7 @@ function demoCategories(demoProductIds: string[]): CategoryRow[] {
   const semDemo = demoProductIds.length
     ? `p.id NOT IN (${demoProductIds.map(() => "?").join(", ")})`
     : "1 = 1";
-  const stmt = rawSqlite.prepare(`
+  const stmt = rawSqlite!.prepare(`
     SELECT c.id,
            c.name,
            c.active,
@@ -87,12 +87,12 @@ function run() {
   if (dryRun) {
     console.log("[demo] dry-run: nada foi alterado.");
   } else {
-    rawSqlite.transaction(() => {
+    rawSqlite!.transaction(() => {
       for (const p of produtosAtivos) {
-        rawSqlite.prepare("UPDATE product SET active = 0, updated_at = (current_timestamp) WHERE id = ?").run(p.id);
+        rawSqlite!.prepare("UPDATE product SET active = 0, updated_at = (current_timestamp) WHERE id = ?").run(p.id);
       }
       for (const c of categoriasAlvo) {
-        rawSqlite.prepare("UPDATE category SET active = 0 WHERE id = ?").run(c.id);
+        rawSqlite!.prepare("UPDATE category SET active = 0 WHERE id = ?").run(c.id);
       }
     })();
     console.log(`[demo] ${produtosAtivos.length} produto(s) e ${categoriasAlvo.length} categoria(s) desativados.`);

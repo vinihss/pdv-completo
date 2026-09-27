@@ -74,7 +74,7 @@ export async function ingestIfoodOrder(order: IfoodOrder): Promise<{
   const deliveryFee = order.orderAmount?.deliveryFee ?? 0;
   const orderLocal = await openOrderUsecase({
     waiterId: SYSTEM_USER_ID,
-    customerId: customer.id,
+    customerId: (customer as any).id,
     tabLabel: `iFood ${order.displayId ?? order.id}`,
     channel: "ifood",
     deliveryFee,

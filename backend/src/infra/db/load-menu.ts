@@ -18,7 +18,7 @@ export function loadMenu() {
   }
 
   const sql = fs.readFileSync(sqlPath, "utf8");
-  rawSqlite.exec(sql);
+  rawSqlite!.exec(sql);
   console.log("[load-menu] cardápio Unami aplicado (11 categorias, 63 produtos, 3 grupos de cozinha).");
 }
 
