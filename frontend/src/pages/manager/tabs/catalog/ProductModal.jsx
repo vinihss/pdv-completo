@@ -137,12 +137,12 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
       title={product ? "Editar produto" : "Novo produto"}
       onClose={onClose}
       footer={
-        <button onClick={handleSave} disabled={saving} className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl">
+        <button type="submit" disabled={saving} className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl">
           {saving ? "Salvando…" : "Salvar"}
         </button>
       }
     >
-      <div className="p-5 space-y-3">
+      <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="p-5 space-y-3">
         <Field label="Foto do produto">
           <div className="flex items-center gap-3">
             {image.preview ? (
@@ -200,13 +200,13 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
                     placeholder="Nome do grupo (ex.: Ponto da carne)"
                     className="flex-1 bg-stone-900 border border-stone-700 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-amber-500/50"
                   />
-                  <button onClick={() => removeVariationGroup(g.id)} className="text-stone-500 hover:text-red-400"><Trash2 size={15} /></button>
+                  <button type="button" onClick={() => removeVariationGroup(g.id)} aria-label={`Remover grupo ${g.name || "sem nome"}`} className="text-stone-500 hover:text-red-400"><Trash2 size={15} /></button>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {g.options.map((opt, oi) => (
                     <span key={oi} className="flex items-center gap-1 bg-stone-900 border border-stone-700 rounded-full pl-2.5 pr-1 py-1 text-xs">
                       {opt}
-                      <button onClick={() => removeOption(gi, oi)} className="text-stone-500 hover:text-red-400"><X size={12} /></button>
+                      <button type="button" onClick={() => removeOption(gi, oi)} aria-label={`Remover opção ${opt}`} className="text-stone-500 hover:text-red-400"><X size={12} /></button>
                     </span>
                   ))}
                 </div>
@@ -218,7 +218,7 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
                     placeholder="Nova opção (Enter para adicionar)..."
                     className="flex-1 bg-stone-900 border border-stone-700 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-amber-500/50"
                   />
-                  <button onClick={() => addOption(gi)} className="bg-stone-900 border border-stone-700 rounded-lg px-2.5 text-stone-300 hover:text-amber-400"><Plus size={14} /></button>
+                  <button type="button" onClick={() => addOption(gi)} aria-label="Adicionar opção" className="bg-stone-900 border border-stone-700 rounded-lg px-2.5 text-stone-300 hover:text-amber-400"><Plus size={14} /></button>
                 </div>
                 <div className="flex gap-4 text-xs text-stone-400">
                   <label className="flex items-center gap-1.5"><input type="checkbox" checked={g.required} onChange={(e) => updateVariationGroup(g.id, { required: e.target.checked })} /> Obrigatória</label>
@@ -226,7 +226,7 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
                 </div>
               </div>
             ))}
-            <button onClick={addVariationGroup} className="flex items-center gap-1.5 text-amber-500 text-sm font-semibold">
+            <button type="button" onClick={addVariationGroup} className="flex items-center gap-1.5 text-amber-500 text-sm font-semibold">
               <Plus size={14} /> Adicionar variação
             </button>
           </div>
@@ -337,7 +337,7 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
             <input value={ifoodSku} onChange={(e) => setIfoodSku(e.target.value)} placeholder="Ex.: 5f3a0e1a-9d4c..." className={inputClass} />
           </Field>
         )}
-      </div>
+      </form>
     </Modal>
   );
 }
