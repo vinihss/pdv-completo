@@ -12,6 +12,7 @@
     "seed:prod": "tsx src/infra/db/seed-prod.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/infra/db/migrate.ts",
+    "db:migrate:sqlite": "tsx src/infra/db/migrate-sqlite-to-pg.ts",
     "db:deactivate-demo": "tsx src/infra/db/deactivate-demo-catalog.ts",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -35,11 +36,13 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.2.0",
     "@types/pg": "^8.11.10",
     "@types/uuid": "^10.0.0",
     "@types/ws": "^8.18.1",
+    "better-sqlite3": "^13.0.3",
     "drizzle-kit": "^0.31.10",
     "playwright": "^1.63.0",
     "tsx": "^4.23.12",
