@@ -12,12 +12,15 @@ export function Section({ title, children }) {
   );
 }
 
-export function Field({ label, children }) {
+export function Field({ label, required, children }) {
   const id = useId();
   return (
     <div>
-      <label htmlFor={id} className="text-stone-400 text-xs font-medium mb-1.5 block">{label}</label>
-      {React.isValidElement(children) ? React.cloneElement(children, { id }) : children}
+      <label htmlFor={id} className="text-stone-400 text-xs font-medium mb-1.5 block">
+        {label}
+        {required && <span className="text-red-400 ml-0.5" aria-hidden="true">*</span>}
+      </label>
+      {React.isValidElement(children) ? React.cloneElement(children, { id, required }) : children}
     </div>
   );
 }

@@ -109,7 +109,7 @@ export function NewUserModal({ onClose, onCreate }) {
       }
     >
       <div className="p-5">
-        <Field label="Nome">
+        <Field label="Nome" required>
           <input
             value={name}
             onChange={(e) => { setName(e.target.value); if (e.target.value.trim()) setError(""); }}
