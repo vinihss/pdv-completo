@@ -83,7 +83,7 @@ export default function Modal({
         previouslyFocused.focus();
       }
     };
-  }, []);
+  }, [layerRef]);
 
   function handleTouchStart(e) {
     if (e.touches.length !== 1) return;
