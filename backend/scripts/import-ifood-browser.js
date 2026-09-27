@@ -3,14 +3,12 @@
 // (Playwright). Automatiza o Portal do Parceiro iFood.
 //
 // Uso:
-//   node scripts/import-ifood-browser.js
+//   IFOOD_LOGIN=xxx IFOOD_PASSWORD=xxx node scripts/import-ifood-browser.js
 //
-// Variáveis de ambiente (backend/.env):
-//   IFOOD_LOGIN    — e-mail ou CNPJ do portal
-//   IFOOD_PASSWORD — senha do portal
-//
-// O script abre o navegador (headless=false para você ver o fluxo),
-// faz login, e cadastra os produtos do cardápio Unami em massa.
+// Variáveis de ambiente:
+//   IFOOD_LOGIN      — e-mail ou CNPJ do portal
+//   IFOOD_PASSWORD   — senha do portal
+//   IFOOD_HEADLESS   — "true" (padrão) ou "false" para ver o navegador
 // ============================================================
 import { chromium } from "playwright";
 import { db } from "../dist/infra/db/client.js";
@@ -21,6 +19,7 @@ import { loadMenu } from "../dist/infra/db/load-menu.js";
 
 const IFOOD_LOGIN = process.env.IFOOD_LOGIN ?? "";
 const IFOOD_PASSWORD = process.env.IFOOD_PASSWORD ?? "";
+const HEADLESS = process.env.IFOOD_HEADLESS !== "false";
 
 if (!IFOOD_LOGIN || !IFOOD_PASSWORD) {
   console.error("[import] Defina IFOOD_LOGIN e IFOOD_PASSWORD no ambiente.");
@@ -40,19 +39,27 @@ async function importProducts() {
   const allProducts = await db.select().from(products).where(eq(products.active, true));
   console.log(`[import] ${allProducts.length} produtos ativos no cardápio.`);
 
-  const browser = await chromium.launch({ headless: false });
+  const browser = await chromium.launch({ headless: HEADLESS });
   const context = await browser.newContext({ locale: "pt-BR" });
   const page = await context.newPage();
 
   console.log("[import] Acessando portal do iFood...");
   await page.goto("https://portal.ifood.com.br/", { waitUntil: "networkidle" });
 
-  console.log("[import] Faça login manualmente na janela que abriu.");
-  console.log("[import] Após logar e ver a tela inicial, pressione ENTER aqui no terminal...");
-
-  await new Promise((resolve) => {
-    process.stdin.once("data", resolve);
-  });
+  if (HEADLESS) {
+    console.log("[import] Fazendo login automático...");
+    await page.fill('input[name="email"], input[type="email"], input[placeholder*="e-mail" i], input[placeholder*="CNPJ" i]', IFOOD_LOGIN);
+    await page.fill('input[name="password"], input[type="password"]', IFOOD_PASSWORD);
+    await page.click('button[type="submit"]');
+    await page.waitForLoadState("networkidle");
+    console.log("[import] Login realizado.");
+  } else {
+    console.log("[import] Faça login manualmente na janela que abriu.");
+    console.log("[import] Após logar e ver a tela inicial, pressione ENTER aqui no terminal...");
+    await new Promise((resolve) => {
+      process.stdin.once("data", resolve);
+    });
+  }
 
   console.log("[import] Navegando para Catálogo > Produtos...");
   await page.goto("https://portal.ifood.com.br/catalog", { waitUntil: "networkidle" });
