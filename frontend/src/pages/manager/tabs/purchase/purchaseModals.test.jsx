@@ -36,8 +36,8 @@ describe("NewPurchaseModal", () => {
     render(<NewPurchaseModal {...props} />);
     // fornecedor + 1 produto na linha inicial
     expect(screen.getAllByRole("combobox").length).toBe(2);
-    expect(screen.getByText("Qtd.")).toBeTruthy();
-    expect(screen.getByText("Custo un.")).toBeTruthy();
+    expect(screen.getByText("Quantidade")).toBeTruthy();
+    expect(screen.getByText("Custo unitário")).toBeTruthy();
     expect(screen.getByText("Lote (opcional)")).toBeTruthy();
     fireEvent.click(screen.getByText("Adicionar item"));
     expect(screen.getAllByRole("combobox").length).toBe(3);

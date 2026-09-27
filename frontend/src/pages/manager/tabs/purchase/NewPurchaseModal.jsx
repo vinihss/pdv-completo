@@ -109,10 +109,10 @@ export default function NewPurchaseModal({ suppliers, products, onClose, onSaved
                 <option value="">Selecione o produto…</option>
                 {products.map((p) => <option key={p.productId} value={p.productId}>{p.name}</option>)}
               </select>
-              <button onClick={() => removeLine(l.key)} className="text-stone-500 hover:text-red-400 shrink-0"><Trash2 size={15} /></button>
+              <button type="button" onClick={() => removeLine(l.key)} aria-label="Remover item" className="text-stone-500 hover:text-red-400 shrink-0"><Trash2 size={15} /></button>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <Field label={`Qtd.`}>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <Field label="Quantidade">
                 <input
                   type="number"
                   min="0"
@@ -123,7 +123,7 @@ export default function NewPurchaseModal({ suppliers, products, onClose, onSaved
                   className={inputClass}
                 />
               </Field>
-              <Field label="Custo un.">
+              <Field label="Custo unitário">
                 <input
                   inputMode="numeric"
                   value={l.unitCost}
@@ -143,7 +143,7 @@ export default function NewPurchaseModal({ suppliers, products, onClose, onSaved
             </div>
           </div>
         ))}
-        <button onClick={() => setLines((prev) => [...prev, emptyLine()])} className="flex items-center gap-1.5 text-amber-500 text-sm font-semibold">
+        <button type="button" onClick={() => setLines((prev) => [...prev, emptyLine()])} className="flex items-center gap-1.5 text-amber-500 text-sm font-semibold">
           <Plus size={14} /> Adicionar item
         </button>
 
