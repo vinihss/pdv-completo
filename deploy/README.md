@@ -235,6 +235,55 @@ simples de copiar pro destino externo:
 0 4 * * * rclone copy /opt/backups meus3:pdv-backups/
 ```
 
+## Migrando dados de uma instalação antiga (SQLite → Postgres)
+
+Instalações feitas antes da migração para Postgres usavam um arquivo SQLite
+(`data.db`) no volume `pdv_backend_data`. O app atual é **Postgres-only** —
+não existe mais caminho de leitura do SQLite. Para migrar os dados de produção
+(comandas, cadastros, cardápio, caixa, estoque) sem perdê-los:
+
+```bash
+# 1. Suba a stack nova com Postgres (sem derrubar a antiga ainda)
+cd /opt/pdv-completo/deploy
+cp .env.example .env
+nano .env
+#   DATABASE_URL=postgres://pdv:pdv_password@postgres:5432/pdv
+#   JWT_SECRET=<gere com: openssl rand -hex 32>
+
+# 2. Copie o data.db do volume antigo para um caminho acessível
+docker run --rm -v <projeto>_backend_data:/data -v /tmp/pdv-mig:/out \
+  alpine sh -c "cp /data/data.db /out/data.db && chmod 644 /out/data.db"
+#   (o nome do volume tem o prefixo do projeto — `docker volume ls` mostra)
+
+# 3. Dry-run primeiro: lê o SQLite e reporta contagens, sem escrever
+docker compose exec backend \
+  npx tsx src/infra/db/migrate-sqlite-to-pg.ts --db=/tmp/data.db --dry-run
+#   (ou, fora do Docker: DATABASE_URL=... npm run db:migrate:sqlite -- --db=... --dry-run)
+
+# 4. Migração de fato (uma transação, all-or-nothing)
+docker compose exec backend \
+  npx tsx src/infra/db/migrate-sqlite-to-pg.ts --db=/tmp/data.db
+```
+
+O script (`backend/src/infra/db/migrate-sqlite-to-pg.ts`):
+
+- preserva **ids** (inclusive não-UUID: `system`, `singleton`, telefone,
+  `cat-unami-*`), **hashes de PIN** (argon2) e a **ordem do ledger**
+  (`purchase_item.seq`/`stock_movement.seq`/`outbox_event.seq` = `rowid` do
+  SQLite — a média móvel de custo é um replay dessa ordem);
+- converte `INTEGER 0/1` → `boolean` e normaliza timestamps
+  (`YYYY-MM-DD HH:MM:SS` → ISO-8601 com `T`/`Z`/ms, formato que o app ordena
+  lexicograficamente);
+- pula tabelas que não existem no SQLite (ex.: iFood, se o cliente não usa)
+  e **falha com mensagem clara** se houver dados que violam restrições do
+  Postgres (ex.: comanda sem mesa/cliente/rótulo);
+- roda em **uma única transação**: se qualquer linha falhar, nada é gravado.
+
+**Antes de migrar:** faça backup do volume antigo (`./deploy/backup.sh` não
+cobre SQLite — use `docker run --rm -v <vol>:/data -v /tmp:/out alpine cp
+/data/data.db /out/data.db`). Depois de migrado e validado (login, comandas,
+caixa), remova o volume `pdv_backend_data` antigo.
+
 ## Atualizando o app depois do primeiro deploy
 
 Via CI/CD (recomendado), basta fazer push/merge na `main` ou executar manualmente
