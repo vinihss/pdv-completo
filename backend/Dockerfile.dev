@@ -14,3 +14,8 @@ COPY . .
 
 # Expor porta
 EXPOSE 3000
+
+# Sem CMD, o container herdaria `node` da imagem base — que abre o REPL,
+# sai imediatamente (exit 0) e entra em restart loop. Em dev, o servidor
+# roda com hot reload a partir do código-fonte montado via bind mount.
+CMD ["npm", "run", "dev"]
