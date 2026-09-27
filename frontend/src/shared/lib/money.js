@@ -21,3 +21,21 @@ export function maskCurrencyInput(raw) {
   const cents = Number.parseInt(digits, 10) || 0;
   return brl.format(cents / 100);
 }
+
+// Máscara de CNPJ (99.999.999/9999-99) ou CPF (999.999.999-99) conforme a
+// quantidade de dígitos. Aceita texto parcial (durante a digitação).
+export function maskCnpjCpf(raw) {
+  const digits = String(raw ?? "").replace(/\D/g, "").slice(0, 14);
+  if (!digits) return "";
+  if (digits.length <= 11) {
+    return digits
+      .replace(/(\d{3})(\d)/, "$1.$2")
+      .replace(/(\d{3})(\d)/, "$1.$2")
+      .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+  }
+  return digits
+    .replace(/(\d{2})(\d)/, "$1.$2")
+    .replace(/(\d{3})(\d)/, "$1.$2")
+    .replace(/(\d{3})(\d)/, "$1/$2")
+    .replace(/(\d{4})(\d{1,2})$/, "$1-$2");
+}
