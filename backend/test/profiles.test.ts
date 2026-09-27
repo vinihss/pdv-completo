@@ -1,6 +1,5 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
-import { api, seedFixture, resetState, closeTestApp, tokenOf, cashier, waiter, manager, FIXTURE } from "./helpers.js";
-import { rawSqlite } from "../src/infra/db/client.js";
+import { api, seedFixture, resetState, closeTestApp, tokenOf, cashier, waiter, manager, FIXTURE, raw } from "./helpers.js";
 
 // Perfis caixa e entregador ("implementar perfis de usuário: caixa, entregador"):
 // - tela de login respeita os toggles de rollout (kitchen_enabled / uses_delivery);
@@ -12,8 +11,8 @@ import { rawSqlite } from "../src/infra/db/client.js";
 const COURIER_ID = "u-courier";
 const courier = tokenOf(COURIER_ID, "courier");
 
-function setStoreFlag(column: "uses_delivery" | "kitchen_enabled", value: boolean) {
-  rawSqlite.prepare(`UPDATE store_settings SET ${column} = ? WHERE id = 'singleton'`).run(value ? 1 : 0);
+async function setStoreFlag(column: "uses_delivery" | "kitchen_enabled", value: boolean) {
+  await raw.all(`UPDATE store_settings SET ${column} = $1 WHERE id = 'singleton'`, [value]);
 }
 
 async function loginSurface(): Promise<Array<{ id: string; name: string; role: string }>> {
@@ -45,23 +44,23 @@ async function createDeliveryOrder() {
 }
 
 describe("tela de login por perfil (GET /auth/users)", () => {
-  beforeAll(() => {
-    seedFixture();
-    rawSqlite.prepare(`INSERT OR IGNORE INTO "user" (id, name, role, pin_hash) VALUES (?, 'Entregador Teste', 'courier', 'x')`).run(COURIER_ID);
+  beforeAll(async () => {
+    await seedFixture();
+    await raw.all(`INSERT INTO "user" (id, name, role, pin_hash) VALUES ($1, 'Entregador Teste', 'courier', 'x') ON CONFLICT (id) DO NOTHING`, [COURIER_ID]);
   });
   // Restaura os toggles de rollout: sem isso os arquivos seguintes herdam
   // kitchen_enabled/uses_delivery zerados (em modo sem cozinha os itens
   // nascem "delivered" — a suíte de self-service depende do modo com cozinha).
   afterAll(async () => {
-    setStoreFlag("uses_delivery", true);
-    setStoreFlag("kitchen_enabled", true);
+    await setStoreFlag("uses_delivery", true);
+    await setStoreFlag("kitchen_enabled", true);
     await closeTestApp();
   });
   beforeEach(() => resetState());
 
   it("esconde entregador quando uses_delivery está desligado (e cozinha quando desligada)", async () => {
-    setStoreFlag("uses_delivery", false);
-    setStoreFlag("kitchen_enabled", false);
+    await setStoreFlag("uses_delivery", false);
+    await setStoreFlag("kitchen_enabled", false);
     const users = await loginSurface();
     const roles = users.map((u) => u.role);
     expect(roles).toContain("waiter");
@@ -72,8 +71,8 @@ describe("tela de login por perfil (GET /auth/users)", () => {
   });
 
   it("mostra entregador quando uses_delivery está ligado", async () => {
-    setStoreFlag("uses_delivery", true);
-    setStoreFlag("kitchen_enabled", false);
+    await setStoreFlag("uses_delivery", true);
+    await setStoreFlag("kitchen_enabled", false);
     const roles = (await loginSurface()).map((u) => u.role);
     expect(roles).toContain("courier");
     expect(roles).not.toContain("kitchen");
@@ -105,9 +104,9 @@ describe("acesso por papel — caixa (cashier)", () => {
 });
 
 describe("acesso por papel — entregador (courier)", () => {
-  beforeAll(() => {
-    seedFixture();
-    rawSqlite.prepare(`INSERT OR IGNORE INTO "user" (id, name, role, pin_hash) VALUES (?, 'Entregador Teste', 'courier', 'x')`).run(COURIER_ID);
+  beforeAll(async () => {
+    await seedFixture();
+    await raw.all(`INSERT INTO "user" (id, name, role, pin_hash) VALUES ($1, 'Entregador Teste', 'courier', 'x') ON CONFLICT (id) DO NOTHING`, [COURIER_ID]);
   });
   afterAll(() => closeTestApp());
   beforeEach(() => resetState());
@@ -153,15 +152,15 @@ describe("gerente cadastra entregador", () => {
 });
 
 describe("fluxo completo de entrega — assign → dispatch → deliver", () => {
-  beforeAll(() => {
-    seedFixture();
-    rawSqlite.prepare(`INSERT OR IGNORE INTO "user" (id, name, role, pin_hash) VALUES (?, 'Entregador Teste', 'courier', 'x')`).run(COURIER_ID);
+  beforeAll(async () => {
+    await seedFixture();
+    await raw.all(`INSERT INTO "user" (id, name, role, pin_hash) VALUES ($1, 'Entregador Teste', 'courier', 'x') ON CONFLICT (id) DO NOTHING`, [COURIER_ID]);
   });
   afterAll(() => closeTestApp());
   beforeEach(() => resetState());
 
   it("manager atribui, entregador confirma saída, entrega e a comanda fecha", async () => {
-    setStoreFlag("uses_delivery", true);
+    await setStoreFlag("uses_delivery", true);
 
     const { orderId, deliveryId } = await createDeliveryOrder();
 
@@ -197,7 +196,7 @@ describe("fluxo completo de entrega — assign → dispatch → deliver", () => 
   });
 
   it("entregador não mexe numa entrega que não é dele", async () => {
-    setStoreFlag("uses_delivery", true);
+    await setStoreFlag("uses_delivery", true);
 
     const { deliveryId } = await createDeliveryOrder();
 

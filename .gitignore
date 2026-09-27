@@ -7,17 +7,8 @@ dist/
 .env.local
 .env.*.local
 
-# Banco SQLite (local/dev) — em produção fica em volume Docker
-*.db
-*.db-wal
-*.db-shm
-backend/data/
-
 # Fotos de produto (uploads) — produção em volume Docker (pdv_backend_uploads)
 backend/uploads/
-
-# Artefato de teste docker
-backend/data-docker-test/
 
 # Backups gerados pelo docker-up.sh / deploy/backup.sh
 deploy/backups/

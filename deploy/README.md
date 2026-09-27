@@ -7,12 +7,13 @@ Contabo, etc.
 
 ## Por que essa abordagem
 
-O backend já está pronto e testado no modo `local` (SQLite) da spec. Rodar
-esse mesmo container num servidor na nuvem, em vez de num mini-PC dentro do
+O backend já está pronto e testado com PostgreSQL (o único banco suportado).
+Rodar esse mesmo stack num servidor na nuvem, em vez de num mini-PC dentro do
 estabelecimento, já resolve o pedido — "os garçons acessam de qualquer
-lugar" — sem precisar reescrever nada pra Postgres. Um único servidor pequeno
-aguenta tranquilamente o volume de um restaurante/pub (ver §15 do backend
-spec: "dezenas de comandas simultâneas, não milhares").
+lugar" — sem precisar trocar nada no código. Um único servidor pequeno
+(com o container `postgres` do compose ao lado) aguenta tranquilamente o volume
+de um restaurante/pub (ver §15 do backend spec: "dezenas de comandas
+simultâneas, não milhares").
 
 Se um dia isso precisar atender **múltiplos estabelecimentos** ou escalar
 horizontalmente, aí sim vale migrar pro modo `cloud` (Postgres) da spec —
@@ -41,7 +42,7 @@ O repositório possui o workflow **`.github/workflows/deploy-on-tag.yml`** com:
   - frontend: `npm ci`, `npm run lint`, `npm run build`, `npm run test`;
 - deploy remoto por SSH com backup prévio e health check;
 - deploy com `docker compose up -d --build --remove-orphans` — **sem** `down -v`,
-  preservando volumes e dados do SQLite.
+  preservando o volume do Postgres e dos uploads.
 
 ### Como usar
 
@@ -186,18 +187,39 @@ válido, e a API responde em `https://app.seudominio.com.br/api/...`.
 
 ## Backup (não pule esta parte)
 
-O SQLite mora no volume Docker `pdv_backend_data` (nome explícito, independente
-da pasta do compose). Sem backup, perder o volume = perder todas as comandas e o
-cadastro do estabelecimento.
+O banco mora no volume Docker `pdv_postgres_data` (nome explícito,
+independente da pasta do compose). Sem backup, perder o volume = perder todas
+as comandas e o cadastro do estabelecimento.
 
-Use o script **`deploy/backup.sh`** — ele roda o comando `.backup` do sqlite3,
-que gera um snapshot online **consistente mesmo em WAL mode** (copiar só o
-`data.db` pode perder transações que ainda estão no `data.db-wal`):
+Use o script **`deploy/backup.sh`** — ele roda `pg_dump -Fc` no container do
+Postgres, que gera um snapshot transacional **consistente sem derrubar o banco**,
+e um `.tar.gz` das fotos de produto:
 
 ```bash
 # um backup agora, salvo em /opt/backups/
 ./backup.sh /opt/backups
+# → /opt/backups/pdv-AAAAMMDD-HHMMSS.dump
+#   /opt/backups/pdv-AAAAMMDD-HHMMSS-uploads.tar.gz
 ```
+
+O script acha o container do Postgres pelo nome padrão
+(`pdv-compose-postgres-1`); se o projeto do compose tem outro nome (ou se há
+mais de um Postgres no host), informe explicitamente:
+
+```bash
+PDV_PG_CONTAINER=meu-projeto-postgres-1 ./backup.sh /opt/backups
+```
+
+**Restaurar** (o `.dump` é formato custom do `pg_dump -Fc`):
+
+```bash
+docker compose stop backend
+docker cp /opt/backups/pdv-AAAAMMDD-HHMMSS.dump <container-postgres>:/tmp/r.dump
+docker exec -i <container-postgres> pg_restore -U pdv -d pdv --clean /tmp/r.dump
+docker compose start backend
+```
+
+Baixar de um servidor remoto: `PDV_SSH_PASS=... ./backup-fetch.sh user@host`.
 
 Cron diário sugerido:
 
@@ -244,11 +266,13 @@ docker compose -f deploy/docker-compose.yml up -d --build --remove-orphans
 
 Depois ajuste a `main` no GitHub para evitar redeploy do commit ruim.
 
-### Cuidados com backup do SQLite
+### Cuidados com backup do Postgres
 
 - Faça backup antes de rollback e antes de mudanças críticas.
-- Preserve o volume `pdv_backend_data` (dados) e `pdv_backend_uploads` (uploads).
+- Preserve o volume `pdv_postgres_data` (dados) e `pdv_backend_uploads` (uploads).
 - Nunca use `docker compose down -v` em produção sem plano de restauração.
+- Restauração: `docker exec -i <container> pg_restore -U pdv -d pdv --clean <arquivo.dump>`
+  (o `.dump` é formato custom do `pg_dump -Fc`).
 
 ## Deixando o app disponível pros garçons (PWA)
 
@@ -266,9 +290,9 @@ Isso já está configurado no frontend (`manifest.json` + `sw.js` +
 
 Se administrar um servidor Linux não for o objetivo, dá pra separar:
 - **Backend**: Railway, Render ou Fly.io — todos rodam o `Dockerfile` do
-  jeito que está, com HTTPS automático e um volume persistente pro SQLite
-  (verifique se o plano escolhido tem *disco persistente*, não só
-  filesystem efêmero — sem isso, os dados somem a cada deploy)
+  jeito que está, com HTTPS automático. O banco é Postgres: use o Postgres
+  gerenciado da própria plataforma e aponte `DATABASE_URL` pra ele (o plano
+  do backend não precisa de disco persistente, só o do banco)
 - **Frontend**: Vercel, Netlify ou Cloudflare Pages — build estático direto
   do `frontend/`, sem precisar do Dockerfile dele
 

@@ -149,9 +149,13 @@ export async function saveStoreLogoUsecase(input: { buffer: Buffer; ext: string 
   const previous = logoFileFor(settings);
   if (previous && previous !== target) removeFile(previous);
 
-  const updated = db.transaction((tx) => {
-    const row = tx.update(storeSettings).set({ logoPath: filename }).where(eq(storeSettings.id, "singleton")).returning().get();
-    logAction(tx, actorId, "store_logo_changed", null, { logoPath: filename });
+  const updated = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(storeSettings)
+      .set({ logoPath: filename })
+      .where(eq(storeSettings.id, "singleton"))
+      .returning();
+    await logAction(tx, actorId, "store_logo_changed", null, { logoPath: filename });
     return row;
   });
   invalidateStoreSettingsRelated();
@@ -164,9 +168,13 @@ export async function clearStoreLogoUsecase(actorId: string) {
   if (!settings.logoPath) return serialize(settings);
 
   removeFile(logoFileFor(settings));
-  const updated = db.transaction((tx) => {
-    const row = tx.update(storeSettings).set({ logoPath: null }).where(eq(storeSettings.id, "singleton")).returning().get();
-    logAction(tx, actorId, "store_logo_removed", null);
+  const updated = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(storeSettings)
+      .set({ logoPath: null })
+      .where(eq(storeSettings.id, "singleton"))
+      .returning();
+    await logAction(tx, actorId, "store_logo_removed", null);
     return row;
   });
   invalidateStoreSettingsRelated();

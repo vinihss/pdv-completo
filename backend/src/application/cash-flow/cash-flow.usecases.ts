@@ -1,5 +1,5 @@
 import { and, eq, gte, lte, desc, or, isNull } from "drizzle-orm";
-import { db } from "../../infra/db/client.js";
+import { db, type Tx } from "../../infra/db/client.js";
 import {
   cashDrawers,
   cashDrawerMovements,
@@ -8,17 +8,17 @@ import {
   restaurantTables,
   users,
 } from "../../infra/db/schema.js";
+import { isUniqueViolationOn } from "../../infra/db/errors.js";
 import { Errors } from "../../domain/errors.js";
 import { round2, moneyEq } from "../../domain/money.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
 
-// Masma regra de sync vs async do order.usecases.ts: dentro de
-// `db.transaction(cb)` o driver better-sqlite3 é síncrono (`.run()`,
-// `.get()`, `.all()`, `.sync()` — nunca `await`). Timestamps de abertura e
+// Mesma regra de async do order.usecases.ts: dentro de
+// `db.transaction(async (tx) => ...)` tudo é awaited. Timestamps de abertura e
 // fechamento do caixa são gravados como ISO 8601 UTC explícito para que a
 // comparação com `order_payment.confirmed_at` (que também é ISO) seja
-// lexicograficamente consistente — o padrão SQLite `(current_timestamp)` não
+// lexicograficamente consistente — o padrão `(current_timestamp)` do SQL não
 // seria (espaço vs "T" no separador de data/hora).
 const CASH_DRAWER_ROOM = "cash-drawer";
 
@@ -53,33 +53,43 @@ function serializeMovement(m: typeof cashDrawerMovements.$inferSelect) {
 
 // Rótulo de exibição da comanda de um estorno (ref_order_id): rótulo da
 // comanda, nº da mesa ou fallback pro id. Same join usado no detail de vendas.
-function orderLabelOf(tx: any, orderId: string): string {
-  const row = tx
+async function orderLabelOf(tx: Tx, orderId: string): Promise<string> {
+  const [row] = await tx
     .select({ tabLabel: orders.tabLabel, tableNumber: restaurantTables.number })
     .from(orders)
     .leftJoin(restaurantTables, eq(restaurantTables.id, orders.tableId))
-    .where(eq(orders.id, orderId))
-    .get();
+    .where(eq(orders.id, orderId));
   return row?.tabLabel ?? (row?.tableNumber != null ? `Mesa ${row.tableNumber}` : orderId);
 }
 
-function serializeMovements(tx: any, movements: any[]) {
-  return movements.map((m: any) => ({
-    ...serializeMovement(m),
-    createdByName: nameOf(tx, m.createdBy),
-    refOrderLabel: m.refOrderId ? orderLabelOf(tx, m.refOrderId) : null,
-  }));
+async function serializeMovements(tx: Tx, movements: (typeof cashDrawerMovements.$inferSelect)[]) {
+  // Sequencial de propósito: dentro de `db.transaction` todas as queries
+  // compartilham UM único client do node-postgres, e `Promise.all` ali é
+  // query concorrente no mesmo client (pg serializa por baixo e emite
+  // DeprecationWarning "client is already executing a query", removido no
+  // pg@9). Não custa tempo: o paralelismo não existia.
+  const out: Array<
+    ReturnType<typeof serializeMovement> & { createdByName: string | null; refOrderLabel: string | null }
+  > = [];
+  for (const m of movements) {
+    out.push({
+      ...serializeMovement(m),
+      createdByName: await nameOf(tx, m.createdBy),
+      refOrderLabel: m.refOrderId ? await orderLabelOf(tx, m.refOrderId) : null,
+    });
+  }
+  return out;
 }
 
-function nameOf(tx: any, userId: string | null): string | null {
+async function nameOf(tx: Tx, userId: string | null): Promise<string | null> {
   if (!userId) return null;
-  const u = tx.query.users.findFirst({ where: eq(users.id, userId) }).sync();
+  const u = await tx.query.users.findFirst({ where: eq(users.id, userId) });
   return u?.name ?? null;
 }
 
 // Vendas em dinheiro confirmadas dentro do período da sessão — a fonte das
 // entradas do caixa (order_payment é a fonte da verdade do pagamento).
-function cashPaymentsBetween(tx: any, from: string, to: string) {
+async function cashPaymentsBetween(tx: Tx, from: string, to: string) {
   return tx
     .select({
       amount: orderPayments.amount,
@@ -96,29 +106,27 @@ function cashPaymentsBetween(tx: any, from: string, to: string) {
         gte(orderPayments.confirmedAt, from),
         lte(orderPayments.confirmedAt, to)
       )
-    )
-    .all();
+    );
 }
 
-function movementsFor(tx: any, drawerId: string) {
+async function movementsFor(tx: Tx, drawerId: string) {
   return tx
     .select()
     .from(cashDrawerMovements)
     .where(eq(cashDrawerMovements.drawerId, drawerId))
-    .orderBy(desc(cashDrawerMovements.createdAt))
-    .all();
+    .orderBy(desc(cashDrawerMovements.createdAt));
 }
 
 // Esperado = fundo inicial + vendas em dinheiro confirmadas no período
 // + suprimentos − sangrias. Calculado sempre dentro da transação da operação
 // para não divergir do estado persistido em paralelo.
-function computeCashSummary(tx: any, drawer: typeof cashDrawers.$inferSelect) {
+async function computeCashSummary(tx: Tx, drawer: typeof cashDrawers.$inferSelect) {
   const upper = drawer.closedAt ?? new Date().toISOString();
-  const sales = cashPaymentsBetween(tx, drawer.openedAt, upper);
-  const movements = movementsFor(tx, drawer.id);
-  const salesSum = round2(sales.reduce((acc: number, r: { amount: number }) => acc + r.amount, 0));
+  const sales = await cashPaymentsBetween(tx, drawer.openedAt, upper);
+  const movements = await movementsFor(tx, drawer.id);
+  const salesSum = round2(sales.reduce((acc, r) => acc + r.amount, 0));
   const manualSum = movements.reduce(
-    (acc: number, m: { type: "sangria" | "suprimento"; amount: number }) => acc + (m.type === "sangria" ? -m.amount : m.amount),
+    (acc, m) => acc + (m.type === "sangria" ? -m.amount : m.amount),
     0
   );
   return {
@@ -132,23 +140,26 @@ function computeCashSummary(tx: any, drawer: typeof cashDrawers.$inferSelect) {
 // Find the único caixa aberto — usado internamente e também pelo
 // order.usecases (bloqueio de pagamento em dinheiro e estorno em sangria).
 // Retorna o drawer dentro do mesmo tx da operação que chama.
-export function findOpenDrawerTx(tx: any): typeof cashDrawers.$inferSelect | undefined {
-  return tx.query.cashDrawers.findFirst({ where: eq(cashDrawers.status, "open") }).sync();
+export async function findOpenDrawerTx(tx: Tx): Promise<typeof cashDrawers.$inferSelect | undefined> {
+  return tx.query.cashDrawers.findFirst({ where: eq(cashDrawers.status, "open") });
 }
 
 // ---------- GET /cash-drawer/current ----------
 export async function getCurrentDrawerUsecase() {
-  return db.transaction((tx) => {
-    const open = findOpenDrawerTx(tx);
+  return db.transaction(async (tx) => {
+    const open = await findOpenDrawerTx(tx);
     if (!open) return null;
-    const summary = computeCashSummary(tx, open);
+    const summary = await computeCashSummary(tx, open);
+    // Sequencial: um client por transação (ver serializeMovements).
+    const openedByName = await nameOf(tx, open.openedBy);
+    const movements = await serializeMovements(tx, summary.movements);
     return {
       ...serializeDrawer(open),
-      openedByName: nameOf(tx, open.openedBy),
+      openedByName,
       expectedCash: summary.expected,
       cashSalesTotal: summary.salesSum,
       cashSalesCount: summary.sales.length,
-      movements: serializeMovements(tx, summary.movements),
+      movements,
     };
   });
 }
@@ -166,12 +177,12 @@ export async function listCashDrawersUsecase(input: { limit: number; offset: num
 
 // ---------- GET /cash-drawer/:id ----------
 export async function getCashDrawerDetailUsecase(id: string) {
-  return db.transaction((tx) => {
-    const drawer = tx.query.cashDrawers.findFirst({ where: eq(cashDrawers.id, id) }).sync();
+  return db.transaction(async (tx) => {
+    const drawer = await tx.query.cashDrawers.findFirst({ where: eq(cashDrawers.id, id) });
     if (!drawer) throw Errors.notFound("Caixa");
-    const summary = computeCashSummary(tx, drawer);
+    const summary = await computeCashSummary(tx, drawer);
 
-    const salesRows = tx
+    const salesRows = await tx
       .select({
         orderId: orderPayments.orderId,
         tabLabel: orders.tabLabel,
@@ -192,16 +203,20 @@ export async function getCashDrawerDetailUsecase(id: string) {
           lte(orderPayments.confirmedAt, drawer.closedAt ?? new Date().toISOString())
         )
       )
-      .orderBy(desc(orderPayments.confirmedAt))
-      .all();
+      .orderBy(desc(orderPayments.confirmedAt));
+
+    // Sequencial: um client por transação (ver serializeMovements).
+    const openedByName = await nameOf(tx, drawer.openedBy);
+    const closedByName = await nameOf(tx, drawer.closedBy);
+    const movements = await serializeMovements(tx, summary.movements);
 
     return {
       ...serializeDrawer(drawer),
-      openedByName: nameOf(tx, drawer.openedBy),
-      closedByName: nameOf(tx, drawer.closedBy),
+      openedByName,
+      closedByName,
       expectedCash: summary.expected,
       cashSalesTotal: summary.salesSum,
-      movements: serializeMovements(tx, summary.movements),
+      movements,
       cashSales: salesRows.map((r) => ({
         orderId: r.orderId,
         label: r.tabLabel ?? (r.tableNumber ? `Mesa ${r.tableNumber}` : null) ?? r.orderId,
@@ -216,24 +231,35 @@ export async function getCashDrawerDetailUsecase(id: string) {
 
 // ---------- POST /cash-drawer/open ----------
 export async function openCashDrawerUsecase(input: { userId: string; openingAmount: number; note?: string }) {
-  return db.transaction((tx) => {
-    if (findOpenDrawerTx(tx)) throw Errors.cashDrawerAlreadyOpen();
+  return db.transaction(async (tx) => {
+    // O índice único parcial uq_cash_drawer_single_open (status='open') é a
+    // garantia final de "uma sessão por vez": se duas requisições passarem
+    // pela checagem, o INSERT de uma delas viola o índice e ela recebe o
+    // mesmo erro de domínio em vez de abrir uma segunda gaveta.
+    if (await findOpenDrawerTx(tx)) throw Errors.cashDrawerAlreadyOpen();
     const openedAt = new Date().toISOString();
-    const drawer = tx
-      .insert(cashDrawers)
-      .values({
-        openedBy: input.userId,
-        openingAmount: round2(input.openingAmount),
-        note: input.note ?? null,
-        openedAt,
-      })
-      .returning()
-      .get();
-    logAction(tx, input.userId, "cash_drawer_opened", null, {
+    let drawer: typeof cashDrawers.$inferSelect;
+    try {
+      [drawer] = await tx
+        .insert(cashDrawers)
+        .values({
+          openedBy: input.userId,
+          openingAmount: round2(input.openingAmount),
+          note: input.note ?? null,
+          openedAt,
+        })
+        .returning();
+    } catch (err) {
+      if (isUniqueViolationOn(err, "uq_cash_drawer_single_open")) {
+        throw Errors.cashDrawerAlreadyOpen();
+      }
+      throw err;
+    }
+    await logAction(tx, input.userId, "cash_drawer_opened", null, {
       drawerId: drawer.id,
       openingAmount: drawer.openingAmount,
     });
-    enqueueEvent(tx, CASH_DRAWER_ROOM, "cash_drawer.opened", {
+    await enqueueEvent(tx, CASH_DRAWER_ROOM, "cash_drawer.opened", {
       drawerId: drawer.id,
       openingAmount: drawer.openingAmount,
     });
@@ -248,19 +274,19 @@ export async function registerCashMovementUsecase(input: {
   amount: number;
   note?: string;
 }) {
-  return db.transaction((tx) => {
-    const drawer = findOpenDrawerTx(tx);
+  return db.transaction(async (tx) => {
+    const drawer = await findOpenDrawerTx(tx);
     if (!drawer) throw Errors.cashDrawerNotOpen();
 
     if (input.type === "sangria") {
-      const summary = computeCashSummary(tx, drawer);
+      const summary = await computeCashSummary(tx, drawer);
       const over = round2(input.amount) - summary.expected;
       if (over > 0 && !moneyEq(input.amount, summary.expected)) {
         throw Errors.cashWithdrawalExceedsAvailable(summary.expected);
       }
     }
 
-    const movement = tx
+    const [movement] = await tx
       .insert(cashDrawerMovements)
       .values({
         drawerId: drawer.id,
@@ -269,17 +295,16 @@ export async function registerCashMovementUsecase(input: {
         note: input.note ?? null,
         createdBy: input.userId,
       })
-      .returning()
-      .get();
+      .returning();
 
     const action = input.type === "sangria" ? "cash_drawer_sangria" : "cash_drawer_suprimento";
     const eventType = input.type === "sangria" ? "cash_drawer.sangria" : "cash_drawer.suprimento";
-    logAction(tx, input.userId, action, null, {
+    await logAction(tx, input.userId, action, null, {
       drawerId: drawer.id,
       amount: movement.amount,
       note: movement.note,
     });
-    enqueueEvent(tx, CASH_DRAWER_ROOM, eventType, {
+    await enqueueEvent(tx, CASH_DRAWER_ROOM, eventType, {
       drawerId: drawer.id,
       amount: movement.amount,
     });
@@ -293,17 +318,17 @@ export async function closeCashDrawerUsecase(input: {
   countedAmount: number;
   note?: string;
 }) {
-  return db.transaction((tx) => {
-    const drawer = findOpenDrawerTx(tx);
+  return db.transaction(async (tx) => {
+    const drawer = await findOpenDrawerTx(tx);
     if (!drawer) throw Errors.cashDrawerNotOpen();
 
-    const summary = computeCashSummary(tx, drawer);
+    const summary = await computeCashSummary(tx, drawer);
     const expected = summary.expected;
     const counted = round2(input.countedAmount);
     const difference = round2(counted - expected);
     const closedAt = new Date().toISOString();
 
-    const closed = tx
+    const [closed] = await tx
       .update(cashDrawers)
       .set({
         status: "closed",
@@ -315,10 +340,9 @@ export async function closeCashDrawerUsecase(input: {
         closingNote: input.note ?? null,
       })
       .where(eq(cashDrawers.id, drawer.id))
-      .returning()
-      .get();
+      .returning();
 
-    logAction(tx, input.userId, "cash_drawer_closed", null, {
+    await logAction(tx, input.userId, "cash_drawer_closed", null, {
       drawerId: drawer.id,
       openedBy: drawer.openedBy,
       openingAmount: drawer.openingAmount,
@@ -327,7 +351,7 @@ export async function closeCashDrawerUsecase(input: {
       difference,
       note: input.note ?? null,
     });
-    enqueueEvent(tx, CASH_DRAWER_ROOM, "cash_drawer.closed", {
+    await enqueueEvent(tx, CASH_DRAWER_ROOM, "cash_drawer.closed", {
       drawerId: drawer.id,
       expected,
       counted,
@@ -341,8 +365,8 @@ export async function closeCashDrawerUsecase(input: {
 // Agrega a conferência das sessões que interseccionam [from, to]: esperado,
 // contado e diferença por caixa, com totais para o relatório do gerente.
 export async function sumCashDrawersSummaryUsecase(input: { from: string; to: string }) {
-  return db.transaction((tx) => {
-    const rows = tx
+  return db.transaction(async (tx) => {
+    const rows = await tx
       .select()
       .from(cashDrawers)
       // Interseção: a sessão não fechou antes de `from` nem abriu depois de `to`.
@@ -354,21 +378,32 @@ export async function sumCashDrawersSummaryUsecase(input: { from: string; to: st
           or(gte(cashDrawers.closedAt, input.from), isNull(cashDrawers.closedAt))
         )
       )
-      .orderBy(desc(cashDrawers.openedAt))
-      .all();
+      .orderBy(desc(cashDrawers.openedAt));
 
-    const sessions = rows.map((d) => {
-      const summary = computeCashSummary(tx, d);
-      return {
+    // Sessão a sessão, sequencial: é o mesmo client da transação, então o
+    // `Promise.all` por cima não dá paralelismo — só a depreciação do pg.
+    const sessions: Array<
+      ReturnType<typeof serializeDrawer> & {
+        openedByName: string | null;
+        cashSalesTotal: number;
+        cashSalesCount: number;
+        expected: number | null;
+        counted: number | null;
+        difference: number | null;
+      }
+    > = [];
+    for (const d of rows) {
+      const summary = await computeCashSummary(tx, d);
+      sessions.push({
         ...serializeDrawer(d),
-        openedByName: nameOf(tx, d.openedBy),
+        openedByName: await nameOf(tx, d.openedBy),
         cashSalesTotal: summary.salesSum,
         cashSalesCount: summary.sales.length,
         expected: d.closedAt != null ? d.closingExpected : summary.expected,
         counted: d.closingCounted,
         difference: d.closingDifference,
-      };
-    });
+      });
+    }
 
     const closedSessions = sessions.filter((s) => s.status === "closed");
     const sum = (sel: (s: (typeof sessions)[number]) => number | null | undefined) =>

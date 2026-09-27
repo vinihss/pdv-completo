@@ -2,8 +2,8 @@
 # ============================================================
 # Backup remoto + download local — deploy/backup-fetch.sh
 #
-# Conecta via SSH, gera o backup do SQLite no servidor e baixa o
-# arquivo .db localmente (sem fotos/uploads).
+# Conecta via SSH, gera o backup do Postgres no servidor (deploy/backup.sh)
+# e baixa o .dump localmente (sem fotos/uploads).
 #
 # Uso:
 #   ./backup-fetch.sh user@host
@@ -37,7 +37,7 @@ fi
 echo "Gerando backup remoto em $HOST..."
 "${SSH_CMD[@]}" "${SSH_OPTS[@]}" "$HOST" "mkdir -p '$TMP_REMOTE' && '$REMOTE_DIR/backup.sh' '$TMP_REMOTE'"
 
-REMOTE_FILE=$("${SSH_CMD[@]}" "${SSH_OPTS[@]}" "$HOST" "ls -t '$TMP_REMOTE'/pdv-*.db | head -1")
+REMOTE_FILE=$("${SSH_CMD[@]}" "${SSH_OPTS[@]}" "$HOST" "ls -t '$TMP_REMOTE'/pdv-*.dump | head -1")
 FILENAME=$(basename "$REMOTE_FILE")
 
 echo "Baixando $FILENAME para $LOCAL_DIR/..."

@@ -1,5 +1,5 @@
-import { and, eq, notInArray, sql, desc } from "drizzle-orm";
-import { db } from "../../infra/db/client.js";
+import { and, count, desc, eq, notInArray, sql } from "drizzle-orm";
+import { db, type Tx } from "../../infra/db/client.js";
 import {
   orders,
   orderItems,
@@ -25,20 +25,26 @@ import { getCache } from "../../infra/cache/index.js";
 
 const cache = getCache();
 
-// NOTA IMPORTANTE sobre sync vs async:
-// O driver better-sqlite3 é fundamentalmente síncrono — `db.transaction(cb)`
-// exige que `cb` NÃO retorne uma Promise (lança "Transaction function cannot
-// return a promise" caso contrário). Por isso, todo código DENTRO de uma
-// transação usa os métodos terminais síncronos do Drizzle (`.run()`, `.get()`,
-// `.all()`, `.sync()`) em vez de `await`. Fora de transações, `await db.query...`
-// funciona normalmente (a API assíncrona do Drizzle "encapsula" o valor síncrono
-// em uma Promise resolvida). Se um dia migrar pra Postgres (modo cloud), o
-// driver (`pg`/`postgres-js`) é assíncrono de verdade — essas mesmas funções
-// precisariam voltar a usar `async/await` dentro da transação. Ver 00-overview.md
-// "mesmo código para SQLite local e Postgres cloud": isso é uma simplificação da
-// spec original que não se sustenta 100% na prática por essa diferença de
-// modelo de concorrência entre os drivers — vale registrar como débito técnico
-// caso o modo cloud seja implementado depois.
+// NOTA IMPORTANTE sobre async (leia antes de tocar em qualquer transação):
+// O banco oficial é Postgres, e o driver node-postgres é assíncrono de
+// verdade. `db.transaction(cb)` entrega a `cb` uma `tx` cujo método é
+// SEMPRE uma Promise, então dentro de uma transação tudo é `await`:
+//
+//   await db.transaction(async (tx) => {
+//     const [row] = await tx.insert(orders).values({...}).returning();
+//     await tx.update(...).set({...}).where(...);
+//   });
+//
+// Os antigos terminais síncronos do better-sqlite3 (`.run()`, `.get()`,
+// `.all()`, `.sync()`) NÃO existem aqui — usá-los era obrigatório quando o
+// callback de `db.transaction` não podia retornar Promise. Esquecer um
+// `await` dentro da transação é o erro perigoso desta camada: o INSERT pode
+// ser emitido depois do COMMIT e a escrita se perder silenciosamente, então
+// todo `.insert/.update/.delete/.select` dentro de `tx` precisa de `await`.
+//
+// O `throw` continua sendo o mecanismo de rollback (a transação aborta e o
+// drizzle propaga o erro), então os AppError de domínio seguem funcionando
+// igual.
 
 async function getSettings() {
   const s = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
@@ -138,14 +144,13 @@ function serializePayment(p: typeof orderPayments.$inferSelect) {
 
 // Total da comanda a partir do snapshot unit_price (nunca o preço atual do
 // produto), arredondado pra 2 casas. Itens "cancelled" não contam (mesma
-// regra do relatório de vendas). Executa no contexto síncrono da transação.
-function computeOrderTotal(tx: any, order: typeof orders.$inferSelect): number {
-  const rows = tx
+// regra do relatório de vendas). Roda dentro da transação do fechamento.
+async function computeOrderTotal(tx: Tx, order: typeof orders.$inferSelect): Promise<number> {
+  const rows = await tx
     .select({ unitPrice: orderItems.unitPrice, quantity: orderItems.quantity })
     .from(orderItems)
-    .where(and(eq(orderItems.orderId, order.id), notInArray(orderItems.status, ["cancelled"])))
-    .all();
-  const sum = rows.reduce((acc: number, r: { unitPrice: number; quantity: number }) => acc + r.unitPrice * r.quantity, 0);
+    .where(and(eq(orderItems.orderId, order.id), notInArray(orderItems.status, ["cancelled"])));
+  const sum = rows.reduce((acc, r) => acc + r.unitPrice * r.quantity, 0);
   return round2(sum + (order.deliveryFee ?? 0));
 }
 
@@ -163,19 +168,35 @@ export async function openOrderUsecase(input: {
     throw Errors.identificationRequired();
   }
 
-  const order = db.transaction((tx) => {
+  const order = await db.transaction(async (tx) => {
     // 1.6 — valida a mesa antes de abrir: inexistente → 404; ocupada → 409.
     // Só vale para abertura física de comanda (channel default "balcao");
     // self-service e iFood não parametrizam mesa.
+    //
+    // No Postgres o "ler status e depois gravar" NÃO é atômico (o SQLite
+    // serializava as escritas; aqui duas requisições simultâneas podem ler
+    // `free` ao mesmo tempo e abrir duas comandas na mesma mesa). Por isso a
+    // ocupação é um UPDATE condicional: o `status = 'free'` é reavaliado sob o
+    // lock de linha, então só uma transação consegue mudar free -> occupied.
     if (input.tableId) {
-      const table = tx.query.restaurantTables.findFirst({
-        where: eq(restaurantTables.id, input.tableId),
-      }).sync();
-      if (!table) throw Errors.tableNotFound(input.tableId);
-      if (table.status !== "free") throw Errors.tableOccupied();
+      const claimed = await tx
+        .update(restaurantTables)
+        .set({ status: "occupied" })
+        .where(and(eq(restaurantTables.id, input.tableId), eq(restaurantTables.status, "free")))
+        .returning({ id: restaurantTables.id });
+      if (claimed.length === 0) {
+        // Nenhuma linha alterada: ou a mesa não existe, ou já está ocupada.
+        // Uma leitura só aqui (o caminho feliz não paga essa query) decide
+        // entre 404 e 409 sem reintroduzir a corrida.
+        const table = await tx.query.restaurantTables.findFirst({
+          where: eq(restaurantTables.id, input.tableId),
+        });
+        if (!table) throw Errors.tableNotFound(input.tableId);
+        throw Errors.tableOccupied();
+      }
     }
 
-    const created = tx
+    const [created] = await tx
       .insert(orders)
       .values({
         waiterId: input.waiterId,
@@ -186,18 +207,16 @@ export async function openOrderUsecase(input: {
         deliveryFee: input.deliveryFee ?? null,
         externalRef: input.externalRef ?? null,
       })
-      .returning()
-      .get();
+      .returning();
 
     if (input.tableId) {
-      tx.update(restaurantTables).set({ status: "occupied" }).where(eq(restaurantTables.id, input.tableId)).run();
-      enqueueEvent(tx, `table:${input.tableId}`, "table.status_changed", {
+      await enqueueEvent(tx, `table:${input.tableId}`, "table.status_changed", {
         tableId: input.tableId,
         status: "occupied",
       });
     }
 
-    logAction(tx, input.waiterId, "order_opened", created.id, {
+    await logAction(tx, input.waiterId, "order_opened", created.id, {
       tableId: input.tableId,
       customerId: input.customerId,
       tabLabel: input.tabLabel,
@@ -226,10 +245,10 @@ export async function addItemsUsecase(input: {
 
   const settings = await getSettings();
 
-  const createdItems = db.transaction((tx) => {
-    const result: any[] = [];
+  const createdItems = await db.transaction(async (tx) => {
+    const result: ReturnType<typeof serializeItem>[] = [];
     for (const line of input.items) {
-      const product = tx.query.products.findFirst({ where: eq(products.id, line.productId) }).sync();
+      const product = await tx.query.products.findFirst({ where: eq(products.id, line.productId) });
       if (!product || !product.active) {
         throw Errors.validationFailed({ productId: line.productId, reason: "inativo ou inexistente" });
       }
@@ -239,7 +258,7 @@ export async function addItemsUsecase(input: {
       // saldo do ledger, nunca coluna cacheada.
       const deductsStock = settings.inventoryEnabled && product.trackStock;
       if (deductsStock) {
-        const available = stockBalance(tx, product.id);
+        const available = await stockBalance(tx, product.id);
         if (available < line.quantity) throw Errors.insufficientStock(product.id, product.name, available);
       }
       // Status de entrada por estação/modo (§7.2, kitchen_enabled):
@@ -249,7 +268,7 @@ export async function addItemsUsecase(input: {
       // - com cozinha sem grupo (bar/copa): entra pronto (ready) — só falta entregar.
       const hasStation = settings.kitchenEnabled && Boolean(product.kitchenGroupId);
       const initialStatus = !settings.kitchenEnabled ? "delivered" : hasStation ? "ordered" : "ready";
-      const created = tx
+      const [created] = await tx
         .insert(orderItems)
         .values({
           orderId: input.orderId,
@@ -261,15 +280,14 @@ export async function addItemsUsecase(input: {
           // senão, o cost_price manual do cadastro (comportamento 0016).
           costPrice:
             settings.inventoryEnabled && settings.purchaseEnabled && product.trackStock
-              ? computeMovingAverageTx(tx, product.id, product.costPrice).avg
+              ? (await computeMovingAverageTx(tx, product.id, product.costPrice)).avg
               : product.costPrice,
           selectedVariations: JSON.stringify(line.selectedVariations ?? {}),
           notes: line.notes ?? null,
           createdBy: input.userId,
           status: initialStatus,
         })
-        .returning()
-        .get();
+        .returning();
       const serialized = serializeItem(created, {
         name: product.name,
         imagePath: product.imagePath,
@@ -281,7 +299,7 @@ export async function addItemsUsecase(input: {
       // e saldo nunca divergem). Eventos stock.movement/stock.low vão pro
       // room "inventory" — quem assina (aba Estoque do gerente) atualiza.
       if (deductsStock) {
-        const { balance } = applyStockMovementTx(tx, {
+        const { balance } = await applyStockMovementTx(tx, {
           productId: product.id,
           type: "sale",
           quantityDelta: -line.quantity,
@@ -290,7 +308,7 @@ export async function addItemsUsecase(input: {
           createdBy: input.userId,
         });
         if (product.trackStock && product.lowStockThreshold > 0 && balance <= product.lowStockThreshold) {
-          enqueueEvent(tx, INVENTORY_ROOM, "stock.low", {
+          await enqueueEvent(tx, INVENTORY_ROOM, "stock.low", {
             productId: product.id,
             name: product.name,
             quantity: balance,
@@ -299,21 +317,21 @@ export async function addItemsUsecase(input: {
         }
       }
 
-      enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.item.created", {
+      await enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.item.created", {
         orderId: input.orderId,
         item: serialized,
       });
       // Roteamento por estação: só entra na fila da cozinha quando há cozinha
       // E o produto tem grupo de produção. Bar/copa e modo pub não emitem.
       if (hasStation) {
-        enqueueEvent(tx, "kitchen-display", "order.item.created", {
+        await enqueueEvent(tx, "kitchen-display", "order.item.created", {
           orderId: input.orderId,
           item: serialized,
         });
       }
     }
 
-    logAction(tx, input.userId, "item_added", input.orderId, { items: result });
+    await logAction(tx, input.userId, "item_added", input.orderId, { items: result });
     return result;
   });
 
@@ -351,27 +369,26 @@ export async function updateItemStatusUsecase(input: {
   // ready) e notifica o cliente no WhatsApp — a página pública e o bot
   // consomem o evento customer.stage_changed (room order:<orderId>).
   let readyNotifyOrderId: string | null = null;
-  const updated = db.transaction((tx) => {
-    const result = tx
+  const updated = await db.transaction(async (tx) => {
+    const result = await tx
       .update(orderItems)
       .set({ status: input.newStatus, version: sql`${orderItems.version} + 1`, updatedAt: new Date().toISOString() })
       .where(and(eq(orderItems.id, input.itemId), eq(orderItems.version, input.expectedVersion)))
-      .returning()
-      .all();
+      .returning();
 
     if (result.length === 0) {
-      const current = tx.query.orderItems.findFirst({ where: eq(orderItems.id, input.itemId) }).sync();
+      const current = await tx.query.orderItems.findFirst({ where: eq(orderItems.id, input.itemId) });
       throw Errors.concurrencyConflict(current?.version ?? -1);
     }
 
-    const parentOrder = tx.query.orders.findFirst({ where: eq(orders.id, input.orderId) }).sync();
-    enqueueEvent(tx, `table:${parentOrder?.tableId ?? input.orderId}`, "order.item.status_changed", {
+    const parentOrder = await tx.query.orders.findFirst({ where: eq(orders.id, input.orderId) });
+    await enqueueEvent(tx, `table:${parentOrder?.tableId ?? input.orderId}`, "order.item.status_changed", {
       orderId: input.orderId,
       itemId: input.itemId,
       status: input.newStatus,
       changedBy: input.userId,
     });
-    enqueueEvent(tx, "kitchen-display", "order.item.status_changed", {
+    await enqueueEvent(tx, "kitchen-display", "order.item.status_changed", {
       orderId: input.orderId,
       itemId: input.itemId,
       status: input.newStatus,
@@ -383,18 +400,16 @@ export async function updateItemStatusUsecase(input: {
     // só muda de fato quando o ÚLTIMO item ativo fica pronto.
     const isSelfService = parentOrder?.channel === "whatsapp" || parentOrder?.channel === "web";
     if (isSelfService && input.newStatus === "ready") {
-      const activeItems = tx
-        .query.orderItems.findMany({ where: eq(orderItems.orderId, input.orderId) })
-        .sync()
-        .filter((i: any) => i.status !== "cancelled");
-      if (activeItems.length > 0 && activeItems.every((i: any) => i.status === "ready" || i.status === "delivered")) {
-        emitCustomerStageChangedTx(tx, input.orderId);
+      const allItems = await tx.query.orderItems.findMany({ where: eq(orderItems.orderId, input.orderId) });
+      const activeItems = allItems.filter((i) => i.status !== "cancelled");
+      if (activeItems.length > 0 && activeItems.every((i) => i.status === "ready" || i.status === "delivered")) {
+        await emitCustomerStageChangedTx(tx, input.orderId);
         readyNotifyOrderId = input.orderId;
       }
     }
 
     const action = input.newStatus === "delivered" ? "item_delivered" : "item_ready";
-    logAction(tx, input.userId, action, input.orderId, { itemId: input.itemId });
+    await logAction(tx, input.userId, action, input.orderId, { itemId: input.itemId });
 
     return result[0];
   });
@@ -415,19 +430,18 @@ export async function deleteItemUsecase(input: { orderId: string; itemId: string
   // então exclusão por engano continua permitida. Com cozinha, item entregue é imutável.
   if (settings.kitchenEnabled && item.status === "delivered") throw Errors.itemAlreadyDelivered();
 
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
     // Estorno de estoque: se o item consumiu stock no lançamento (movimento
     // 'sale' vinculado ao item existe), devolve o mesmo volume como 'refund'.
     // Baseado no ledger (e não no flag atual do produto) — a decisão de
     // repor é "houve consumo", então o ledger continua consistente mesmo se
     // o produto deixou de rastrear estoque depois.
-    const sales = tx
+    const sales = await tx
       .select({ quantityDelta: stockMovements.quantityDelta })
       .from(stockMovements)
-      .where(and(eq(stockMovements.orderItemId, input.itemId), eq(stockMovements.type, "sale")))
-      .all();
+      .where(and(eq(stockMovements.orderItemId, input.itemId), eq(stockMovements.type, "sale")));
     for (const sale of sales) {
-      applyStockMovementTx(tx, {
+      await applyStockMovementTx(tx, {
         productId: item.productId,
         type: "refund",
         quantityDelta: -sale.quantityDelta, // sale é negativo → refund positivo
@@ -438,15 +452,15 @@ export async function deleteItemUsecase(input: { orderId: string; itemId: string
       });
     }
 
-    tx.delete(orderItems).where(eq(orderItems.id, input.itemId)).run();
-    logAction(tx, input.userId, "item_removed", input.orderId, { itemId: input.itemId, name: item.productId });
+    await tx.delete(orderItems).where(eq(orderItems.id, input.itemId));
+    await logAction(tx, input.userId, "item_removed", input.orderId, { itemId: input.itemId, name: item.productId });
     // 1.8 — item removido em um terminal precisa sumir dos demais (garçom/gerente
     // assinam "kitchen-display"; "table:{id}" não é assinado por ninguém).
-    enqueueEvent(tx, `table:${item.orderId}`, "order.item.removed", {
+    await enqueueEvent(tx, `table:${item.orderId}`, "order.item.removed", {
       orderId: input.orderId,
       itemId: input.itemId,
     });
-    enqueueEvent(tx, "kitchen-display", "order.item.removed", {
+    await enqueueEvent(tx, "kitchen-display", "order.item.removed", {
       orderId: input.orderId,
       itemId: input.itemId,
     });
@@ -467,8 +481,8 @@ type PaymentLineInput = {
 // conferência da gaveta quebra. Roda na mesma transação da escrita do
 // pagamento (no caso do fechamento do caixa, o pagamento/estorno roda depois
 // da sessão ter sido marcada fechada e é rejeitado).
-function requireOpenDrawerForCash(tx: any, method: string, confirmed: boolean) {
-  if (method === "cash" && confirmed && !findOpenDrawerTx(tx)) {
+async function requireOpenDrawerForCash(tx: Tx, method: string, confirmed: boolean) {
+  if (method === "cash" && confirmed && !(await findOpenDrawerTx(tx))) {
     throw Errors.paymentRequiresOpenDrawer();
   }
 }
@@ -477,12 +491,12 @@ function requireOpenDrawerForCash(tx: any, method: string, confirmed: boolean) {
 // mesma transação da escrita (padrão do repo). `orders.payment_method` continua
 // como denormalizado de exibição — método único → ele; mais de um → null
 // (o client consome `payments[]` pra exibir o detalhe).
-function upsertPaymentLines(tx: any, order: typeof orders.$inferSelect, userId: string, lines: PaymentLineInput[]) {
-  tx.delete(orderPayments).where(eq(orderPayments.orderId, order.id)).run();
+async function upsertPaymentLines(tx: Tx, order: typeof orders.$inferSelect, userId: string, lines: PaymentLineInput[]) {
+  await tx.delete(orderPayments).where(eq(orderPayments.orderId, order.id));
 
-  const created: any[] = [];
+  const created: ReturnType<typeof serializePayment>[] = [];
   for (const line of lines) {
-    requireOpenDrawerForCash(tx, line.method, Boolean(line.confirmed));
+    await requireOpenDrawerForCash(tx, line.method, Boolean(line.confirmed));
     const isCash = line.method === "cash";
     const confirmed = Boolean(line.confirmed);
     const received = isCash ? (line.received != null ? line.received : line.amount) : null;
@@ -490,7 +504,7 @@ function upsertPaymentLines(tx: any, order: typeof orders.$inferSelect, userId: 
       throw Errors.validationFailed({ field: "received", reason: "dinheiro recebido menor que o valor a pagar" });
     }
     const change = isCash && received != null ? round2(received - line.amount) : null;
-    const row = tx
+    const [row] = await tx
       .insert(orderPayments)
       .values({
         orderId: order.id,
@@ -503,21 +517,20 @@ function upsertPaymentLines(tx: any, order: typeof orders.$inferSelect, userId: 
         confirmedBy: confirmed ? userId : null,
         createdBy: userId,
       })
-      .returning()
-      .get();
+      .returning();
     created.push(serializePayment(row));
   }
 
   const methods = [...new Set(lines.map((l) => l.method))];
   const allConfirmed = created.length > 0 && created.every((p) => p.confirmed);
-  tx.update(orders)
+  await tx
+    .update(orders)
     .set({
       paymentMethod: methods.length === 1 ? methods[0] : null,
       paymentConfirmedAt: allConfirmed ? new Date().toISOString() : null,
       paymentConfirmedBy: allConfirmed ? userId : null,
     })
-    .where(eq(orders.id, order.id))
-    .run();
+    .where(eq(orders.id, order.id));
 
   return created;
 }
@@ -542,26 +555,25 @@ export async function setOrderPaymentsUsecase(input: {
     if (!(p.amount > 0)) throw Errors.validationFailed({ field: "amount", reason: "valor deve ser maior que zero" });
   }
 
-  const updated = db.transaction((tx) => {
-    const total = computeOrderTotal(tx, order);
+  await db.transaction(async (tx) => {
+    const total = await computeOrderTotal(tx, order);
     const sum = round2(input.payments.reduce((acc, p) => acc + p.amount, 0));
     if (!moneyEq(sum, total)) throw Errors.invalidPaymentTotal();
 
-    const created = upsertPaymentLines(tx, order, input.userId, input.payments);
-    logAction(tx, input.userId, "payment_registered", input.orderId, { payments: created });
-    enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.payment_changed", {
+    const created = await upsertPaymentLines(tx, order, input.userId, input.payments);
+    await logAction(tx, input.userId, "payment_registered", input.orderId, { payments: created });
+    await enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.payment_changed", {
       orderId: input.orderId,
       payments: created,
     });
-    enqueueEvent(tx, "cash-drawer", "order.payment_changed", {
+    await enqueueEvent(tx, "cash-drawer", "order.payment_changed", {
       orderId: input.orderId,
       payments: created,
     });
-    enqueueEvent(tx, "kitchen-display", "order.payment_changed", {
+    await enqueueEvent(tx, "kitchen-display", "order.payment_changed", {
       orderId: input.orderId,
       payments: created,
     });
-    return created;
   });
 
   return serializeOrder(input.orderId);
@@ -572,39 +584,38 @@ export async function confirmOrderPaymentUsecase(input: { orderId: string; payme
   if (!order) throw Errors.notFound("Comanda");
   if (order.status !== "open") throw Errors.orderNotOpen();
 
-  const updated = db.transaction((tx) => {
-    const payment = tx.query.orderPayments.findFirst({ where: eq(orderPayments.id, input.paymentId) }).sync();
+  const updated = await db.transaction(async (tx) => {
+    const payment = await tx.query.orderPayments.findFirst({ where: eq(orderPayments.id, input.paymentId) });
     if (!payment || payment.orderId !== input.orderId) throw Errors.notFound("Pagamento");
     if (payment.confirmed) return payment;
-    requireOpenDrawerForCash(tx, payment.method, true);
+    await requireOpenDrawerForCash(tx, payment.method, true);
 
-    const result = tx
+    const [result] = await tx
       .update(orderPayments)
       .set({ confirmed: true, confirmedAt: new Date().toISOString(), confirmedBy: input.userId })
       .where(eq(orderPayments.id, input.paymentId))
-      .returning()
-      .get();
+      .returning();
 
-    const all = tx.select().from(orderPayments).where(eq(orderPayments.orderId, input.orderId)).all();
+    const all = await tx.select().from(orderPayments).where(eq(orderPayments.orderId, input.orderId));
     if (all.length > 0 && all.every((p) => p.confirmed)) {
-      tx.update(orders)
+      await tx
+        .update(orders)
         .set({ paymentConfirmedAt: new Date().toISOString(), paymentConfirmedBy: input.userId })
-        .where(eq(orders.id, input.orderId))
-        .run();
+        .where(eq(orders.id, input.orderId));
     }
 
-    logAction(tx, input.userId, "payment_confirmed", input.orderId, { paymentId: input.paymentId, method: payment.method });
-    enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.payment_changed", {
+    await logAction(tx, input.userId, "payment_confirmed", input.orderId, { paymentId: input.paymentId, method: payment.method });
+    await enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.payment_changed", {
       orderId: input.orderId,
       paymentId: input.paymentId,
       confirmed: true,
     });
-    enqueueEvent(tx, "cash-drawer", "order.payment_changed", {
+    await enqueueEvent(tx, "cash-drawer", "order.payment_changed", {
       orderId: input.orderId,
       paymentId: input.paymentId,
       confirmed: true,
     });
-    enqueueEvent(tx, "kitchen-display", "order.payment_changed", {
+    await enqueueEvent(tx, "kitchen-display", "order.payment_changed", {
       orderId: input.orderId,
       paymentId: input.paymentId,
       confirmed: true,
@@ -620,15 +631,15 @@ export async function deleteOrderPaymentUsecase(input: { orderId: string; paymen
   if (!order) throw Errors.notFound("Comanda");
   if (order.status !== "open") throw Errors.orderNotOpen();
 
-  db.transaction((tx) => {
-    const payment = tx.query.orderPayments.findFirst({ where: eq(orderPayments.id, input.paymentId) }).sync();
+  await db.transaction(async (tx) => {
+    const payment = await tx.query.orderPayments.findFirst({ where: eq(orderPayments.id, input.paymentId) });
     if (!payment || payment.orderId !== input.orderId) throw Errors.notFound("Pagamento");
     if (payment.confirmed) throw Errors.invalidTransition("Pagamento já confirmado não pode ser removido.");
-    tx.delete(orderPayments).where(eq(orderPayments.id, input.paymentId)).run();
-    logAction(tx, input.userId, "payment_removed", input.orderId, { paymentId: input.paymentId, method: payment.method });
-    enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.payment_changed", { orderId: input.orderId });
-    enqueueEvent(tx, "cash-drawer", "order.payment_changed", { orderId: input.orderId });
-    enqueueEvent(tx, "kitchen-display", "order.payment_changed", { orderId: input.orderId });
+    await tx.delete(orderPayments).where(eq(orderPayments.id, input.paymentId));
+    await logAction(tx, input.userId, "payment_removed", input.orderId, { paymentId: input.paymentId, method: payment.method });
+    await enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.payment_changed", { orderId: input.orderId });
+    await enqueueEvent(tx, "cash-drawer", "order.payment_changed", { orderId: input.orderId });
+    await enqueueEvent(tx, "kitchen-display", "order.payment_changed", { orderId: input.orderId });
   });
 }
 
@@ -651,50 +662,47 @@ export async function registerPaymentUsecase(input: {
   if (!order) throw Errors.notFound("Comanda");
   if (order.status !== "open") throw Errors.orderNotOpen();
 
-  const updated = db.transaction((tx) => {
-    const total = computeOrderTotal(tx, order);
-    const created = upsertPaymentLines(tx, order, input.userId, [
+  return await db.transaction(async (tx) => {
+    const total = await computeOrderTotal(tx, order);
+    const created = await upsertPaymentLines(tx, order, input.userId, [
       { method: input.paymentMethod, amount: total, confirmed: input.confirmed },
     ]);
-    logAction(tx, input.userId, "payment_registered", input.orderId, {
+    await logAction(tx, input.userId, "payment_registered", input.orderId, {
       paymentMethod: input.paymentMethod,
       confirmed: input.confirmed,
     });
-    enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.payment_changed", {
+    await enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.payment_changed", {
       orderId: input.orderId,
       payments: created,
     });
-    enqueueEvent(tx, "cash-drawer", "order.payment_changed", {
+    await enqueueEvent(tx, "cash-drawer", "order.payment_changed", {
       orderId: input.orderId,
       payments: created,
     });
-    enqueueEvent(tx, "kitchen-display", "order.payment_changed", {
+    await enqueueEvent(tx, "kitchen-display", "order.payment_changed", {
       orderId: input.orderId,
       payments: created,
     });
     return created[0];
   });
-
-  return updated;
 }
 
 // ---------- PATCH /orders/:id/close ----------
 export async function closeOrderUsecase(input: { orderId: string; userId: string }) {
-  const closed = db.transaction((tx) => {
-    const order = tx.query.orders.findFirst({ where: eq(orders.id, input.orderId) }).sync();
+  const closed = await db.transaction(async (tx) => {
+    const order = await tx.query.orders.findFirst({ where: eq(orders.id, input.orderId) });
     if (!order) throw Errors.notFound("Comanda");
     if (order.status !== "open") throw Errors.orderNotOpen();
 
-    const pending = tx
+    const pending = await tx
       .select({ item: orderItems, productName: products.name })
       .from(orderItems)
       .innerJoin(products, eq(products.id, orderItems.productId))
-      .where(and(eq(orderItems.orderId, input.orderId), notInArray(orderItems.status, ["delivered", "cancelled"])))
-      .all();
+      .where(and(eq(orderItems.orderId, input.orderId), notInArray(orderItems.status, ["delivered", "cancelled"])));
 
     if (pending.length > 0) {
       throw Errors.pendingItems(
-        pending.map(({ item, productName }: any) => ({
+        pending.map(({ item, productName }) => ({
           id: item.id,
           name: productName,
           quantity: item.quantity,
@@ -706,41 +714,40 @@ export async function closeOrderUsecase(input: { orderId: string; userId: string
     // Pagamento fracionado: exige ao menos uma linha, todas confirmadas e a
     // soma conferindo com o total (evita fechar com "intenção" de Pix ainda
     // não recebida, ou com divisão que não cobre a conta).
-    const payments = tx.select().from(orderPayments).where(eq(orderPayments.orderId, input.orderId)).all();
+    const payments = await tx.select().from(orderPayments).where(eq(orderPayments.orderId, input.orderId));
     if (payments.length === 0) throw Errors.paymentNotRegistered();
     if (payments.some((p) => !p.confirmed)) throw Errors.paymentNotConfirmed();
 
-    const total = computeOrderTotal(tx, order);
+    const total = await computeOrderTotal(tx, order);
     const paid = round2(payments.reduce((acc, p) => acc + p.amount, 0));
     if (!moneyEq(paid, total)) throw Errors.invalidPaymentTotal();
 
-    const result = tx
+    const [result] = await tx
       .update(orders)
       .set({ status: "closed", closedAt: new Date().toISOString() })
       .where(eq(orders.id, input.orderId))
-      .returning()
-      .get();
+      .returning();
 
     if (order.tableId) {
-      tx.update(restaurantTables).set({ status: "free" }).where(eq(restaurantTables.id, order.tableId)).run();
-      enqueueEvent(tx, `table:${order.tableId}`, "table.status_changed", {
+      await tx.update(restaurantTables).set({ status: "free" }).where(eq(restaurantTables.id, order.tableId));
+      await enqueueEvent(tx, `table:${order.tableId}`, "table.status_changed", {
         tableId: order.tableId,
         status: "free",
       });
     }
 
-    enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.closed", {
+    await enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.closed", {
       orderId: order.id,
       tableId: order.tableId,
     });
     // 1.2 — comanda fechada em outro terminal deve sumir da lista do garçom
     // (useOrders assina "kitchen-display" e remove a comanda ao receber isso).
-    enqueueEvent(tx, "kitchen-display", "order.closed", {
+    await enqueueEvent(tx, "kitchen-display", "order.closed", {
       orderId: order.id,
       tableId: order.tableId,
     });
 
-    logAction(tx, input.userId, "order_closed", input.orderId, {
+    await logAction(tx, input.userId, "order_closed", input.orderId, {
       payments: payments.map(serializePayment),
     });
     return result;
@@ -761,8 +768,8 @@ export async function closeOrderUsecase(input: { orderId: string; userId: string
  * é precisamente o caminho pra quando a venda não vai acontecer.
  */
 export async function cancelOrderUsecase(input: { orderId: string; userId: string; reason: string }) {
-  const cancelled = db.transaction((tx) => {
-    const order = tx.query.orders.findFirst({ where: eq(orders.id, input.orderId) }).sync();
+  const cancelled = await db.transaction(async (tx) => {
+    const order = await tx.query.orders.findFirst({ where: eq(orders.id, input.orderId) });
     if (!order) throw Errors.notFound("Comanda");
     if (order.status !== "open") throw Errors.orderNotOpen();
 
@@ -772,7 +779,7 @@ export async function cancelOrderUsecase(input: { orderId: string; userId: strin
     // bloqueio de dinheiro sem caixa — exige sessão aberta. A linha de
     // pagamento permanece confirmada: os relatórios mostram a venda e a
     // sangria de reversão, efeito líquido zero.
-    const cashPaid = tx
+    const cashPaid = await tx
       .select()
       .from(orderPayments)
       .where(
@@ -781,13 +788,12 @@ export async function cancelOrderUsecase(input: { orderId: string; userId: strin
           eq(orderPayments.method, "cash"),
           eq(orderPayments.confirmed, true)
         )
-      )
-      .all();
-    const refund = round2(cashPaid.reduce((acc: number, p: { amount: number }) => acc + p.amount, 0));
+      );
+    const refund = round2(cashPaid.reduce((acc, p) => acc + p.amount, 0));
     if (refund > 0) {
-      const drawer = findOpenDrawerTx(tx);
+      const drawer = await findOpenDrawerTx(tx);
       if (!drawer) throw Errors.cashRefundRequiresOpenDrawer();
-      const movement = tx
+      const [movement] = await tx
         .insert(cashDrawerMovements)
         .values({
           drawerId: drawer.id,
@@ -797,37 +803,35 @@ export async function cancelOrderUsecase(input: { orderId: string; userId: strin
           refOrderId: input.orderId,
           createdBy: input.userId,
         })
-        .returning()
-        .get();
-      logAction(tx, input.userId, "cash_drawer_sangria", input.orderId, {
+        .returning();
+      await logAction(tx, input.userId, "cash_drawer_sangria", input.orderId, {
         movementId: movement.id,
         drawerId: drawer.id,
         amount: movement.amount,
         reason: input.reason,
       });
-      enqueueEvent(tx, "cash-drawer", "cash_drawer.sangria", {
+      await enqueueEvent(tx, "cash-drawer", "cash_drawer.sangria", {
         drawerId: drawer.id,
         amount: movement.amount,
         refOrderId: input.orderId,
       });
     }
 
-    tx.update(orderItems)
+    await tx
+      .update(orderItems)
       .set({ status: "cancelled" })
-      .where(and(eq(orderItems.orderId, input.orderId), notInArray(orderItems.status, ["delivered", "cancelled"])))
-      .run();
+      .where(and(eq(orderItems.orderId, input.orderId), notInArray(orderItems.status, ["delivered", "cancelled"])));
 
     // Estorno de estoque da comanda inteira: todo item que consumiu stock
     // (movimento 'sale' com order_id) devolve o volume como 'refund'. Itens
     // entregues também são estornados aqui — o consumo já aconteceu no
     // lançamento, e a venda não se concretizou. Sempre baseado no ledger.
-    const sales = tx
+    const sales = await tx
       .select({ productId: stockMovements.productId, orderItemId: stockMovements.orderItemId, quantityDelta: stockMovements.quantityDelta })
       .from(stockMovements)
-      .where(and(eq(stockMovements.orderId, input.orderId), eq(stockMovements.type, "sale")))
-      .all();
+      .where(and(eq(stockMovements.orderId, input.orderId), eq(stockMovements.type, "sale")));
     for (const sale of sales) {
-      applyStockMovementTx(tx, {
+      await applyStockMovementTx(tx, {
         productId: sale.productId,
         type: "refund",
         quantityDelta: -sale.quantityDelta,
@@ -838,26 +842,25 @@ export async function cancelOrderUsecase(input: { orderId: string; userId: strin
       });
     }
 
-    const result = tx
+    const [result] = await tx
       .update(orders)
       .set({ status: "cancelled", closedAt: new Date().toISOString(), cancelReason: input.reason })
       .where(eq(orders.id, input.orderId))
-      .returning()
-      .get();
+      .returning();
 
     if (order.tableId) {
-      tx.update(restaurantTables).set({ status: "free" }).where(eq(restaurantTables.id, order.tableId)).run();
-      enqueueEvent(tx, `table:${order.tableId}`, "table.status_changed", {
+      await tx.update(restaurantTables).set({ status: "free" }).where(eq(restaurantTables.id, order.tableId));
+      await enqueueEvent(tx, `table:${order.tableId}`, "table.status_changed", {
         tableId: order.tableId,
         status: "free",
       });
     }
 
-    enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.cancelled", {
+    await enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.cancelled", {
       orderId: order.id,
       tableId: order.tableId,
     });
-    enqueueEvent(tx, "kitchen-display", "order.cancelled", {
+    await enqueueEvent(tx, "kitchen-display", "order.cancelled", {
       orderId: order.id,
       tableId: order.tableId,
     });
@@ -869,10 +872,10 @@ export async function cancelOrderUsecase(input: { orderId: string; userId: strin
     // transação da escrita de domínio (AGENTS.md). "delivered" não muda —
     // comanda com entrega concluída está fechada e nunca chega aqui
     // (orderNotOpen).
-    const delivery = tx.query.deliveries.findFirst({ where: eq(deliveries.orderId, input.orderId) }).sync();
+    const delivery = await tx.query.deliveries.findFirst({ where: eq(deliveries.orderId, input.orderId) });
     if (delivery && delivery.status !== "delivered" && canTransitionDelivery(delivery.status, "cancelled")) {
-      tx.update(deliveries).set({ status: "cancelled" }).where(eq(deliveries.id, delivery.id)).run();
-      enqueueEvent(tx, "deliveries", "delivery.status_changed", {
+      await tx.update(deliveries).set({ status: "cancelled" }).where(eq(deliveries.id, delivery.id));
+      await enqueueEvent(tx, "deliveries", "delivery.status_changed", {
         id: delivery.id,
         orderId: input.orderId,
         courierId: delivery.courierId,
@@ -882,10 +885,10 @@ export async function cancelOrderUsecase(input: { orderId: string; userId: strin
         deliveredAt: delivery.deliveredAt,
         notes: delivery.notes,
       });
-      emitCustomerStageChangedTx(tx, input.orderId);
+      await emitCustomerStageChangedTx(tx, input.orderId);
     }
 
-    logAction(tx, input.userId, "order_cancelled", input.orderId, { reason: input.reason });
+    await logAction(tx, input.userId, "order_cancelled", input.orderId, { reason: input.reason });
     return result;
   });
 
@@ -907,7 +910,7 @@ export async function listOrdersUsecase(input: { status?: "open" | "closed"; lim
     offset: input.offset,
   });
   const data = await Promise.all(rows.map((o) => serializeOrder(o.id)));
-  const totalRow = await db.select({ count: sql<number>`count(*)` }).from(orders).where(where as any);
+  const totalRow = await db.select({ count: count() }).from(orders).where(where as any);
   return { data, total: totalRow[0]?.count ?? data.length };
 }
 

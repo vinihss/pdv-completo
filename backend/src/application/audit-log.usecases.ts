@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { count, eq, sql } from "drizzle-orm";
 import { db } from "../infra/db/client.js";
 import { auditLog, users } from "../infra/db/schema.js";
 
@@ -23,6 +23,6 @@ export async function listAuditLogUsecase(input: { orderId?: string; limit: numb
     createdAt: log.createdAt,
   }));
 
-  const totalRow = await db.select({ count: sql<number>`count(*)` }).from(auditLog).where(where as any);
+  const totalRow = await db.select({ count: count() }).from(auditLog).where(where as any);
   return { data, total: totalRow[0]?.count ?? data.length };
 }

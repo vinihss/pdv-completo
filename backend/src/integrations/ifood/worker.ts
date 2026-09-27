@@ -53,7 +53,7 @@ export function startIfoodSync(): { stop: () => void } {
 }
 
 async function pollOnce(): Promise<void> {
-  setIfoodState(ifoodStateKeys.lastPollAt, new Date().toISOString());
+  await setIfoodState(ifoodStateKeys.lastPollAt, new Date().toISOString());
   try {
     await resolveMerchantIfNeeded();
 
@@ -73,16 +73,16 @@ async function pollOnce(): Promise<void> {
       method: "POST",
       body: { acknowledgedEventIds: ackIds },
     });
-    db.update(ifoodEvents)
+    await db
+      .update(ifoodEvents)
       .set({ status: "acked" })
-      .where(inArray(ifoodEvents.id, ackIds))
-      .run();
+      .where(inArray(ifoodEvents.id, ackIds));
 
-    setIfoodState(ifoodStateKeys.lastPollError, "");
+    await setIfoodState(ifoodStateKeys.lastPollError, "");
   } catch (err) {
     // Falha de rede/token não derruba o worker; guarda pro painel do gerente.
     const msg = err instanceof Error ? err.message : String(err);
-    setIfoodState(ifoodStateKeys.lastPollError, msg);
+    await setIfoodState(ifoodStateKeys.lastPollError, msg);
     console.error("[ifood] poll falhou:", msg);
   }
 }

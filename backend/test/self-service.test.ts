@@ -1,6 +1,5 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
-import { api, seedFixture, resetState, closeTestApp, tokenOf, manager, kitchen, FIXTURE } from "./helpers.js";
-import { rawSqlite } from "../src/infra/db/client.js";
+import { api, seedFixture, resetState, closeTestApp, tokenOf, manager, kitchen, FIXTURE, raw } from "./helpers.js";
 import { handleIncomingWhatsAppMessage } from "../src/application/self-service/whatsapp-bot.usecases.js";
 import {
   deriveCustomerStage,
@@ -16,12 +15,13 @@ const COURIER_FIXTURE = { id: COURIER, name: "Entregador Teste", role: "courier"
 // Modo com delivery E com cozinha: sem cozinha os itens do pedido nascem
 // "delivered" (paridade de configuração, ver order.usecases.ts) e a máquina do
 // cliente saltaria direto pra "ready". Os toggles são restaurados no afterAll
-// porque o SQLite de teste é compartilhado entre arquivos.
-function enableDelivery() {
-  rawSqlite.exec(`
-    UPDATE store_settings SET uses_delivery = 1, kitchen_enabled = 1, delivery_fee = 5 WHERE id = 'singleton';
-    INSERT OR IGNORE INTO "user" (id, name, role, pin_hash)
-      VALUES ('${COURIER}', '${COURIER_FIXTURE.name}', '${COURIER_FIXTURE.role}', '${COURIER_FIXTURE.pin_hash}');
+// porque o banco de teste é compartilhado entre arquivos.
+async function enableDelivery() {
+  await raw.exec(`
+    UPDATE store_settings SET uses_delivery = true, kitchen_enabled = true, delivery_fee = 5 WHERE id = 'singleton';
+    INSERT INTO "user" (id, name, role, pin_hash)
+      VALUES ('${COURIER}', '${COURIER_FIXTURE.name}', '${COURIER_FIXTURE.role}', '${COURIER_FIXTURE.pin_hash}')
+      ON CONFLICT (id) DO NOTHING;
   `);
 }
 
@@ -30,34 +30,32 @@ const courierToken = () => tokenOf(COURIER, "courier");
 // Produto com grupo de variação OBRIGATÓRIO — é o caso que o checkout
 // precisa barrar (X-Burger sem "Ponto da carne" não pode virar pedido).
 const VARIED_PRODUCT = "p-var";
-function seedVariedProduct() {
-  rawSqlite.exec(`
-    INSERT OR IGNORE INTO product (id, name, price, category_id, variations)
+async function seedVariedProduct() {
+  await raw.exec(`
+    INSERT INTO product (id, name, price, category_id, variations)
       VALUES ('${VARIED_PRODUCT}', 'X-Burger', 28, '${FIXTURE.category}',
-              '[{"name":"Ponto da carne","options":["Mal passado","Ao ponto"],"required":true}]');
+              '[{"name":"Ponto da carne","options":["Mal passado","Ao ponto"],"required":true}]')
+      ON CONFLICT (id) DO NOTHING;
   `);
 }
 
-// outbox_event.id é UUID (PK textual) — ordem de emissão é o rowid do
-// SQLite, não o id (ordenar por id seria alfabético e aleatório).
+// outbox_event.id é UUID (PK textual) — ordem de emissão é a sequência
+// `seq` (bigserial), não o id (ordenar por id seria alfabético e aleatório).
 // O filtro é por room/event_type, SEM `published`: o dispatcher marca
-// `published = 1` ao despachar, e isso é detalhe de entrega, não do contrato de
+// `published = true` ao despachar, e isso é detalhe de entrega, não do contrato de
 // emissão. Filtrar por pendência fazia a asserção depender de timing — o
 // `stages[0]` do teste de 'ready' sumia quando um ciclo do dispatcher rodava
 // entre a criação do pedido e a leitura. Como `main()` não roda no import (ver
 // guard em src/http/server.ts), o outbox nos testes só cresce por enqueueEvent.
-const outboxTypes = (room: string): string[] =>
-  (rawSqlite
-    .prepare(`SELECT event_type FROM outbox_event WHERE room = ? ORDER BY rowid`)
-    .all(room) as { event_type: string }[]).map((r) => r.event_type);
+const outboxTypes = async (room: string): Promise<string[]> =>
+  ((await raw.all(`SELECT event_type FROM outbox_event WHERE room = $1 ORDER BY seq`, [room])) as { event_type: string }[]).map((r) => r.event_type);
 
-const outboxPayloads = (room: string, eventType: string): any[] =>
+const outboxPayloads = async (room: string, eventType: string): Promise<any[]> =>
   (
-    rawSqlite
-      .prepare(
-        `SELECT payload FROM outbox_event WHERE room = ? AND event_type = ? ORDER BY rowid`
-      )
-      .all(room, eventType) as { payload: string }[]
+    (await raw.all(
+      `SELECT payload FROM outbox_event WHERE room = $1 AND event_type = $2 ORDER BY seq`,
+      [room, eventType],
+    )) as { payload: string }[]
   ).map((r) => JSON.parse(r.payload));
 
 // As rotas públicas têm rate limit por IP E por telefone (5 pedidos/min em
@@ -90,7 +88,7 @@ async function statusOf(orderId: string, ip?: string) {
 
 // marca o item pronto (cozinha) e devolve o orderId + deliveryId
 async function readyOrder(orderId: string) {
-  const items = rawSqlite.prepare(`SELECT id, version FROM order_item WHERE order_id = ?`).all(orderId) as {
+  const items = await raw.all(`SELECT id, version FROM order_item WHERE order_id = $1`, [orderId]) as {
     id: string;
     version: number;
   }[];
@@ -100,7 +98,7 @@ async function readyOrder(orderId: string) {
       body: { status: "ready", expectedVersion: it.version },
     });
   }
-  const delivery = rawSqlite.prepare(`SELECT id FROM delivery WHERE order_id = ?`).get(orderId) as { id: string };
+  const delivery = await raw.get(`SELECT id FROM delivery WHERE order_id = $1`, [orderId]) as { id: string };
   return delivery.id;
 }
 
@@ -172,13 +170,13 @@ describe("máquina de estado do cliente (puro)", () => {
 
 // ---------------------------------------------------------------------------
 describe("self-service: stage público, cancelamento e continuação", () => {
-  beforeAll(() => {
-    seedFixture();
-    enableDelivery();
+  beforeAll(async () => {
+    await seedFixture();
+    await enableDelivery();
   });
   afterAll(async () => {
-    rawSqlite.exec(`
-      UPDATE store_settings SET uses_delivery = 1, kitchen_enabled = 1, delivery_fee = 0 WHERE id = 'singleton';
+    await raw.exec(`
+      UPDATE store_settings SET uses_delivery = true, kitchen_enabled = true, delivery_fee = 0 WHERE id = 'singleton';
       DELETE FROM "user" WHERE id = '${COURIER}';
     `);
     await closeTestApp();
@@ -198,7 +196,7 @@ describe("self-service: stage público, cancelamento e continuação", () => {
     expect(s.timeline[0]).toMatchObject({ stage: "received", current: true });
     expect(s.total).toBe(24); // 2 × 9,50 + taxa 5
 
-    const events = outboxPayloads(`order:${orderId}`, "customer.stage_changed");
+    const events = await outboxPayloads(`order:${orderId}`, "customer.stage_changed");
     expect(events.at(-1)).toMatchObject({ stage: "received" });
   });
 
@@ -213,7 +211,7 @@ describe("self-service: stage público, cancelamento e continuação", () => {
     expect(s.customerStage.stage).toBe("ready");
     // a transição received → ready emite evento pro room público (a contagem
     // exata não é o contrato; o que importa é o último stage publicado)
-    const stages = outboxPayloads(`order:${orderId}`, "customer.stage_changed").map((e) => e.stage);
+    const stages = (await outboxPayloads(`order:${orderId}`, "customer.stage_changed")).map((e) => e.stage);
     expect(stages[0]).toBe("received");
     expect(stages.at(-1)).toBe("ready");
   });
@@ -255,7 +253,7 @@ describe("self-service: stage público, cancelamento e continuação", () => {
     const s = await statusOf(orderId, ip);
     expect(s.customerStage).toEqual({ stage: "delivered", label: "Entregue", terminal: true });
     expect(s.orderStatus).toBe("closed");
-    expect(outboxTypes(`order:${orderId}`)).toContain("customer.stage_changed");
+    expect(await outboxTypes(`order:${orderId}`)).toContain("customer.stage_changed");
   });
 
   it("dispatch → fail → 'failed' permite cancelar o pedido aberto (delivery vai a cancelled)", async () => {
@@ -284,7 +282,7 @@ describe("self-service: stage público, cancelamento e continuação", () => {
     expect(s.orderStatus).toBe("cancelled");
     expect(s.customerStage).toEqual({ stage: "cancelled", label: "Cancelado", terminal: true });
     expect(s.deliveryStatus).toBe("cancelled");
-    expect(outboxPayloads(`order:${orderId}`, "customer.stage_changed").at(-1)).toMatchObject({ stage: "cancelled" });
+    expect((await outboxPayloads(`order:${orderId}`, "customer.stage_changed")).at(-1)).toMatchObject({ stage: "cancelled" });
   });
 
   it("cancelamento só pelo dono: telefone diferente → 403 e pedido intacto", async () => {
@@ -312,9 +310,7 @@ describe("self-service: stage público, cancelamento e continuação", () => {
     expect(replay.status).toBe(200);
     expect(replay.json).toEqual(first.json);
     // um único cancelamento no audit
-    const rows = rawSqlite
-      .prepare(`SELECT COUNT(*) n FROM audit_log WHERE order_id = ? AND action = 'order_cancelled'`)
-      .get(orderId) as { n: number };
+    const rows = await raw.get(`SELECT COUNT(*)::int n FROM audit_log WHERE order_id = $1 AND action = 'order_cancelled'`, [orderId]) as { n: number };
     expect(rows.n).toBe(1);
   });
 
@@ -343,10 +339,10 @@ describe("self-service: stage público, cancelamento e continuação", () => {
     });
 
     // TTL: linha expirada é tratada como carrinho vazio (e não volta no GET).
-    rawSqlite.exec(`UPDATE customer_cart SET expires_at = '2000-01-01T00:00:00Z' WHERE phone = '${phone}'`);
+    await raw.exec(`UPDATE customer_cart SET expires_at = '2000-01-01T00:00:00Z' WHERE phone = '${phone}'`);
     const expired = await api("get", `/public/cart?phone=${phone}`, { ip });
     expect(expired.json.items).toEqual([]);
-    const rows = rawSqlite.prepare(`SELECT COUNT(*) n FROM customer_cart WHERE phone = ?`).get(phone) as { n: number };
+    const rows = await raw.get(`SELECT COUNT(*)::int n FROM customer_cart WHERE phone = $1`, [phone]) as { n: number };
     expect(rows.n).toBe(0);
 
     // PUT sobrescreve (não acumula) e DELETE limpa
@@ -408,7 +404,7 @@ describe("self-service: stage público, cancelamento e continuação", () => {
   });
 
   it("menu público expõe groups com required/allowMultiple (mesmo formato do garçom)", async () => {
-    seedVariedProduct();
+    await seedVariedProduct();
     const res = await api("get", "/public/menu");
     expect(res.status).toBe(200);
     const product = res.json.categories
@@ -425,7 +421,7 @@ describe("self-service: stage público, cancelamento e continuação", () => {
   });
 
   it("menu público marca os destaques (product.featured) para a vitrine", async () => {
-    seedVariedProduct();
+    await seedVariedProduct();
     const porPadrao = await api("get", "/public/menu");
     const find = (json: any, id: string) =>
       json.categories.flatMap((c: any) => c.products).find((p: any) => p.id === id);
@@ -434,7 +430,7 @@ describe("self-service: stage público, cancelamento e continuação", () => {
     expect(find(porPadrao.json, FIXTURE.product).featured).toBe(false);
 
     // Marca via API do gerente e o menu passa a anunciar.
-    rawSqlite.exec(`UPDATE product SET featured = 1 WHERE id = '${VARIED_PRODUCT}'`);
+    await raw.exec(`UPDATE product SET featured = true WHERE id = '${VARIED_PRODUCT}'`);
     const marcado = await api("get", "/public/menu");
     expect(find(marcado.json, VARIED_PRODUCT).featured).toBe(true);
     // ...e o produto continua na sua categoria: destaque é vitrine, não exclusão.
@@ -443,7 +439,7 @@ describe("self-service: stage público, cancelamento e continuação", () => {
   });
 
   it("checkout barra grupo obrigatório não escolhido com 422 e não cria nada", async () => {
-    seedVariedProduct();
+    await seedVariedProduct();
     const ip = nextIp();
     const phone = nextPhone();
     const body = (items: any[]) => ({
@@ -465,9 +461,7 @@ describe("self-service: stage público, cancelamento e continuação", () => {
     expect(semOpcao.json.error.details.groups).toEqual(["Ponto da carne"]);
 
     // Nada foi criado — a validação roda antes de qualquer escrita.
-    const written = rawSqlite
-      .prepare(`SELECT COUNT(*) n FROM "order" WHERE customer_id IN (SELECT id FROM customer WHERE phone = ?)`)
-      .get(phone) as { n: number };
+    const written = await raw.get(`SELECT COUNT(*)::int n FROM "order" WHERE customer_id IN (SELECT id FROM customer WHERE phone = $1)`, [phone]) as { n: number };
     expect(written.n).toBe(0);
 
     // Opção fora do catálogo também é recusada.
@@ -484,9 +478,7 @@ describe("self-service: stage público, cancelamento e continuação", () => {
       body: body([{ productId: VARIED_PRODUCT, quantity: 1, selectedVariations: { "Ponto da carne": "Ao ponto" } }]),
     });
     expect(ok.status).toBe(201);
-    const item = rawSqlite
-      .prepare(`SELECT selected_variations FROM order_item WHERE order_id = ?`)
-      .get(ok.json.orderId) as { selected_variations: string };
+    const item = await raw.get(`SELECT selected_variations FROM order_item WHERE order_id = $1`, [ok.json.orderId]) as { selected_variations: string };
     expect(JSON.parse(item.selected_variations)).toEqual({ "Ponto da carne": "Ao ponto" });
   });
 });

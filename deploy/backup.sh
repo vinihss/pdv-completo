@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # ============================================================
-# Backup consistente do SQLite (modo local) — deploy/backup.sh
+# Backup consistente do PostgreSQL + uploads — deploy/backup.sh
 #
-# Usa o comando `.backup` do sqlite3, que gera um snapshot online
-# consistente mesmo em WAL mode. Copiar só o data.db (como o cron
-# antigo fazia) pode perder transações que ainda estão no
-# data.db-wal — este script não tem esse risco.
+# Usa o `pg_dump` (formato custom, comprimido) contra o container do
+# Postgres: snapshot transacional consistente, sem parar o banco.
+# O .dump restaura com `pg_restore`; o SQL puro com `psql -f`.
 #
 # Uso:
 #   ./backup.sh                     # salva em ./backups/
@@ -18,21 +17,37 @@
 # ============================================================
 set -euo pipefail
 
-VOLUME="${PDV_BACKUP_VOLUME:-pdv_backend_data}"
+PG_CONTAINER="${PDV_PG_CONTAINER:-pdv-compose-postgres-1}"
+PG_USER="${POSTGRES_USER:-pdv}"
+PG_DB="${POSTGRES_DB:-pdv}"
 UPLOADS_VOLUME="${PDV_UPLOADS_VOLUME:-pdv_backend_uploads}"
 DEST="${1:-$(pwd)/backups}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-TARGET="$DEST/pdv-$STAMP.db"
+TARGET="$DEST/pdv-$STAMP.dump"
 UPLOADS_TARGET="$DEST/pdv-$STAMP-uploads.tar.gz"
 
 mkdir -p "$DEST"
 
-echo "Backup do volume '$VOLUME' -> $TARGET"
-docker run --rm \
-  -v "${VOLUME}:/data" \
-  -v "${DEST}:/backup" \
-  nouchka/sqlite3 \
-  /data/data.db ".backup '/backup/pdv-${STAMP}.db'"
+# Resolve o nome do container se o padrão não existir (compose nomeia
+# <projeto>-<serviço>-1; o projeto pode ter outro nome). Com mais de um
+# Postgres no host não dá pra adivinhar — exige PDV_PG_CONTAINER.
+if ! docker inspect "$PG_CONTAINER" >/dev/null 2>&1; then
+  mapfile -t CANDIDATES < <(docker ps --filter ancestor=postgres:16-alpine --format '{{.Names}}')
+  if [[ ${#CANDIDATES[@]} -eq 0 ]]; then
+    echo "ERRO: container do Postgres não encontrado (ajuste PDV_PG_CONTAINER)." >&2
+    exit 1
+  fi
+  if [[ ${#CANDIDATES[@]} -gt 1 ]]; then
+    echo "ERRO: ${#CANDIDATES[@]} containers Postgres no host; defina PDV_PG_CONTAINER:" >&2
+    printf '  %s\n' "${CANDIDATES[@]}" >&2
+    exit 1
+  fi
+  PG_CONTAINER="${CANDIDATES[0]}"
+  echo "Container do Postgres detectado: $PG_CONTAINER"
+fi
+
+echo "Backup do banco '$PG_DB' (container $PG_CONTAINER) -> $TARGET"
+docker exec "$PG_CONTAINER" pg_dump -U "$PG_USER" -d "$PG_DB" -Fc > "$TARGET"
 
 echo "Backup das fotos de produto ('$UPLOADS_VOLUME') -> $UPLOADS_TARGET"
 docker run --rm \

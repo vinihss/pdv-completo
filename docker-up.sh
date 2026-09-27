@@ -14,7 +14,7 @@
 #   ./docker-up.sh down            # derruba os containers (mantém dados)
 #   ./docker-up.sh reset           # derruba e APAGA os volumes (-v)
 #   ./docker-up.sh logs            # logs em tempo real (-f)
-#   ./docker-up.sh backup [dest]   # backup do SQLite (padrão: ./backups/)
+#   ./docker-up.sh backup [dest]   # backup do Postgres + fotos (padrão: ./backups/)
 #   ./docker-up.sh help            # esta ajuda
 #
 # Acesso após subir: http://localhost  (ou http://<IP-da-LAN>).

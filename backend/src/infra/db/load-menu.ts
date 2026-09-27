@@ -6,20 +6,23 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { rawSqlite } from "./client.js";
+import { pool } from "./client.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const sqlPath = path.resolve(__dirname, "../../../seed-data/menu-unami.sql");
 
-export function loadMenu() {
+export async function loadMenu(): Promise<void> {
   if (!fs.existsSync(sqlPath)) {
     console.error(`[load-menu] arquivo não encontrado: ${sqlPath}`);
     process.exit(1);
   }
 
   const sql = fs.readFileSync(sqlPath, "utf8");
-  rawSqlite!.exec(sql);
+  // O arquivo é um lote de INSERT com ON CONFLICT — o node-postgres aceita
+  // múltiplos statements num único query simples.
+  await pool.query(sql);
   console.log("[load-menu] cardápio Unami aplicado (11 categorias, 63 produtos, 3 grupos de cozinha).");
+  await pool.end();
 }
 
 loadMenu();

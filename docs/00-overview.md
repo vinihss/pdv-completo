@@ -21,7 +21,7 @@ Um único código-fonte, dois modos de deploy, diferenciados só por variável d
 | **local** | servidor físico (mini-PC/NUC) no estabelecimento, via Docker | Não — Wi-Fi interno |
 | **cloud** | banco gerenciado (RDS/Supabase) | Sim — não é offline-first |
 
-Stack: Node.js + TypeScript, Fastify, Drizzle ORM (SQL-first, mesmo código para SQLite local e Postgres cloud), WebSocket para tempo real, Zod para validação, JWT + PIN numérico (argon2) para autenticação rápida em terminal compartilhado.
+Stack: Node.js + TypeScript, Fastify, Drizzle ORM (SQL-first sobre PostgreSQL), WebSocket para tempo real, Zod para validação, JWT + PIN numérico (argon2) para autenticação rápida em terminal compartilhado. O Postgres é o único banco suportado — o SQLite foi removido; `DEPLOYMENT_MODE` decide se o Postgres é o do compose local ou uma instância gerenciada.
 
 ## Perfis de usuário e telas
 
@@ -129,7 +129,7 @@ em `04-cash-flow.md`; critérios de aceite na §14 de `03-acceptance-criteria.md
 
 ## Revisão de prontidão pra implementação (última passada)
 
-- **Inconsistência corrigida**: a seção 14 do backend spec desenhava um `docker-compose.yml` com container `db` em Postgres também no modo local, contradizendo a seção 3 (que define SQLite pro modo local desde o início). Corrigido — modo local agora é descrito como container único (`app` + volume do arquivo SQLite).
+- **Inconsistência corrigida**: a seção 14 do backend spec desenhava um `docker-compose.yml` com container `db` em Postgres também no modo local, contradizendo a seção 3 (que definia SQLite pro modo local desde o início). **Resolvido em 2026 removendo o SQLite**: o modo local também usa Postgres, então a contradição deixou de existir (compose local sobe `postgres` + `backend` + `frontend`).
 - **Seção 14 expandida** de "Deployment" pra "Deployment e Setup": tabela de variáveis de ambiente completa, estratégia de seed (dev vs. primeiro deploy real), endpoint `GET /health`, e estratégia de migrations (Drizzle Kit, quando roda automático vs. manual).
 - **Nova seção 15** no backend spec: requisitos não-funcionais — volume esperado, latência aceitável, segurança por modo de implantação, e a lacuna de backup em modo local sem `SYNC_ENABLED` (que precisa ficar explícita pro dono do estabelecimento, não é implícita).
 - **Checagem de consistência**: toda referência cruzada entre `01-backend-spec.md` e `02-frontend-spec.md` (números de seção) e todo código de erro da tabela consolidada (seção 7.11) foram conferidos contra o restante do texto — sem divergência encontrada além da do docker-compose acima.

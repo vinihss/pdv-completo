@@ -27,9 +27,9 @@ const CANCEL_REASON_PRODUCT_UNAVAILABLE = "501";
 export async function handleIfoodOrderEvent(ev: IfoodEvent): Promise<"acked" | "failed"> {
   const existing = await db.query.ifoodEvents.findFirst({ where: eq(ifoodEvents.id, ev.id) });
   if (!existing) {
-    db.insert(ifoodEvents)
-      .values({ id: ev.id, orderRef: ev.orderId, code: ev.code, fullCode: ev.fullCode ?? null, raw: JSON.stringify(ev) })
-      .run();
+    await db
+      .insert(ifoodEvents)
+      .values({ id: ev.id, orderRef: ev.orderId, code: ev.code, fullCode: ev.fullCode ?? null, raw: JSON.stringify(ev) });
   }
   // Já tratado e ackado: dedupe.
   if (existing?.status === "acked") return "acked";
@@ -42,33 +42,33 @@ export async function handleIfoodOrderEvent(ev: IfoodEvent): Promise<"acked" | "
     // evento. CONCLUDED fecha (pagamento + itens delivered); CANCELLED/STALE/
     // CANCELLATION_REQUESTED encerram como canceladas. Demais códigos
     // (DISPATCHED, READY_TO_PICKUP...) reconhecidos mas sem ação local.
-    const handled = routeStatusEvent(ev);
-    mark(ev.id, handled ? "processed" : "ignored");
+    const handled = await routeStatusEvent(ev);
+    await mark(ev.id, handled ? "processed" : "ignored");
     return "acked";
   } catch (err) {
-    mark(ev.id, "failed");
+    await mark(ev.id, "failed");
     console.error(`[ifood] falha ao processar evento ${ev.code} ${ev.id}:`, (err as Error).message);
     return "failed";
   }
 }
 
-// Não lança para o mundo externo (devolve void) — tratado aqui por ser
-// síncrono e não depender de rede. Retorna false quando o código é apenas
-// informativo (sem transição local).
-function routeStatusEvent(ev: IfoodEvent): boolean {
+// Não lança para o mundo externo (devolve void) — tratado aqui por não
+// depender de rede além do cancelamento solicitado. Retorna false quando o
+// código é apenas informativo (sem transição local).
+async function routeStatusEvent(ev: IfoodEvent): Promise<boolean> {
   switch (ev.code) {
     case "CONCLUDED":
-      return concludeIfoodOrder(ev.orderId);
+      return await concludeIfoodOrder(ev.orderId);
     case "CANCELLED":
     case "STALE":
-      return cancelIfoodOrder(ev.orderId, `cancelado pelo iFood (${ev.code})`);
+      return await cancelIfoodOrder(ev.orderId, `cancelado pelo iFood (${ev.code})`);
     case "CANCELLATION_REQUESTED":
       // Cliente pediu cancelamento: aceita (best-effort) e encerra local.
       void ifoodFetch(ifoodConfig.orderUrl(`/orders/${ev.orderId}/acceptCancellation`), {
         method: "POST",
         body: { accept: true },
       }).catch(() => {});
-      return cancelIfoodOrder(ev.orderId, "cancelamento solicitado pelo cliente");
+      return await cancelIfoodOrder(ev.orderId, "cancelamento solicitado pelo cliente");
     default:
       return false;
   }
@@ -82,7 +82,7 @@ async function handleConfirmed(ev: IfoodEvent): Promise<"acked" | "failed"> {
   const existingLocal = await db.query.orders.findFirst({ where: eq(orders.externalRef, ev.orderId) });
   if (existingLocal) {
     const confirmed = await confirmIfPossible(ev.orderId);
-    mark(ev.id, confirmed ? "processed" : "failed");
+    await mark(ev.id, confirmed ? "processed" : "failed");
     return confirmed ? "acked" : "failed";
   }
 
@@ -97,7 +97,7 @@ async function handleConfirmed(ev: IfoodEvent): Promise<"acked" | "failed"> {
     // SKU(s) desconhecidos ou sem itens: não confirmar pedido que não vamos
     // cumprir. Avisa o iFood (pode estar no 8-min window) e ack.
     await requestCancellationIfPossible(ev.orderId);
-    mark(ev.id, "ignored");
+    await mark(ev.id, "ignored");
     console.warn(
       `[ifood] pedido ${ev.orderId} não ingerido (${result.reason}):`,
       JSON.stringify(result.details ?? {}),
@@ -109,7 +109,7 @@ async function handleConfirmed(ev: IfoodEvent): Promise<"acked" | "failed"> {
   // chamada falhar, fica com a comanda aberta e volta a tentar no próximo poll
   // (o existingLocal acima reconhece e re-confirma).
   const confirmed = await confirmIfPossible(ev.orderId);
-  mark(ev.id, confirmed ? "processed" : "failed");
+  await mark(ev.id, confirmed ? "processed" : "failed");
   return confirmed ? "acked" : "failed";
 }
 
@@ -137,9 +137,9 @@ async function requestCancellationIfPossible(orderId: string): Promise<void> {
   }
 }
 
-function mark(id: string, status: "processed" | "ignored" | "failed") {
-  db.update(ifoodEvents)
+async function mark(id: string, status: "processed" | "ignored" | "failed") {
+  await db
+    .update(ifoodEvents)
     .set({ status, processedAt: new Date().toISOString() })
-    .where(eq(ifoodEvents.id, id))
-    .run();
+    .where(eq(ifoodEvents.id, id));
 }

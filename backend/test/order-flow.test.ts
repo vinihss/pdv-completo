@@ -1,16 +1,13 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
-import { api, seedFixture, resetState, closeTestApp, cashier, manager, waiter, kitchen, FIXTURE } from "./helpers.js";
-import { rawSqlite } from "../src/infra/db/client.js";
+import { api, seedFixture, resetState, closeTestApp, cashier, manager, waiter, kitchen, FIXTURE, raw } from "./helpers.js";
 
 // Tipos de evento enfileirados (outbox) de um room. O filtro é por room, sem
-// `published`: o dispatcher marca `published = 1` ao despachar, o que é detalhe
+// `published`: o dispatcher marca `published = true` ao despachar, o que é detalhe
 // de entrega e não faz parte do contrato de emissão. Como `main()` não roda no
 // import (ver guard em src/http/server.ts), o outbox nos testes só cresce por
 // enqueueEvent — logo as linhas persistidas são exatamente as emitidas.
-function outboxTypes(room: string): string[] {
-  const rows = rawSqlite
-    .prepare(`SELECT event_type FROM outbox_event WHERE room = ? ORDER BY rowid`)
-    .all(room) as { event_type: string }[];
+async function outboxTypes(room: string): Promise<string[]> {
+  const rows = await raw.all(`SELECT event_type FROM outbox_event WHERE room = $1 ORDER BY seq`, [room]) as { event_type: string }[];
   return rows.map((r) => r.event_type);
 }
 
@@ -91,7 +88,7 @@ describe("realtime de comandas (1.2 / 1.8)", () => {
     const { orderId, itemId } = await openOrder();
     const del = await api("delete", `/orders/${orderId}/items/${itemId}`, { token: waiter });
     expect(del.status).toBe(204);
-    expect(outboxTypes("kitchen-display")).toContain("order.item.removed");
+    expect(await outboxTypes("kitchen-display")).toContain("order.item.removed");
   });
 
   it("registrar e confirmar pagamento emite order.payment_changed para kitchen-display", async () => {
@@ -101,15 +98,15 @@ describe("realtime de comandas (1.2 / 1.8)", () => {
       token: waiter,
       body: { payments: [{ method: "cash", amount: 19, received: 20, confirmed: true }] },
     });
-    expect(outboxTypes("kitchen-display")).toContain("order.payment_changed");
-    expect(outboxTypes("cash-drawer")).toContain("order.payment_changed");
+    expect(await outboxTypes("kitchen-display")).toContain("order.payment_changed");
+    expect(await outboxTypes("cash-drawer")).toContain("order.payment_changed");
   });
 
   it("fechar comanda emite order.closed para kitchen-display (1.2)", async () => {
     const { orderId, itemId } = await openOrder();
     const close = await closeOrder(orderId, itemId);
     expect(close.status).toBe(200);
-    expect(outboxTypes("kitchen-display")).toContain("order.closed");
+    expect(await outboxTypes("kitchen-display")).toContain("order.closed");
   });
 
   it("cancelar comanda emite order.cancelled para kitchen-display (1.2)", async () => {
@@ -119,6 +116,6 @@ describe("realtime de comandas (1.2 / 1.8)", () => {
       body: { correlationId: crypto.randomUUID(), reason: "teste" },
     });
     expect(cancel.status).toBe(200);
-    expect(outboxTypes("kitchen-display")).toContain("order.cancelled");
+    expect(await outboxTypes("kitchen-display")).toContain("order.cancelled");
   });
 });

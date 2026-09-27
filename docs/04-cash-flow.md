@@ -131,7 +131,7 @@ estorno com caixa fechado, o resumo por período (totais só de sessões
 fechadas + `openCount`/`openExpected` com sessão aberta no período), a
 observação de conferência (`closing_note`), o `tz` inválido → 400 e os limites
 de dia com offset (`day-bounds.ts`). Roda com `npm run test` no `backend/`
-(banco dedicado `data/test.db`, limpo no global setup).
+(Postgres dedicado `pdv_test` via `TEST_DATABASE_URL`, recriado no global setup).
 
 Frontend: `frontend/` roda vitest (jsdom + Testing Library) com
 `npm run test`. A lógica pura do relatório fica em

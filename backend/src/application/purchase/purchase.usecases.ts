@@ -11,7 +11,7 @@
 // batch_no/expiry_date são informativos (rastreio; a baixa é por produto, sem
 // FIFO — ver docs/08-estoque-profissional.md).
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, sql } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { suppliers, purchases, purchaseItems, products, users } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
@@ -48,19 +48,18 @@ export async function listSuppliersUsecase(input: { activeOnly?: boolean; limit:
     limit: input.limit,
     offset: input.offset,
   });
-  const totalRow = await db.select({ count: sql<number>`count(*)` }).from(suppliers).where(where as any);
+  const totalRow = await db.select({ count: count() }).from(suppliers).where(where as any);
   return { data: rows.map(serializeSupplier), total: totalRow[0]?.count ?? rows.length };
 }
 
 export async function createSupplierUsecase(input: { name: string; phone?: string | null; taxId?: string | null }, actorId: string) {
   if (!input.name.trim()) throw Errors.validationFailed({ field: "name" });
-  const created = db.transaction((tx) => {
-    const row = tx
+  const created = await db.transaction(async (tx) => {
+    const [row] = await tx
       .insert(suppliers)
       .values({ name: input.name.trim(), phone: input.phone?.trim() || null, taxId: input.taxId?.trim() || null })
-      .returning()
-      .get();
-    logAction(tx, actorId, "supplier_created", null, { supplierId: row.id, name: row.name });
+      .returning();
+    await logAction(tx, actorId, "supplier_created", null, { supplierId: row.id, name: row.name });
     return row;
   });
   return serializeSupplier(created);
@@ -75,8 +74,8 @@ export async function updateSupplierUsecase(
   if (!existing) throw Errors.notFound("Fornecedor");
   if (input.name !== undefined && !input.name.trim()) throw Errors.validationFailed({ field: "name" });
 
-  const updated = db.transaction((tx) => {
-    const row = tx
+  const updated = await db.transaction(async (tx) => {
+    const [row] = await tx
       .update(suppliers)
       .set({
         name: input.name?.trim() ?? existing.name,
@@ -86,9 +85,8 @@ export async function updateSupplierUsecase(
         updatedAt: sql`(current_timestamp)`,
       })
       .where(eq(suppliers.id, id))
-      .returning()
-      .get();
-    logAction(tx, actorId, "supplier_updated", null, { supplierId: row.id });
+      .returning();
+    await logAction(tx, actorId, "supplier_updated", null, { supplierId: row.id });
     return row;
   });
   return serializeSupplier(updated);
@@ -116,7 +114,7 @@ export async function createPurchaseUsecase(
 ) {
   if (!input.items.length) throw Errors.validationFailed({ field: "items", reason: "compra sem itens" });
 
-  const result = db.transaction((tx) => {
+  const result = await db.transaction(async (tx) => {
     // Valida produtos (existem, ativos e rastreiam estoque) AOf o documento,
     // para nunca gravar compra sem efeito no ledger.
     for (const line of input.items) {
@@ -124,7 +122,7 @@ export async function createPurchaseUsecase(
         throw Errors.validationFailed({ field: "quantity", reason: "quantidade deve ser maior que zero" });
       if (!Number.isFinite(line.unitCost) || line.unitCost < 0)
         throw Errors.validationFailed({ field: "unitCost", reason: "custo deve ser maior ou igual a zero" });
-      const product = tx.query.products.findFirst({ where: eq(products.id, line.productId) }).sync();
+      const product = await tx.query.products.findFirst({ where: eq(products.id, line.productId) });
       if (!product || !product.active) throw Errors.notFound("Produto");
       if (!product.trackStock) {
         throw Errors.validationFailed({
@@ -135,7 +133,7 @@ export async function createPurchaseUsecase(
     }
 
     const total = round2(input.items.reduce((sum, l) => sum + l.quantity * l.unitCost, 0));
-    const purchase = tx
+    const [purchase] = await tx
       .insert(purchases)
       .values({
         supplierId: input.supplierId ?? null,
@@ -145,13 +143,12 @@ export async function createPurchaseUsecase(
         total,
         createdBy: actorId,
       })
-      .returning()
-      .get();
+      .returning();
 
     const note = purchase.invoiceNumber ? `Entrada nota ${purchase.invoiceNumber}` : "Entrada de compra";
     const lines: (PurchaseLineInput & { id: string; lineTotal: number })[] = [];
     for (const line of input.items) {
-      const item = tx
+      const [item] = await tx
         .insert(purchaseItems)
         .values({
           purchaseId: purchase.id,
@@ -163,12 +160,11 @@ export async function createPurchaseUsecase(
           expiryDate: line.expiryDate || null,
           createdBy: actorId,
         })
-        .returning()
-        .get();
+        .returning();
 
       // Movimento no ledger na mesma transação do documento (rollback
       // conjunto). unit_cost = evento de valoração da média móvel.
-      applyStockMovementTx(tx, {
+      await applyStockMovementTx(tx, {
         productId: line.productId,
         type: "purchase",
         quantityDelta: line.quantity,
@@ -182,10 +178,10 @@ export async function createPurchaseUsecase(
 
     // Espelha o custo médio corrente em product.cost_price (display).
     for (const line of lines) {
-      const avg = computeMovingAverageTx(tx, line.productId);
-      tx.update(products).set({ costPrice: avg.avg }).where(eq(products.id, line.productId)).run();
+      const avg = await computeMovingAverageTx(tx, line.productId);
+      await tx.update(products).set({ costPrice: avg.avg }).where(eq(products.id, line.productId));
       if (avg.avg > 0) {
-        enqueueEvent(tx, INVENTORY_ROOM, "purchase.received", {
+        await enqueueEvent(tx, INVENTORY_ROOM, "purchase.received", {
           purchaseId: purchase.id,
           productId: line.productId,
           quantity: line.quantity,
@@ -195,7 +191,7 @@ export async function createPurchaseUsecase(
       }
     }
 
-    logAction(tx, actorId, "purchase_received", null, {
+    await logAction(tx, actorId, "purchase_received", null, {
       purchaseId: purchase.id,
       supplierId: input.supplierId ?? null,
       invoiceNumber: purchase.invoiceNumber,
@@ -221,7 +217,7 @@ export async function listPurchasesUsecase(input: { limit: number; offset: numbe
       total: purchases.total,
       createdByName: users.name,
       createdAt: purchases.createdAt,
-      itemCount: sql<number>`count(${purchaseItems.id})`,
+      itemCount: sql<number>`count(${purchaseItems.id})::int`,
     })
     .from(purchases)
     .leftJoin(suppliers, eq(suppliers.id, purchases.supplierId))
@@ -232,12 +228,12 @@ export async function listPurchasesUsecase(input: { limit: number; offset: numbe
     .limit(input.limit)
     .offset(input.offset);
 
-  const totalRow = await db.select({ count: sql<number>`count(*)` }).from(purchases);
+  const totalRow = await db.select({ count: count() }).from(purchases);
   return { data: rows, total: totalRow[0]?.count ?? rows.length };
 }
 
 export async function getPurchaseUsecase(id: string) {
-  const purchase = await db
+  const [purchase] = await db
     .select({
       id: purchases.id,
       invoiceNumber: purchases.invoiceNumber,
@@ -252,8 +248,7 @@ export async function getPurchaseUsecase(id: string) {
     .from(purchases)
     .leftJoin(suppliers, eq(suppliers.id, purchases.supplierId))
     .leftJoin(users, eq(users.id, purchases.createdBy))
-    .where(eq(purchases.id, id))
-    .get();
+    .where(eq(purchases.id, id));
   if (!purchase) throw Errors.notFound("Compra");
 
   const items = await db
@@ -270,7 +265,9 @@ export async function getPurchaseUsecase(id: string) {
     .from(purchaseItems)
     .leftJoin(products, eq(products.id, purchaseItems.productId))
     .where(eq(purchaseItems.purchaseId, id))
-    .orderBy(products.name);
+    // Nome do produto e, no empate (mesmo produto em duas linhas), a ordem de
+    // inserção — é como o gerente digitou o documento.
+    .orderBy(products.name, purchaseItems.seq);
 
   // Média móvel por produto envolvido (para a UI mostrar o custo atual)
   const productIds = [...new Set(items.map((i) => i.productId))];
@@ -294,7 +291,7 @@ export async function inventoryValuationUsecase(input: { search?: string; lowOnl
     offset: input.offset,
     orderBy: (p, { asc }) => asc(p.name),
   });
-  const totalRow = await db.select({ count: sql<number>`count(*)` }).from(products).where(where as any);
+  const totalRow = await db.select({ count: count() }).from(products).where(where as any);
 
   const categoryNames = await db.query.categories.findMany({ columns: { id: true, name: true } });
   const catMap = new Map(categoryNames.map((c) => [c.id, c.name]));

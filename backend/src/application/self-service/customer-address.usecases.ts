@@ -91,14 +91,14 @@ export async function addCustomerAddressUsecase(input: {
   // Primeiro endereço do cliente vira padrão automaticamente, mesmo sem pedir.
   const isDefault = input.isDefault ?? existing.length === 0;
 
-  const created = db.transaction((tx) => {
+  const created = await db.transaction(async (tx) => {
     if (isDefault) {
-      tx.update(customerAddresses)
+      await tx
+        .update(customerAddresses)
         .set({ isDefault: false })
-        .where(eq(customerAddresses.customerId, input.customerId))
-        .run();
+        .where(eq(customerAddresses.customerId, input.customerId));
     }
-    return tx
+    const [row] = await tx
       .insert(customerAddresses)
       .values({
         customerId: input.customerId,
@@ -111,8 +111,8 @@ export async function addCustomerAddressUsecase(input: {
         reference: input.reference ?? null,
         isDefault,
       })
-      .returning()
-      .get();
+      .returning();
+    return row;
   });
 
   return serializeAddress(created);

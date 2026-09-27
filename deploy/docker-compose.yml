@@ -2,8 +2,11 @@
 # Deploy completo: Caddy (HTTPS) + backend + frontend
 # Uso: cd deploy && cp .env.example .env && ajuste os valores && docker compose up -d
 #
-# Modo local (SQLite): DEPLOYMENT_MODE=local, DATABASE_URL=sqlite:/app/data/data.db
-# Modo cloud (Postgres): DEPLOYMENT_MODE=cloud, DATABASE_URL=postgres://...
+# PostgreSQL é o ÚNICO banco suportado (o SQLite foi removido). O serviço
+# `postgres` abaixo sobe junto por padrão e o backend espera o healthcheck.
+# Para usar um Postgres gerenciado (RDS, Neon, etc.), aponte DATABASE_URL para
+# o endpoint externo e suba o backend sem a dependência do serviço local:
+#   docker compose up -d --no-deps backend frontend caddy
 # ============================================================
 services:
   caddy:
@@ -29,15 +32,18 @@ services:
     restart: unless-stopped
     environment:
       - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-local}
-      - DATABASE_URL=${DATABASE_URL:-sqlite:/app/data/data.db}
+      - DATABASE_URL=${DATABASE_URL:-postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}}
+      - DATABASE_POOL_MAX=${DATABASE_POOL_MAX:-10}
       - UPLOADS_DIR=/app/uploads
       - JWT_SECRET=${JWT_SECRET}
       - CORS_ORIGIN=https://${DOMAIN}
       - PORT=3000
       - LOG_LEVEL=info
     volumes:
-      - backend_data:/app/data
       - backend_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
     # Não expõe porta pro host — só o Caddy fala com ele, via rede interna do compose
 
   frontend:
@@ -45,13 +51,12 @@ services:
     restart: unless-stopped
     # idem — só o Caddy acessa
 
-  # Serviço Postgres — só usado quando DEPLOYMENT_MODE=cloud
-  # Para usar: docker compose --profile cloud up -d
+  # Banco oficial. Sem profile: sobe sempre, e o backend espera o healthcheck.
+  # (Postgres externo? ajuste DATABASE_URL no .env e use --no-deps, senão o
+  # depends_on do backend sobe este Postgres mesmo sem uso.)
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
-    profiles:
-      - cloud
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-pdv}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-pdv_password}
@@ -68,8 +73,6 @@ services:
 volumes:
   # Nomes explícitos (sem prefixo do projeto) para que o backup.sh e os
   # comandos de operação não dependam do nome da pasta do compose.
-  backend_data:
-    name: pdv_backend_data # onde o data.db mora — NUNCA apague sem backup (ver deploy/backup.sh)
   backend_uploads:
     name: pdv_backend_uploads # fotos de produto — incluir no backup junto com o banco
   caddy_data:

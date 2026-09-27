@@ -7,7 +7,7 @@ import {
 } from "../../integrations/ifood/state.js";
 import { db } from "../../infra/db/client.js";
 import { ifoodEvents, orders } from "../../infra/db/schema.js";
-import { eq, sql } from "drizzle-orm";
+import { count, eq, sql } from "drizzle-orm";
 import { syncCatalogUsecase } from "../../integrations/ifood/catalog-sync.js";
 
 // Painel do gerente: estado da integração iFood (conexão, worker, eventos).
@@ -20,13 +20,13 @@ export async function ifoodRoutes(app: FastifyInstance) {
     const merchantId = getIfoodState(ifoodStateKeys.merchantId);
     const eventCounts = (
       await db
-        .select({ status: ifoodEvents.status, count: sql<number>`count(*)` })
+        .select({ status: ifoodEvents.status, count: count() })
         .from(ifoodEvents)
         .groupBy(ifoodEvents.status)
     ).reduce((acc: Record<string, number>, r) => ({ ...acc, [r.status]: r.count }), {});
 
     const ifoodOrderCount = (
-      await db.select({ count: sql<number>`count(*)` }).from(orders).where(eq(orders.channel, "ifood"))
+      await db.select({ count: count() }).from(orders).where(eq(orders.channel, "ifood"))
     )[0]?.count;
 
     return {

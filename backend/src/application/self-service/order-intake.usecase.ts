@@ -147,18 +147,17 @@ export async function createSelfServiceOrderUsecase(input: {
   // desenho original do §04, que sugeria criar isso só quando os itens
   // ficassem "ready"; o endereço já está resolvido aqui, então não há motivo
   // pra adiar, e adiar exigiria guardar o endereço em algum lugar intermediário).
-  const delivery = db.transaction((tx) => {
-    const created = tx
+  const delivery = await db.transaction(async (tx) => {
+    const [created] = await tx
       .insert(deliveries)
       .values({ orderId: order.id, address: addressText, status: "awaiting_courier" })
-      .returning()
-      .get();
+      .returning();
 
-    enqueueEvent(tx, DELIVERY_ROOM, "delivery.created", { deliveryId: created.id, orderId: order.id });
+    await enqueueEvent(tx, DELIVERY_ROOM, "delivery.created", { deliveryId: created.id, orderId: order.id });
     // Stage inicial "received" — o WS público (retomada por ?order=<id>)
     // e o polling do cliente partem do estado canônico da máquina.
-    emitCustomerStageChangedTx(tx, order.id);
-    logAction(tx, SYSTEM_USER_ID, "delivery_created", order.id, { channel: input.channel, addressText });
+    await emitCustomerStageChangedTx(tx, order.id);
+    await logAction(tx, SYSTEM_USER_ID, "delivery_created", order.id, { channel: input.channel, addressText });
 
     return created;
   });

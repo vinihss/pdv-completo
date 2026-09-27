@@ -1,10 +1,19 @@
 import jwt from "jsonwebtoken";
 import type { FastifyInstance } from "fastify";
-import { rawSqlite } from "../src/infra/db/client.js";
+import { eq } from "drizzle-orm";
+import { db, pool } from "../src/infra/db/client.js";
 import { runMigrations } from "../src/infra/db/migrate.js";
 import { buildApp } from "../src/http/server.js";
 import { config } from "../src/config/env.js";
 import { resetCache } from "../src/infra/cache/index.js";
+import {
+  categories,
+  kitchenGroups,
+  products,
+  restaurantTables,
+  storeSettings,
+  users,
+} from "../src/infra/db/schema.js";
 
 let _app: FastifyInstance | undefined;
 
@@ -19,6 +28,26 @@ export async function closeTestApp() {
     _app = undefined;
   }
 }
+
+// Escape hatch de SQL para os testes: o app inteiro usa Drizzle, mas as
+// suítes às vezes precisam de UPDATE/SELECT cru (envelhecer um expires_at,
+// corromper um payload de outbox, contar linhas). É o sucessor do
+// `rawSqlite.prepare()` — mesmas três formas, agora via node-postgres.
+export const raw = {
+  /** SQL cru, múltiplos statements (o pool aceita lote simples). */
+  exec: async (text: string): Promise<void> => {
+    await pool.query(text);
+  },
+  /** Params posicionais `?` (o node-postgres usa $1, $2, ...). */
+  all: async (text: string, params: unknown[] = []): Promise<any[]> => {
+    const res = await pool.query(text, params as any[]);
+    return res.rows;
+  },
+  get: async (text: string, params: unknown[] = []): Promise<any> => {
+    const res = await pool.query(text, params as any[]);
+    return res.rows[0] ?? null;
+  },
+};
 
 export function tokenOf(userId: string, role: string) {
   return jwt.sign({ sub: userId, role }, config.jwtSecret);
@@ -39,50 +68,97 @@ export const FIXTURE = {
   kitchenGroup: "k-1",
 };
 
-export function seedFixture() {
+export async function seedFixture() {
   resetCache();
-  runMigrations();
-  // INSERT OR IGNORE: o banco persiste por toda a sessão de testes (só é
+  await runMigrations();
+
+  // onConflictDoNothing: o banco persiste por toda a sessão de testes (só é
   // recriado no global setup), então múltiplos arquivos chamam seedFixture.
-  rawSqlite.exec(`
-    INSERT OR IGNORE INTO store_settings (id, merchant_name, merchant_city, enabled_payment_methods, uses_delivery)
-      VALUES ('singleton', 'Teste Café', 'Sao Paulo', '["cash","card","pix","other"]', 0);
-    INSERT OR IGNORE INTO "user" (id, name, role, pin_hash) VALUES
-      ('${FIXTURE.waiter}',  'Garçom Teste',  'waiter',  'x'),
-      ('${FIXTURE.manager}', 'Gerente Teste', 'manager', 'x'),
-      ('${FIXTURE.cashier}', 'Caixa Teste',   'cashier', 'x'),
-      ('${FIXTURE.kitchen}', 'Cozinha Teste', 'kitchen', 'x');
-    INSERT OR IGNORE INTO category (id, name) VALUES ('${FIXTURE.category}', 'Bebidas');
-    INSERT OR IGNORE INTO kitchen_group (id, name) VALUES ('${FIXTURE.kitchenGroup}', 'Bar');
-    INSERT OR IGNORE INTO product (id, name, price, category_id, kitchen_group_id)
-      VALUES ('${FIXTURE.product}', 'Chopp 300ml', 9.5, '${FIXTURE.category}', '${FIXTURE.kitchenGroup}');
-    INSERT OR IGNORE INTO restaurant_table (id, number) VALUES ('${FIXTURE.table}', '1');
-  `);
+  await db
+    .insert(storeSettings)
+    .values({
+      id: "singleton",
+      merchantName: "Teste Café",
+      merchantCity: "Sao Paulo",
+      enabledPaymentMethods: JSON.stringify(["cash", "card", "pix", "other"]),
+      usesDelivery: false,
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(users)
+    .values([
+      { id: FIXTURE.waiter, name: "Garçom Teste", role: "waiter", pinHash: "x" },
+      { id: FIXTURE.manager, name: "Gerente Teste", role: "manager", pinHash: "x" },
+      { id: FIXTURE.cashier, name: "Caixa Teste", role: "cashier", pinHash: "x" },
+      { id: FIXTURE.kitchen, name: "Cozinha Teste", role: "kitchen", pinHash: "x" },
+    ])
+    .onConflictDoNothing();
+
+  await db
+    .insert(categories)
+    .values({ id: FIXTURE.category, name: "Bebidas" })
+    .onConflictDoNothing();
+  await db
+    .insert(kitchenGroups)
+    .values({ id: FIXTURE.kitchenGroup, name: "Bar" })
+    .onConflictDoNothing();
+  await db
+    .insert(products)
+    .values({
+      id: FIXTURE.product,
+      name: "Chopp 300ml",
+      price: 9.5,
+      categoryId: FIXTURE.category,
+      kitchenGroupId: FIXTURE.kitchenGroup,
+    })
+    .onConflictDoNothing();
+  await db
+    .insert(restaurantTables)
+    .values({ id: FIXTURE.table, number: "1" })
+    .onConflictDoNothing();
 }
 
-// Zera o estado mutável entre testes, mantendo a fixture base. A ordem dos
-// DELETEs respeita as FKs (movimento/audit referenciam order e cash_drawer).
-export function resetState() {
+// Tudo que a suíte pode sujar, exceto a fixture base (usuário, config,
+// categoria, grupo de cozinha, produto, mesa) e o usuário `system` da
+// migration. TRUNCATE ... CASCADE resolve a ordem das FKs de uma vez —
+// inclusive as tabelas de infra que o SQLite listava à mão.
+const TRANSIENT_TABLES = [
+  "purchase_item",
+  "purchase",
+  "supplier",
+  "order_payment",
+  "order_item",
+  "cash_drawer_movement",
+  "stock_movement",
+  "audit_log",
+  "idempotency_key",
+  "outbox_event",
+  "cash_drawer",
+  "delivery",
+  "customer_cart",
+  "customer_address",
+  "whatsapp_conversation",
+  "geocoding_cache",
+  "ifood_event",
+  "ifood_state",
+  '"order"',
+  "customer",
+] as const;
+
+// Zera o estado mutável entre testes, mantendo a fixture base. Só o que a
+// suíte criou é derrubado: `store_settings`, os usuários, a categoria, o
+// grupo de cozinha, o produto e a mesa da fixture sobrevivem — inclusive os
+// toggles de rollout que um `beforeAll` liga (o estoque depende de
+// `inventory_enabled = true`, o self-service do modo com cozinha).
+export async function resetState() {
   resetCache();
-  rawSqlite.exec(`
-    DELETE FROM purchase_item;
-    DELETE FROM purchase;
-    DELETE FROM supplier;
-    DELETE FROM order_payment;
-    DELETE FROM order_item;
-    DELETE FROM cash_drawer_movement;
-    DELETE FROM stock_movement;
-    DELETE FROM audit_log;
-    DELETE FROM idempotency_key;
-    DELETE FROM outbox_event;
-    DELETE FROM cash_drawer;
-    DELETE FROM "order";
-    DELETE FROM customer_cart;
-    DELETE FROM customer_address;
-    DELETE FROM whatsapp_conversation;
-    DELETE FROM customer;
-    UPDATE restaurant_table SET status = 'free' WHERE id = '${FIXTURE.table}';
-  `);
+  await raw.exec(`TRUNCATE ${TRANSIENT_TABLES.join(", ")} CASCADE`);
+  // A mesa volta "free" (um teste anterior pode ter ocupado).
+  await db
+    .update(restaurantTables)
+    .set({ status: "free" })
+    .where(eq(restaurantTables.id, FIXTURE.table));
 }
 
 export type ApiResult = { status: number; json: any; body: string };

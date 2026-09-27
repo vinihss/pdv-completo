@@ -55,16 +55,15 @@ export async function dispatchDeliveryUsecase(input: { deliveryId: string; couri
   if (!canTransitionDelivery(delivery.status, "out_for_delivery"))
     throw Errors.invalidDeliveryTransition("Entrega não está aguardando entregador.");
 
-  const updated = db.transaction((tx) => {
-    const result = tx
+  const updated = await db.transaction(async (tx) => {
+    const [result] = await tx
       .update(deliveries)
       .set({ status: "out_for_delivery", dispatchedAt: new Date().toISOString() })
       .where(eq(deliveries.id, input.deliveryId))
-      .returning()
-      .get();
-    enqueueEvent(tx, DELIVERY_ROOM, "delivery.status_changed", serialize(result));
-    emitCustomerStageChangedTx(tx, result.orderId);
-    logAction(tx, input.courierId, "delivery_dispatched", result.orderId, {});
+      .returning();
+    await enqueueEvent(tx, DELIVERY_ROOM, "delivery.status_changed", serialize(result));
+    await emitCustomerStageChangedTx(tx, result.orderId);
+    await logAction(tx, input.courierId, "delivery_dispatched", result.orderId, {});
     return result;
   });
 
@@ -79,20 +78,19 @@ export async function deliverDeliveryUsecase(input: { deliveryId: string; courie
   if (!canTransitionDelivery(delivery.status, "delivered"))
     throw Errors.invalidDeliveryTransition("Entrega não está em trânsito.");
 
-  const updated = db.transaction((tx) => {
-    const result = tx
+  const updated = await db.transaction(async (tx) => {
+    const [result] = await tx
       .update(deliveries)
       .set({ status: "delivered", deliveredAt: new Date().toISOString() })
       .where(eq(deliveries.id, input.deliveryId))
-      .returning()
-      .get();
-    enqueueEvent(tx, DELIVERY_ROOM, "delivery.status_changed", serialize(result));
-    emitCustomerStageChangedTx(tx, result.orderId);
+      .returning();
+    await enqueueEvent(tx, DELIVERY_ROOM, "delivery.status_changed", serialize(result));
+    await emitCustomerStageChangedTx(tx, result.orderId);
     // Notificação WhatsApp de status: disparo real fica pra quando
     // whatsapp.notifier.ts existir (fora do escopo desta etapa) — aqui só
     // fica registrado no outbox como evento consumível por esse worker depois.
-    enqueueEvent(tx, `order:${result.orderId}`, "delivery.delivered", { orderId: result.orderId });
-    logAction(tx, input.courierId, "delivery_completed", result.orderId, {});
+    await enqueueEvent(tx, `order:${result.orderId}`, "delivery.delivered", { orderId: result.orderId });
+    await logAction(tx, input.courierId, "delivery_completed", result.orderId, {});
     return result;
   });
 
@@ -127,16 +125,15 @@ export async function failDeliveryUsecase(input: { deliveryId: string; courierId
   if (!canTransitionDelivery(delivery.status, "failed"))
     throw Errors.invalidDeliveryTransition("Entrega não está em trânsito.");
 
-  const updated = db.transaction((tx) => {
-    const result = tx
+  const updated = await db.transaction(async (tx) => {
+    const [result] = await tx
       .update(deliveries)
       .set({ status: "failed", notes: input.reason })
       .where(eq(deliveries.id, input.deliveryId))
-      .returning()
-      .get();
-    enqueueEvent(tx, DELIVERY_ROOM, "delivery.status_changed", serialize(result));
-    emitCustomerStageChangedTx(tx, result.orderId);
-    logAction(tx, input.courierId, "delivery_failed", result.orderId, { reason: input.reason });
+      .returning();
+    await enqueueEvent(tx, DELIVERY_ROOM, "delivery.status_changed", serialize(result));
+    await emitCustomerStageChangedTx(tx, result.orderId);
+    await logAction(tx, input.courierId, "delivery_failed", result.orderId, { reason: input.reason });
     return result;
   });
 
@@ -172,17 +169,16 @@ export async function assignCourierUsecase(input: { deliveryId: string; courierI
   const delivery = await db.query.deliveries.findFirst({ where: eq(deliveries.id, input.deliveryId) });
   if (!delivery) throw Errors.notFound("Entrega");
 
-  const updated = db.transaction((tx) => {
-    const result = tx
+  const updated = await db.transaction(async (tx) => {
+    const [result] = await tx
       .update(deliveries)
       .set({ courierId: input.courierId })
       .where(eq(deliveries.id, input.deliveryId))
-      .returning()
-      .get();
+      .returning();
     // Atribuir não muda o status — continua awaiting_courier até o entregador
     // confirmar saída via dispatch (§05 "Endpoints do manager").
-    enqueueEvent(tx, DELIVERY_ROOM, "delivery.assigned", serialize(result));
-    logAction(tx, input.managerId, "delivery_assigned", result.orderId, { courierId: input.courierId });
+    await enqueueEvent(tx, DELIVERY_ROOM, "delivery.assigned", serialize(result));
+    await logAction(tx, input.managerId, "delivery_assigned", result.orderId, { courierId: input.courierId });
     return result;
   });
 

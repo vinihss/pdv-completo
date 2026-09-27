@@ -8,7 +8,7 @@ das specs em `docs/`. Ver `docs/00-overview.md` pra contexto do produto.
 ## Estrutura
 
 ```
-backend/    API REST + WebSocket (Node.js + TypeScript + Fastify + Drizzle + SQLite)
+backend/    API REST + WebSocket (Node.js + TypeScript + Fastify + Drizzle + PostgreSQL)
 frontend/   App React (Vite) — login, garçom, cozinha, gerente — instalável como PWA
 deploy/     Deploy em nuvem: Dockerfiles, Caddy (HTTPS automático), docker-compose
 docs/       Specs originais (backend, frontend, critérios de aceite)
@@ -20,11 +20,14 @@ Requer Node.js 20+.
 
 ### 1. Backend
 
+Precisa de um PostgreSQL 16 acessível (em dev,
+`docker compose -f deploy/docker-compose.dev.yml up -d postgres`).
+
 ```bash
 cd backend
 npm install
-cp .env.example .env      # ajuste JWT_SECRET em produção
-npm run seed               # cria banco SQLite + dados de demonstração
+cp .env.example .env      # ajuste DATABASE_URL e JWT_SECRET
+npm run seed               # aplica migrations + dados de demonstração
 npm run dev                 # http://localhost:3000
 ```
 
@@ -96,23 +99,26 @@ Cozinha é condicional a `store_settings.kitchen_enabled`, igual descrito no
 overview — desligar em Configurações remove a etapa "pronto" do fluxo em
 tempo real, sem precisar de outro build.
 
-## Nota técnica: SQLite é síncrono
+## Nota técnica: transações são assíncronas
 
-O driver `better-sqlite3` não aceita callbacks assíncronos dentro de
-`db.transaction(...)`. Todo o código dentro de transações usa os métodos
-síncronos do Drizzle (`.run()`, `.get()`, `.all()`, `.sync()`) em vez de
-`await`. Está documentado em `backend/src/application/order/order.usecases.ts`.
-Se o modo `cloud` (Postgres) for implementado no futuro, esse trecho
-precisará voltar a ser assíncrono — o "mesmo código para os dois drivers"
-mencionado no overview não se sustenta 100% nesse ponto específico.
+O Postgres é o único banco suportado (o SQLite foi removido). O driver
+`node-postgres` é I/O, então todo acesso dentro de
+`db.transaction(async (tx) => ...)` é `await tx...`: os terminais síncronos
+(`.run()`, `.get()`, `.all()`, `.sync()`) não existem mais. Query de uma linha
+precisa de destructuring (`const [row] = await tx.insert(...).returning()`) e
+agregação de `const rows = await ...` usa `rows[0]`. Está documentado em
+`backend/src/application/order/order.usecases.ts`.
+
+O schema é uma migration só (`backend/migrations/0001_init.sql`), aplicada
+pelo runner com advisory lock — rodando em todo boot em modo local e via
+`npm run db:migrate` em produção.
 
 ## O que ainda não existe (deixado como está na spec)
 
-- Modo `cloud` (Postgres) — só `local` (SQLite) está implementado e testado.
 - Buffer de eventos perdidos no reconnect do WebSocket (`sync.request` responde
   vazio) — o client recarrega via REST ao reconectar, o que cobre o caso na
   prática mas não é o mecanismo de sync completo descrito na §8.
 - Geração de QR Pix (BR Code) — o campo existe em store-settings mas não há
   endpoint de geração de QR.
-- `SYNC_ENABLED` (backup do SQLite em modo local) é só uma flag no `.env`, sem
-  implementação — mesma lacuna já sinalizada em `00-overview.md`.
+- Backup automático: `deploy/backup.sh` faz `pg_dump` sob demanda, mas o agendamento
+  (cron) e o envio das cópias pra fora do servidor são do operador.

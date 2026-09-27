@@ -7,15 +7,15 @@
 import argon2 from "argon2";
 import { eq } from "drizzle-orm";
 import { runMigrations } from "./migrate.js";
-import { db } from "./client.js";
+import { closeDatabase, db } from "./client.js";
 import { users, categories, products, restaurantTables, storeSettings, kitchenGroups, stockMovements } from "./schema.js";
 
 // Usuários demo são reconciliados em TODA execução do seed (não só no primeiro
 // populate): cada um é inserido apenas se ainda não existir pelo nome. Isso faz
 // o `./docker-up.sh` criar usuários de teste novos (ex.: Caixa, Entregador)
-// mesmo quando o volume já tem um data.db seedado por uma versão antiga do seed
-// — antes, a guarda de store_settings pulava o seed inteiro e os usuários novos
-// nunca apareciam.
+// mesmo quando o banco já foi seedado por uma versão antiga do seed — antes, a
+// guarda de store_settings pulava o seed inteiro e os usuários novos nunca
+// apareciam.
 const DEMO_USERS = [
   { name: "Ana Ribeiro", role: "waiter" as const, pin: "1234" },
   { name: "Carlos Lima", role: "waiter" as const, pin: "5678" },
@@ -36,7 +36,8 @@ async function reconcileDemoUsers() {
 }
 
 async function seed() {
-  runMigrations();
+  // migrations são async no Postgres: sem await o seed competiria com o DDL.
+  await runMigrations();
 
   const existing = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
   if (existing) {
@@ -137,9 +138,13 @@ async function seed() {
 }
 
 seed()
-  .then(() => process.exit(0))
-  .catch((err) => {
+  .then(async () => {
+    await closeDatabase();
+    process.exit(0);
+  })
+  .catch(async (err) => {
     console.error(err);
+    await closeDatabase();
     process.exit(1);
   });
 
