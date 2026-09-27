@@ -1,12 +1,8 @@
 # ============================================================
-# Backend PDV — imagem de produção
+# Backend PDV — imagem de produção (PostgreSQL)
 # ============================================================
 FROM node:22-slim AS build
 WORKDIR /app
-
-# node-gyp (usado pelo better-sqlite3) precisa de python3 + build tools
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
-    && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 RUN npm ci
@@ -18,18 +14,16 @@ FROM node:22-slim
 WORKDIR /app
 ENV NODE_ENV=production
 
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY package*.json ./
-RUN npm ci --omit=dev && apt-get purge -y python3 make g++ && apt-get autoremove -y
+RUN npm ci --omit=dev
 
 COPY --from=build /app/dist ./dist
 COPY migrations ./migrations
 COPY seed-data ./seed-data
 
-# Volume onde o SQLite persiste — monte um volume nomeado ou bind mount aqui
-VOLUME ["/app/data"]
+# O banco é o Postgres (variável DATABASE_URL) — não há volume de dados local.
+# Só os uploads de produto são persistidos aqui.
+VOLUME ["/app/uploads"]
 
 EXPOSE 3000
 CMD ["node", "dist/http/server.js"]

@@ -32,8 +32,8 @@ export async function getAccessToken(): Promise<string> {
     );
   }
 
-  const cached = getIfoodState(ifoodStateKeys.accessToken);
-  const expiresAt = Number(getIfoodState(ifoodStateKeys.tokenExpiresAt) ?? 0);
+  const cached = await getIfoodState(ifoodStateKeys.accessToken);
+  const expiresAt = Number((await getIfoodState(ifoodStateKeys.tokenExpiresAt)) ?? 0);
   if (cached && expiresAt > Date.now() + 60_000) return cached;
 
   if ((!ifoodConfig.clientId || !ifoodConfig.clientSecret) && !isIfoodMock()) {

@@ -38,15 +38,15 @@ export async function ingestIfoodOrder(order: IfoodOrder): Promise<{
   }
 
   // 1. Resolve/cria cliente por telefone (mesma chave do self-service).
-  let customer = null;
+  let customer: typeof customers.$inferSelect | null = null;
   const phone = digits(order.customer?.phone);
-  if (phone) customer = await db.query.customers.findFirst({ where: eq(customers.phone, phone) });
+  if (phone) customer = (await db.query.customers.findFirst({ where: eq(customers.phone, phone) })) ?? null;
   if (!customer) {
     const [created] = await db
       .insert(customers)
       .values({ name: order.customer?.name?.trim() || "Cliente iFood", phone: phone || null })
       .returning();
-    customer = created;
+    customer = created ?? null;
   }
 
   // 2. Casa produtos locais com os itens do pedido (externalCode/ifood_sku).
@@ -87,7 +87,7 @@ export async function ingestIfoodOrder(order: IfoodOrder): Promise<{
 
   // Persiste os métodos de pagamento do iFood (usados no CONCLUDED, Etapa C).
   if (order.payments && order.payments.length > 0) {
-    db.update(orders).set({ ifoodPayments: JSON.stringify(order.payments) }).where(eq(orders.id, orderLocal.id)).run();
+    await db.update(orders).set({ ifoodPayments: JSON.stringify(order.payments) }).where(eq(orders.id, orderLocal.id));
   }
 
   // 5. Broadcast + (se for entrega pelo restaurante) registro local de delivery.
@@ -95,20 +95,20 @@ export async function ingestIfoodOrder(order: IfoodOrder): Promise<{
   const total = itemsTotal + deliveryFee;
   const deliveredBy = order.delivery?.deliveredBy ?? "IFOOD";
 
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
     if (deliveredBy === "MERCHANT") {
       const address = formatIfoodAddress(order.delivery?.deliveryAddress);
-      tx.insert(deliveries).values({ orderId: orderLocal.id, address, status: "awaiting_courier" }).run();
-      enqueueEvent(tx, DELIVERY_ROOM, "delivery.created", { orderId: orderLocal.id, channel: "ifood" });
+      await tx.insert(deliveries).values({ orderId: orderLocal.id, address, status: "awaiting_courier" });
+      await enqueueEvent(tx, DELIVERY_ROOM, "delivery.created", { orderId: orderLocal.id, channel: "ifood" });
     }
-    enqueueEvent(tx, DELIVERY_ROOM, "ifood.order.created", {
+    await enqueueEvent(tx, DELIVERY_ROOM, "ifood.order.created", {
       orderId: orderLocal.id,
       externalRef: order.id,
       displayId: order.displayId ?? order.id,
       itemCount: items.reduce((s: number, i: any) => s + i.quantity, 0),
       total,
     });
-    logAction(tx, SYSTEM_USER_ID, "ifood_order_ingested", orderLocal.id, {
+    await logAction(tx, SYSTEM_USER_ID, "ifood_order_ingested", orderLocal.id, {
       externalRef: order.id,
       displayId: order.displayId ?? null,
       deliveredBy,

@@ -11,7 +11,7 @@
 import argon2 from "argon2";
 import { eq } from "drizzle-orm";
 import { runMigrations } from "./migrate.js";
-import { db } from "./client.js";
+import { closeDatabase, db } from "./client.js";
 import { users, storeSettings } from "./schema.js";
 
 function randomPin(): string {
@@ -19,7 +19,8 @@ function randomPin(): string {
 }
 
 async function seedProd() {
-  runMigrations();
+  // migrations são async no Postgres: sem await o seed competiria com o DDL.
+  await runMigrations();
 
   const existing = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
   if (existing) {
@@ -57,8 +58,12 @@ async function seedProd() {
 }
 
 seedProd()
-  .then(() => process.exit(0))
-  .catch((err) => {
+  .then(async () => {
+    await closeDatabase();
+    process.exit(0);
+  })
+  .catch(async (err) => {
     console.error(err);
+    await closeDatabase();
     process.exit(1);
   });

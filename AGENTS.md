@@ -21,7 +21,7 @@ sem cozinha) — controlado pelos toggles `uses_tables` e `kitchen_enabled` em
 ### Estrutura
 
 ```
-backend/    API REST + WebSocket (Node.js + TypeScript + Fastify + Drizzle + SQLite)
+backend/    API REST + WebSocket (Node.js + TypeScript + Fastify + Drizzle + PostgreSQL)
 frontend/   App React (Vite) — login, garçom, cozinha, gerente — instalável como PWA
 deploy/     Deploy em nuvem: Dockerfiles, Caddy (HTTPS automático), docker-compose
 docs/       Specs originais (backend, frontend, critérios de aceite)
@@ -44,11 +44,14 @@ Requer Node.js 20+.
 
 ### Backend
 
+Precisa de um PostgreSQL 16 acessível (em dev, `docker compose -f
+deploy/docker-compose.dev.yml up -d postgres` ou qualquer Postgres local).
+
 ```bash
 cd backend
 npm install
-cp .env.example .env      # ajuste JWT_SECRET em produção
-npm run seed               # cria banco SQLite + dados de demonstração
+cp .env.example .env      # ajuste DATABASE_URL e JWT_SECRET
+npm run seed               # aplica migrations + dados de demonstração
 npm run dev                # http://localhost:3000
 ```
 
@@ -117,9 +120,9 @@ e `/realtime` pro backend).
 | `npm run start` | backend | roda `dist/http/server.js` |
 | `npm run seed` | backend | seed de dev (usuários/PINs fictícios) |
 | `npm run seed:prod` | backend | seed de primeiro deploy (sem dados fictícios) |
-| `npm run db:migrate` | backend | aplica `migrations/*.sql` manualmente (também roda no boot em modo local) |
+| `npm run db:migrate` | backend | aplica `migrations/*.sql` (também roda no boot em modo local) |
 | `npm run db:deactivate-demo` | backend | desativa o cardápio fictício do `seed` (use `-- --dry-run` para só listar) |
-| `npm run test` | backend | vitest (banco dedicado `data/test.db`; caixa, comandas, idempotência, maintenance, stock) |
+| `npm run test` | backend | vitest (Postgres dedicado `pdv_test` via `TEST_DATABASE_URL`; caixa, comandas, idempotência, maintenance, stock) |
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
 | `npm run test` | frontend | vitest (jsdom + Testing Library; 16 suítes: modal/header/variação, login por PIN, detalhe da comanda, modais de compra/equipe, caixa/reports, página pública) |
@@ -133,12 +136,23 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
 - **ESM + NodeNext**: imports com extensão `.js` (ex.: `from "../infra/db/client.js"`).
 - **Camadas**: `src/domain/` (erros), `src/application/` (use cases), `src/infra/`
   (db, realtime, audit), `src/http/` (rotas, middlewares), `src/config/` (env).
-- **Transações SQLite são síncronas**: o driver `better-sqlite3` não aceita
-  callbacks assíncronos dentro de `db.transaction(...)`. Todo o código dentro de
-  transações usa os métodos síncronos do Drizzle (`.run()`, `.get()`, `.all()`,
-  `.sync()`) em vez de `await`. Ver a documentação em
-  `src/application/order/order.usecases.ts:15-28`. Se o modo `cloud` (Postgres)
-  for implementado, esse trecho volta a ser assíncrono.
+- **PostgreSQL é o único banco** (o SQLite foi removido). `DATABASE_URL` é
+  obrigatório e precisa ser `postgres://`/`postgresql://`; o pool é o
+  `pg.Pool` (`DATABASE_POOL_MAX`, padrão 10).
+- **Transações são assíncronas**: o `node-postgres` é I/O, então todo acesso
+  dentro de `db.transaction` é `await tx...`. Os terminais síncronos do
+  `better-sqlite3` (`.run()`, `.get()`, `.all()`, `.sync()`) **não existem** —
+  query de 1 linha precisa de destructuring (`const [row] = await tx...returning()`)
+  e agregação de `const rows = await ...` precisa de `rows[0]`. Ver a nota em
+  `src/application/order/order.usecases.ts:15-28`.
+- **Sem `rowid`**: ordem de inserção de `stock_movement`, `outbox_event` e
+  `purchase_item` vem da sequência `seq BIGSERIAL` (a média móvel é um replay
+  do ledger, então a ordem precisa ser estável). Não trocar por `created_at`.
+- **Migrations**: uma só, `backend/migrations/0001_init.sql`, aplicada pelo
+  runner em `src/infra/db/migrate.ts` (advisory lock + tabela `_migrations`,
+  uma transação por arquivo). Roda no boot em modo local e via `npm run db:migrate`.
+- **Contagem**: `count()` do Drizzle (nunca `sql<number>\`count(*)\`` — no
+  Postgres o tipo dobigint sai como string). `sum(real)` devolve `number`.
 - **Audit log + eventos outbox na mesma transação** da escrita de domínio.
   Sempre que criar/alterar algo relevante, registrar `logAction` e/ou
   `enqueueEvent` no mesmo `db.transaction`.
@@ -165,7 +179,9 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
   `concurrency_conflict`.
 - **Migrations**: toda mudança de schema exige um novo arquivo `.sql` numerado
   (zero-padded, ordem lexicográfica) em `backend/migrations/`. Rodam no boot em
-  modo local e via `npm run db:migrate` em produção.
+  modo local e via `npm run db:migrate` em produção. Ao mudar o `0001_init.sql`
+  (schema ainda em construção), recrie o banco de teste — o runner não re-aplica
+  arquivo já registrado em `_migrations`.
 - **Cardápio Unami (seed, não migration)**: `backend/seed-data/menu-unami.sql`
   carrega o cardápio do restaurante Unami (11 categorias, 63 produtos) a partir
   de `full_atualizado.md`. É **dado, não schema** — só `INSERT` com ID
@@ -323,19 +339,20 @@ dentro da fase, a ordem indicada.
   `idempotency_key` com `expires_at` passado; job de 5min no `main()` do
   `server.ts`. Testado em `test/maintenance.test.ts`.
 - **2.6 ~~Remover artefato~~** — ✅ feito: `backend/data-docker-test/` removido
-  (banco SQLite de teste commitado). Tudo que é runtime/local está no
+  (Postgres de teste via `TEST_DATABASE_URL`, banco recriado no global setup).
+  Tudo que é runtime/local está no
   `.gitignore` da raiz (`*.db*`, `backend/data/`, `.env`).
 
 ### Fase 3 — Qualidade e refactor
 
-- **3.1 Testes**: ✅ backend coberto por vitest (banco `data/test.db` limpo no global setup; suítes `backend/test/cash-flow.test.ts` — fluxo de caixa: sessão única, sangria/suprimento/fechamento, idempotência, hard block de dinheiro sem caixa, estorno automático e resumo por período incluindo `openCount`/`openExpected` e `closing_note`/`tz`; `test/order-flow.test.ts` — validação de mesa (1.6) e eventos outbox de fechamento/cancelamento/pagamento/delete (1.2/1.8); `test/idempotency.test.ts` — retry de `failed`/expirado, 409 processing, cache de completed (1.4); `test/maintenance.test.ts` — outbox corrompido não derruba (1.5) e cleanup (2.5); `test/profiles.test.ts` — perfis caixa/entregador: filtro de login por `kitchen_enabled`/`uses_delivery`, acesso por papel (403 em gerência/comandas), cadastro de entregador pelo gerente com PIN e fluxo complete assign → dispatch → deliver fechando a comanda). ✅ frontend também: vitest + jsdom + Testing Library (rodar `npm run test` no `frontend/`), com a lógica pura de `reports/cashReportView.js`, regressão de render do `ReportsTab` com sessão de caixa aberta no período, as primitivas de overlay (`Modal`/`ScreenHeader`/`ConfirmModal`) e o **login por PIN** (teclado físico, input do celular, `Enter`/botão, sem auto-envio em 6 dígitos). Ainda falta: cobrir os fluxos críticos de UI (entrega, fechamento com item pendente).
+- **3.1 Testes**: ✅ backend coberto por vitest (Postgres dedicado `pdv_test` recriado no global setup; suítes `backend/test/cash-flow.test.ts` — fluxo de caixa: sessão única, sangria/suprimento/fechamento, idempotência, hard block de dinheiro sem caixa, estorno automático e resumo por período incluindo `openCount`/`openExpected` e `closing_note`/`tz`; `test/order-flow.test.ts` — validação de mesa (1.6) e eventos outbox de fechamento/cancelamento/pagamento/delete (1.2/1.8); `test/idempotency.test.ts` — retry de `failed`/expirado, 409 processing, cache de completed (1.4); `test/maintenance.test.ts` — outbox corrompido não derruba (1.5) e cleanup (2.5); `test/profiles.test.ts` — perfis caixa/entregador: filtro de login por `kitchen_enabled`/`uses_delivery`, acesso por papel (403 em gerência/comandas), cadastro de entregador pelo gerente com PIN e fluxo complete assign → dispatch → deliver fechando a comanda). ✅ frontend também: vitest + jsdom + Testing Library (rodar `npm run test` no `frontend/`), com a lógica pura de `reports/cashReportView.js`, regressão de render do `ReportsTab` com sessão de caixa aberta no período, as primitivas de overlay (`Modal`/`ScreenHeader`/`ConfirmModal`) e o **login por PIN** (teclado físico, input do celular, `Enter`/botão, sem auto-envio em 6 dígitos). Ainda falta: cobrir os fluxos críticos de UI (entrega, fechamento com item pendente).
 - **3.2 Lint/typecheck no backend** (hoje só `tsc` no build, sem lint).
 - **3.3 N+1 em `listOrdersUsecase`**: 4 queries por comanda
   (`order.usecases.ts:358`) — trocar por join em lote.
 - **3.4 Remover código/deps mortas**: `react-router-dom` (não usado);
   `order_item.status='cancelled'` sem código que o define;
-  `ordersRef` em `useOrders.js`; `SYNC_ENABLED`/`syncTargetUrl` lidas mas não
-  usadas (decisão consciente — ver Fase 4).
+  `ordersRef` em `useOrders.js` (~~`SYNC_ENABLED`/`syncTargetUrl`~~ removidas
+  junto com o SQLite — ver Fase 4).
 - **3.5 Debounce no filtro de cliente do relatório**
   (`frontend/src/screens/ManagerApp.jsx:538-554`).
 - **3.6 Divergências de spec na UI**: navegação pós-lote volta para a lista
@@ -344,11 +361,10 @@ dentro da fase, a ordem indicada.
 
 ### Fase 4 — Features pendentes da spec (fora do escopo atual)
 
-- **4.1 Modo `cloud` (Postgres)**: hoje só `local` (SQLite); o "mesmo código
-  para os dois drivers" não se sustenta dentro de transações síncronas —
-  planejar o retorno a async ao implementar.
-- **4.2 `SYNC_ENABLED`**: backup do SQLite em modo local (lacuna já sinalizada
-  na spec §15 e no `README.md`).
+- **4.1 Modo `cloud` (Postgres)**: o Postgres virou o único banco (o SQLite foi
+  removido) — resta só padronizar o deploy com Postgres gerenciado.
+- **4.2 Backup automático**: `deploy/backup.sh` faz `pg_dump` (é preciso agendar
+  o cron e copiar pra fora do servidor).
 - **4.3 Buffer de eventos no reconnect do WS**: `sync.request` responde vazio
   (`realtime.routes.ts:35-37`); client recarrega via REST, mas não é o sync
   completo da spec §8.

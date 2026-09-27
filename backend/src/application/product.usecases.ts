@@ -1,4 +1,4 @@
-import { and, eq, like, sql } from "drizzle-orm";
+import { and, count, eq, like, sql } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
 import { db } from "../infra/db/client.js";
@@ -91,7 +91,7 @@ export async function listProductsUsecase(input: {
     offset: input.offset,
     orderBy: (p, { asc }) => asc(p.name),
   });
-  const totalRow = await db.select({ count: sql<number>`count(*)` }).from(products).where(where as any);
+  const totalRow = await db.select({ count: count() }).from(products).where(where as any);
 
   const categoryNames = await db.query.categories.findMany({ columns: { id: true, name: true } });
   const groupNames = await db.query.kitchenGroups.findMany({ columns: { id: true, name: true } });
@@ -152,8 +152,8 @@ export async function createProductUsecase(
   await assertCategoryExists(input.categoryId);
   if (input.kitchenGroupId) await assertKitchenGroupExists(input.kitchenGroupId);
 
-  const created = db.transaction((tx) => {
-    const row = tx
+  const created = await db.transaction(async (tx) => {
+    const [row] = await tx
       .insert(products)
       .values({
         categoryId: input.categoryId,
@@ -171,15 +171,14 @@ export async function createProductUsecase(
         unit: input.unit?.trim() || "un",
         active: input.active ?? true,
       })
-      .returning()
-      .get();
+      .returning();
 
     // Estoque inicial informado no cadastro vira um ajuste no ledger (mesma
     // transação — regra: escrita de domínio + audit + outbox juntos). Com
     // unit_cost = cost_price manual, vira o primeiro evento de valoração da
     // média móvel quando as compras forem habilitadas.
     if (input.trackStock && input.initialStock !== undefined && input.initialStock !== 0) {
-      applyStockMovementTx(tx, {
+      await applyStockMovementTx(tx, {
         productId: row.id,
         type: "adjustment",
         quantityDelta: input.initialStock,
@@ -188,7 +187,7 @@ export async function createProductUsecase(
         createdBy: actorId,
       });
     }
-    logAction(tx, actorId, "product_created", null, { productId: row.id, name: row.name });
+    await logAction(tx, actorId, "product_created", null, { productId: row.id, name: row.name });
     return row;
   });
 
@@ -225,8 +224,8 @@ export async function updateProductUsecase(
   if (input.categoryId) await assertCategoryExists(input.categoryId);
   if (input.kitchenGroupId) await assertKitchenGroupExists(input.kitchenGroupId);
 
-  const updated = db.transaction((tx) => {
-    const row = tx
+  const updated = await db.transaction(async (tx) => {
+    const [row] = await tx
       .update(products)
       .set({
         ...(input.categoryId !== undefined ? { categoryId: input.categoryId as string | null } : {}),
@@ -246,9 +245,8 @@ export async function updateProductUsecase(
         updatedAt: new Date().toISOString(),
       })
       .where(eq(products.id, id))
-      .returning()
-      .get();
-    logAction(tx, actorId, "product_updated", null, { productId: id, name: row.name });
+      .returning();
+    await logAction(tx, actorId, "product_updated", null, { productId: id, name: row.name });
     return row;
   });
 
@@ -259,14 +257,13 @@ export async function updateProductUsecase(
 export async function setProductActiveUsecase(id: string, active: boolean, actorId: string) {
   const existing = await db.query.products.findFirst({ where: eq(products.id, id) });
   if (!existing) throw Errors.notFound("Produto");
-  const updated = db.transaction((tx) => {
-    const row = tx
+  const updated = await db.transaction(async (tx) => {
+    const [row] = await tx
       .update(products)
       .set({ active, updatedAt: new Date().toISOString() })
       .where(eq(products.id, id))
-      .returning()
-      .get();
-    logAction(tx, actorId, active ? "product_activated" : "product_deactivated", null, {
+      .returning();
+    await logAction(tx, actorId, active ? "product_activated" : "product_deactivated", null, {
       productId: id,
       name: row.name,
     });
@@ -280,7 +277,7 @@ export async function setProductActiveUsecase(id: string, active: boolean, actor
 
 function uploadsDir(): string {
   const dir = path.resolve(config.uploadsDir);
-  // Mesma convenção do client.ts (sqlite): garante que o diretório existe,
+  // Garante que o diretório existe,
   // mesmo quando o use case roda fora do boot do servidor (testes/cron).
   fs.mkdirSync(dir, { recursive: true });
   return dir;
@@ -323,14 +320,13 @@ export async function saveProductImageUsecase(
   const previous = oldFileFor(existing);
   if (previous && previous !== target) removeFile(previous);
 
-  const updated = db.transaction((tx) => {
-    const row = tx
+  const updated = await db.transaction(async (tx) => {
+    const [row] = await tx
       .update(products)
       .set({ imagePath: filename, updatedAt: new Date().toISOString() })
       .where(eq(products.id, id))
-      .returning()
-      .get();
-    logAction(tx, actorId, "product_image_changed", null, { productId: id });
+      .returning();
+    await logAction(tx, actorId, "product_image_changed", null, { productId: id });
     return row;
   });
   cache.invalidatePattern("products:*");
@@ -341,14 +337,13 @@ export async function clearProductImageUsecase(id: string, actorId: string) {
   const existing = await db.query.products.findFirst({ where: eq(products.id, id) });
   if (!existing) throw Errors.notFound("Produto");
   removeFile(oldFileFor(existing));
-  const updated = db.transaction((tx) => {
-    const row = tx
+  const updated = await db.transaction(async (tx) => {
+    const [row] = await tx
       .update(products)
       .set({ imagePath: null, updatedAt: new Date().toISOString() })
       .where(eq(products.id, id))
-      .returning()
-      .get();
-    logAction(tx, actorId, "product_image_removed", null, { productId: id });
+      .returning();
+    await logAction(tx, actorId, "product_image_removed", null, { productId: id });
     cache.invalidatePattern("products:*");
     return row;
   });

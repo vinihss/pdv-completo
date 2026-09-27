@@ -34,7 +34,7 @@ Permitir que o cliente final peça sozinho, pelo WhatsApp ou por uma página web
 - **Pedidos self-service não têm garçom responsável.** `orders.waiter_id` e `audit_log.user_id` são `NOT NULL` — em vez de afrouxar essa constraint (usada em relatórios e auditoria hoje), um usuário técnico fixo (`role: "system"`, `active: false`, nunca autentica) é referenciado como ator nos pedidos e entradas de auditoria geradas automaticamente pelo bot ou pela página.
 - **Entregador reaproveita o sistema de usuários** — adiciona-se `courier` ao enum `users.role` (hoje `waiter | kitchen | manager`), herdando autenticação de graça.
 - **Endereço e taxa são snapshots**, não referências vivas — mesmo princípio já usado em `order_item.unit_price`: editar o cadastro de endereço ou a configuração de taxa depois não pode alterar pedidos já feitos.
-- **Limites de endereço são regra de aplicação, não constraint de banco.** "Máximo 3 por cliente" e "só 1 principal por vez" não são expressáveis como constraint simples em SQLite/Postgres — ficam na camada de usecase, dentro de transação.
+- **Limites de endereço são regra de aplicação, não constraint de banco.** "Máximo 3 por cliente" e "só 1 principal por vez" não são expressáveis como constraint simples em Postgres — ficam na camada de usecase, dentro de transação.
 - **Tempo real reaproveita o outbox pattern existente** — toda mudança de status de entrega passa pelo mesmo `outbox_event` → WebSocket já usado para comandas, incluindo o acompanhamento ao vivo na página externa.
 
 ## Endereços do cliente
@@ -269,7 +269,7 @@ customer_cart
 ```
 
 `"cancelled"` em `delivery.status` entrou em migration à parte
-(`0018_delivery_cancelled.sql` — recria a tabela, porque o SQLite não altera
+(`0018_delivery_cancelled.sql` — recria a tabela, porque migração não altera
 enum), junto do `customer_cart` (`0019_customer_cart.sql`).
 
 ## Superfícies de UI

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { idempotencyKeys } from "../../infra/db/schema.js";
+import { isUniqueViolation } from "../../infra/db/errors.js";
 import { AppError } from "../../domain/errors.js";
 
 function hashBody(body: unknown): string {
@@ -63,7 +64,8 @@ export async function withIdempotency<T>(
       expiresAt: new Date(Date.now() + TTL_MS).toISOString(),
     });
   } catch (err) {
-    if ((err as { code?: string })?.code === "SQLITE_CONSTRAINT_PRIMARYKEY") {
+    // 23505 = unique_violation do Postgres (PK/coluna única já existente).
+    if (isUniqueViolation(err)) {
       // 1.4 — corrida check-then-insert: a outra requisição idêntica venceu.
       const row = await db.query.idempotencyKeys.findFirst({
         where: eq(idempotencyKeys.correlationId, correlationId),

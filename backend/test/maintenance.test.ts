@@ -1,25 +1,21 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { seedFixture, resetState, closeTestApp } from "./helpers.js";
-import { rawSqlite } from "../src/infra/db/client.js";
+import { seedFixture, resetState, closeTestApp, raw } from "./helpers.js";
 import { pollOutboxOnce } from "../src/infra/realtime/outbox-dispatcher.js";
 import { runMaintenanceOnce } from "../src/infra/maintenance.js";
 
-function insertEvent(id: string, eventType: string, payload: string, createdAt: string, published: number) {
-  rawSqlite
-    .prepare(
-      `INSERT INTO outbox_event (id, event_type, payload, room, published, created_at)
-       VALUES (?, ?, ?, 'kitchen-display', ?, ?)`
-    )
-    .run(id, eventType, payload, published, createdAt);
+// `published` é BOOLEAN no Postgres (o SQLite guardava 0/1).
+async function insertEvent(id: string, eventType: string, payload: string, createdAt: string, published: boolean) {
+  await raw.all(`INSERT INTO outbox_event (id, event_type, payload, room, published, created_at)
+     VALUES ($1, $2, $3, 'kitchen-display', $4, $5)`,
+    [id, eventType, payload, published, createdAt],
+  );
 }
 
-function insertKey(correlationId: string, expiresAt: string) {
-  rawSqlite
-    .prepare(
-      `INSERT INTO idempotency_key (correlation_id, endpoint, request_hash, status, expires_at)
-       VALUES (?, 'TEST/maint', 'hash', 'completed', ?)`
-    )
-    .run(correlationId, expiresAt);
+async function insertKey(correlationId: string, expiresAt: string) {
+  await raw.all(`INSERT INTO idempotency_key (correlation_id, endpoint, request_hash, status, expires_at)
+     VALUES ($1, 'TEST/maint', 'hash', 'completed', $2)`,
+    [correlationId, expiresAt],
+  );
 }
 
 describe("dispatcher de outbox (1.5)", () => {
@@ -28,20 +24,17 @@ describe("dispatcher de outbox (1.5)", () => {
   beforeEach(() => resetState());
 
   it("payload corrompido não derruba o processo e é descartado", async () => {
-    insertEvent("e-corrupt", "order.closed", "{corrompido", new Date().toISOString(), 0);
-    insertEvent("e-good", "order.closed", '{"orderId":"x"}', new Date().toISOString(), 0);
+    await insertEvent("e-corrupt", "order.closed", "{corrompido", new Date().toISOString(), false);
+    await insertEvent("e-good", "order.closed", '{"orderId":"x"}', new Date().toISOString(), false);
 
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await pollOutboxOnce(); // não deve lançar
     warn.mockRestore();
 
-    const rows = rawSqlite.prepare(`SELECT id, published FROM outbox_event ORDER BY id`).all() as {
-      id: string;
-      published: number;
-    }[];
+    const rows = await raw.all(`SELECT id, published FROM outbox_event ORDER BY seq`);
     expect(rows).toEqual([
-      { id: "e-corrupt", published: 1 },
-      { id: "e-good", published: 1 },
+      { id: "e-corrupt", published: true },
+      { id: "e-good", published: true },
     ]);
   });
 });
@@ -55,20 +48,20 @@ describe("job de limpeza (2.5)", () => {
     const oldIso = "2000-01-01T00:00:00.000Z";
     const nowIso = new Date().toISOString();
 
-    insertEvent("e-old", "order.closed", "{}", oldIso, 1);
-    insertEvent("e-recent", "order.closed", "{}", nowIso, 1);
-    insertEvent("e-pending", "order.closed", "{}", nowIso, 0);
+    await insertEvent("e-old", "order.closed", "{}", oldIso, true);
+    await insertEvent("e-recent", "order.closed", "{}", nowIso, true);
+    await insertEvent("e-pending", "order.closed", "{}", nowIso, false);
 
-    insertKey("k-expired", oldIso);
-    insertKey("k-future", new Date(Date.now() + 60_000).toISOString());
+    await insertKey("k-expired", oldIso);
+    await insertKey("k-future", new Date(Date.now() + 60_000).toISOString());
 
     const res = await runMaintenanceOnce();
     expect(res.outbox).toBe(1); // só o e-old
     expect(res.idempotencyKeys).toBe(1); // só o k-expired
 
-    const events = rawSqlite.prepare(`SELECT id FROM outbox_event`).all() as { id: string }[];
+    const events = await raw.all(`SELECT id FROM outbox_event`) as { id: string }[];
     expect(events.map((r) => r.id).sort()).toEqual(["e-pending", "e-recent"]);
-    const keys = rawSqlite.prepare(`SELECT correlation_id FROM idempotency_key`).all() as { correlation_id: string }[];
+    const keys = await raw.all(`SELECT correlation_id FROM idempotency_key`) as { correlation_id: string }[];
     expect(keys.map((r) => r.correlation_id)).toEqual(["k-future"]);
   });
 });

@@ -16,17 +16,18 @@ const OUTBOX_RETENTION_MS = 60 * 60_000; // publicados ficam 1h pra auditoria/de
  */
 export async function runMaintenanceOnce() {
   const outboxCutoff = new Date(Date.now() - OUTBOX_RETENTION_MS).toISOString();
+  // node-postgres devolve { rowCount } no lugar do { changes } do better-sqlite3
+  // (que era `changes`, não `rowCount`, por isso a troca explícita aqui).
   const purgeOutbox = await db
     .delete(outboxEvents)
-    .where(and(eq(outboxEvents.published, true), lt(outboxEvents.createdAt, outboxCutoff)))
-    .run();
+    .where(and(eq(outboxEvents.published, true), lt(outboxEvents.createdAt, outboxCutoff)));
 
   const nowIso = new Date().toISOString();
-  const purgeKeys = await db.delete(idempotencyKeys).where(lt(idempotencyKeys.expiresAt, nowIso)).run();
+  const purgeKeys = await db.delete(idempotencyKeys).where(lt(idempotencyKeys.expiresAt, nowIso));
 
-  const purgeCarts = await db.delete(customerCarts).where(lt(customerCarts.expiresAt, nowIso)).run();
+  const purgeCarts = await db.delete(customerCarts).where(lt(customerCarts.expiresAt, nowIso));
 
-  return { outbox: purgeOutbox.changes, idempotencyKeys: purgeKeys.changes, customerCarts: purgeCarts.changes };
+  return { outbox: purgeOutbox.rowCount ?? 0, idempotencyKeys: purgeKeys.rowCount ?? 0, customerCarts: purgeCarts.rowCount ?? 0 };
 }
 
 export function startMaintenanceJobs() {

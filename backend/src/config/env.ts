@@ -1,11 +1,5 @@
 import "dotenv/config";
 
-function required(name: string, fallback?: string): string {
-  const v = process.env[name] ?? fallback;
-  if (v === undefined) throw new Error(`Missing required env var: ${name}`);
-  return v;
-}
-
 const deploymentMode = (process.env.DEPLOYMENT_MODE ?? "local") as "local" | "cloud";
 
 // Em produção (container de deploy com NODE_ENV=production, ou modo cloud),
@@ -23,15 +17,29 @@ function jwtSecret(): string {
   return v ?? "dev-secret-change-me";
 }
 
+// Postgres é o único banco suportado. Aceita postgres:// e postgresql://.
+function databaseUrl(): string {
+  const v = process.env.DATABASE_URL;
+  if (!v) throw new Error("DATABASE_URL é obrigatório (ex: postgres://user:pass@host:5432/dbname)");
+  if (!v.startsWith("postgres://") && !v.startsWith("postgresql://")) {
+    throw new Error(`DATABASE_URL deve começar com postgres:// ou postgresql:// (recebido: ${v.split(":")[0]}:…)`);
+  }
+  return v;
+}
+
 export const config = {
+  // "local" (mini-PC/NUC via Docker) ou "cloud" (Postgres gerenciado).
+  // Controla as flags de operação e o JWT_SECRET — o banco é Postgres nos dois.
   deploymentMode,
-  databaseUrl: required("DATABASE_URL", "sqlite:./data/data.db"),
+  databaseUrl: databaseUrl(),
+  // Conexões simultâneas no pool. O PDV é transacional e concorre em
+  // regime baixo, mas o número precisa acompanhar o número de cores da
+  // máquina (o backend segura 1 conexão por transação + queries avulsas).
+  databasePoolMax: Number(process.env.DATABASE_POOL_MAX ?? 10),
   // Diretório das fotos de produto servidas em /uploads. Relativo ao cwd
   // (em dev: backend/; em docker: /app). Criado no boot (server.ts).
   uploadsDir: process.env.UPLOADS_DIR ?? "uploads",
   jwtSecret: jwtSecret(),
-  syncEnabled: process.env.SYNC_ENABLED === "true",
-  syncTargetUrl: process.env.SYNC_TARGET_URL,
   port: Number(process.env.PORT ?? 3000),
   logLevel: process.env.LOG_LEVEL ?? "info",
   // Em produção (deploy real, exposto à internet), restringe a quem pode

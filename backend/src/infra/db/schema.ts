@@ -1,240 +1,398 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
+import {
+  pgTable,
+  pgEnum,
+  text,
+  integer,
+  real,
+  boolean,
+  bigserial,
+  index,
+  uniqueIndex,
+  check,
+} from "drizzle-orm/pg-core";
 
 // ============================================================
-// Schema SQLite — espelha o schema Postgres de 01-backend-spec.md §4.
-// SQLite não tem tipos ENUM/UUID/JSONB/TIMESTAMPTZ nativos, então:
-//   - UUID          -> text (gerado em app com crypto.randomUUID())
-//   - ENUM          -> text com CHECK constraint
-//   - JSONB         -> text (serializado/desserializado na camada de repositório)
-//   - TIMESTAMPTZ   -> text (ISO 8601 UTC)
-//   - BOOLEAN       -> integer (0/1), mode "boolean" do Drizzle
-// Isso é só a representação física — o restante do código nunca lida
-// com esses detalhes, sempre com valores JS nativos (Drizzle converte).
+// Schema Postgres — banco OFICIAL do PDV (o SQLite foi removido).
+//
+// Este schema é o mesmo contrato de dados que o app já consome, para
+// que a migração não exigisse reescrever serializadores, comparações
+// de tempo nem o seed:
+//
+//   - PK            -> text. O id continua sendo gerado no app com
+//                      crypto.randomUUID() ( igual ao SQLite ), o que
+//                      também preserva os ids externos/não-UUID que já
+//                      existem: 'system' (SYSTEM_USER_ID), 'singleton'
+//                      (store_settings), ids do iFood (evt_/ord_), telefone
+//                      (customer_cart/whatsapp_conversation) e o cardápio
+//                      Unami (cat-unami-*, p-unami-NNN).
+//   - TIMESTAMPTZ   -> text ISO-8601 UTC. O app compara/deduplica com
+//                      new Date().toISOString(); em text o ORDEM é
+//                      lexicográfico = cronológico, desde que o formato
+//                      seja uniforme — por isso o DEFAULT do banco gera
+//                      exatamente o mesmo formato do toISOString().
+//   - JSONB         -> text serializado. O app já faz JSON.parse/stringify
+//                      na borda (ver domain/variations.ts), então o
+//                      formato em disco não muda.
+//   - money/qty     -> real (double precision). Devolve number no JS.
+//                      NUMERIC voltaria string no node-postgres e
+//                      quebraria a aritmética de round2/moneyEq.
+//
+// Onde o Postgres é nativo de verdade ( invisível pro app ): enums
+// tipados, boolean, índices, chaves estrangeiras com ON DELETE e CHECKs.
 // ============================================================
 
-export const users = sqliteTable("user", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+// to_char no formato EXATO de Date.prototype.toISOString() — 3 dígitos de
+// milissegundo e 'Z' literal. Mantém a ordenação lexicográfica correta.
+const isoNow = sql`to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+
+// ---------- enums ----------
+export const userRole = pgEnum("user_role", ["waiter", "kitchen", "manager", "courier", "system", "cashier"]);
+export const tableStatus = pgEnum("table_status", ["free", "occupied", "closing"]);
+export const orderStatus = pgEnum("order_status", ["open", "closed", "cancelled"]);
+export const paymentMethod = pgEnum("payment_method", ["cash", "card", "pix", "other"]);
+export const orderChannel = pgEnum("channel", ["balcao", "whatsapp", "web", "ifood"]);
+export const orderItemStatus = pgEnum("order_item_status", ["ordered", "ready", "delivered", "cancelled"]);
+export const stockMovementType = pgEnum("stock_movement_type", ["sale", "refund", "purchase", "adjustment"]);
+export const cashDrawerStatus = pgEnum("cash_drawer_status", ["open", "closed"]);
+export const cashMovementType = pgEnum("cash_movement_type", ["sangria", "suprimento"]);
+export const ifoodEventStatus = pgEnum("ifood_event_status", ["received", "processed", "ignored", "failed", "acked"]);
+export const whatsappState = pgEnum("whatsapp_state", ["welcome", "browsing", "cart", "checkout", "done", "awaiting_location", "awaiting_confirmation", "awaiting_correction"]);
+export const deliveryStatus = pgEnum("delivery_status", ["awaiting_courier", "out_for_delivery", "delivered", "failed", "cancelled"]);
+export const pixKeyType = pgEnum("pix_key_type", ["cpf", "cnpj", "email", "phone", "random"]);
+export const idempotencyStatus = pgEnum("idempotency_status", ["processing", "completed", "failed"]);
+
+const id = () =>
+  text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID());
+
+// ---------- pessoas ----------
+export const users = pgTable("user", {
+  id: id(),
   name: text("name").notNull(),
-  role: text("role", { enum: ["waiter", "kitchen", "manager", "courier", "system", "cashier"] }).notNull(),
+  role: userRole("role").notNull(),
   pinHash: text("pin_hash").notNull(),
   failedAttempts: integer("failed_attempts").notNull().default(0),
   lockedUntil: text("locked_until"),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-  updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
+  active: boolean("active").notNull().default(true),
+  createdAt: text("created_at").notNull().default(isoNow),
+  updatedAt: text("updated_at").notNull().default(isoNow),
 });
 
-export const categories = sqliteTable("category", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  name: text("name").notNull(),
-  displayOrder: integer("display_order").notNull().default(0),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-});
+export const customers = pgTable(
+  "customer",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    phone: text("phone"),
+    createdAt: text("created_at").notNull().default(isoNow),
+  },
+  (t) => [index("idx_customer_name").on(t.name), index("idx_customer_phone").on(t.phone)],
+);
 
-export const kitchenGroups = sqliteTable("kitchen_group", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  name: text("name").notNull(),
-  displayOrder: integer("display_order").notNull().default(0),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-});
-
-export const products = sqliteTable("product", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  categoryId: text("category_id").references(() => categories.id, { onDelete: "set null" }),
-  kitchenGroupId: text("kitchen_group_id").references(() => kitchenGroups.id, { onDelete: "set null" }),
-  name: text("name").notNull(),
-  description: text("description").notNull().default(""),
-  price: real("price").notNull(),
-  variations: text("variations").notNull().default("[]"), // JSON string
-  imagePath: text("image_path"), // caminho servido via /uploads/<id>.<ext>
-  ifoodEnabled: integer("ifood_enabled", { mode: "boolean" }).notNull().default(false),
-  ifoodSku: text("ifood_sku"),
-  // Vitrine da página pública (/pedido): entra na seção "Destaques"
-  // (migration 0020). Curadoria pura — o produto segue na sua categoria.
-  featured: integer("featured", { mode: "boolean" }).notNull().default(false),
-  // Estoque (migration 0016): config do produto — o saldo em si fica no
-  // ledger stock_movement (soma dos deltas), nunca coluna cacheada.
-  costPrice: real("cost_price").notNull().default(0), // custo unitário (margem)
-  lowStockThreshold: real("low_stock_threshold").notNull().default(0),
-  trackStock: integer("track_stock", { mode: "boolean" }).notNull().default(false),
-  unit: text("unit").notNull().default("un"), // unidade de medida (0017)
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-  updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
-});
-
-export const restaurantTables = sqliteTable("restaurant_table", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+export const restaurantTables = pgTable("restaurant_table", {
+  id: id(),
   number: text("number").notNull().unique(),
-  status: text("status", { enum: ["free", "occupied", "closing"] }).notNull().default("free"),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
+  status: tableStatus("status").notNull().default("free"),
+  createdAt: text("created_at").notNull().default(isoNow),
 });
 
-export const customers = sqliteTable("customer", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+// ---------- catálogo ----------
+export const categories = pgTable("category", {
+  id: id(),
   name: text("name").notNull(),
-  phone: text("phone"),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
+  displayOrder: integer("display_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: text("created_at").notNull().default(isoNow),
 });
 
-export const orders = sqliteTable("order", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  tableId: text("table_id").references(() => restaurantTables.id, { onDelete: "restrict" }),
-  customerId: text("customer_id").references(() => customers.id, { onDelete: "set null" }),
-  tabLabel: text("tab_label"),
-  waiterId: text("waiter_id").notNull().references(() => users.id, { onDelete: "restrict" }),
-  status: text("status", { enum: ["open", "closed", "cancelled"] }).notNull().default("open"),
-  openedAt: text("opened_at").notNull().default(sql`(current_timestamp)`),
-  closedAt: text("closed_at"),
-  paymentMethod: text("payment_method", { enum: ["cash", "card", "pix", "other"] }),
-  paymentConfirmedAt: text("payment_confirmed_at"),
-  paymentConfirmedBy: text("payment_confirmed_by").references(() => users.id),
-  channel: text("channel", { enum: ["balcao", "whatsapp", "web", "ifood"] }).notNull().default("balcao"),
-  externalRef: text("external_ref"), // order id externo: iFood quando channel === "ifood"
-  deliveryFee: real("delivery_fee"), // snapshot da taxa cobrada, só para channel != "balcao"
-  cancelReason: text("cancel_reason"),
-  ifoodPayments: text("ifood_payments"), // métodos de pagamento do iFood (JSON), para fechar no CONCLUDED
+export const kitchenGroups = pgTable("kitchen_group", {
+  id: id(),
+  name: text("name").notNull(),
+  displayOrder: integer("display_order").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: text("created_at").notNull().default(isoNow),
 });
 
-export const orderPayments = sqliteTable("order_payment", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  orderId: text("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
-  method: text("method", { enum: ["cash", "card", "pix", "other"] }).notNull(),
-  amount: real("amount").notNull(),
-  received: real("received"), // só cash: quanto o cliente entregou
-  change: real("change"), // só cash: received - amount (troco)
-  confirmed: integer("confirmed", { mode: "boolean" }).notNull().default(false),
-  confirmedAt: text("confirmed_at"),
-  confirmedBy: text("confirmed_by").references(() => users.id),
-  createdBy: text("created_by").notNull().references(() => users.id),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-});
+export const products = pgTable(
+  "product",
+  {
+    id: id(),
+    categoryId: text("category_id").references(() => categories.id, { onDelete: "set null" }),
+    kitchenGroupId: text("kitchen_group_id").references(() => kitchenGroups.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    price: real("price").notNull(),
+    variations: text("variations").notNull().default("[]"), // JSON string
+    imagePath: text("image_path"), // caminho servido via /uploads/<id>.<ext>
+    ifoodEnabled: boolean("ifood_enabled").notNull().default(false),
+    ifoodSku: text("ifood_sku"),
+    // Vitrine da página pública (/pedido) — migration 0020. Curadoria pura:
+    // o produto continua na sua categoria.
+    featured: boolean("featured").notNull().default(false),
+    // Estoque (0016): config do produto — o saldo em si fica no ledger
+    // stock_movement (soma dos deltas), nunca coluna cacheada.
+    costPrice: real("cost_price").notNull().default(0), // custo unitário (margem)
+    lowStockThreshold: real("low_stock_threshold").notNull().default(0),
+    trackStock: boolean("track_stock").notNull().default(false),
+    unit: text("unit").notNull().default("un"), // unidade de medida (0017)
+    active: boolean("active").notNull().default(true),
+    createdAt: text("created_at").notNull().default(isoNow),
+    updatedAt: text("updated_at").notNull().default(isoNow),
+  },
+  (t) => [
+    index("idx_product_category").on(t.categoryId),
+    index("idx_product_kitchen_group").on(t.kitchenGroupId),
+    check("chk_product_price", sql`${t.price} >= 0`),
+  ],
+);
 
-export const orderItems = sqliteTable("order_item", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  orderId: text("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
-  productId: text("product_id").notNull().references(() => products.id, { onDelete: "restrict" }),
-  quantity: integer("quantity").notNull(),
-  unitPrice: real("unit_price").notNull(),
-  costPrice: real("cost_price").notNull().default(0), // snapshot do custo no lançamento (margem)
-  selectedVariations: text("selected_variations").notNull().default("{}"), // JSON string
-  notes: text("notes"),
-  status: text("status", { enum: ["ordered", "ready", "delivered", "cancelled"] }).notNull().default("ordered"),
-  version: integer("version").notNull().default(1),
-  createdBy: text("created_by").notNull().references(() => users.id),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-  updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
-});
+// ---------- comandas ----------
+export const orders = pgTable(
+  "order",
+  {
+    id: id(),
+    tableId: text("table_id").references(() => restaurantTables.id, { onDelete: "restrict" }),
+    customerId: text("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    tabLabel: text("tab_label"),
+    waiterId: text("waiter_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    status: orderStatus("status").notNull().default("open"),
+    openedAt: text("opened_at").notNull().default(isoNow),
+    closedAt: text("closed_at"),
+    paymentMethod: paymentMethod("payment_method"),
+    paymentConfirmedAt: text("payment_confirmed_at"),
+    paymentConfirmedBy: text("payment_confirmed_by").references(() => users.id),
+    channel: orderChannel("channel").notNull().default("balcao"),
+    externalRef: text("external_ref"), // order id externo: iFood quando channel === "ifood"
+    deliveryFee: real("delivery_fee"), // snapshot da taxa cobrada, só para channel != "balcao"
+    cancelReason: text("cancel_reason"),
+    ifoodPayments: text("ifood_payments"), // métodos de pagamento do iFood (JSON)
+  },
+  (t) => [
+    index("idx_order_table").on(t.tableId),
+    index("idx_order_customer").on(t.customerId),
+    index("idx_order_status").on(t.status),
+    index("idx_order_waiter").on(t.waiterId),
+    // iFood entrega o mesmo pedido mais de uma vez se o polling reencontrar
+    // o evento; o índice único deixa o conflito explícito em vez de abrir
+    // duas comandas.
+    uniqueIndex("uq_order_channel_external_ref").on(t.channel, t.externalRef),
+    check(
+      "chk_order_identification_required",
+      sql`${t.tableId} is not null or ${t.customerId} is not null or ${t.tabLabel} is not null`,
+    ),
+  ],
+);
 
-// Fornecedores (0017) — vazio por padrão, usado quando `store_settings.purchase_enabled` liga.
-export const suppliers = sqliteTable("supplier", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+export const orderPayments = pgTable(
+  "order_payment",
+  {
+    id: id(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    method: paymentMethod("method").notNull(),
+    amount: real("amount").notNull(),
+    received: real("received"), // só cash: quanto o cliente entregou
+    change: real("change"), // só cash: received - amount (troco)
+    confirmed: boolean("confirmed").notNull().default(false),
+    confirmedAt: text("confirmed_at"),
+    confirmedBy: text("confirmed_by").references(() => users.id),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: text("created_at").notNull().default(isoNow),
+  },
+  (t) => [index("idx_order_payment_order").on(t.orderId), check("chk_order_payment_amount", sql`${t.amount} > 0`)],
+);
+
+export const orderItems = pgTable(
+  "order_item",
+  {
+    id: id(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    productId: text("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "restrict" }),
+    quantity: integer("quantity").notNull(),
+    unitPrice: real("unit_price").notNull(), // snapshot de products.price
+    costPrice: real("cost_price").notNull().default(0), // snapshot do custo no lançamento (margem)
+    selectedVariations: text("selected_variations").notNull().default("{}"), // JSON string
+    notes: text("notes"),
+    status: orderItemStatus("status").notNull().default("ordered"),
+    version: integer("version").notNull().default(1), // optimistic locking
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: text("created_at").notNull().default(isoNow),
+    updatedAt: text("updated_at").notNull().default(isoNow),
+  },
+  (t) => [index("idx_order_item_order").on(t.orderId), index("idx_order_item_product").on(t.productId)],
+);
+
+// ---------- compras / estoque ----------
+export const suppliers = pgTable("supplier", {
+  id: id(),
   name: text("name").notNull(),
   phone: text("phone"),
   taxId: text("tax_id"),
-  active: integer("active", { mode: "boolean" }).notNull().default(true),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-  updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
+  active: boolean("active").notNull().default(true),
+  createdAt: text("created_at").notNull().default(isoNow),
+  updatedAt: text("updated_at").notNull().default(isoNow),
 });
 
 // Documento de entrada de mercadoria (0017) — multi-item, com fornecedor,
 // nº de nota (informativo, sem integração fiscal), data e total.
-export const purchases = sqliteTable("purchase", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+export const purchases = pgTable("purchase", {
+  id: id(),
   supplierId: text("supplier_id").references(() => suppliers.id, { onDelete: "set null" }),
   invoiceNumber: text("invoice_number"),
   issuedOn: text("issued_on"),
   note: text("note"),
   total: real("total").notNull().default(0),
-  createdBy: text("created_by").notNull().references(() => users.id),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
+  createdBy: text("created_by")
+    .notNull()
+    .references(() => users.id),
+  createdAt: text("created_at").notNull().default(isoNow),
 });
 
 // Linha da compra — cada linha vira um movimento `purchase` no ledger com
 // unit_cost (evento de valoração da média móvel). batch_no/expiry_date são
 // informativos (rastreio; baixa sem FIFO — ver docs/08).
-export const purchaseItems = sqliteTable("purchase_item", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  purchaseId: text("purchase_id").notNull().references(() => purchases.id, { onDelete: "cascade" }),
-  productId: text("product_id").notNull().references(() => products.id, { onDelete: "restrict" }),
-  quantity: real("quantity").notNull(),
-  unitCost: real("unit_cost").notNull(),
-  lineTotal: real("line_total").notNull().default(0),
-  batchNo: text("batch_no"),
-  expiryDate: text("expiry_date"),
-  createdBy: text("created_by").notNull().references(() => users.id),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-});
+export const purchaseItems = pgTable(
+  "purchase_item",
+  {
+    id: id(),
+    // Ordem de inserção da linha no documento. O `rowid` do SQLite dava isso
+    // de graça; no Postgres a sequência é explícita — sem ela, duas linhas do
+    // MESMO produto (mesmo `orderBy(products.name)`) voltariam em ordem
+    // arbitrária e o gerente veria o lançamento embaralhado.
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+    purchaseId: text("purchase_id")
+      .notNull()
+      .references(() => purchases.id, { onDelete: "cascade" }),
+    productId: text("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "restrict" }),
+    quantity: real("quantity").notNull(),
+    unitCost: real("unit_cost").notNull(),
+    lineTotal: real("line_total").notNull().default(0),
+    batchNo: text("batch_no"),
+    expiryDate: text("expiry_date"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: text("created_at").notNull().default(isoNow),
+  },
+  (t) => [index("idx_purchase_item_purchase").on(t.purchaseId)],
+);
 
-// Ledger de estoque (migration 0016): fonte da verdade do saldo — soma dos
-// deltas por produto. 'sale' no lançamento da comanda, 'refund' no estorno
-// (item removido / comanda cancelada), 'purchase'/'adjustment' manuais do
-// gerente. Desenhado para evoluir a ficha técnica: deltas genéricos.
-export const stockMovements = sqliteTable("stock_movement", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  productId: text("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
-  type: text("type", { enum: ["sale", "refund", "purchase", "adjustment"] }).notNull(),
-  quantityDelta: real("quantity_delta").notNull(),
-  // 0017: custo unitário nos eventos de valoração (purchase / estoque inicial)
-  // — a média móvel é replay desses eventos, não coluna de estado.
-  unitCost: real("unit_cost"),
-  purchaseItemId: text("purchase_item_id").references(() => purchaseItems.id, { onDelete: "set null" }),
-  orderId: text("order_id").references(() => orders.id, { onDelete: "set null" }),
-  orderItemId: text("order_item_id").references(() => orderItems.id, { onDelete: "set null" }),
-  note: text("note"),
-  createdBy: text("created_by").notNull().references(() => users.id),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-});
+// Ledger de estoque (0016): fonte da verdade do saldo — soma dos deltas por
+// produto. 'sale' no lançamento da comanda, 'refund' no estorno (item
+// removido / comanda cancelada), 'purchase'/'adjustment' manuais do gerente.
+//
+// `seq` (bigserial) é a ordem de inserção: a média móvel é um REPLAY do
+// ledger, então a ordem precisa ser estável e determinística. No SQLite isso
+// era o `rowid` implícito; no Postgres não existe rowid, então a sequência
+// explícita cumpre o papel (ver computeMovingAverageTx).
+export const stockMovements = pgTable(
+  "stock_movement",
+  {
+    id: id(),
+    // mode "number" devolve number (e não bigint) pro app — o replay da
+    // média móvel compara/ordena seq em JS e não quer BigInt.
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+    productId: text("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    type: stockMovementType("type").notNull(),
+    quantityDelta: real("quantity_delta").notNull(),
+    // 0017: custo unitário nos eventos de valoração (purchase / estoque inicial)
+    unitCost: real("unit_cost"),
+    purchaseItemId: text("purchase_item_id").references(() => purchaseItems.id, { onDelete: "set null" }),
+    orderId: text("order_id").references(() => orders.id, { onDelete: "set null" }),
+    orderItemId: text("order_item_id").references(() => orderItems.id, { onDelete: "set null" }),
+    note: text("note"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: text("created_at").notNull().default(isoNow),
+  },
+  (t) => [
+    index("idx_stock_movement_product").on(t.productId),
+    index("idx_stock_movement_order").on(t.orderId),
+    index("idx_stock_movement_order_item").on(t.orderItemId),
+    index("idx_stock_movement_product_seq").on(t.productId, t.seq),
+  ],
+);
 
-// Fluxo de caixa (migration 0012): uma sessão aberta por vez (índice parcial
-// único). O "esperado" em dinheiro de cada sessão é calculado em usecase a
-// partir de order_payment (method='cash', confirmed, confirmed_at no período)
-// somado ao fundo inicial e movimentos manuais (sangria/suprimento).
-export const cashDrawers = sqliteTable("cash_drawer", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  status: text("status", { enum: ["open", "closed"] }).notNull().default("open"),
-  openedAt: text("opened_at").notNull().default(sql`(current_timestamp)`),
-  openedBy: text("opened_by").notNull().references(() => users.id),
-  openingAmount: real("opening_amount").notNull().default(0),
-  closedAt: text("closed_at"),
-  closedBy: text("closed_by").references(() => users.id),
-  closingExpected: real("closing_expected"),
-  closingCounted: real("closing_counted"),
-  closingDifference: real("closing_difference"),
-  closingNote: text("closing_note"),
-  note: text("note"),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-});
+// ---------- fluxo de caixa ----------
+// Uma sessão aberta por vez: o índice único parcial garante no banco o que
+// antes era só regra de usecase (ver findOpenDrawerTx).
+export const cashDrawers = pgTable(
+  "cash_drawer",
+  {
+    id: id(),
+    status: cashDrawerStatus("status").notNull().default("open"),
+    openedAt: text("opened_at").notNull().default(isoNow),
+    openedBy: text("opened_by")
+      .notNull()
+      .references(() => users.id),
+    openingAmount: real("opening_amount").notNull().default(0),
+    closedAt: text("closed_at"),
+    closedBy: text("closed_by").references(() => users.id),
+    closingExpected: real("closing_expected"),
+    closingCounted: real("closing_counted"),
+    closingDifference: real("closing_difference"),
+    closingNote: text("closing_note"),
+    note: text("note"),
+    createdAt: text("created_at").notNull().default(isoNow),
+  },
+  (t) => [
+    uniqueIndex("uq_cash_drawer_single_open").on(t.status).where(sql`${t.status} = 'open'`),
+    index("idx_cash_drawer_opened_at").on(t.openedAt),
+  ],
+);
 
-export const cashDrawerMovements = sqliteTable("cash_drawer_movement", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  drawerId: text("drawer_id").notNull().references(() => cashDrawers.id, { onDelete: "cascade" }),
-  type: text("type", { enum: ["sangria", "suprimento"] }).notNull(),
-  amount: real("amount").notNull(),
-  note: text("note"),
-  refOrderId: text("ref_order_id").references(() => orders.id),
-  createdBy: text("created_by").notNull().references(() => users.id),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-});
+export const cashDrawerMovements = pgTable(
+  "cash_drawer_movement",
+  {
+    id: id(),
+    drawerId: text("drawer_id")
+      .notNull()
+      .references(() => cashDrawers.id, { onDelete: "cascade" }),
+    type: cashMovementType("type").notNull(),
+    amount: real("amount").notNull(),
+    note: text("note"),
+    refOrderId: text("ref_order_id").references(() => orders.id),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: text("created_at").notNull().default(isoNow),
+  },
+  (t) => [index("idx_cash_drawer_movement_drawer").on(t.drawerId)],
+);
 
-// Singleton (linha única) — id fixo "singleton" pra facilitar SELECT/UPDATE sem WHERE dinâmico
-export const storeSettings = sqliteTable("store_settings", {
+// ---------- configuração (singleton) ----------
+export const storeSettings = pgTable("store_settings", {
   id: text("id").primaryKey().default("singleton"),
   merchantName: text("merchant_name").notNull(),
   merchantCity: text("merchant_city").notNull(),
   logoPath: text("logo_path"), // nome do arquivo do logo em /uploads/logo.<ext>
-  brandColor: text("brand_color").notNull().default("#f59e0b"), // #hex da cor principal da marca
+  brandColor: text("brand_color").notNull().default("#f59e0b"),
   pixKey: text("pix_key").notNull().default(""),
-  pixKeyType: text("pix_key_type", { enum: ["cpf", "cnpj", "email", "phone", "random"] }).notNull().default("phone"),
-  usesTables: integer("uses_tables", { mode: "boolean" }).notNull().default(true),
-  kitchenEnabled: integer("kitchen_enabled", { mode: "boolean" }).notNull().default(true),
-  usesDelivery: integer("uses_delivery", { mode: "boolean" }).notNull().default(true),
-  ifoodIntegrationEnabled: integer("ifood_integration_enabled", { mode: "boolean" }).notNull().default(false),
-  inventoryEnabled: integer("inventory_enabled", { mode: "boolean" }).notNull().default(false), // controle de estoque (0016)
-  purchaseEnabled: integer("purchase_enabled", { mode: "boolean" }).notNull().default(false), // compras + custo médio (0017)
+  pixKeyType: pixKeyType("pix_key_type").notNull().default("phone"),
+  usesTables: boolean("uses_tables").notNull().default(true),
+  kitchenEnabled: boolean("kitchen_enabled").notNull().default(true),
+  usesDelivery: boolean("uses_delivery").notNull().default(true),
+  ifoodIntegrationEnabled: boolean("ifood_integration_enabled").notNull().default(false),
+  inventoryEnabled: boolean("inventory_enabled").notNull().default(false), // estoque (0016)
+  purchaseEnabled: boolean("purchase_enabled").notNull().default(false), // compras + custo médio (0017)
   enabledPaymentMethods: text("enabled_payment_methods").notNull().default('["cash","card","pix","other"]'),
   kitchenPrepWarnMin: integer("kitchen_prep_warn_min").notNull().default(3),
   kitchenPrepUrgentMin: integer("kitchen_prep_urgent_min").notNull().default(6),
@@ -246,131 +404,163 @@ export const storeSettings = sqliteTable("store_settings", {
   deliveryFeeTiers: text("delivery_fee_tiers").notNull().default("[]"),
 });
 
-export const auditLog = sqliteTable("audit_log", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  userId: text("user_id").notNull().references(() => users.id),
-  action: text("action").notNull(),
-  orderId: text("order_id").references(() => orders.id),
-  details: text("details").notNull().default("{}"), // JSON string
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-});
+// ---------- infraestrutura ----------
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    action: text("action").notNull(),
+    orderId: text("order_id").references(() => orders.id),
+    details: text("details").notNull().default("{}"), // JSON string
+    createdAt: text("created_at").notNull().default(isoNow),
+  },
+  (t) => [index("idx_audit_log_user").on(t.userId), index("idx_audit_log_order").on(t.orderId), index("idx_audit_log_created").on(t.createdAt)],
+);
 
-export const idempotencyKeys = sqliteTable("idempotency_key", {
-  correlationId: text("correlation_id").primaryKey(),
-  endpoint: text("endpoint").notNull(),
-  requestHash: text("request_hash").notNull(),
-  responseBody: text("response_body"),
-  responseStatus: integer("response_status"),
-  status: text("status", { enum: ["processing", "completed", "failed"] }).notNull().default("processing"),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-  expiresAt: text("expires_at").notNull(),
-});
+export const idempotencyKeys = pgTable(
+  "idempotency_key",
+  {
+    correlationId: text("correlation_id").primaryKey(),
+    endpoint: text("endpoint").notNull(),
+    requestHash: text("request_hash").notNull(),
+    responseBody: text("response_body"),
+    responseStatus: integer("response_status"),
+    status: idempotencyStatus("status").notNull().default("processing"),
+    createdAt: text("created_at").notNull().default(isoNow),
+    expiresAt: text("expires_at").notNull(),
+  },
+  (t) => [index("idx_idempotency_key_expires").on(t.expiresAt)],
+);
 
-export const outboxEvents = sqliteTable("outbox_event", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  eventType: text("event_type").notNull(),
-  payload: text("payload").notNull(), // JSON string
-  room: text("room").notNull(),
-  published: integer("published", { mode: "boolean" }).notNull().default(false),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-});
+export const outboxEvents = pgTable(
+  "outbox_event",
+  {
+    id: id(),
+    // `seq` (bigserial) é a ordem de inserção. Sem isso, dois eventos com o
+    // mesmo `created_at` (mesma milissegundo) teriam ordem indefinida — no
+    // SQLite o `rowid` resolvia; aqui a sequência é a desambiguação.
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+    eventType: text("event_type").notNull(),
+    payload: text("payload").notNull(), // JSON string
+    room: text("room").notNull(),
+    published: boolean("published").notNull().default(false),
+    createdAt: text("created_at").notNull().default(isoNow),
+  },
+  // O dispatcher faz poll em "não publicado, mais antigo primeiro" — o índice
+  // parcial mantém esse SELECT barato mesmo com o outbox cheio de publicados.
+  (t) => [
+    index("idx_outbox_event_unpublished").on(t.createdAt, t.seq).where(sql`${t.published} = false`),
+  ],
+);
 
-// ============================================================
-// Integração iFood (Order/Catalog API) — ver docs/06-ifood-integration.md
-// ============================================================
-
+// ---------- iFood ----------
 // Log/dedupe dos eventos recebidos do polling do iFood: obrigatório persistir
-// ANTES de ACK (senão o iFood aplica throttle). O status vira o bookkeeping:
+// ANTES do ACK (senão o iFood aplica throttle). O status vira o bookkeeping:
 // received → processed/ignored/failed → acked.
-export const ifoodEvents = sqliteTable("ifood_event", {
-  id: text("id").primaryKey(), // event id do iFood (evt_...)
-  orderRef: text("order_ref"), // order id do iFood (ord_...)
-  code: text("code").notNull(),
-  fullCode: text("full_code"),
-  status: text("status", { enum: ["received", "processed", "ignored", "failed", "acked"] }).notNull().default("received"),
-  raw: text("raw").notNull().default("{}"), // payload completo do evento
-  processedAt: text("processed_at"),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-});
+export const ifoodEvents = pgTable(
+  "ifood_event",
+  {
+    id: text("id").primaryKey(), // event id do iFood (evt_...)
+    orderRef: text("order_ref"), // order id do iFood (ord_...)
+    code: text("code").notNull(),
+    fullCode: text("full_code"),
+    status: ifoodEventStatus("status").notNull().default("received"),
+    raw: text("raw").notNull().default("{}"), // payload completo do evento
+    processedAt: text("processed_at"),
+    createdAt: text("created_at").notNull().default(isoNow),
+  },
+  (t) => [index("idx_ifood_event_status").on(t.status)],
+);
 
 // KV singleton para estado da integração: accessToken + expiração, merchantId
-// resolvido, timestamps de último poll/sync (auditoria no painel do gerente).
-export const ifoodState = sqliteTable("ifood_state", {
+// resolvido, timestamps de último poll/sync.
+export const ifoodState = pgTable("ifood_state", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
-  updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
+  updatedAt: text("updated_at").notNull().default(isoNow),
 });
 
-// ============================================================
-// Delivery self-service (WhatsApp + página externa) — §04/05 docs
-// ============================================================
+// ---------- self-service / delivery ----------
+export const customerAddresses = pgTable(
+  "customer_address",
+  {
+    id: id(),
+    customerId: text("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    label: text("label"),
+    street: text("street").notNull(),
+    number: text("number").notNull(),
+    complement: text("complement"),
+    neighborhood: text("neighborhood").notNull(),
+    city: text("city").notNull(),
+    reference: text("reference"),
+    latitude: real("latitude"),
+    longitude: real("longitude"),
+    isDefault: boolean("is_default").notNull().default(false),
+    createdAt: text("created_at").notNull().default(isoNow),
+  },
+  (t) => [index("idx_customer_address_customer").on(t.customerId)],
+);
 
-// Máximo 3 por cliente e apenas 1 is_default por vez: regras de
-// usecase, não constraint de banco (ver 04-delivery-self-service-integration.md).
-export const customerAddresses = sqliteTable("customer_address", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  customerId: text("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
-  label: text("label"),
-  street: text("street").notNull(),
-  number: text("number").notNull(),
-  complement: text("complement"),
-  neighborhood: text("neighborhood").notNull(),
-  city: text("city").notNull(),
-  reference: text("reference"),
-  latitude: real("latitude"),
-  longitude: real("longitude"),
-  isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-});
-
-// Estado da máquina de conversa do bot — cada mensagem chega isolada via
-// webhook, então o carrinho em construção vive aqui até a confirmação final.
-export const whatsappConversations = sqliteTable("whatsapp_conversation", {
+export const whatsappConversations = pgTable("whatsapp_conversation", {
   phone: text("phone").primaryKey(),
-  state: text("state", { enum: ["welcome", "browsing", "cart", "checkout", "done", "awaiting_location", "awaiting_confirmation", "awaiting_correction"] }).notNull().default("welcome"),
+  state: whatsappState("state").notNull().default("welcome"),
   cartItems: text("cart_items").notNull().default("[]"), // JSON string
   customerName: text("customer_name"),
   deliveryAddress: text("delivery_address"),
-  updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
+  updatedAt: text("updated_at").notNull().default(isoNow),
   expiresAt: text("expires_at").notNull(),
 });
 
 // 1:1 com orders. Eixo separado de order_item.status, que já significa
 // "servido na mesa" — não reaproveitado aqui para evitar ambiguidade.
-export const deliveries = sqliteTable("delivery", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  orderId: text("order_id").notNull().unique().references(() => orders.id, { onDelete: "cascade" }),
-  courierId: text("courier_id").references(() => users.id, { onDelete: "set null" }),
-  address: text("address").notNull(), // snapshot formatado, copiado do checkout
-  distanceKm: real("distance_km"),
-  estimatedMinutes: integer("estimated_minutes"),
-  // 0018: "cancelled" é o cancelamento (manager ou cliente) — distinto de
-  // "failed" ("problema na entrega"); transições válidas na máquina
-  // declarativa em src/domain/customer-order-state.ts.
-  status: text("status", { enum: ["awaiting_courier", "out_for_delivery", "delivered", "failed", "cancelled"] })
-    .notNull()
-    .default("awaiting_courier"),
-  dispatchedAt: text("dispatched_at"),
-  deliveredAt: text("delivered_at"),
-  notes: text("notes"),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-});
+export const deliveries = pgTable(
+  "delivery",
+  {
+    id: id(),
+    orderId: text("order_id")
+      .notNull()
+      .unique()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    courierId: text("courier_id").references(() => users.id, { onDelete: "set null" }),
+    address: text("address").notNull(), // snapshot formatado, copiado do checkout
+    distanceKm: real("distance_km"),
+    estimatedMinutes: integer("estimated_minutes"),
+    // 0018: "cancelled" é o cancelamento (manager ou cliente) — distinto de
+    // "failed" ("problema na entrega").
+    status: deliveryStatus("status").notNull().default("awaiting_courier"),
+    dispatchedAt: text("dispatched_at"),
+    deliveredAt: text("delivered_at"),
+    notes: text("notes"),
+    createdAt: text("created_at").notNull().default(isoNow),
+  },
+  (t) => [index("idx_delivery_status").on(t.status), index("idx_delivery_courier").on(t.courierId)],
+);
 
 // Carrinho server-side do cliente (0019) — continuação do pedido sem
-// localStorage, chaveado pelo telefone (mesma chave de identificação do
-// fluxo self-service). items é JSON string com o shape do body de
-// POST /public/orders; rascunho sem validação (validação no submit).
-// Uso em src/application/self-service/cart.usecases.ts.
-export const customerCarts = sqliteTable("customer_cart", {
-  phone: text("phone").primaryKey(),
-  items: text("items").notNull().default("[]"), // JSON string
-  updatedAt: text("updated_at").notNull().default(sql`(current_timestamp)`),
-  expiresAt: text("expires_at").notNull(),
-});
+// localStorage, chaveado pelo telefone.
+export const customerCarts = pgTable(
+  "customer_cart",
+  {
+    phone: text("phone").primaryKey(),
+    items: text("items").notNull().default("[]"), // JSON string
+    updatedAt: text("updated_at").notNull().default(isoNow),
+    expiresAt: text("expires_at").notNull(),
+  },
+  (t) => [index("idx_customer_cart_expires").on(t.expiresAt)],
+);
 
-export const geocodingCache = sqliteTable("geocoding_cache", {
-  cacheKey: text("cache_key").primaryKey(),
-  response: text("response").notNull(),
-  createdAt: text("created_at").notNull().default(sql`(current_timestamp)`),
-  expiresAt: text("expires_at").notNull(),
-});
+export const geocodingCache = pgTable(
+  "geocoding_cache",
+  {
+    cacheKey: text("cache_key").primaryKey(),
+    response: text("response").notNull(), // JSON string
+    createdAt: text("created_at").notNull().default(isoNow),
+    expiresAt: text("expires_at").notNull(),
+  },
+  (t) => [index("idx_geocoding_cache_expires").on(t.expiresAt)],
+);

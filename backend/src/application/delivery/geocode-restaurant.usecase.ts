@@ -21,12 +21,12 @@ export async function geocodeRestaurantUsecase(): Promise<{
   try {
     const coords = await geocodingService.forwardGeocode(address);
 
-    db.transaction((tx) => {
-      tx.update(storeSettings)
+    await db.transaction(async (tx) => {
+      await tx
+        .update(storeSettings)
         .set({ restaurantLat: coords.latitude, restaurantLong: coords.longitude })
-        .where(eq(storeSettings.id, "singleton"))
-        .run();
-      logAction(tx, SYSTEM_USER_ID, "restaurant_geocoded", null, { latitude: coords.latitude, longitude: coords.longitude });
+        .where(eq(storeSettings.id, "singleton"));
+      await logAction(tx, SYSTEM_USER_ID, "restaurant_geocoded", null, { latitude: coords.latitude, longitude: coords.longitude });
     });
 
     cache.invalidate("store-settings:singleton");

@@ -14,8 +14,8 @@
 // produto; futuro próximo só adiciona ingredient/product_ingredient e
 // passa a *calcular* esses deltas a partir da receita.
 
-import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
-import { db } from "../../infra/db/client.js";
+import { and, count, desc, eq, inArray, like, sql } from "drizzle-orm";
+import { db, type Tx } from "../../infra/db/client.js";
 import { stockMovements, products, categories, users } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
 import { logAction } from "../../infra/audit-log.js";
@@ -57,15 +57,17 @@ function replayMovingAverage(rows: { quantityDelta: number; unitCost: number | n
   return costed ? { avg: round2(avg), qty: round2(qty) } : { avg: round2(fallbackCost), qty: round2(qty) };
 }
 
-// Média móvel vigente — versão síncrona (dentro de db.transaction).
+// Média móvel vigente — versão transacional (o Node Postgres é assíncrono).
 // fallbackCost = cost_price manual do cadastro (usado antes da 1ª valoração).
-export function computeMovingAverageTx(tx: any, productId: string, fallbackCost = 0): MovingAverage {
-  const rows = tx
+// Ordena por `seq` (a sequência bigserial substitui o `rowid` do SQLite) para
+// desempatar movimentos gravados no mesmo milissegundo — sem isso o replay
+// poderia aplicar uma compra DEPOIS da venda que a expressou.
+export async function computeMovingAverageTx(tx: Tx, productId: string, fallbackCost = 0): Promise<MovingAverage> {
+  const rows = await tx
     .select({ quantityDelta: stockMovements.quantityDelta, unitCost: stockMovements.unitCost })
     .from(stockMovements)
     .where(eq(stockMovements.productId, productId))
-    .orderBy(sql`${stockMovements.createdAt} asc, rowid asc`)
-    .all() as { quantityDelta: number; unitCost: number | null }[];
+    .orderBy(stockMovements.createdAt, stockMovements.seq);
   return replayMovingAverage(rows, fallbackCost);
 }
 
@@ -82,7 +84,7 @@ export async function averageCosts(productIds: string[]): Promise<Map<string, Mo
     })
     .from(stockMovements)
     .where(inArray(stockMovements.productId, productIds))
-    .orderBy(sql`${stockMovements.createdAt} asc, rowid asc`);
+    .orderBy(stockMovements.createdAt, stockMovements.seq);
   const groups = new Map<string, { quantityDelta: number; unitCost: number | null }[]>();
   for (const r of rows) {
     let list = groups.get(r.productId);
@@ -96,15 +98,14 @@ export async function averageCosts(productIds: string[]): Promise<Map<string, Mo
   return res;
 }
 
-// Saldo atual a partir do ledger — versão síncrona (dentro de db.transaction,
-// o driver better-sqlite3 exige métodos terminais; ver order.usecases).
-export function stockBalance(tx: any, productId: string): number {
-  const row = tx
+// Saldo atual a partir do ledger — versão transacional (usada dentro de
+// db.transaction, que no Node Postgres exige tudo awaited).
+export async function stockBalance(tx: Tx, productId: string): Promise<number> {
+  const rows = await tx
     .select({ total: sql<number>`coalesce(sum(${stockMovements.quantityDelta}), 0)` })
     .from(stockMovements)
-    .where(eq(stockMovements.productId, productId))
-    .all()[0] as { total: number } | undefined;
-  return row?.total ?? 0;
+    .where(eq(stockMovements.productId, productId));
+  return Number(rows[0]?.total ?? 0);
 }
 
 // Saldo de um produto — versão assíncrona, fora de transação.
@@ -129,8 +130,8 @@ export async function stockBalances(productIds: string[]): Promise<Map<string, n
 
 // Grava um movimento no ledger + evento `stock.movement` no room "inventory"
 // na mesma transação. Retorna { row, balance } (saldo pós-movimento).
-export function applyStockMovementTx(
-  tx: any,
+export async function applyStockMovementTx(
+  tx: Tx,
   input: {
     productId: string;
     type: StockMovementType;
@@ -141,10 +142,10 @@ export function applyStockMovementTx(
     orderItemId?: string | null;
     note?: string | null;
     createdBy: string;
-  }
-) {
+  },
+): Promise<{ row: typeof stockMovements.$inferSelect; balance: number }> {
   if (input.quantityDelta === 0) throw Errors.validationFailed({ field: "quantity", reason: "não pode ser zero" });
-  const row = tx
+  const [row] = await tx
     .insert(stockMovements)
     .values({
       productId: input.productId,
@@ -157,11 +158,10 @@ export function applyStockMovementTx(
       note: input.note ?? null,
       createdBy: input.createdBy,
     })
-    .returning()
-    .get();
+    .returning();
 
-  const balance = stockBalance(tx, input.productId);
-  enqueueEvent(tx, INVENTORY_ROOM, "stock.movement", {
+  const balance = await stockBalance(tx, input.productId);
+  await enqueueEvent(tx, INVENTORY_ROOM, "stock.movement", {
     productId: input.productId,
     type: input.type,
     quantityDelta: input.quantityDelta,
@@ -185,7 +185,7 @@ export async function listStockUsecase(input: { lowOnly?: boolean; search?: stri
     offset: input.offset,
     orderBy: (p, { asc }) => asc(p.name),
   });
-  const totalRow = await db.select({ count: sql<number>`count(*)` }).from(products).where(where as any);
+  const totalRow = await db.select({ count: count() }).from(products).where(where as any);
 
   const categoryNames = await db.query.categories.findMany({ columns: { id: true, name: true } });
   const catMap = new Map(categoryNames.map((c) => [c.id, c.name]));
@@ -239,7 +239,7 @@ export async function getStockMovementsUsecase(input: { productId?: string; limi
     .limit(input.limit)
     .offset(input.offset);
 
-  const totalRow = await db.select({ count: sql<number>`count(*)` }).from(stockMovements).where(where as any);
+  const totalRow = await db.select({ count: count() }).from(stockMovements).where(where as any);
 
   return {
     data: rows.map((r) => ({
@@ -279,15 +279,15 @@ export async function registerStockMovementUsecase(input: {
     throw Errors.validationFailed({ field: "productId", reason: "produto não controla estoque (habilite no cadastro)" });
   }
 
-  db.transaction((tx) => {
-    const { row } = applyStockMovementTx(tx, {
+  await db.transaction(async (tx) => {
+    const { row } = await applyStockMovementTx(tx, {
       productId: input.productId,
       type: input.type,
       quantityDelta: input.quantity,
       note: input.note ?? null,
       createdBy: input.userId,
     });
-    logAction(tx, input.userId, "stock_movement_manual", null, {
+    await logAction(tx, input.userId, "stock_movement_manual", null, {
       productId: input.productId,
       type: row.type,
       quantityDelta: row.quantityDelta,

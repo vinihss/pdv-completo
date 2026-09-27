@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { db } from "../db/client.js";
+import { db, type Tx } from "../db/client.js";
 import { outboxEvents } from "../db/schema.js";
 import { wsGateway } from "./ws-gateway.js";
 
@@ -49,9 +49,9 @@ export async function pollOutboxOnce() {
 }
 
 /**
- * Grava um evento no outbox — chamar dentro da mesma transação que persiste
- * o dado principal. Síncrona (ver nota em infra/audit-log.ts).
+ * Grava um evento no outbox — chamar DENTRO da mesma transação que persiste
+ * o dado principal, sempre com `await` (ver nota em infra/audit-log.ts).
  */
-export function enqueueEvent(tx: any, room: string, eventType: string, payload: unknown) {
-  tx.insert(outboxEvents).values({ room, eventType, payload: JSON.stringify(payload) }).run();
+export async function enqueueEvent(tx: Tx, room: string, eventType: string, payload: unknown): Promise<void> {
+  await tx.insert(outboxEvents).values({ room, eventType, payload: JSON.stringify(payload) });
 }

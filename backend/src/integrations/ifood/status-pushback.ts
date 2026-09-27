@@ -57,35 +57,37 @@ function pickPaymentMethod(
 // CONCLUDED: pago + entregue. Fecha a comanda local (itens → delivered,
 // pagamento registrado, delivery concluída). Retorna false se a comanda não
 // existir (evita duplicidade/ruído) ou se não houver pagamento habilitado.
-export function concludeIfoodOrder(orderRef: string): boolean {
-  const order = db.query.orders.findFirst({ where: eq(orders.externalRef, orderRef) }).sync();
+export async function concludeIfoodOrder(orderRef: string): Promise<boolean> {
+  const order = await db.query.orders.findFirst({ where: eq(orders.externalRef, orderRef) });
   if (!order || order.channel !== "ifood" || order.status !== "open") return false;
 
-  const settings = db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") }).sync();
+  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
   const enabled: string[] = settings ? JSON.parse(settings.enabledPaymentMethods) : [];
   const ifoodPayments: Array<{ method?: string; type?: string }> = order.ifoodPayments
     ? JSON.parse(order.ifoodPayments)
     : [];
   const payment = pickPaymentMethod(ifoodPayments, enabled);
 
-  db.transaction((tx) => {
+  await db.transaction(async (tx) => {
     // Garante que itens pendentes não bloqueiam o fechamento (a entrega já
     // aconteceu do lado do iFood — a comanda é só registro contábil).
-    tx.update(orderItems)
+    await tx.update(orderItems)
       .set({ status: "delivered" })
       .where(and(eq(orderItems.orderId, order.id), notInArray(orderItems.status, ["delivered", "cancelled"])))
-      .run();
+      ;
 
     if (payment) {
       // Pagamento já recebido pelo iFood — grava como linha de pagamento
       // confirmada cobrindo o total da comanda (snapshot unit_price + taxa).
-      const itemSum = tx
+      // unit_price e quantity são real/integer: o produto no Postgres é
+      // double precision, então SUM devolve number (não string de bigint).
+      const [sumRow] = await tx
         .select({ sum: sql<number>`COALESCE(SUM(${orderItems.unitPrice} * ${orderItems.quantity}), 0)` })
         .from(orderItems)
-        .where(and(eq(orderItems.orderId, order.id), notInArray(orderItems.status, ["cancelled"])))
-        .get()?.sum ?? 0;
+        .where(and(eq(orderItems.orderId, order.id), notInArray(orderItems.status, ["cancelled"])));
+      const itemSum = sumRow?.sum ?? 0;
       const total = round2(Number(itemSum) + (order.deliveryFee ?? 0));
-      tx.insert(orderPayments)
+      await tx.insert(orderPayments)
         .values({
           orderId: order.id,
           method: payment.method,
@@ -96,34 +98,34 @@ export function concludeIfoodOrder(orderRef: string): boolean {
           confirmedBy: SYSTEM_USER_ID,
           createdBy: SYSTEM_USER_ID,
         })
-        .run();
+        ;
 
-      tx.update(orders)
+      await tx.update(orders)
         .set({
           paymentMethod: payment.method,
           paymentConfirmedAt: new Date().toISOString(),
           paymentConfirmedBy: SYSTEM_USER_ID,
         })
         .where(eq(orders.id, order.id))
-        .run();
+        ;
     }
 
-    tx.update(orders)
+    await tx.update(orders)
       .set({ status: "closed", closedAt: new Date().toISOString() })
       .where(eq(orders.id, order.id))
-      .run();
+      ;
 
-    const delivery = tx.query.deliveries.findFirst({ where: eq(deliveries.orderId, order.id) }).sync();
+    const delivery = await tx.query.deliveries.findFirst({ where: eq(deliveries.orderId, order.id) });
     if (delivery && delivery.status !== "delivered") {
-      tx.update(deliveries).set({ status: "delivered" }).where(eq(deliveries.id, delivery.id)).run();
+      await tx.update(deliveries).set({ status: "delivered" }).where(eq(deliveries.id, delivery.id));
     }
 
-    enqueueEvent(tx, "deliveries", "ifood.order.concluded", { orderId: order.id, externalRef: orderRef });
-    enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.closed", {
+    await enqueueEvent(tx, "deliveries", "ifood.order.concluded", { orderId: order.id, externalRef: orderRef });
+    await enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.closed", {
       orderId: order.id,
       tableId: order.tableId,
     });
-    logAction(tx, SYSTEM_USER_ID, "ifood_order_concluded", order.id, {
+    await logAction(tx, SYSTEM_USER_ID, "ifood_order_concluded", order.id, {
       externalRef: orderRef,
       paymentMethod: payment?.method ?? null,
       reason: payment ? null : "sem método habilitado — gerente encerra manualmente",
@@ -135,35 +137,35 @@ export function concludeIfoodOrder(orderRef: string): boolean {
 // CANCELLED / STALE / CANCELLATION_REQUESTED: o pedido não vira venda.
 // Encerra a comanda local como cancelada (idempotente: se já não está "open",
 // não faz nada e devolve true — o ACK segue normal).
-export function cancelIfoodOrder(orderRef: string, reason: string): boolean {
-  const order = db.query.orders.findFirst({ where: eq(orders.externalRef, orderRef) }).sync();
+export async function cancelIfoodOrder(orderRef: string, reason: string): Promise<boolean> {
+  const order = await db.query.orders.findFirst({ where: eq(orders.externalRef, orderRef) });
   if (!order || order.channel !== "ifood" || order.status !== "open") return false;
 
-  db.transaction((tx) => {
-    tx.update(orderItems)
+  await db.transaction(async (tx) => {
+    await tx.update(orderItems)
       .set({ status: "cancelled" })
       .where(and(eq(orderItems.orderId, order.id), notInArray(orderItems.status, ["delivered", "cancelled"])))
-      .run();
+      ;
 
-    tx.update(orders)
+    await tx.update(orders)
       .set({ status: "cancelled", closedAt: new Date().toISOString(), cancelReason: reason })
       .where(eq(orders.id, order.id))
-      .run();
+      ;
 
     // 0018: cancelamento (iFood é a fonte da verdade) vira "cancelled" —
     // distinto de "failed" ("problema na entrega"); transições válidas na
     // máquina declarativa (customer-order-state.ts).
-    const delivery = tx.query.deliveries.findFirst({ where: eq(deliveries.orderId, order.id) }).sync();
+    const delivery = await tx.query.deliveries.findFirst({ where: eq(deliveries.orderId, order.id) });
     if (delivery && delivery.status !== "delivered" && canTransitionDelivery(delivery.status, "cancelled")) {
-      tx.update(deliveries).set({ status: "cancelled" }).where(eq(deliveries.id, delivery.id)).run();
+      await tx.update(deliveries).set({ status: "cancelled" }).where(eq(deliveries.id, delivery.id));
     }
 
-    enqueueEvent(tx, "deliveries", "ifood.order.cancelled", { orderId: order.id, externalRef: orderRef, reason });
-    enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.cancelled", {
+    await enqueueEvent(tx, "deliveries", "ifood.order.cancelled", { orderId: order.id, externalRef: orderRef, reason });
+    await enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.cancelled", {
       orderId: order.id,
       tableId: order.tableId,
     });
-    logAction(tx, SYSTEM_USER_ID, "ifood_order_cancelled", order.id, { externalRef: orderRef, reason });
+    await logAction(tx, SYSTEM_USER_ID, "ifood_order_cancelled", order.id, { externalRef: orderRef, reason });
   });
   return true;
 }

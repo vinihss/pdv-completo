@@ -9,8 +9,9 @@
 #   ./deploy/install.sh
 #
 # Variáveis necessárias em deploy/.env:
-#   DOMAIN     — domínio real (ex.: app.seudominio.com.br)
-#   JWT_SECRET — chave forte (openssl rand -hex 32)
+#   DOMAIN            — domínio real (ex.: app.seudominio.com.br)
+#   JWT_SECRET        — chave forte (openssl rand -hex 32)
+#   POSTGRES_PASSWORD — senha do banco (o compose sobe o Postgres junto)
 #
 # Variáveis opcionais (dados do estabelecimento):
 #   MERCHANT_NAME  — nome do estabelecimento
@@ -49,6 +50,7 @@ DOMAIN="${DOMAIN:-}"
 JWT_SECRET="${JWT_SECRET:-}"
 
 [ -n "$DOMAIN" ] || err "DOMAIN não definido no .env"
+[ -n "${POSTGRES_PASSWORD:-}" ] || err "POSTGRES_PASSWORD não definido no .env (o backend autentica no Postgres com ele)"
 [ -n "$JWT_SECRET" ] || err "JWT_SECRET não definido no .env (gere com: openssl rand -hex 32)"
 [ "$JWT_SECRET" != "dev-secret-change-me" ] || err "JWT_SECRET não pode ser o valor de desenvolvimento"
 
@@ -60,7 +62,7 @@ log "Domínio: $DOMAIN"
 log "Estabelecimento: $MERCHANT_NAME"
 
 # ---------- 2. Subir containers ----------
-log "Subindo containers (caddy + backend + frontend)..."
+log "Subindo containers (caddy + backend + frontend + postgres)..."
 docker compose -f docker-compose.yml up -d --build --remove-orphans
 
 # ---------- 3. Aguardar health check ----------

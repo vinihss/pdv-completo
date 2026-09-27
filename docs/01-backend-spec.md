@@ -28,7 +28,7 @@ Explicitamente fora do escopo:
 |---|---|---|
 | Runtime | Node.js (LTS) + TypeScript | tipagem forte, ecossistema maduro |
 | HTTP framework | Fastify | baixo overhead, adequado para terminal local |
-| ORM/Query builder | Drizzle | SQL-first, roda igual em SQLite (local) e Postgres (cloud) |
+| ORM/Query builder | Drizzle | SQL-first sobre PostgreSQL (`node-postgres`) |
 | Real-time | WebSocket (`@fastify/websocket`) | atualização de status entre telas |
 | Validação | Zod | schemas reusáveis entre camadas |
 | Auth | JWT + PIN numérico (argon2) | login rápido em ambiente compartilhado |
@@ -44,10 +44,13 @@ Variação é só configuração:
 
 ```typescript
 // config/env.ts
+> **Atualização 2026**: o SQLite foi **removido** do produto. `DATABASE_URL` é
+> sempre `postgres://` e `syncEnabled` saiu do config (não havia implementação).
+
 export const config = {
   deploymentMode: process.env.DEPLOYMENT_MODE, // 'local' | 'cloud'
-  databaseUrl: process.env.DATABASE_URL,        // sqlite:./data.db | postgres://...
-  syncEnabled: process.env.SYNC_ENABLED === 'true',
+  databaseUrl: process.env.DATABASE_URL,        // postgres://user:pass@host:5432/db
+  databasePoolMax: Number(process.env.DATABASE_POOL_MAX ?? 10),
 }
 ```
 
@@ -327,7 +330,10 @@ src/
 | `infra` | `domain`, bibliotecas externas (Drizzle, ws, etc) |
 | `http` | `container` (ponto único de acesso a `application`) |
 
-Isso permite trocar o destino do banco (SQLite local vs Postgres cloud) mudando apenas `infra/db/client.ts` + variável de ambiente, sem tocar em lógica de negócio.
+Isso mantém a lógica de negócio desacoplada do banco: trocar o *destino* do
+Postgres (compose local, RDS, Neon) é só `DATABASE_URL`, sem tocar em use case.
+> **Atualização 2026**: com o SQLite removido, `infra/db/client.ts` fala só com
+> o Postgres — não há mais troca de driver, só de endpoint.
 
 ## 6. Container de Injeção de Dependência
 
@@ -1008,14 +1014,19 @@ Cada usecase relevante chama `logAction` após a operação principal ter sucess
 
 ## 14. Deployment e Setup
 
-### 14.1 Modo local — corrigindo uma inconsistência
+### 14.1 Modo local
 
-⚠️ Este documento tinha uma contradição: a seção 3 define modo **local** usando SQLite (`sqlite:./data.db`) como banco, mas uma versão anterior desta seção desenhava um `docker-compose.yml` com container `db` em Postgres também no modo local. **A versão correta é a da seção 3**: modo local não precisa de um processo de banco separado — SQLite é um arquivo, então um único container já basta.
+> **Atualização 2026 (decidido)**: a contradição apontada nesta seção foi
+> **resolvida em favor do Postgres também no modo local** — o SQLite foi
+> removido do produto. O compose local sobe `backend` + `postgres` + `frontend`
+> (o `postgres` é o serviço de banco do modo local, com healthcheck; o backend
+> só sobe depois dele ficar pronto).
 
 ```
-docker-compose.yml (modo local)
-└── app        (Node backend, porta 3000, acessível na rede local)
-    └── volume: ./data → /app/data   (arquivo SQLite persistente, sobrevive a restart do container)
+docker-compose.local.yml (modo local)
+├── postgres    (Postgres 16, volume pdv_postgres_data — dados persistentes)
+├── backend     (Node, porta 3000, sem porta exposta — só o Caddy fala com ele)
+└── frontend
 ```
 
 Modo cloud: mesma imagem `app`, sem `docker-compose.yml` nenhum necessariamente (pode ser qualquer runtime que suporte um container Node — Fly.io, Railway, ECS etc.) — `DATABASE_URL` aponta para a instância Postgres gerenciada (RDS/Supabase), sem volume de dados local, já que o estado vive no Postgres.
@@ -1025,10 +1036,11 @@ Modo cloud: mesma imagem `app`, sem `docker-compose.yml` nenhum necessariamente 
 | Variável | Obrigatória | Exemplo (local) | Exemplo (cloud) |
 |---|---|---|---|
 | `DEPLOYMENT_MODE` | sim | `local` | `cloud` |
-| `DATABASE_URL` | sim | `sqlite:./data/data.db` | `postgres://user:pass@host:5432/pdv` |
+| `DATABASE_URL` | sim | `postgres://pdv:senha@postgres:5432/pdv` | `postgres://user:pass@host:5432/pdv` |
 | `JWT_SECRET` | sim | gerado uma vez no primeiro setup, salvo no `.env` do servidor local | secret gerenciado (ex: variável de ambiente do provedor) |
-| `SYNC_ENABLED` | não (padrão `false`) | `true` se o estabelecimento quiser backup pra nuvem | não se aplica (já é cloud) |
-| `SYNC_TARGET_URL` | só se `SYNC_ENABLED=true` | URL do endpoint de sincronização na nuvem | — |
+| `DATABASE_POOL_MAX` | não (padrão `10`) | `10` | conforme a instância |
+| ~~`SYNC_ENABLED`~~ | — | **removida** (o SQLite foi removido; o backup é `deploy/backup.sh` com `pg_dump`) | — |
+| ~~`SYNC_TARGET_URL`~~ | — | **removida** com o SQLite | — |
 | `PORT` | não (padrão `3000`) | `3000` | definido pelo provedor cloud, geralmente via `PORT` injetada |
 | `LOG_LEVEL` | não (padrão `info`) | `debug` em desenvolvimento | `info` ou `warn` em produção |
 
@@ -1069,9 +1081,14 @@ Migration que precisa de dado default pra coluna nova em tabela já populada (ex
 
 Dimensionamento pensado pra um único estabelecimento de porte pequeno/médio (bar/restaurante), não pra escala multi-tenant nesta etapa:
 
-- **Volume esperado**: até ~30 mesas/comandas simultâneas, pico de ~15 lançamentos de item por minuto no rush. O SQLite local aguenta essa carga tranquilamente (é single-writer, mas a contenção de escrita não chega perto do limite nesse volume); se o estabelecimento crescer muito além disso, é sinal pra migrar esse cliente pro modo cloud (Postgres), não pra otimizar o modo local.
+- **Volume esperado**: até ~30 mesas/comandas simultâneas, pico de ~15 lançamentos de item por minuto no rush. O Postgres aguenta essa carga com folga (e o pool de conexões é de 10 por padrão, tudo no mesmo host). Se o estabelecimento crescer muito além disso, é sinal pra subir de instância (`DATABASE_POOL_MAX` + Postgres maior), não pra trocar de banco.
 - **Latência aceitável**: ações do garçom (adicionar item, marcar entregue) devem responder em menos de 300ms em modo local (rede interna, sem round-trip de internet) — se não bater isso, é sintoma de problema real (query sem índice, lock desnecessário), não de expectativa mal calibrada.
-- **Disponibilidade em modo local**: depende só da energia e do Wi-Fi do estabelecimento — não há SLA formal, mas o sistema precisa voltar a funcionar sozinho depois de queda de energia (container com `restart: always`, banco em arquivo que não corrompe com desligamento abrupto — SQLite com WAL mode ligado cumpre isso).
+- **Disponibilidade em modo local**: depende só da energia e do Wi-Fi do estabelecimento — não há SLA formal, mas o sistema precisa voltar a funcionar sozinho depois de queda de energia (`restart: unless-stopped` nos containers; o Postgres em volume nomeado é recovery-safe e não corrompe em desligamento abrupto). O `pg_dump` do `deploy/backup.sh` é o mecanismo de restauração.
 - **Segurança em modo cloud**: HTTPS obrigatório (nunca servir a API em HTTP puro pra fora do `localhost`); CORS restrito à origem do app cliente, não `*`; `JWT_SECRET` nunca commitado, sempre injetado via variável de ambiente do provedor.
 - **Segurança em modo local**: rede Wi-Fi interna do estabelecimento é o perímetro de confiança — não há autenticação de rede adicional (VPN, etc.) prevista nesta etapa; é uma decisão consciente de simplicidade, válida enquanto o Wi-Fi do local não for aberto ao público na mesma rede dos tablets.
-- **Backup**: modo local depende do `SYNC_ENABLED` (seção 3) pra ter qualquer cópia fora do próprio mini-PC; sem isso, perda do hardware físico é perda total dos dados — vale deixar isso explícito pro dono do estabelecimento antes do primeiro deploy, não é implícito.
+> **Atualização 2026**: a lacuna de `SYNC_ENABLED` foi resolvida por tooling —
+> `deploy/backup.sh` faz `pg_dump` (snapshot consistente, sem derrubar o banco) e
+> o `deploy/README.md` traz o agendamento por cron. O que continua sendo do
+> operador: agendar o cron e copiar as cópias pra fora do servidor — perda do
+> hardware físico continua sendo perda total sem isso, e vale deixar explícito
+> pro dono do estabelecimento antes do primeiro deploy.

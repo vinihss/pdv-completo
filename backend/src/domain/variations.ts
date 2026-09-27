@@ -42,8 +42,8 @@ export function normalizeVariations(raw: unknown): VariationGroup[] {
     .filter((g) => g.name.length > 0 && g.options.length > 0);
 }
 
-// `product.variations` é text no SQLite (drizzle sem mode:'json') e pode
-// veio de seed antigo com JSON inválido — parse tolerante, devolve [].
+// `product.variations` é text no Postgres (drizzle sem mode:'json') e pode ter
+// vindo de seed antigo com JSON inválido — parse tolerante, devolve [].
 export function parseVariations(raw: string | null | undefined): VariationGroup[] {
   if (!raw) return [];
   try {

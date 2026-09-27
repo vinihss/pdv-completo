@@ -27,17 +27,19 @@ services:
     restart: unless-stopped
     environment:
       - DEPLOYMENT_MODE=local
-      - DATABASE_URL=sqlite:/app/data/data.db
+      - DATABASE_URL=postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}
       - JWT_SECRET=${JWT_SECRET}
       - CORS_ORIGIN=
       - PORT=3000
       - LOG_LEVEL=info
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - ../backend/src:/app/src
       - ../backend/migrations:/app/migrations
       - ../backend/package.json:/app/package.json
       - ../backend/package-lock.json:/app/package-lock.json
-      - backend_data:/app/data
       - backend_uploads:/app/uploads
     # tsx watch roda em background; o container morre com o shell
 
@@ -58,12 +60,28 @@ services:
       - /app/node_modules
     # vite dev server com HMR — só o Caddy acessa
 
+  # Banco oficial — mesmo volume do compose de produção.
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-pdv}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-pdv_password}
+      - POSTGRES_DB=${POSTGRES_DB:-pdv}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pdv} -d ${POSTGRES_DB:-pdv}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
-  backend_data:
-    name: pdv_backend_data
   backend_uploads:
     name: pdv_backend_uploads
   caddy_data:
     name: pdv_caddy_data
   caddy_config:
     name: pdv_caddy_config
+  postgres_data:
+    name: pdv_postgres_data

@@ -114,7 +114,7 @@ aba Estoque ao vivo além do badge de estoque baixo nas abas.
 compra com auditoria, ajuste negativo/zero, evento `stock.low`, produto sem
 `track_stock` não é debitado, feature desligada não bloqueia, e histórico de
 movimentos. Roda com `npm run test` no `backend/` (banco dedicado
-`data/test.db`, limpo no global setup).
+`pdv_test` via `TEST_DATABASE_URL`, recriado no global setup).
 
 Frontend: `frontend/` roda vitest com `npm run test`; lint com `npm run lint`.
 A feature fica em `src/features/inventory/` (StockTab, MovementsList,

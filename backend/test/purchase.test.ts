@@ -1,38 +1,32 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
-import { api, seedFixture, resetState, closeTestApp, manager, FIXTURE } from "./helpers.js";
-import { rawSqlite } from "../src/infra/db/client.js";
+import { api, seedFixture, resetState, closeTestApp, manager, FIXTURE, raw } from "./helpers.js";
 
 const PROD = { id: "p-pur", name: "Malte lúpulo", price: 15, costPrice: 8, threshold: 2, stock: 20 };
 
 // Sem `published` no filtro: o dispatcher marca `published = 1` ao despachar, e
 // isso é detalhe de entrega, não do contrato de emissão (ver guard de main() em
 // src/http/server.ts — nos testes o outbox só cresce por enqueueEvent).
-function outbox(room: string, type: string) {
-  return rawSqlite
-    .prepare(
-      `SELECT payload FROM outbox_event WHERE room = ? AND event_type = ? ORDER BY rowid`
-    )
-    .all(room, type) as { payload: string }[];
+async function outbox(room: string, type: string) {
+  return await raw.all(`SELECT payload FROM outbox_event WHERE room = $1 AND event_type = $2 ORDER BY seq`, [room, type]) as { payload: string }[];
 }
-function audits(action: string) {
-  return rawSqlite
-    .prepare(`SELECT details FROM audit_log WHERE action = ?`)
-    .all(action) as { details: string }[];
+async function audits(action: string) {
+  return await raw.all(`SELECT details FROM audit_log WHERE action = $1`, [action]) as { details: string }[];
 }
 
 describe("compras e custo médio (0017)", () => {
-  beforeAll(() => {
-    seedFixture();
-    rawSqlite.exec(`
-      UPDATE store_settings SET inventory_enabled = 1, purchase_enabled = 1;
-      INSERT OR IGNORE INTO product (id, name, price, category_id, kitchen_group_id, track_stock, low_stock_threshold, cost_price)
-        VALUES ('${PROD.id}', '${PROD.name}', ${PROD.price}, '${FIXTURE.category}', '${FIXTURE.kitchenGroup}', 1, ${PROD.threshold}, ${PROD.costPrice});
+  beforeAll(async () => {
+    await seedFixture();
+    await raw.exec(`
+      UPDATE store_settings SET inventory_enabled = true, purchase_enabled = true;
+      INSERT INTO product (id, name, price, category_id, kitchen_group_id, track_stock, low_stock_threshold, cost_price)
+        VALUES ('${PROD.id}', '${PROD.name}', ${PROD.price}, '${FIXTURE.category}', '${FIXTURE.kitchenGroup}', true, ${PROD.threshold}, ${PROD.costPrice})
+        ON CONFLICT (id) DO NOTHING;
     `);
   });
   afterAll(() => closeTestApp());
-  beforeEach(() => {
-    resetState();
-    rawSqlite.exec(`
+  beforeEach(async () => {
+    await resetState();
+    await raw.exec(`
       INSERT INTO stock_movement (id, product_id, type, quantity_delta, unit_cost, note, created_by)
         VALUES ('sm-init', '${PROD.id}', 'adjustment', ${PROD.stock}, ${PROD.costPrice}, 'Estoque inicial', '${FIXTURE.manager}');
     `);
@@ -57,7 +51,7 @@ describe("compras e custo médio (0017)", () => {
     expect(upd.json.active).toBe(false);
     const list = await api("get", "/suppliers", { token: manager });
     expect(list.json.data.some((s: any) => s.id === id && !s.active)).toBe(true);
-    expect(audits("supplier_updated").some((a) => JSON.parse(a.details).supplierId === id)).toBe(true);
+    expect((await audits("supplier_updated")).some((a) => JSON.parse(a.details).supplierId === id)).toBe(true);
   });
 
   it("rejeita compra sem itens e produto sem track_stock", async () => {
@@ -102,9 +96,10 @@ describe("compras e custo médio (0017)", () => {
     expect(res.json.items[1].lineTotal).toBeCloseTo(50);
 
     // Ledger: 2 movimentos purchase (um por linha)
-    const moves = rawSqlite
-      .prepare("SELECT * FROM stock_movement WHERE product_id = ? AND type = 'purchase'")
-      .all(PROD.id) as any[];
+    const moves = await raw.all(
+      "SELECT * FROM stock_movement WHERE product_id = $1 AND type = 'purchase'",
+      [PROD.id],
+    );
     expect(moves).toHaveLength(2);
     expect(moves[0].unit_cost).toBe(9);
     expect(moves[1].unit_cost).toBe(10);
@@ -114,12 +109,12 @@ describe("compras e custo médio (0017)", () => {
     const avg = ((8 * 20 + 9 * 10 + 10 * 5) / 35);
     expect(res.json.averages[PROD.id]).toBeCloseTo(avg);
     // product.cost_price espelhado
-    const prod = rawSqlite.prepare("SELECT cost_price FROM product WHERE id = ?").get(PROD.id) as any;
+    const prod = await raw.get("SELECT cost_price FROM product WHERE id = $1", [PROD.id]);
     expect(prod.cost_price).toBeCloseTo(avg);
 
     // Audit + outbox
-    expect(audits("purchase_received").some((a) => JSON.parse(a.details).purchaseId === res.json.id)).toBe(true);
-    expect(outbox("inventory", "purchase.received").length).toBeGreaterThanOrEqual(1);
+    expect((await audits("purchase_received")).some((a) => JSON.parse(a.details).purchaseId === res.json.id)).toBe(true);
+    expect((await outbox("inventory", "purchase.received")).length).toBeGreaterThanOrEqual(1);
   });
 
   it("replay idempotente do documento de compra retorna o mesmo", async () => {

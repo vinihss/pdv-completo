@@ -23,7 +23,7 @@ export type CartItemDraft = {
 };
 
 function parseItems(raw: string): CartItemDraft[] {
-  // items é text no SQLite (drizzle sem mode:'json') — parse defensivo.
+  // items é text no Postgres (drizzle sem mode:'json') — parse defensivo.
   try {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];

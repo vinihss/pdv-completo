@@ -1,6 +1,8 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
-import { api, seedFixture, resetState, closeTestApp, cashier, manager, waiter, FIXTURE } from "./helpers.js";
+import { api, seedFixture, resetState, closeTestApp, cashier, manager, waiter, raw, FIXTURE } from "./helpers.js";
 import { dayStart, dayEnd, isValidTz } from "../src/application/cash-flow/day-bounds.js";
+import { isUniqueViolationOn } from "../src/infra/db/errors.js";
+import { pool } from "../src/infra/db/client.js";
 
 const openDrawer = (correlationId: string, openingAmount: number, note?: string) =>
   api("post", "/cash-drawer/open", { token: cashier, body: { correlationId, openingAmount, note } });
@@ -42,6 +44,85 @@ describe("fluxo de caixa", () => {
 
     const denied = await api("get", "/cash-drawer/current", { token: waiter });
     expect(denied.status).toBe(403);
+  });
+
+  it("aberturas concorrentes: uma só ganha, as outras recebem 409 de domínio (nunca 500)", async () => {
+    const racers = await Promise.all([
+      openDrawer("race-1", 100),
+      openDrawer("race-2", 100),
+      openDrawer("race-3", 100),
+      openDrawer("race-4", 100),
+    ]);
+
+    const created = racers.filter((r) => r.status === 201);
+    const rejected = racers.filter((r) => r.status !== 201);
+    expect(created).toHaveLength(1);
+    for (const r of rejected) {
+      expect(r.status).toBe(409);
+      expect(r.json.error.code).toBe("cash_drawer_already_open");
+    }
+
+    const open = await raw.get(
+      "SELECT count(*)::int AS n FROM cash_drawer WHERE status = 'open'"
+    );
+    expect(open.n).toBe(1);
+  });
+
+  it("abertura bloqueada no índice: 23505 vira 409 de domínio (nunca 500)", async () => {
+    // Mesma corrida, forçada: outra transação ocupa a gaveta e não comita, o
+    // pre-check da usecase não enxerga a linha não commitada e o INSERT dela
+    // trava no índice parcial até o commit alheio. O 23505 chega embrulhado
+    // em DrizzleQueryError — sem desembrulhar o `cause`, a resposta é 500.
+    const holder = await pool.connect();
+    try {
+      await holder.query("BEGIN");
+      await holder.query(
+        `INSERT INTO cash_drawer (id, status, opened_at, opened_by, opening_amount)
+         VALUES ('t-blocker', 'open', now() at time zone 'UTC', $1, 10)`,
+        [FIXTURE.cashier]
+      );
+
+      const pending = openDrawer("blocked-1", 100);
+      await new Promise((r) => setTimeout(r, 150));
+      await holder.query("COMMIT");
+
+      const res = await pending;
+      expect(res.status).toBe(409);
+      expect(res.json.error.code).toBe("cash_drawer_already_open");
+
+      const open = await raw.get(`SELECT count(*)::int AS n FROM cash_drawer WHERE status = 'open'`);
+      expect(open.n).toBe(1);
+    } finally {
+      await holder.query("ROLLBACK").catch(() => {});
+      holder.release();
+    }
+  });
+
+  it("uq_cash_drawer_single_open é a garantia real da sessão única (23505 no índice parcial)", async () => {
+    await openDrawer("open-1", 100);
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Snapshot "não há caixa aberto" é o estado em que uma checagem
+      // anterior passaria: aqui o insert precisa ser o que impede a segunda
+      // gaveta, e o erro tem que ser o unique_violation do Postgres.
+      const err = await client
+        .query(
+          `INSERT INTO cash_drawer (id, status, opened_at, opened_by, opening_amount)
+           VALUES ('t-race', 'open', now() at time zone 'UTC', $1, 10)`,
+          [FIXTURE.cashier]
+        )
+        .then(() => null)
+        .catch((e: unknown) => e);
+
+      expect(err).not.toBeNull();
+      expect(isUniqueViolationOn(err, "uq_cash_drawer_single_open")).toBe(true);
+      expect((err as { code?: string }).code).toBe("23505");
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+    }
   });
 
   it("sangria, suprimento e fechamento conferem o esperado", async () => {

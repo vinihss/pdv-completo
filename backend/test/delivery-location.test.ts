@@ -1,6 +1,5 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
-import { api, seedFixture, resetState, closeTestApp, FIXTURE } from "./helpers.js";
-import { rawSqlite } from "../src/infra/db/client.js";
+import { api, seedFixture, resetState, closeTestApp, FIXTURE, raw } from "./helpers.js";
 import { handleIncomingWhatsAppMessage } from "../src/application/self-service/whatsapp-bot.usecases.js";
 import { setMapServices } from "../src/application/delivery/calcular-entrega.usecase.js";
 
@@ -31,25 +30,25 @@ setMapServices(
 const RESTAURANT_LAT = -29.76;
 const RESTAURANT_LONG = -51.14;
 
-function seedRestaurantCoords() {
-  rawSqlite.exec(`
+async function seedRestaurantCoords() {
+  await raw.exec(`
     UPDATE store_settings SET restaurant_lat = ${RESTAURANT_LAT}, restaurant_long = ${RESTAURANT_LONG} WHERE id = 'singleton';
   `);
 }
 
 describe("POST /calcular-entrega", () => {
-  beforeAll(() => {
-    seedFixture();
-    seedRestaurantCoords();
+  beforeAll(async () => {
+    await seedFixture();
+    await seedRestaurantCoords();
   });
 
   afterAll(async () => {
     await closeTestApp();
   });
 
-  beforeEach(() => {
-    resetState();
-    seedRestaurantCoords();
+  beforeEach(async () => {
+    await resetState();
+    await seedRestaurantCoords();
   });
 
   it("rejeita latitude fora do intervalo", async () => {
@@ -76,7 +75,7 @@ describe("POST /calcular-entrega", () => {
   });
 
   it("rejeita quando restaurante não tem coordenadas", async () => {
-    rawSqlite.exec(`UPDATE store_settings SET restaurant_lat = NULL, restaurant_long = NULL WHERE id = 'singleton';`);
+    await raw.exec(`UPDATE store_settings SET restaurant_lat = NULL, restaurant_long = NULL WHERE id = 'singleton';`);
     const res = await api("post", "/calcular-entrega", {
       body: { latitude: -29.75, longitude: -51.14 },
     });
@@ -86,18 +85,18 @@ describe("POST /calcular-entrega", () => {
 });
 
 describe("Webhook WhatsApp - localização", () => {
-  beforeAll(() => {
-    seedFixture();
-    seedRestaurantCoords();
+  beforeAll(async () => {
+    await seedFixture();
+    await seedRestaurantCoords();
   });
 
   afterAll(async () => {
     await closeTestApp();
   });
 
-  beforeEach(() => {
-    resetState();
-    seedRestaurantCoords();
+  beforeEach(async () => {
+    await resetState();
+    await seedRestaurantCoords();
   });
 
   it("extrai localização do payload", async () => {

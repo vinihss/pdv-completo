@@ -3,13 +3,9 @@
 # ============================================================
 FROM node:22-slim
 
-# node-gyp (usado pelo better-sqlite3) precisa de python3 + build tools
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
-# Instalar dependências
+# Instalar dependências (pg é puro JS — não precisa de toolchain de build)
 COPY package*.json ./
 RUN npm ci
 
@@ -18,6 +14,3 @@ COPY . .
 
 # Expor porta
 EXPOSE 3000
-
-# Comando de desenvolvimento: tsx watch com hot reload
-CMD ["npx", "tsx", "watch", "src/http/server.ts"]

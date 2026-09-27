@@ -38,7 +38,7 @@ export async function syncCatalogUsecase(): Promise<{
   if (!isIfoodEnabled()) throw Errors.notFound("integração iFood habilitada (env/credenciais)");
 
   await resolveMerchantIfNeeded();
-  const merchantId = getMerchantId();
+  const merchantId = await getMerchantId();
   if (!merchantId) throw Errors.notFound("merchant iFood");
 
   const base = ifoodConfig.catalogUrl(merchantId);
@@ -47,12 +47,11 @@ export async function syncCatalogUsecase(): Promise<{
   if (!catalog?.catalogId) throw Errors.notFound("catálogo DEFAULT do iFood");
 
   // 1. Categorias: garante que cada categoria local ativa exista no iFood.
-  const localCategories = db
+  const localCategories = await db
     .select()
     .from(categories)
     .where(eq(categories.active, true))
-    .orderBy(categories.displayOrder)
-    .all();
+    .orderBy(categories.displayOrder);
   const existing = await ifoodFetch<IfoodCategory[]>(`${base}/catalogs/${catalog.catalogId}/categories`);
 
   const nameToIfoodId = new Map<string, string>();
@@ -71,18 +70,17 @@ export async function syncCatalogUsecase(): Promise<{
   }
 
   // 2. Itens: UPSERT de todos os produtos habilitados pro iFood.
-  const toSync = db
+  const toSync = await db
     .select()
     .from(products)
-    .where(eq(products.ifoodEnabled, true))
-    .all();
+    .where(eq(products.ifoodEnabled, true));
   const payload: Array<Record<string, unknown>> = [];
   let unavailable = 0;
 
   for (const p of toSync) {
     const sku = p.ifoodSku || p.id; // sem SKU definido, usa o id interno (estável)
     const localCat = p.categoryId
-      ? db.query.categories.findFirst({ where: eq(categories.id, p.categoryId) }).sync()
+      ? await db.query.categories.findFirst({ where: eq(categories.id, p.categoryId) })
       : null;
     const iFoodCategoryId = localCat ? nameToIfoodId.get(localCat.name) : undefined;
     const available = Boolean(p.active);
@@ -109,8 +107,8 @@ export async function syncCatalogUsecase(): Promise<{
     await ifoodFetch(`${base}/items`, { method: "PUT", body: { items: chunk } });
   }
 
-  setIfoodState(ifoodStateKeys.lastCatalogSyncAt, syncedAt);
-  setIfoodState(ifoodStateKeys.lastCatalogSyncError, "");
+  await setIfoodState(ifoodStateKeys.lastCatalogSyncAt, syncedAt);
+  await setIfoodState(ifoodStateKeys.lastCatalogSyncError, "");
 
   return {
     merchantId,

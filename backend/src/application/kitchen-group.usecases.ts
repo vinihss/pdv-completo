@@ -24,13 +24,12 @@ export async function createKitchenGroupUsecase(
   input: { name: string; displayOrder?: number },
   actorId: string
 ) {
-  const row = await db.transaction((tx) => {
-    const r = tx
+  const row = await db.transaction(async (tx) => {
+    const [r] = await tx
       .insert(kitchenGroups)
       .values({ name: input.name, displayOrder: input.displayOrder ?? 0 })
-      .returning()
-      .get();
-    logAction(tx, actorId, "kitchen_group_created", null, { kitchenGroupId: r.id, name: r.name });
+      .returning();
+    await logAction(tx, actorId, "kitchen_group_created", null, { kitchenGroupId: r.id, name: r.name });
     invalidateKitchenGroupRelated();
     return r;
   });
@@ -44,8 +43,8 @@ export async function updateKitchenGroupUsecase(
 ) {
   const existing = await db.query.kitchenGroups.findFirst({ where: eq(kitchenGroups.id, id) });
   if (!existing) throw Errors.notFound("Grupo de produção");
-  const row = await db.transaction((tx) => {
-    const r = tx
+  const row = await db.transaction(async (tx) => {
+    const [r] = await tx
       .update(kitchenGroups)
       .set({
         ...(input.name !== undefined ? { name: input.name } : {}),
@@ -53,9 +52,8 @@ export async function updateKitchenGroupUsecase(
         ...(input.active !== undefined ? { active: input.active } : {}),
       })
       .where(eq(kitchenGroups.id, id))
-      .returning()
-      .get();
-    logAction(tx, actorId, "kitchen_group_updated", null, { kitchenGroupId: id });
+      .returning();
+    await logAction(tx, actorId, "kitchen_group_updated", null, { kitchenGroupId: id });
     invalidateKitchenGroupRelated();
     return r;
   });
@@ -67,10 +65,10 @@ export async function updateKitchenGroupUsecase(
 export async function deleteKitchenGroupUsecase(id: string, actorId: string) {
   const existing = await db.query.kitchenGroups.findFirst({ where: eq(kitchenGroups.id, id) });
   if (!existing) throw Errors.notFound("Grupo de produção");
-  await db.transaction((tx) => {
-    tx.update(products).set({ kitchenGroupId: null }).where(eq(products.kitchenGroupId, id)).run();
-    tx.delete(kitchenGroups).where(eq(kitchenGroups.id, id)).run();
-    logAction(tx, actorId, "kitchen_group_deleted", null, { kitchenGroupId: id, name: existing.name });
+  await db.transaction(async (tx) => {
+    await tx.update(products).set({ kitchenGroupId: null }).where(eq(products.kitchenGroupId, id));
+    await tx.delete(kitchenGroups).where(eq(kitchenGroups.id, id));
+    await logAction(tx, actorId, "kitchen_group_deleted", null, { kitchenGroupId: id, name: existing.name });
     invalidateKitchenGroupRelated();
   });
 }
