@@ -1,9 +1,18 @@
 import { defineConfig } from "vitest/config";
 import { TEST_DATABASE_URL } from "./test/test-db.js";
 
-// Testes do backend rodam contra um Postgres dedicado (pdv_test), com as
+/**
+ * Porta do stub da Graph API usado por test/whatsapp.test.ts. Fixa porque
+ * `config` (env.ts) é um snapshot no load do módulo — a URL precisa estar
+ * resolvida antes de qualquer import, então não dá para usar a porta que o
+ * servidor de teste escolheria em runtime.
+ */
+const WHATSAPP_STUB_PORT = 3455;
+
+// Tests do backend rodam contra um Postgres dedicado (pdv_test), com as
 // variáveis de ambiente resolvidas ANTES de qualquer import das rotas/use
-// cases (o client do Drizzle abre o pool no carregamento do módulo).
+// cases (o client do Drizzle abre o pool no carregamento do módulo, e o
+// `config` do env.ts é um snapshot feito no load).
 export default defineConfig({
   test: {
     globalSetup: ["./test/global-setup.ts"],
@@ -17,6 +26,22 @@ export default defineConfig({
       DEPLOYMENT_MODE: "local",
       JWT_SECRET: "test-secret-com-mais-de-32-caracteres-para-rodar-os-testes",
       LOG_LEVEL: "silent",
+
+      // ---- Meta / WhatsApp Cloud API ----
+      // `config` é snapshot no load do módulo, então a Graph precisa estar
+      // apontada aqui, e não no beforeAll da suíte. A suíte whatsapp.test.ts
+      // sobe o stub HTTP nesta porta fixa (mesmo truque do IFOOD_MOCK_PORT) e
+      // usa THESE valores para conferir a assinatura e o appsecret_proof.
+      META_APP_ID: "app-123",
+      META_APP_SECRET: "app-secret-de-teste",
+      WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID: "cfg-123",
+      WHATSAPP_VERIFY_TOKEN: "verify-me",
+      WHATSAPP_GRAPH_BASE_URL: `http://127.0.0.1:${WHATSAPP_STUB_PORT}`,
+      WHATSAPP_GRAPH_VERSION: "v99.0",
+      // Desligado de propósito: com token de env presente, `resolveConnection()`
+      // cairia no caminho legado e os testes da conexão por WABA não provariam nada.
+      WHATSAPP_ACCESS_TOKEN: "",
+      WHATSAPP_PHONE_NUMBER_ID: "",
     },
   },
 });

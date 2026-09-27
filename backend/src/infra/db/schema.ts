@@ -61,6 +61,9 @@ export const whatsappState = pgEnum("whatsapp_state", ["welcome", "browsing", "c
 export const deliveryStatus = pgEnum("delivery_status", ["awaiting_courier", "out_for_delivery", "delivered", "failed", "cancelled"]);
 export const pixKeyType = pgEnum("pix_key_type", ["cpf", "cnpj", "email", "phone", "random"]);
 export const idempotencyStatus = pgEnum("idempotency_status", ["processing", "completed", "failed"]);
+export const whatsappConnectionStatus = pgEnum("whatsapp_connection_status", ["active", "expired", "revoked", "disconnected"]);
+export const whatsappMessageStatus = pgEnum("whatsapp_message_status", ["sent", "delivered", "read", "failed"]);
+export const whatsappMessageKind = pgEnum("whatsapp_message_kind", ["notification", "bot_reply"]);
 
 const id = () =>
   text("id")
@@ -512,6 +515,10 @@ export const whatsappConversations = pgTable("whatsapp_conversation", {
   cartItems: text("cart_items").notNull().default("[]"), // JSON string
   customerName: text("customer_name"),
   deliveryAddress: text("delivery_address"),
+  // Rastreabilidade (0002): a WABA de onde a conversa veio. Não é parte
+  // do PK porque há UMA conexão ativa por instalação — enforced no banco
+  // por uq_whatsapp_single_active. Nullable porque a coluna entrou depois.
+  wabaId: text("waba_id"),
   updatedAt: text("updated_at").notNull().default(isoNow),
   expiresAt: text("expires_at").notNull(),
 });
@@ -558,9 +565,80 @@ export const geocodingCache = pgTable(
   "geocoding_cache",
   {
     cacheKey: text("cache_key").primaryKey(),
-    response: text("response").notNull(), // JSON string
+    response: text("response").notNull(),
     createdAt: text("created_at").notNull().default(isoNow),
     expiresAt: text("expires_at").notNull(),
   },
   (t) => [index("idx_geocoding_cache_expires").on(t.expiresAt)],
+);
+
+// ============================================================
+// Embedded Signup / WhatsApp Cloud API (0002) — ver
+// docs/10-whatsapp-embedded-signup.md
+// ============================================================
+
+// A WABA que o dono da loja conectou pelo Embedded Signup, com o token
+// que o servidor trocou pelo código de autorização. Chave natural é
+// waba_id: reconectar o mesmo WABA atualiza a linha em vez de duplicar.
+// A unicidade de UMA conexão `active` é do BANCO
+// (uq_whatsapp_single_active, índice parcial em status) — por isso o
+// saveConnection desativa a anterior antes de promover a nova.
+export const whatsappConnections = pgTable("whatsapp_connection", {
+  id: id(),
+  wabaId: text("waba_id").notNull().unique(),
+  phoneNumberId: text("phone_number_id").notNull(),
+  businessId: text("business_id"),
+  businessName: text("business_name"),
+  displayPhoneNumber: text("display_phone_number"),
+  displayName: text("display_name"),
+  accessToken: text("access_token").notNull(), // texto puro — mesmo tratamento do token do iFood (ifood_state)
+  tokenExpiresAt: text("token_expires_at"), // null = token BISU sem expiração
+  status: whatsappConnectionStatus("status").notNull().default("active"),
+  lastError: text("last_error"),
+  createdAt: text("created_at").notNull().default(isoNow),
+  updatedAt: text("updated_at").notNull().default(isoNow),
+});
+
+// Uma linha por mensagem ENVIADA, chaveada pelo wamid que a Meta devolve.
+// É a junta entre o POST /messages e o webhook `messages.statuses`:
+// sem esta linha não dá para dizer a qual pedido a mensagem entregue
+// pertence. orderId é nullable porque o bot de auto-atendimento também
+// envia, e essa mensagem não pertence a nenhum pedido.
+export const whatsappOutboundMessages = pgTable(
+  "whatsapp_outbound_message",
+  {
+    id: text("id").primaryKey(), // wamid (wamid.XXXX...)
+    wabaId: text("waba_id")
+      .notNull()
+      .references(() => whatsappConnections.wabaId, { onDelete: "cascade" }),
+    orderId: text("order_id").references(() => orders.id, { onDelete: "cascade" }),
+    toPhone: text("to_phone").notNull(),
+    kind: whatsappMessageKind("kind").notNull(),
+    status: whatsappMessageStatus("status").notNull().default("sent"),
+    errorCode: integer("error_code"),
+    errorMessage: text("error_message"),
+    createdAt: text("created_at").notNull().default(isoNow),
+    updatedAt: text("updated_at").notNull().default(isoNow),
+  },
+  (t) => [
+    index("idx_whatsapp_outbound_order").on(t.orderId),
+    index("idx_whatsapp_outbound_waba_created").on(t.wabaId, t.createdAt),
+  ],
+);
+
+// Dedupe do inbound: a Meta reenvia o MESMO webhook enquanto não receber
+// 200, por até ~7 dias. `type` é TEXT de propósito (não enum) — a Meta
+// adiciona tipos sem aviso e um enum quebraria no primeiro novo.
+export const whatsappInboundMessages = pgTable(
+  "whatsapp_inbound_message",
+  {
+    id: text("id").primaryKey(), // wamid (wamid.XXXX...)
+    wabaId: text("waba_id")
+      .notNull()
+      .references(() => whatsappConnections.wabaId, { onDelete: "cascade" }),
+    fromPhone: text("from_phone").notNull(),
+    type: text("type").notNull(),
+    createdAt: text("created_at").notNull().default(isoNow),
+  },
+  (t) => [index("idx_whatsapp_inbound_waba").on(t.wabaId)],
 );

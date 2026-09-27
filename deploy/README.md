@@ -185,6 +185,34 @@ válido, e a API responde em `https://app.seudominio.com.br/api/...`.
   roda automaticamente no boot. O `install.sh` chama esse script após o
   seed-prod.
 
+## WhatsApp (opcional)
+
+A aba **WhatsApp** do gerente usa o [Embedded Signup da Meta](../docs/10-whatsapp-embedded-signup.md).
+Nada de obrigatório: sem estas variáveis a aba mostra "não configurado" e o
+resto do sistema funciona igual.
+
+No `.env` do deploy (`deploy/.env`), acrescentar:
+
+```
+META_APP_ID=<id do app da Meta>
+META_APP_SECRET=<segredo do app>
+WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID=<config_id do Embedded Signup v4>
+WHATSAPP_VERIFY_TOKEN=<valor aleatorio seu>
+```
+
+A URL de callback cadastrada no painel da Meta é
+`https://<DOMAIN>/webhooks/whatsapp` — **sem o `/api`**. Os três Caddyfiles
+já têm a rota `/webhooks/*` apontando para o backend; se você customizar o
+seu, ela é obrigatória, senão a Meta não consegue validar o callback e o
+PDV não recebe resposta nem status de entrega.
+
+O que é do app (as variáveis acima) vale para qualquer loja que se conectar
+nele. O token do WhatsApp em si é **por loja** e fica no banco
+(`whatsapp_connection`), criado pelo próprio popup de conexão.
+
+Pré-requisitos do lado da Meta (App Review, permissões, número novo) estão no
+doc do módulo.
+
 ## Backup (não pule esta parte)
 
 O banco mora no volume Docker `pdv_postgres_data` (nome explícito,

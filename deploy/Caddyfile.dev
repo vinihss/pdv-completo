@@ -24,6 +24,13 @@
 		reverse_proxy backend:3000
 	}
 
+	# Webhooks da Meta (WhatsApp Cloud API). Fora de /api de propósito: a
+	# URL de callback é cadastrada no painel da Meta e não pode depender do
+	# prefixo que o backend usa na API REST.
+	handle /webhooks/* {
+		reverse_proxy backend:3000
+	}
+
 	# Health check
 	handle /health {
 		reverse_proxy backend:3000

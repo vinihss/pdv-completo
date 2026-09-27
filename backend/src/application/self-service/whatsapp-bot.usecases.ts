@@ -23,6 +23,30 @@ async function getConversation(phone: string): Promise<ConversationRow | null> {
   return convo ?? null;
 }
 
+/**
+ * Carimba a WABA de origem na conversa.
+ *
+ * Só para rastreabilidade: se um dia a instalação trocar de WABA (ou atender
+ * mais de uma), dá para dizer de qual número aquela conversa nasceu. Não é
+ * usado para decidir nada no fluxo — o roteamento é do webhook.
+ *
+ * Escrito uma vez, no entrypoint, em vez de repassado por todos os helpers
+ * de estado: eles cuidam do `state`/`deliveryAddress` e não têm por que
+ * carregar esse dado.
+ */
+async function stampConversationWaba(phone: string, wabaId: string) {
+  const now = new Date();
+  const values = {
+    wabaId,
+    updatedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + GREETING_TIMEOUT_MS).toISOString(),
+  };
+  await db
+    .insert(whatsappConversations)
+    .values({ phone, state: "done", ...values })
+    .onConflictDoUpdate({ target: whatsappConversations.phone, set: values });
+}
+
 async function updateConversation(phone: string, state: ConversationState, deliveryAddress?: string) {
   const now = new Date();
   const values = {
@@ -102,8 +126,12 @@ async function handleCorrection(phone: string, text: string): Promise<string> {
 export async function handleIncomingWhatsAppMessage(
   phone: string,
   text: string | null,
-  location: WhatsAppLocation | null
+  location: WhatsAppLocation | null,
+  /** WABA que recebeu a mensagem. Só rastreabilidade; ver stampConversationWaba. */
+  wabaId?: string | null
 ): Promise<{ replyText: string }> {
+  if (wabaId) await stampConversationWaba(phone, wabaId);
+
   const convo = await getConversation(phone);
   const state = (convo?.state ?? "done") as ConversationState;
 

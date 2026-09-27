@@ -4,15 +4,16 @@ import { menuSectionsFor, hasExpandableSections, firstItemId } from "./menuSecti
 const labels = (sections) => sections.flatMap((s) => s.items.map((i) => `${s.label}/${i.label}`));
 
 describe("menuSectionsFor", () => {
-  it("gerente: 4 seções, 11 itens com estoque e compras ligados", () => {
+  it("gerente: 4 seções, 12 itens com estoque e compras ligados", () => {
     const sections = menuSectionsFor("manager", { inventoryEnabled: true, purchaseEnabled: true });
     expect(sections.map((s) => s.label)).toEqual(["Operação", "Catálogo", "Gestão", "Sistema"]);
-    expect(sections.flatMap((s) => s.items)).toHaveLength(11);
+    expect(sections.flatMap((s) => s.items)).toHaveLength(12);
   });
 
   it("gerente: os toggles de estoque e compras entram no catálogo", () => {
     expect(labels(menuSectionsFor("manager"))).toEqual([
       "Operação/Comandas", "Operação/Caixa", "Operação/Entregas", "Operação/iFood",
+      "Operação/WhatsApp",
       "Catálogo/Cadastros",
       "Gestão/Equipe", "Gestão/Relatórios", "Gestão/Auditoria",
       "Sistema/Configurações",
@@ -27,7 +28,7 @@ describe("menuSectionsFor", () => {
     const ids = menuSectionsFor("manager", { inventoryEnabled: true, purchaseEnabled: true })
       .flatMap((s) => s.items)
       .map((i) => i.id);
-    expect(ids).toEqual(["orders", "cash", "deliveries", "ifood", "catalog", "stock", "compras", "users", "reports", "audit", "settings"]);
+    expect(ids).toEqual(["orders", "cash", "deliveries", "ifood", "whatsapp", "catalog", "stock", "compras", "users", "reports", "audit", "settings"]);
   });
 
   it("perfis de tela única: uma seção com um item", () => {
