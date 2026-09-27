@@ -23,6 +23,8 @@ export function Toast({ toast }) {
       : "border-stone-700 bg-stone-800";
   return (
     <div
+      role="status"
+      aria-live="polite"
       className={`fixed top-4 left-1/2 -translate-x-1/2 border px-5 py-3 rounded-xl shadow-2xl z-[80] text-sm font-semibold toast-anim ${kindClass}`}
     >
       {toast.msg}
