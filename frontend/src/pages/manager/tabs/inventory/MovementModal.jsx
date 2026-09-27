@@ -44,7 +44,7 @@ export default function MovementModal({ product, onClose, onSaved, showToast }) 
       onClose={onClose}
       footer={
         <button
-          onClick={handleSave}
+          type="submit"
           disabled={saving}
           className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl"
         >
@@ -52,10 +52,12 @@ export default function MovementModal({ product, onClose, onSaved, showToast }) 
         </button>
       }
     >
-      <div className="p-5">
-        <div className="grid grid-cols-2 gap-2 mb-4">
+      <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="p-5">
+        <div className="grid grid-cols-2 gap-2 mb-4" role="group" aria-label="Tipo de movimento">
           <button
+            type="button"
             onClick={() => setType("purchase")}
+            aria-pressed={type === "purchase"}
             className={`flex flex-col items-center gap-1 rounded-xl border py-3 text-sm font-semibold ${
               type === "purchase" ? "bg-emerald-500/15 border-emerald-500/50 text-emerald-400" : "bg-stone-800 border-stone-700 text-stone-400"
             }`}
@@ -63,7 +65,9 @@ export default function MovementModal({ product, onClose, onSaved, showToast }) 
             <PlusCircle size={18} /> Entrada (compra)
           </button>
           <button
+            type="button"
             onClick={() => setType("adjustment")}
+            aria-pressed={type === "adjustment"}
             className={`flex flex-col items-center gap-1 rounded-xl border py-3 text-sm font-semibold ${
               type === "adjustment" ? "bg-amber-500/15 border-amber-500/50 text-amber-400" : "bg-stone-800 border-stone-700 text-stone-400"
             }`}
@@ -96,7 +100,7 @@ export default function MovementModal({ product, onClose, onSaved, showToast }) 
             Saldo atual: <b className="text-stone-200">{product.quantity}</b> · saldo após o movimento fica registrado no histórico.
           </div>
         </div>
-      </div>
+      </form>
     </Modal>
   );
 }
