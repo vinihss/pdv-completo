@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useId } from "react";
 
 export const inputClass =
   "w-full bg-stone-800 border border-stone-700 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-amber-500/50";
@@ -13,19 +13,24 @@ export function Section({ title, children }) {
 }
 
 export function Field({ label, children }) {
+  const id = useId();
   return (
     <div>
-      <div className="text-stone-400 text-xs font-medium mb-1.5">{label}</div>
-      {children}
+      <label htmlFor={id} className="text-stone-400 text-xs font-medium mb-1.5 block">{label}</label>
+      {React.isValidElement(children) ? React.cloneElement(children, { id }) : children}
     </div>
   );
 }
 
 export function ToggleRow({ label, checked, onChange }) {
+  const id = useId();
   return (
     <div className="flex items-center justify-between">
-      <span className="text-sm font-medium">{label}</span>
+      <label htmlFor={id} className="text-sm font-medium">{label}</label>
       <button
+        id={id}
+        role="switch"
+        aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={`w-11 h-6 rounded-full transition-colors relative ${checked ? "bg-amber-500" : "bg-stone-700"}`}
       >
