@@ -149,9 +149,28 @@ export async function buildApp(): Promise<FastifyInstance> {
 }
 
 async function main() {
-  // Migrations rodam automaticamente no boot em modo local (§14.5)
+  // Migrations rodam automaticamente no boot em modo local (§14.5).
+  //
+  // O `await` é obrigatório. Sem ele a promise rejeitada virava unhandled
+  // rejection e o processo subia assim mesmo: o health check respondia 200 e o
+  // sintoma aparecia só como 500 em runtime, com o schema pela metade. É
+  // exatamente o caso perigoso do deploy — banco "saudável", app quebrado.
+  //
+  // Falhar aqui é o comportamento correto: o `main().catch` no fim deste
+  // arquivo aborta com `exit 1`, e o `restart: unless-stopped` do compose faz o
+  // Docker reiniciar o container, deixando o motivo visível em
+  // `docker compose logs backend`. Sem o banco pronto, o `pool.connect()`
+  // estoura em `connectionTimeoutMillis` (10s) — no compose o backend só sobe
+  // depois do `service_healthy` do postgres, então isso não acontece em deploy.
   if (config.deploymentMode === "local") {
-    runMigrations();
+    try {
+      await runMigrations();
+    } catch (err) {
+      throw new Error(
+        `[boot] migrations falharam — não subo para não servir com schema inconsistente: ${(err as Error).message}`,
+        { cause: err },
+      );
+    }
   }
 
   const app = await buildApp();
