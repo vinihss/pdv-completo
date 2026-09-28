@@ -396,6 +396,9 @@ export const storeSettings = pgTable("store_settings", {
   ifoodIntegrationEnabled: boolean("ifood_integration_enabled").notNull().default(false),
   inventoryEnabled: boolean("inventory_enabled").notNull().default(false), // estoque (0016)
   purchaseEnabled: boolean("purchase_enabled").notNull().default(false), // compras + custo médio (0017)
+  // Impressão térmica (daemon local, 0003): master switch + auto-print.
+  printerEnabled: boolean("printer_enabled").notNull().default(false),
+  printerAutoPrint: boolean("printer_auto_print").notNull().default(false),
   enabledPaymentMethods: text("enabled_payment_methods").notNull().default('["cash","card","pix","other"]'),
   kitchenPrepWarnMin: integer("kitchen_prep_warn_min").notNull().default(3),
   kitchenPrepUrgentMin: integer("kitchen_prep_urgent_min").notNull().default(6),

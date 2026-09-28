@@ -56,6 +56,8 @@ const storeSettingsSchema = z.object({
   ifoodIntegrationEnabled: z.boolean(),
   inventoryEnabled: z.boolean(),
   purchaseEnabled: z.boolean(),
+  printerEnabled: z.boolean(),
+  printerAutoPrint: z.boolean(),
   enabledPaymentMethods: z.array(z.enum(["cash", "card", "pix", "other"])),
   kitchenPrepWarnMin: z.number().int().positive(),
   kitchenPrepUrgentMin: z.number().int().positive(),

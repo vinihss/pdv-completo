@@ -145,6 +145,27 @@ export default function SettingsTab({ showToast }) {
         </p>
       </Section>
 
+      <Section title="Impressão térmica">
+        <ToggleRow
+          label="Impressão local (daemon)"
+          checked={form.printerEnabled ?? false}
+          onChange={(v) => set({ printerEnabled: v })}
+        />
+        {form.printerEnabled && (
+          <>
+            <ToggleRow
+              label="Impressão automática"
+              checked={form.printerAutoPrint ?? false}
+              onChange={(v) => set({ printerAutoPrint: v })}
+            />
+            <p className="text-stone-600 text-xs">
+              Com a impressão automática ligada, o ticket da cozinha é impresso a cada lançamento de item e o ticket de entrega
+              a cada saída para entrega. O ícone de impressão no pedido permite imprimir manualmente a qualquer momento.
+            </p>
+          </>
+        )}
+      </Section>
+
       <Section title="Entrega (WhatsApp / página externa)">
         <ToggleRow label="Usa delivery (página de pedido externa)" checked={form.usesDelivery} onChange={(v) => set({ usesDelivery: v })} />
         {form.usesDelivery && (
