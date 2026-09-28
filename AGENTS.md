@@ -38,6 +38,7 @@ docs/       Specs originais (backend, frontend, critérios de aceite)
 | `docs/07-estoque.md` | Spec do controle de estoque: ledger `stock_movement`, flags de rollout, endpoints, regras de corretude e testes. |
 | `docs/08-estoque-profissional.md` | Spec do estoque profissional: fornecedores, compras multi-item, custo médio móvel, valorização, pendências (contagem, lote, multi-depósito). |
 | `docs/10-whatsapp-embedded-signup.md` | WhatsApp Cloud API: Embedded Signup v4, token por WABA, webhooks de mensagem e de status, diagnóstico. |
+| `docs/11-pix-pendencias.md` | BR Code do Pix: o que foi corrigido (GUI minúscula, txid alfanumérico, teto de 99 bytes) e as pendências (normalizar chave no save, `pixKeyType` morto, quiet zone, copia e cola). |
 
 ## Como rodar
 
@@ -501,12 +502,16 @@ dentro da fase, a ordem indicada.
 - **4.3 Buffer de eventos no reconnect do WS**: `sync.request` responde vazio
   (`realtime.routes.ts:35-37`); client recarrega via REST, mas não é o sync
   completo da spec §8.
-- **4.4 ~~QR Pix (BR Code)~~** — ✅ feito: `frontend/src/lib/pix.js` gera o BR
-  Code (EMV + CRC-16/CCITT-FALSE) no client; o `PaymentModal` de
+- **4.4 ~~QR Pix (BR Code)~~** — ✅ feito: `frontend/src/entities/payment/lib/pix.js`
+  gera o BR Code (EMV + CRC-16/CCITT-FALSE) no client; o `PaymentModal` de
   `WaiterApp.jsx` registra `confirmed:false`, exibe o QR a partir de
   `store_settings.pix_key`/`merchant_name`/`merchant_city` e confirma com
   `confirmed:true`. Sem chave/nome/cidade configurados, a opção Pix fica
-  desabilitada com aviso.
+  desabilitada com aviso. **Corrigido em 28/09/2026**: o app do banco recusava
+  o QR por GUI em maiúsculas (`BR.GOV.BCB.PIX`) e txid com hífen (`order.id` é
+  `crypto.randomUUID()`); agora `analyzePixKey` canonicaliza a chave e deduz o
+  tipo pelo formato, sem depender de `pixKeyType`. Pendências em
+  `docs/11-pix-pendencias.md`.
 
 ### Fase 5 — Estoque (implementado)
 
