@@ -55,13 +55,16 @@ apontando para o IP público do VPS:
 
 | Registro | Aponta para | Serve |
 |---|---|---|
-| `umamisushiarte.com.br` | IP do VPS | redirect para o Instagram |
-| `www.umamisushiarte.com.br` | IP do VPS | redirect para o Instagram |
+| `umamisushiarte.com.br` | IP do VPS | redirect para a vitrine (`app./pedido`) |
+| `www.umamisushiarte.com.br` | IP do VPS | redirect para a vitrine (`app./pedido`) |
 | `app.umamisushiarte.com.br` | IP do VPS | **a aplicação (PDV)** |
 
-O domínio raiz **não** serve o app — ele redireciona para o Instagram. Quem
-for usar o PDV (garçons, cozinha, gerente) entra por **`app.`**; o cliente
-final usa **`app./pedido`**.
+O domínio raiz **não** serve o app — ele redireciona (308) para a vitrine
+pública em **`app./pedido`**. Quem for usar o PDV (garçons, cozinha, gerente)
+entra por **`app.`**; o cliente final chega no domínio raiz e cai direto na
+página de pedidos. O path é `/pedido` no **singular** (é o que o React Router
+declara em `frontend/src/app/router.jsx`); `/pedidos` cai no catch-all e
+mostra a tela de login.
 
 Depois de criar/alterar, é só recarregar o Caddy — ele pega os certificados
 sozinho, sem reiniciar containers:
@@ -92,7 +95,7 @@ chamada de API ser bloqueada pelo navegador**, sem erro visível no servidor.
 O `docker-compose.yml` usa `CORS_ORIGIN=${CORS_ORIGIN:-https://${DOMAIN}}`,
 então a lista completa vai no `.env`, separada por vírgula e **sem espaços**.
 Aqui só entram os endereços que **servem o app** — o domínio raiz e o `www.`
-redirecionam para o Instagram, então não precisam (e não devem) estar na
+redirecionam para a vitrine, então não precisam (e não devem) estar na
 lista:
 
 ```
