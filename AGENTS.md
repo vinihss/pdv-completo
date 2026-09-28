@@ -148,7 +148,7 @@ e `/realtime` pro backend).
 | `npm run seed:prod` | backend | seed de primeiro deploy (sem dados fictícios) |
 | `npm run db:migrate` | backend | aplica `migrations/*.sql` (também roda no boot em modo local) |
 | `npm run db:deactivate-demo` | backend | desativa o cardápio fictício do `seed` (use `-- --dry-run` para só listar) |
-| `npm run test` | backend | vitest (Postgres dedicado `pdv_test` via `TEST_DATABASE_URL`; caixa, comandas, idempotência, maintenance, stock, whatsapp) |
+| `npm run test` | backend | vitest 5 (Postgres dedicado `pdv_test` via `TEST_DATABASE_URL`; caixa, comandas, idempotência, maintenance, stock, whatsapp, printer, compras, clientes/equipe/perfis) |
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
 | `npm run test` | frontend | vitest (jsdom + Testing Library; 21 suítes: casca do app + menu, drawer/accordion, modal/header/variação, login por PIN, detalhe da comanda, modais de compra/equipe, caixa/reports, página pública) |
@@ -178,6 +178,25 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
   `0002_whatsapp_connections.sql` (token por WABA), aplicadas pelo runner em
   `src/infra/db/migrate.ts` (advisory lock + tabela `_migrations`, uma
   transação por arquivo). Roda no boot em modo local e via `npm run db:migrate`.
+- **Colisão `0003_*`**: o diretório tem **dois** arquivos `0003_*`
+  (`0003_printer.sql` e `0003_profile_fields.sql`). É de propósito: o runner
+  chaveia por filename em `_migrations.name`, e o banco de dev já tem os dois
+  registrados — **não renomear** (renomear tentaria reaplicar DDL e quebraria
+  instalações existentes). Sempre que adicionar uma migration, use número
+  zero-padded lexicograficamente **maior**; os próximos são `0004_*`.
+- **Impressão térmica (daemon local, não fiscal)**: flags `printer_enabled`/
+  `printer_auto_print` em `store_settings` (default off). O backend envia JSON
+  estruturado para `PRINTER_DAEMON_URL` (default `http://127.0.0.1:8080`); o
+  daemon renderiza ESC/POS e envia TCP para a impressora. Rotas
+  manager/waiter em `print.routes.ts`: `POST /orders/:id/print` (manual,
+  `{ destination: "kitchen" | "courier" }`), `GET /printers/status|health`.
+  Auto-print é pós-commit **fire-and-forget** (nunca quebra o fluxo da
+  comanda): cozinha no `addItemsUsecase` (só com modo cozinha ativo) e
+  entregador no `dispatchDeliveryUsecase`. Semântica de erro: comanda
+  inexistente → 404; daemon fora do ar → `service_unavailable` (503) — nunca
+  confundir os dois. Suíte `test/printer.test.ts` com stub HTTP na porta 3456;
+  **cada teste precisa de `resetState()`** (a mesa `t-1` compartilhada fica
+  ocupada pelo teste anterior senão).
 - **Contagem**: `count()` do Drizzle (nunca `sql<number>\`count(*)\`` — no
   Postgres o tipo dobigint sai como string). `sum(real)` devolve `number`.
 - **Audit log + eventos outbox na mesma transação** da escrita de domínio.
@@ -250,6 +269,11 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
   esse room (ver 1.2).
 - **Mutations**: aguardar e então recarregar; sem otimismo. Tratar erros de
   domínio com toasts (`src/components/Toast.jsx`).
+- **Botão de ação fora do `<form>`**: modais com footer irmão do form
+  (`ProductModal`, `SupplierModal`, `MovementModal`, ...) devem vincular o
+  botão por `form="<idForm>"` + `noValidate` no form — clique e Enter passam a
+  submeter de verdade. Sem isso o botão não dispara submit e Enter "digita sem
+  salvar" (regressão coberta em `footerSubmit.test.jsx`).
 - **UI em PT-BR**; ícones via `lucide-react`; estilos com Tailwind 4 (CSS-first).
 - **Variações de produto**: contrato único em `src/domain/variations.ts` (backend)
   e `VariationGroup` espelhado no menu público (`GET /public/menu` já devolve
@@ -539,6 +563,21 @@ dentro da fase, a ordem indicada.
   busca com debounce de 250ms; novos filtros de ordenação (nome/preço) e botão
   "Limpar"; `GET /products` aceita `sort`. Busca sem acentos via extensão
   `unaccent` (produtos, estoque e clientes).
+
+### Fase 9 — Impressão térmica (implementado)
+
+- **9.1 Impressão local via daemon sidecar** — ✅ feito: flags
+  `printer_enabled`/`printer_auto_print` (default off) em `store_settings` e
+  daemon em Go (`printer/mock_server.go`) que recebe JSON estruturado via
+  `POST /api/print` e envia ESC/POS por TCP. Backend envia para
+  `PRINTER_DAEMON_URL` (default `http://127.0.0.1:8080`); rotas em
+  `print.routes.ts` (manual por comanda, `status` e `health`). Auto-print
+  fire-and-forget pós-commit: cozinha no lançamento de item e entregador no
+  dispatch. Erros: 404 só pra comanda inexistente, 503 pra daemon fora do ar.
+  UI: `PrintLayoutModal` compartilhado + botão no `OrderDetailScreen` + toggles
+  em Configurações. Suíte `test/printer.test.ts` (10 testes). Nota de
+  operação: em Docker, o backend alcança o daemon do host via `host_gateway`
+  ou sidecar (`PRINTER_DAEMON_URL`).
 
 ## Critérios de verificação gerais
 
