@@ -10,16 +10,24 @@ COPY package*.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
+# `npm ci --omit=dev` NÃO pode rodar aqui: o drizzle-orm declara better-sqlite3
+# como peer dependency OPCIONAL, então o npm o instala mesmo com --omit=dev (marcado
+# `devOptional` no lockfile). Como ele tem install script, o node-gyp roda e
+# estoura sem toolchain. E o `--omit=dev` no estágio final só funcionava por
+# cache de layer — um build --no-cache quebrava. Aqui a toolchain existe, então
+# prunes as dev deps DEPOIS de compilar o que precisa compilar.
+RUN npm prune --omit=dev
 
 # ---------- imagem final, sem ferramentas de build ----------
 FROM node:22-slim
 WORKDIR /app
 ENV NODE_ENV=production
 
-COPY package*.json ./
-RUN npm ci --omit=dev
-
+# node_modules vem já compilado do estágio de build (argon2 e o próprio
+# better-sqlite3), então a imagem final não precisa de python3/make/g++.
+COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY package*.json ./
 COPY migrations ./migrations
 COPY seed-data ./seed-data
 
