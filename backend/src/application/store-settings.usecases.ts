@@ -7,7 +7,7 @@ import { Errors } from "../domain/errors.js";
 import { config } from "../config/env.js";
 import { logAction } from "../infra/audit-log.js";
 import { getCache } from "../infra/cache/index.js";
-import { NominatimGeocodingService } from "../integrations/maps/geocoding.service.ts";
+import { NominatimGeocodingService } from "../integrations/maps/geocoding.service.js";
 
 const cache = getCache();
 

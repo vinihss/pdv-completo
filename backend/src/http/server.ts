@@ -32,7 +32,7 @@ import { getStoreSettingsUsecase } from "../application/store-settings.usecases.
 // Monta o app Fastify com todas as rotas/plugins, sem escutar. Exportado
 // para os testes (vitest) injetarem requests via `app.inject()`.
 export async function buildApp(): Promise<FastifyInstance> {
-  const app = Fastify({ logger: { level: config.logLevel }, trustProxy: 1 });
+  const app = Fastify({ logger: { level: config.logLevel }, trustProxy: true });
 
   // ---------- Error handler — envelope padrão da §7.0 ----------
   // Registrado antes dos plugins/rotas: o handler do contexto raiz precisa
