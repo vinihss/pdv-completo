@@ -174,16 +174,46 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
 - **Sem `rowid`**: ordem de inserção de `stock_movement`, `outbox_event` e
   `purchase_item` vem da sequência `seq BIGSERIAL` (a média móvel é um replay
   do ledger, então a ordem precisa ser estável). Não trocar por `created_at`.
-- **Migrations**: `backend/migrations/0001_init.sql` (schema base) e
-  `0002_whatsapp_connections.sql` (token por WABA), aplicadas pelo runner em
-  `src/infra/db/migrate.ts` (advisory lock + tabela `_migrations`, uma
-  transação por arquivo). Roda no boot em modo local e via `npm run db:migrate`.
+- **Migrations**: o diretório tem **4 arquivos**, e o schema está **consolidado**
+  — não procure os números antigos neste texto nem no histórico, eles não
+  correspondem aos arquivos:
+  | Arquivo | Conteúdo |
+  |---|---|
+  | `0001_init.sql` | **todo** o schema (tabelas, índices, extensões do app): inclui `order_payment`, `featured`, `unit_cost`, `purchase_item_id`, iFood, delivery, customer_address, geocoding_cache, cash_flow, estoque |
+  | `0002_whatsapp_connections.sql` | token por WABA + tabelas de inbound/outbound |
+  | `0003_printer.sql` | flags `printer_enabled` / `printer_auto_print` |
+  | `0003_profile_fields.sql` | `user.phone/email/photo_path`, `customer.email/active`, extensão `unaccent` |
+
+  Aplicadas pelo runner em `src/infra/db/migrate.ts` (advisory lock + tabela
+  `_migrations`, uma transação por arquivo). Roda no boot em modo local e via
+  `npm run db:migrate`.
 - **Colisão `0003_*`**: o diretório tem **dois** arquivos `0003_*`
   (`0003_printer.sql` e `0003_profile_fields.sql`). É de propósito: o runner
-  chaveia por filename em `_migrations.name`, e o banco de dev já tem os dois
-  registrados — **não renomear** (renomear tentaria reaplicar DDL e quebraria
-  instalações existentes). Sempre que adicionar uma migration, use número
-  zero-padded lexicograficamente **maior**; os próximos são `0004_*`.
+  chaveia por filename em `_migrations.name`, e os bancos de dev **e de
+  produção** já têm os dois registrados — **não renomear** (renomear tentaria
+  reaplicar DDL e quebraria instalações existentes). Sempre que adicionar uma
+  migration, use número zero-padded lexicograficamente **maior**; os próximos
+  são `0004_*`.
+- **Escreva migration idempotente**: use `ADD COLUMN IF NOT EXISTS` /
+  `CREATE ... IF NOT EXISTS`. O runner já pula arquivos registrados, mas o DDL
+  não pode estourar se a coluna tiver sido adicionada por fora dele. Como o
+  boot agora **aborta** quando a migration falha (ver item seguinte), um DDL
+  frágil derruba o container em vez de degradar em silêncio.
+- **O boot falha se a migration falhar** (`src/http/server.ts`): `main()`
+  aguarda `runMigrations()` dentro de `try/catch` e propaga o erro, saindo com
+  `exit 1`. Antes era fire-and-forget (sem `await`) e o backend subia com o
+  schema pela metade — health check 200 e 500 em runtime. **Não reintroduza o
+  `runMigrations()` sem `await`.**
+- **Build da imagem do backend**: `Dockerfile` faz `npm ci` + `npm prune
+  --omit=dev` no estágio `build` (que tem `python3 make g++`) e a imagem final
+  só copia o `node_modules` compilado. **Não reintroduza `npm ci --omit=dev` no
+  estágio final**: o `drizzle-orm` declara `better-sqlite3` como peer
+  dependency *opcional*, então o npm o instala mesmo com `--omit=dev` (marcado
+  `devOptional` no lockfile) e o install script dispara o node-gyp, que estoura
+  sem toolchain. O `better-sqlite3` é usado de verdade por
+  `migrate-sqlite-to-pg.ts`, então não pode simplesmente sair do lockfile.
+  Esse bug já quebrou um deploy em 28/09/2026: a versão anterior só compilava
+  por **cache de layer** — sempre valide com `docker build --no-cache`.
 - **Impressão térmica (daemon local, não fiscal)**: flags `printer_enabled`/
   `printer_auto_print` em `store_settings` (default off). O backend envia JSON
   estruturado para `PRINTER_DAEMON_URL` (default `http://127.0.0.1:8080`); o
@@ -288,8 +318,8 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
   `src/features/customer-menu/cartLogic.js` (testada sem DOM): chave de linha,
   agrupamento por produto e grupos obrigatórios (a antiga "regra do stepper"
   saiu junto com `ProductStepper`).
-- **Destaques da página pública**: `product.featured` (migration `0020`, default
-  `false`) alimenta a vitrine "Destaques" do `/pedido` — 3 colunas, card
+- **Destaques da página pública**: `product.featured` (coluna no `0001_init.sql`,
+  default `false`) alimenta a vitrine "Destaques" do `/pedido` — 3 colunas, card
   `ProductTile`; o produto continua na sua categoria (comportamento iFood). Marcado
   no cadastro (`ProductModal`, toggle "Em destaque na página de pedidos"; o campo
   só vai no payload quando o toggle existe — um edit com `uses_delivery` off não
@@ -498,8 +528,8 @@ dentro da fase, a ordem indicada.
   `product.cost_price`, snapshot em `order_item.cost_price` (só com
   `inventory_enabled && purchase_enabled && track_stock`; sem o módulo ligado,
   custo manual — paridade preservada), valorização em `GET /inventory/value`
-  (média × saldo). `stock_movement.unit_cost` + `purchase_item_id`
-  (migration `0017`). Flags: `purchase_enabled` default off; compra de produto
+  (média × saldo). `stock_movement.unit_cost` + `purchase_item_id` (colunas do
+  `0001_init.sql`). Flags: `purchase_enabled` default off; compra de produto
   sem `track_stock` → 422. Idempotente via `correlationId`. Doc em
   `docs/08-estoque-profissional.md`; suíte `test/purchase.test.ts` (7 testes).
 - **6.2 UI de compras** — ✅ feito: aba "Compras" no gerenciador (visível só com

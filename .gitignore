@@ -13,6 +13,11 @@ backend/uploads/
 # Backups gerados pelo docker-up.sh / deploy/backup.sh
 deploy/backups/
 
+# Cópias manuais de arquivos de configuração durante deploy
+# (deploy/Caddyfile.bak.<timestamp>, deploy/.env.bak.<timestamp>)
+*.bak.*
+*.bak
+
 # Logs e misc
 *.log
 .DS_Store
