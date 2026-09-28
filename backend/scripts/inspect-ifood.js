@@ -23,9 +23,14 @@ function randomDelay(min = 300, max = 1200) {
 }
 
 async function humanType(page, selector, text) {
-  await page.click(selector, { delay: Math.random() * 100 });
-  for (const char of text) {
-    await page.keyboard.type(char, { delay: Math.floor(Math.random() * 60) + 20 });
+  // Tenta clicar; se falhar (campo invisível), usa fill direto
+  try {
+    await page.click(selector, { timeout: 2000, delay: Math.random() * 100 });
+    for (const char of text) {
+      await page.keyboard.type(char, { delay: Math.floor(Math.random() * 60) + 20 });
+    }
+  } catch {
+    await page.fill(selector, text);
   }
 }
 
@@ -51,16 +56,20 @@ const page = await context.newPage();
 console.log("[inspect] Abrindo portal do iFood...");
 await page.goto("https://portal.ifood.com.br/", { waitUntil: "domcontentloaded" });
 
+// Espera a página de login carregar
+console.log("[inspect] Esperando página de login...");
+await page.waitForSelector('input[name="username"], input#username, input[type="email"]', { timeout: 20000, state: "attached" });
+
 // Login automático
 console.log("[inspect] Fazendo login...");
-await page.waitForSelector('input[name="username"], input[type="email"]', { timeout: 15000 });
-await humanType(page, 'input[name="username"], input[type="email"]', IFOOD_LOGIN);
+await humanType(page, 'input[name="username"], input#username, input[type="email"]', IFOOD_LOGIN);
 await randomDelay(200, 600);
 await page.click('button[type="submit"]');
 await randomDelay(500, 1000);
 
 // Senha
-await page.waitForSelector('input[type="password"], input[name="password"]', { timeout: 10000 });
+console.log("[inspect] Esperando campo de senha...");
+await page.waitForSelector('input[type="password"], input[name="password"]', { timeout: 15000, state: "attached" });
 await humanType(page, 'input[type="password"], input[name="password"]', IFOOD_PASSWORD);
 await randomDelay(200, 600);
 await page.click('button[type="submit"]');

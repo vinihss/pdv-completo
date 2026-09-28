@@ -9,12 +9,7 @@ export DEPLOYMENT_MODE=cloud
 export DATABASE_URL="postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@${POSTGRES_HOST:-localhost}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-pdv}"
 export DOCKERFILE=Dockerfile.cloud
 
-# JWT Secret obrigatório em modo cloud
-if [ -z "$JWT_SECRET" ]; then
-  echo "ERRO: JWT_SECRET é obrigatório em modo cloud"
-  echo "Gere um com: openssl rand -hex 32"
-  exit 1
-fi
+
 
 # Sobe o Postgres e o backend
 docker compose --profile cloud up -d
