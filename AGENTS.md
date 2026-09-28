@@ -384,8 +384,15 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
     header da casca é `h-14`.
   - **Mobile**: `Drawer` de tela cheia, aberto pelo botão `Menu` do header
     (`lg:hidden`, `aria-controls="app-menu-painel"`). Escolher uma tela fecha o
-    painel; o rodapé do painel tem "Trocar usuário" porque o scrim cobre o
-    "Sair" do header.
+    painel; o rodapé do painel tem só a identidade de quem está logado — o
+    "Sair" é um botão circular no canto direito do header e **não** é
+    duplicado aqui (o scrim do painel é `fixed inset-0 z-50` e cobre o header
+    `z-40`, então no celular ele só é alcançado com o painel fechado).
+  - **Avatar das pessoas**: `UserAvatar` (`shared/components`) desenha a foto
+    quando existe e as iniciais quando não — usada na grade do login, na tela
+    do PIN e na identidade do menu. Não é só do login: `photoPath` vem em
+    `GET /auth/users` e em `POST /auth/login` (a sessão guarda o objeto
+    inteiro em `sessionStorage`), então quem está logado também tem foto.
   - **Regra de degeneração**: seção com **um** item não vira cabeçalho — o
     próprio item é a linha (nada de "Configurações" dentro de "Sistema"); menu
     sem nenhuma seção com 2+ itens vira trilho de ícones.

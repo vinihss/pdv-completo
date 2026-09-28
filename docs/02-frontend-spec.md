@@ -24,6 +24,12 @@ Tela inicial não é login tradicional (usuário/senha) — é uma **seleção d
   → erro: mensagem de PIN inválido, sem detalhar motivo (bloqueio, etc — evita dar pista pra tentativa de força bruta)
 ```
 
+O avatar é a **foto** de quem está cadastrado (`GET /auth/users` devolve
+`photoPath`/`uploads`), com as iniciais do primeiro e do segundo nome como
+fallback — inclusive na tela do PIN. O mesmo componente (`UserAvatar`, em
+`shared/components`) é o que desenha a identidade de quem está logado no menu,
+porque `POST /auth/login` também devolve a foto.
+
 A tela de PIN tem **duas vias de entrada, mesma regra** (só dígitos, corte em 6):
 
 - **keypad na tela** (1-9, 0, apagar, "Voltar (Esc)") — o principal no tablet;
@@ -37,7 +43,7 @@ gatilho) e o botão fica desabilitado abaixo de 4 dígitos. `Esc` volta para a
 seleção de usuário. Implementação: `frontend/src/pages/login/LoginPage.jsx`
 (testes em `LoginPage.test.jsx`).
 
-Troca de usuário: qualquer tela tem acesso rápido a "trocar usuário", que descarta o token local e volta pra essa tela — sem precisar de "logout" formal.
+Troca de usuário: qualquer tela tem acesso rápido a "trocar usuário", que descarta o token local e volta pra essa tela — sem precisar de "logout" formal. O botão mora no **canto direito do header** da casca (ícone circular, sem texto) e não é repetido no painel do menu do celular, porque o scrim do painel cobre o header.
 
 **Grid de usuários é filtrado por `store_settings.kitchen_enabled`**: se a cozinha estiver desativada (seção 5), usuários com role `kitchen` não aparecem na seleção — não faz sentido oferecer login pra uma estação que o estabelecimento não usa. Isso é um filtro de exibição, não uma restrição de conta: o usuário `kitchen` continua existindo, só não aparece até o gerente reativar o recurso.
 

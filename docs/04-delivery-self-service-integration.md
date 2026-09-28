@@ -328,7 +328,7 @@ backend/src/integrations/whatsapp/
                              # worker consumir quando existir
 ```
 
-Interface de entregador: rota nova dentro do mesmo frontend, com casca própria (sem as telas do gerente) — não um app separado, não uma view restrita do painel do lojista. Login reaproveita `users`/`role: courier`. O menu principal do app é compartilhado por todos os papéis logados (`widgets/app-menu`); para um perfil de tela única ele degenera em **trilho de ícones** de 4rem — o entregador vê só o próprio ícone de "Entregas", e no celular o painel inteiro traz também o "Trocar usuário" (o scrim cobre o "Sair" do header).
+Interface de entregador: rota nova dentro do mesmo frontend, com casca própria (sem as telas do gerente) — não um app separado, não uma view restrita do painel do lojista. Login reaproveita `users`/`role: courier`. O menu principal do app é compartilhado por todos os papéis logados (`widgets/app-menu`); para um perfil de tela única ele degenera em **trilho de ícones** de 4rem — o entregador vê só o próprio ícone de "Entregas". O "Sair" é um botão circular no canto direito do header, então o painel inteiro do celular não o repete (o scrim cobre o header; ele fica no rodapé do painel só a identidade de quem está logado).
 
 ## Decisões pendentes
 

@@ -29,7 +29,7 @@ export function AppFrame({ children }) {
         >
           <Menu size={20} />
         </button>
-        <div className="flex items-center gap-2.5 min-w-0">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
           {storeSettings?.logoUrl ? (
             <div className="h-9 w-9 rounded-full bg-stone-800 border border-stone-700 flex items-center justify-center overflow-hidden shrink-0">
               <img src={storeSettings.logoUrl} alt="Logo do restaurante" className="w-full h-full object-contain" />
@@ -41,14 +41,17 @@ export function AppFrame({ children }) {
           )}
           <span className="text-sm font-semibold text-stone-400 truncate">{storeSettings?.merchantName ?? "PDV"}</span>
         </div>
+        {/* Canto direito do topo: sem texto, porque o nome da loja trunca e o
+            "Sair" é o único controle à direita — o rótulo fica no title/aria
+            para o toque longo e para o leitor de tela. */}
         <button
+          type="button"
           onClick={logout}
           title="Trocar usuário"
           aria-label="Trocar usuário"
-          className="flex items-center gap-1.5 text-stone-300 hover:text-red-400 text-xs font-semibold transition-colors shrink-0"
+          className="w-10 h-10 -mr-1 shrink-0 flex items-center justify-center rounded-full text-stone-300 hover:text-red-400 hover:bg-stone-800/60 transition-colors"
         >
-          <LogOut size={16} />
-          Sair
+          <LogOut size={18} />
         </button>
       </div>
       <div className="flex items-start">

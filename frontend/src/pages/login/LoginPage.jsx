@@ -3,6 +3,7 @@ import { Delete, ChefHat, UtensilsCrossed, ClipboardList, Lock, Loader2, Wallet 
 import { listLoginUsers } from "@/entities/session";
 import { getStoreInfo } from "@/entities/store";
 import { useAuth } from "@/app/providers/auth";
+import { UserAvatar } from "@/shared/components";
 import { applyBrandPrimary } from "@/shared/lib";
 
 const ROLE_META = {
@@ -16,10 +17,6 @@ const ROLE_META = {
 
 const MAX_PIN = 6;
 const MIN_PIN = 4;
-
-function initials(name) {
-  return name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
-}
 
 // Só dígitos, no máximo MAX_PIN: mesma regra para o keypad, para o teclado
 // físico e para o input transparente (teclado nativo do celular).
@@ -185,9 +182,7 @@ export default function Login() {
                     onClick={() => openPinScreen(u)}
                     className="flex flex-col items-center gap-2.5 bg-stone-900 border border-stone-800 hover:border-amber-500/50 hover:bg-stone-800 rounded-2xl p-5 transition-colors active:scale-95"
                   >
-                    <div className="w-14 h-14 rounded-full bg-stone-800 flex items-center justify-center font-display text-lg font-bold text-amber-400">
-                      {initials(u.name)}
-                    </div>
+                    <UserAvatar name={u.name} photoPath={u.photoPath} className="w-14 h-14 text-lg" />
                     <div className="text-center">
                       <div className="font-semibold text-sm leading-tight">{u.name}</div>
                       <div className="flex items-center justify-center gap-1 text-stone-500 text-xs mt-1">
@@ -205,9 +200,11 @@ export default function Login() {
       {screen === "pin" && selectedUser && (
         <div className={`w-full max-w-xs fade-up ${shake ? "shake-anim" : ""}`}>
           <div className="text-center mb-6">
-            <div className="w-16 h-16 rounded-full bg-stone-800 flex items-center justify-center font-display text-xl font-bold text-amber-400 mx-auto mb-3">
-              {initials(selectedUser.name)}
-            </div>
+            <UserAvatar
+              name={selectedUser.name}
+              photoPath={selectedUser.photoPath}
+              className="w-16 h-16 text-xl mx-auto mb-3"
+            />
             <h2 className="font-display text-xl font-bold">{selectedUser.name}</h2>
             <p className="text-stone-500 text-sm mt-1">Digite seu PIN</p>
           </div>

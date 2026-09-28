@@ -9,7 +9,7 @@ const AuthContext = createContext(null);
 const STORAGE_KEY = "pdv:session";
 
 export function AuthProvider({ children }) {
-  const [session, setSession] = useState(null); // { token, user: {id,name,role} }
+  const [session, setSession] = useState(null); // { token, user: {id,name,role,photoPath} }
   const [storeSettings, setStoreSettings] = useState(null);
   const [booting, setBooting] = useState(true);
 

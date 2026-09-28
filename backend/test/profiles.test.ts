@@ -1,5 +1,17 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
-import { api, seedFixture, resetState, closeTestApp, tokenOf, cashier, waiter, manager, FIXTURE, raw } from "./helpers.js";
+import {
+  api,
+  seedFixture,
+  resetState,
+  closeTestApp,
+  testApp,
+  tokenOf,
+  cashier,
+  waiter,
+  manager,
+  FIXTURE,
+  raw,
+} from "./helpers.js";
 
 // Perfis caixa e entregador ("implementar perfis de usuário: caixa, entregador"):
 // - tela de login respeita os toggles de rollout (kitchen_enabled / uses_delivery);
@@ -15,7 +27,7 @@ async function setStoreFlag(column: "uses_delivery" | "kitchen_enabled", value: 
   await raw.all(`UPDATE store_settings SET ${column} = $1 WHERE id = 'singleton'`, [value]);
 }
 
-async function loginSurface(): Promise<Array<{ id: string; name: string; role: string }>> {
+async function loginSurface(): Promise<Array<{ id: string; name: string; role: string; photoPath: string | null }>> {
   const res = await api("get", "/auth/users");
   return res.json;
 }
@@ -76,6 +88,43 @@ describe("tela de login por perfil (GET /auth/users)", () => {
     const roles = (await loginSurface()).map((u) => u.role);
     expect(roles).toContain("courier");
     expect(roles).not.toContain("kitchen");
+  });
+
+  it("foto da equipe aparece na grade do login e na sessão", async () => {
+    const criado = await api("post", "/users", { token: manager, body: { name: "Com Foto", role: "waiter" } });
+    expect(criado.status).toBe(201);
+
+    // Upload de verdade (não um UPDATE em photo_path): o que se quer garantido
+    // é o caminho público no formato que o <img> do app consome, e a
+    // nomenclatura do arquivo é o que faz o login não dar 404 na foto.
+    const app = await testApp();
+    const form = new FormData();
+    form.append(
+      "photo",
+      new Blob([Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64")], { type: "image/png" }),
+      "foto.png"
+    );
+    const upload = await app.inject({
+      method: "POST",
+      url: `/users/${criado.json.id}/photo`,
+      headers: { authorization: `Bearer ${manager}` },
+      payload: form,
+    });
+    expect(upload.statusCode).toBe(200);
+
+    const eu = (await loginSurface()).find((u) => u.id === criado.json.id);
+    expect(eu?.photoPath).toBe(`/uploads/${criado.json.id}.png`);
+
+    // A sessão também carrega a foto: é ela que a identidade de quem está
+    // logado desenha (o menu), sem nova chamada depois do login.
+    const login = await api("post", "/auth/login", { body: { userId: criado.json.id, pin: criado.json.pin } });
+    expect(login.status).toBe(200);
+    expect(login.json.user.photoPath).toBe(`/uploads/${criado.json.id}.png`);
+  });
+
+  it("quem não tem foto vem com photoPath nulo (o app cai para as iniciais)", async () => {
+    const eu = (await loginSurface()).find((u) => u.id === FIXTURE.waiter);
+    expect(eu?.photoPath).toBeNull();
   });
 });
 
