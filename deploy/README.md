@@ -32,6 +32,150 @@ mas isso é trabalho adicional não incluído aqui.
 > com Docker + SSH). **Não use em hospedagem compartilhada/hPanel sem Docker e
 > sem acesso SSH adequado**.
 
+## DNS obrigatório (por que o HTTPS não sobe)
+
+O Caddy emite o certificado do Let's Encrypt por desafio **HTTP-01**: a
+autoridade certificadora resolve o domínio e tenta abrir a porta 80 do
+servidor. Se o nome **não apontar para o IP do servidor**, o desafio falha e
+**nenhum certificado é emitido** — o Caddy fica respondendo só em HTTP, sem
+nenhum erro fatal no log.
+
+Checagem rápida do sintoma: no log do Caddy, a linha
+
+```
+"enabling automatic TLS certificate management","domains":["app.umamisushiarte.com.br"]
+```
+
+lista **só** os nomes que consequenceiram certificado. Os que faltarem dessa
+lista (e seus erros `failed to obtain certificate` no log) são os que o DNS
+ainda não resolve para o servidor.
+
+Para o domínio do exemplo, crie estes registros **A** no registrador, todos
+apontando para o IP público do VPS:
+
+| Registro | Aponta para | Serve |
+|---|---|---|
+| `umamisushiarte.com.br` | IP do VPS | redirect para o Instagram |
+| `www.umamisushiarte.com.br` | IP do VPS | redirect para o Instagram |
+| `app.umamisushiarte.com.br` | IP do VPS | **a aplicação (PDV)** |
+
+O domínio raiz **não** serve o app — ele redireciona para o Instagram. Quem
+for usar o PDV (garçons, cozinha, gerente) entra por **`app.`**; o cliente
+final usa **`app./pedido`**.
+
+Depois de criar/alterar, é só recarregar o Caddy — ele pega os certificados
+sozinho, sem reiniciar containers:
+
+```bash
+docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+```
+
+> ⚠️ **O `umamisushiarte.com.br` e o `www` compartilham um único certificado**
+> (estão no mesmo bloco do `Caddyfile`). Se o registro do domínio raiz não
+> existir, a emissão do par inteiro falha e o `www` fica sem TLS também.
+> Crie **os dois**, mesmo que hoje só o `app.` seja usado.
+
+Verifique o resultado:
+
+```bash
+echo | openssl s_client -connect SEU_IP:443 -servername app.seudominio.com.br 2>/dev/null \
+  | openssl x509 -noout -subject -ext subjectAltName
+```
+
+### `CORS_ORIGIN` tem que incluir o endereço real do app
+
+O backend bloqueia, via CORS, qualquer origem que não esteja em
+`CORS_ORIGIN`. **Todo endereço que serve o app precisa estar na lista** —
+esquecer o `www.` (ou o subdomínio `app.`) faz o app carregar mas **toda
+chamada de API ser bloqueada pelo navegador**, sem erro visível no servidor.
+
+O `docker-compose.yml` usa `CORS_ORIGIN=${CORS_ORIGIN:-https://${DOMAIN}}`,
+então a lista completa vai no `.env`, separada por vírgula e **sem espaços**.
+Aqui só entram os endereços que **servem o app** — o domínio raiz e o `www.`
+redirecionam para o Instagram, então não precisam (e não devem) estar na
+lista:
+
+```
+CORS_ORIGIN=https://app.umamisushiarte.com.br
+```
+
+Depois de mudar, o container precisa ser recriado (variável de ambiente não é
+reconhecida em hot reload):
+
+```bash
+docker compose up -d --force-recreate backend
+```
+
+Teste com um `Origin` de verdade — `curl` sem header não exercita o CORS:
+
+```bash
+curl -s -o /dev/null -D - -H "Origin: https://app.seudominio.com.br" \
+  https://app.seudominio.com.br/api/auth/users | grep -i access-control-allow-origin
+```
+
+### `Caddyfile` não atualiza sozinho (bind mount de arquivo)
+
+Sintoma: você edita o `deploy/Caddyfile`, roda `docker compose up -d`, e **nada
+muda**. Sem erro no log, health check passando, certificado emitido — só a
+config antiga continua valendo.
+
+Por quê: o compose monta o Caddyfile como **arquivo único**
+(`./Caddyfile:/etc/caddy/Caddyfile:ro`). O Compose calcula o hash do container a
+partir do *spec* do mount (caminho, alvo, modo) e **nunca do conteúdo do
+arquivo**. Logo, editar o Caddyfile não muda o hash e o container não é
+recriado. Pior: `git pull`/`git checkout` substitui o arquivo por um **inode
+novo**, e o container continua preso ao inode antigo — que segue aberto e
+sendo servido normalmente.
+
+O sintoma é silencioso justamente porque nada falha. Para conferir se o
+container está com a versão certa:
+
+```bash
+# tem que dar o MESMO hash dos dois lados
+md5sum deploy/Caddyfile
+docker exec deploy-caddy-1 md5sum /etc/caddy/Caddyfile
+```
+
+Duas formas de resolver:
+
+```bash
+# 1) recriar o container (o que a CI faz)
+docker compose -f deploy/docker-compose.yml up -d --force-recreate caddy
+
+# 2) sobrescrever o arquivo SEM trocar o inode, e dar reload (zero downtime)
+cat /caminho/do/Caddyfile.novo > deploy/Caddyfile
+docker exec deploy-caddy-1 caddy reload --config /etc/caddy/Caddyfile
+```
+
+O que **troca** o inode (e portanto quebra o bind mount) e o que **não** troca,
+medido em Linux:
+
+| Comando | Inode | O container passa a ver a config nova? |
+|---|---|---|
+| `cat novo > Caddyfile` | preservado | sim, na hora (e o `reload` é opcional) |
+| `cp novo Caddyfile` (destino existe) | preservado | sim, na hora |
+| `cp --remove-destination` | **novo** | só depois de restart/recreate |
+| `mv novo Caddyfile` | **novo** | só depois de restart/recreate |
+| `git pull` / `git checkout` | **novo** | só depois de restart/recreate |
+
+O ponto central: `docker compose up -d` **não** faz nada nesse caso, porque
+para ele nada mudou (o hash do container não depende do conteúdo do arquivo).
+Esse é o bug — o `up` não reclama e não loga nada. Já `docker compose restart
+caddy` **resolve**, porque o Docker reaplica o bind mount no start do
+container; `--force-recreate` também resolve. Medido no VPS de produção:
+
+```
+host 80ee0b41…  container 3fddb7cd…   <- divergentes (bug)
+após restart            80ee0b41…   <- restart já resolve
+após --force-recreate   80ee0b41…   <- idem
+```
+
+Sempre confira com o `md5sum` dos dois lados depois de mexer no Caddyfile.
+
+Por isso o workflow `deploy-on-tag.yml` tem um `--force-recreate caddy`
+explicito logo depois do `up -d --build` — não remova essa linha.
+
+
 ## Deploy automático por tag (GitHub Actions → Hostinger VPS)
 
 O repositório possui o workflow **`.github/workflows/deploy-on-tag.yml`** com:
@@ -42,7 +186,10 @@ O repositório possui o workflow **`.github/workflows/deploy-on-tag.yml`** com:
   - frontend: `npm ci`, `npm run lint`, `npm run build`, `npm run test`;
 - deploy remoto por SSH com backup prévio e health check;
 - deploy com `docker compose up -d --build --remove-orphans` — **sem** `down -v`,
-  preservando o volume do Postgres e dos uploads.
+  preservando o volume do Postgres e dos uploads;
+- `--force-recreate caddy` em seguida, porque o `Caddyfile` é bind mount de
+  arquivo e não se atualiza sozinho (ver
+  [`Caddyfile` não atualiza sozinho](#caddyfile-não-atualiza-sozinho-bind-mount-de-arquivo)).
 
 ### Como usar
 
@@ -312,23 +459,76 @@ cobre SQLite — use `docker run --rm -v <vol>:/data -v /tmp:/out alpine cp
 /data/data.db /out/data.db`). Depois de migrado e validado (login, comandas,
 caixa), remova o volume `pdv_backend_data` antigo.
 
-## Atualizando o app depois do primeiro deploy
+## Atualizando o app em produção (sem perder dados)
 
-Via CI/CD (recomendado), basta fazer push/merge na `main` ou executar manualmente
-o workflow **Deploy Hostinger VPS** na aba Actions.
+Dados e uploads vivem em volumes Docker **fora** dos containers — atualizar o
+código não toca neles:
 
-Fallback manual:
+- **Banco**: volume `pdv_postgres_data` (container `deploy-postgres-1`)
+- **Uploads**: volume `pdv_completo_deploy_backend_uploads` (ou `<projeto>_backend_uploads`)
+
+### Procedimento seguro
 
 ```bash
-cd /opt/pdv-completo
-git pull   # ou reenvie os arquivos atualizados
-docker compose -f deploy/docker-compose.yml up -d --build --remove-orphans
+cd /root/pdv-completo/deploy
+
+# 1. Backup rápido (segurança — não pula)
+docker exec deploy-postgres-1 pg_dump -U pdv pdv > backup_$(date +%F_%H%M%S).sql
+
+# 2. Atualiza o código
+cd /root/pdv-completo && git pull origin main
+
+# 3. Rebuilda e recria os containers (volumes preservados)
+cd deploy
+docker compose build backend frontend
+docker compose up -d
+
+# 3b. O Caddyfile é bind mount de arquivo: o passo 3 NÃO o atualiza.
+#     Confira se o container recebeu a versão nova:
+md5sum Caddyfile
+docker exec deploy-caddy-1 md5sum /etc/caddy/Caddyfile
+#     Se divergirem (vai acontecer se o Caddyfile mudou no pull), force a
+#     recriação do proxy — só ele, sem tocar em volumes:
+docker compose up -d --force-recreate caddy
+
+# 4. Valida
+curl -s http://localhost:80/health
+# → {"status":"ok","database":"connected"}
 ```
 
 As migrations rodam automaticamente no boot do backend (ver
 `src/infra/db/migrate.ts`) — não precisa rodar nada manual pra aplicar
 mudanças de schema, desde que você adicione o novo arquivo `.sql` em
 `backend/migrations/` antes de subir.
+
+### Garantias
+
+- `docker compose up -d` **sem** `-v` recria apenas os containers — volumes
+  de dados e uploads intactos.
+- O Postgres está com `depends_on: service_healthy` — o backend só sobe
+  depois do banco pronto.
+- Migrations usam advisory lock (`pg_advisory_xact_lock`) — dois boot
+  simultâneos não aplicam o mesmo arquivo duas vezes.
+
+### Via CI/CD (recomendado)
+
+Faça push/merge na `main` ou execute manualmente o workflow **Deploy
+Hostinger VPS** na aba Actions. O workflow já faz backup prévio e usa
+`docker compose up -d --build --remove-orphans` (sem `down -v`).
+
+### Rollback simples
+
+```bash
+cd /root/pdv-completo
+git fetch --prune origin
+git reset --hard <commit-ou-tag-estavel>
+cd deploy
+docker compose build backend frontend && docker compose up -d
+```
+
+> **Nunca** use `docker compose down -v` em produção — isso apaga os
+> volumes (banco + uploads). Se precisar limpar, use `./deploy/reset.sh`
+> (com confirmação) e restaure o backup.
 
 ## Rollback simples
 

@@ -2,81 +2,63 @@
 # Caddy — proxy reverso com HTTPS automático (Let's Encrypt).
 #
 # Domínios:
-#   umamisushiarte.com.br      → redirect para o Instagram
+#   umamisushiarte.com.br      → redirect para o Instagram (não serve o app)
 #   app.umamisushiarte.com.br  → aplicação (backend + frontend)
-#   srv2011031.hstgr.cloud     → endereço antigo do servidor Hostinger
 #
-# Todos precisam ter DNS apontando pro IP do servidor.
+# Todos precisam de registro DNS tipo A apontando para o IP do
+# servidor, senão o Let's Encrypt não consegue validar o desafio
+# HTTP-01 e nenhum certificado é emitido (o Caddy fica servindo
+# apenas HTTP). Ver a seção "DNS obrigatório" do deploy/README.md.
 # ============================================================
 
+# Rotas da aplicação, compartilhadas pelos sites que servem o PDV.
+# `handle` faz o roteamento por caminho; o resto vai pro frontend.
+(site) {
+	# API REST
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy backend:3000
+	}
+
+	# WebSocket em tempo real
+	handle /realtime* {
+		reverse_proxy backend:3000
+	}
+
+	# Fotos de produto servidas pelo backend
+	handle /uploads/* {
+		reverse_proxy backend:3000
+	}
+
+	# Webhooks da Meta (WhatsApp Cloud API). Fora de /api de propósito: a
+	# URL de callback é cadastrada no painel da Meta e não pode depender do
+	# prefixo que o backend usa na API REST.
+	handle /webhooks/* {
+		reverse_proxy backend:3000
+	}
+
+	# Health check direto (útil pra monitoramento externo)
+	handle /health {
+		reverse_proxy backend:3000
+	}
+
+	# Resto: frontend estático (PWA)
+	handle {
+		reverse_proxy frontend:80
+	}
+
+	encode gzip
+}
+
 # ---------- Domínio principal: redirect pro Instagram ----------
+# Não serve o app: quem digitar o domínio cai no perfil do restaurante.
+# CUIDADO: o handle é `umamisusharte` (sem o "o" no meio) — o
+# `umamisushoarte` anterior levava a um perfil inexistente.
 umamisushiarte.com.br, www.umamisushiarte.com.br {
-    redir https://www.instagram.com/umamisushoarte permanent
+	redir https://www.instagram.com/umamisusharte permanent
 }
 
-# ---------- Endereço antigo do servidor Hostinger ----------
-# Enquanto o DNS do domínio não propaga, use este endereço.
-srv2011031.hstgr.cloud {
-    handle /api/* {
-        uri strip_prefix /api
-        reverse_proxy backend:3000
-    }
-    handle /realtime* {
-        reverse_proxy backend:3000
-    }
-    handle /uploads/* {
-        reverse_proxy backend:3000
-    }
-    handle /health {
-        reverse_proxy backend:3000
-    }
-    handle {
-        reverse_proxy frontend:80
-    }
-    encode gzip
-}
-
-# ---------- Subdomínio: aplicação ----------
+# ---------- Subdomínio: a aplicação ----------
 app.umamisushiarte.com.br {
-    # API REST
-    handle /api/* {
-        uri strip_prefix /api
-        reverse_proxy backend:3000
-    }
-
-    # WebSocket em tempo real
-    handle /realtime* {
-        reverse_proxy backend:3000
-    }
-
-    # Fotos de produto servidas pelo backend
-    handle /uploads/* {
-        reverse_proxy backend:3000
-    }
-
-    # Webhooks da Meta (WhatsApp Cloud API). Fora de /api de propósito: a
-    # URL de callback é cadastrada no painel da Meta e não pode depender do
-    # prefixo que o backend usa na API REST.
-    handle /webhooks/* {
-    	reverse_proxy backend:3000
-    }
-
-    # Webhooks da Meta (WhatsApp Cloud API). Fora de /api de propósito: a
-    # URL de callback é cadastrada no painel da Meta e não pode depender do
-    # prefixo que o backend usa na API REST.
-    handle /webhooks/* {
-    	reverse_proxy backend:3000
-    }
-
-    # Health check direto (útil pra monitoramento externo)
-    handle /health {
-        reverse_proxy backend:3000
-    }
-
-    # Resto: frontend estático (PWA)
-    handle {
-        reverse_proxy frontend:80
-    }
-
-    encode gzip
+	import site
 }

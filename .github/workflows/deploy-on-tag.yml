@@ -73,6 +73,20 @@ jobs:
             echo "[deploy] Subindo containers..."
             docker compose -f deploy/docker-compose.yml up -d --build --remove-orphans
 
+            # Recria o Caddy explicitamente — NÃO remover.
+            # O Caddyfile é bind mount de ARQUIVO único (./Caddyfile:/etc/caddy/
+            # Caddyfile). O Compose só calcula hash do spec do mount (caminho,
+            # alvo, modo) e nunca do conteúdo, então uma mudança no Caddyfile
+            # não recria o container e o `up -d` acima não faz NADA a respeito.
+            # Pior: o `git checkout` acima substitui o arquivo por um inode
+            # novo, e o container continua preso ao inode antigo — servindo a
+            # configuração anterior sem nenhum erro no log.
+            # `restart` também resolveria (o Docker reaplica o bind mount no
+            # start); usamos --force-recreate por ser explícito e idempotente.
+            # Custo: ~2s de indisponibilidade do proxy, sem tocar em volumes.
+            echo "[deploy] Recriando proxy Caddy para pegar o Caddyfile novo..."
+            docker compose -f deploy/docker-compose.yml up -d --force-recreate caddy
+
             # Aguarda health check
             echo "[deploy] Aguardando health check..."
             for i in $(seq 1 30); do

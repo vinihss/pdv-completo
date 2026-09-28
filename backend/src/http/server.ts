@@ -59,8 +59,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(cors, {
     // Sem CORS_ORIGIN definido (dev local), libera geral. Em produção,
     // SEMPRE defina CORS_ORIGIN com o domínio real do frontend — ver
-    // deploy/README.md.
-    origin: config.corsOrigin ? config.corsOrigin.split(",") : true,
+    // deploy/README.md. Aceita lista separada por vírgula, porque o app
+    // pode ser servido em mais de um endereço (ex.: domínio próprio +
+    // hostname antigo do servidor enquanto o DNS não propaga). O trim
+    // evita que um espaço depois da vírgula quebre a comparação de origem.
+    origin: config.corsOrigin
+      ? config.corsOrigin.split(",").map((o) => o.trim()).filter(Boolean)
+      : true,
   });
 
   // Preserva o corpo bruto da requisição em req.rawBody, além do JSON já
