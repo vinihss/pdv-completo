@@ -36,7 +36,12 @@ services:
       - DATABASE_POOL_MAX=${DATABASE_POOL_MAX:-10}
       - UPLOADS_DIR=/app/uploads
       - JWT_SECRET=${JWT_SECRET}
-      - CORS_ORIGIN=https://${DOMAIN}
+      # Lista de origens permitidas, separada por vírgula. O padrão é só o
+      # domínio do app; se o PDV também for servido em outro endereço (ex.:
+      # hostname antigo do servidor), defina CORS_ORIGIN no .env com a lista
+      # completa — sem isso o navegador bloqueia a API e o app "carrega mas
+      # não funciona".
+      - CORS_ORIGIN=${CORS_ORIGIN:-https://${DOMAIN}}
       - PORT=3000
       - LOG_LEVEL=info
       # ---------- WhatsApp Cloud API (Embedded Signup) ----------

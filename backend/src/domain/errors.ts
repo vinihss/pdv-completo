@@ -43,6 +43,8 @@ export const Errors = {
     new AppError("forbidden_role", 403, "Sem permissão para esta ação."),
   notFound: (what = "Recurso") =>
     new AppError("not_found", 404, `${what} não encontrado.`),
+  serviceUnavailable: (msg = "Serviço indisponível.") =>
+    new AppError("service_unavailable", 503, msg),
   orderNotOpen: () =>
     new AppError("order_not_open", 409, "Esta comanda já está fechada."),
   itemAlreadyDelivered: () =>

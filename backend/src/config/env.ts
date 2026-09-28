@@ -92,4 +92,9 @@ export const config = {
   ifoodMock: process.env.IFOOD_MOCK === "true",
   ifoodMockPort: Number(process.env.IFOOD_MOCK_PORT ?? 3999),
   ifoodBaseUrl: process.env.IFOOD_BASE_URL ?? "https://merchant-api.ifood.com.br",
+  // Impressão térmica — daemon local (printer/). O daemon escuta em
+  // 127.0.0.1:8080 e recebe JSON estruturado (não ESC/POS); ele renderiza e
+  // envia TCP pra impressora. O backend só chama a API local. Em Docker, o
+  // container do backend alcança o daemon via host_gateway ou sidecar.
+  printerDaemonUrl: process.env.PRINTER_DAEMON_URL ?? "http://127.0.0.1:8080",
 };

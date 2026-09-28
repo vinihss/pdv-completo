@@ -8,6 +8,7 @@ import { TEST_DATABASE_URL } from "./test/test-db.js";
  * servidor de teste escolheria em runtime.
  */
 const WHATSAPP_STUB_PORT = 3455;
+const PRINTER_STUB_PORT = 3456;
 
 // Tests do backend rodam contra um Postgres dedicado (pdv_test), com as
 // variáveis de ambiente resolvidas ANTES de qualquer import das rotas/use
@@ -42,6 +43,12 @@ export default defineConfig({
       // cairia no caminho legado e os testes da conexão por WABA não provariam nada.
       WHATSAPP_ACCESS_TOKEN: "",
       WHATSAPP_PHONE_NUMBER_ID: "",
+
+      // ---- Impressão térmica (daemon local) ----
+      // O daemon real é substituído por um stub HTTP local na porta 3456.
+      // `config` é snapshot no load do módulo, então a URL precisa estar
+      // resolvida antes de qualquer import.
+      PRINTER_DAEMON_URL: `http://127.0.0.1:${PRINTER_STUB_PORT}`,
     },
   },
 });

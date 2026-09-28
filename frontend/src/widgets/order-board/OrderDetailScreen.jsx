@@ -1,9 +1,10 @@
 import React, { useState } from "react";
 import {
-  Plus, Check, Trash2, Clock, AlertTriangle,
+  Plus, Check, Trash2, Clock, AlertTriangle, Printer,
 } from "lucide-react";
 import { ConfirmModal, ScreenHeader } from "@/shared/components";
 import { updateItemStatus, deleteItem, closeOrder } from "@/entities/order";
+import { printOrder } from "@/entities/printer";
 import { useAuth } from "@/app/providers/auth";
 import { formatBRL } from "@/shared/lib";
 import { StatusBadge } from "@/entities/order";
@@ -14,7 +15,7 @@ import {
   variationsText,
 } from "@/entities/order";
 import { AddItemScreen } from "@/features/orders";
-import { PaymentModal } from "@/features/orders";
+import { PaymentModal, PrintLayoutModal } from "@/features/orders";
 
 export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onReload, showToast }) {
   const { storeSettings } = useAuth();
@@ -24,6 +25,23 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
   const [busyItemId, setBusyItemId] = useState(null);
   const [closing, setClosing] = useState(false);
   const [closeError, setCloseError] = useState(null);
+  const [printOpen, setPrintOpen] = useState(false);
+  const [printing, setPrinting] = useState(false);
+
+  const printerEnabled = storeSettings?.printerEnabled ?? false;
+
+  async function handlePrint(destination) {
+    setPrinting(true);
+    try {
+      await printOrder(order.id, destination);
+      showToast(`Pedido enviado para impressão (${destination === "kitchen" ? "cozinha" : "entrega"}).`, "success");
+      setPrintOpen(false);
+    } catch (e) {
+      showToast(e.message, "error");
+    } finally {
+      setPrinting(false);
+    }
+  }
 
   const pending = pendingItems(order);
   const canClose = pending.length === 0;
@@ -92,6 +110,17 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
           title={orderLabel(order)}
           subtitle={`${order.items.length} ${order.items.length === 1 ? "item" : "itens"} · ${formatBRL(orderTotal(order))}`}
           onBack={onBack}
+          right={
+            printerEnabled ? (
+              <button
+                onClick={() => setPrintOpen(true)}
+                className="flex items-center gap-1.5 text-stone-400 hover:text-amber-400 transition-colors"
+                aria-label="Imprimir pedido"
+              >
+                <Printer size={18} />
+              </button>
+            ) : undefined
+          }
         />
       </div>
 
@@ -239,6 +268,14 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
           destructive
           onCancel={() => setConfirmDelete(null)}
           onConfirm={() => handleDeleteConfirmed(confirmDelete)}
+        />
+      )}
+
+      {printOpen && (
+        <PrintLayoutModal
+          onClose={() => setPrintOpen(false)}
+          onPrint={handlePrint}
+          busy={printing}
         />
       )}
     </div>

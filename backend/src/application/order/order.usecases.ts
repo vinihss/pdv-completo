@@ -19,6 +19,7 @@ import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
 import { emitCustomerStageChangedTx } from "../self-service/customer-stage.js";
 import { notifyReady } from "../../integrations/whatsapp/whatsapp.notifier.js";
+import { printKitchenOrder } from "../../integrations/printer/printer.usecases.js";
 import { findOpenDrawerTx } from "../cash-flow/cash-flow.usecases.js";
 import { applyStockMovementTx, stockBalance, computeMovingAverageTx, INVENTORY_ROOM } from "../stock/stock.usecases.js";
 import { getCache } from "../../infra/cache/index.js";
@@ -46,7 +47,7 @@ const cache = getCache();
 // drizzle propaga o erro), então os AppError de domínio seguem funcionando
 // igual.
 
-async function getSettings() {
+export async function getSettings() {
   const s = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
   if (!s) throw new Error("store_settings não inicializado — rode o seed.");
   return s;
@@ -334,6 +335,13 @@ export async function addItemsUsecase(input: {
     await logAction(tx, input.userId, "item_added", input.orderId, { items: result });
     return result;
   });
+
+  // Impressão automática da cozinha (pós-commit, fire-and-forget): só quando
+  // as duas flags estão ligadas E o modo cozinha está ativo. O daemon tem
+  // fila de retry própria; falha aqui nunca quebra o lançamento.
+  if (settings.printerEnabled && settings.printerAutoPrint && settings.kitchenEnabled) {
+    printKitchenOrder(input.orderId).catch((err) => console.error("falha ao imprimir comanda na cozinha:", err));
+  }
 
   return createdItems;
 }
