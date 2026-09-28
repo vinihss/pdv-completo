@@ -61,8 +61,16 @@
 # O `redir` é de site inteiro: qualquer caminho no domínio raiz
 # (`umamisushiarte.com.br/qualquer-coisa`) vai para a vitrine, sem
 # precisar repetir a regra por path.
+#
+# SEM `permanent` = 302 temporário, de propósito. O 308 (`permanent`) é cacheado
+# pelo navegador com força: quem já abriu o domínio antes continua indo para o
+# destino antigo mesmo depois do deploy, até limpar o cache. Enquanto o
+# destino estiver sendo ajustado, deixe 302 e valide com curl:
+#   curl -sI https://umamisushiarte.com.br | grep -i location
+# Quando o destino estiver definitivo, volte `permanent` no fim da linha
+# (relembre: precisa de `--force-recreate caddy` ou `caddy reload`).
 umamisushiarte.com.br, www.umamisushiarte.com.br {
-	redir https://app.umamisushiarte.com.br/pedido permanent
+	redir https://app.umamisushiarte.com.br/pedido
 }
 
 # ---------- Subdomínio: a aplicação ----------
