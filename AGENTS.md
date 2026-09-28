@@ -79,11 +79,11 @@ false` esconde a cozinha e `uses_delivery: false` esconde os entregadores
 
 | Perfil | Telas apps | Rooms de realtime | Restrictions (backend) |
 |---|---|---|---|
-| waiter | Comandas | `waiter:{id}` + `kitchen-display` | comandas (criar/editar/fechar); cria cliente no balcão e busca clientes (`POST /customers`, `GET /customers/search`) |
-| kitchen | Cozinha | `kitchen-display` | só marcar itens prontos |
-| manager | Comandas + Configurações + Dinheiro + Clientes + Entregar + Relatórios + Estoque + Auditoria + Equipe | `waiter:{id}` + `kitchen-display` + `cash-drawer` + `deliveries` + `inventory` | tudo (usa `kitchen-display` como room-broadcast de comandas) |
-| cashier | Dinheiro (gaveta de caixa) + Clientes | `cash-drawer` | fluxo de caixa (`cash-flow.routes.ts`) + manutenção de clientes; 403 em gerência/comandas |
-| courier | Entregas | `deliveries` | só as entregas atribuídas a ele (`courier.routes.ts`); dispatch/deliver/fail |
+| waiter | Comandas | `waiter:{id}` + `kitchen-display` + `alerts` + `alerts:waiter` | comandas (criar/editar/fechar); cria cliente no balcão e busca clientes (`POST /customers`, `GET /customers/search`) |
+| kitchen | Cozinha | `kitchen-display` + `alerts` + `alerts:kitchen` | só marcar itens prontos |
+| manager | Comandas + Configurações + Dinheiro + Clientes + Entregar + Relatórios + Estoque + Auditoria + Equipe | `waiter:{id}` + `kitchen-display` + `cash-drawer` + `deliveries` + `inventory` + `alerts` + `alerts:manager` | tudo (usa `kitchen-display` como room-broadcast de comandas) |
+| cashier | Dinheiro (gaveta de caixa) + Clientes | `cash-drawer` + `alerts` + `alerts:cashier` | fluxo de caixa (`cash-flow.routes.ts`) + manutenção de clientes; 403 em gerência/comandas |
+| courier | Entregas | `deliveries` + `alerts` + `alerts:courier` | só as entregas atribuídas a ele (`courier.routes.ts`); dispatch/deliver/fail |
 
 Rotas por perfil: `waiter`/`manager` em `order.routes.ts`, `kitchen` em
 `kitchen.routes.ts`, `cashier`/`manager` em `cash-flow.routes.ts`, `courier` em
@@ -152,7 +152,7 @@ e `/realtime` pro backend).
 | `npm run test` | backend | vitest 5 (Postgres dedicado `pdv_test` via `TEST_DATABASE_URL`; caixa, comandas, idempotência, maintenance, stock, whatsapp, printer, compras, clientes/equipe/perfis) |
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
-| `npm run test` | frontend | vitest (jsdom + Testing Library; 21 suítes: casca do app + menu, drawer/accordion, modal/header/variação, login por PIN, detalhe da comanda, modais de compra/equipe, caixa/reports, página pública) |
+| `npm run test` | frontend | vitest (jsdom + Testing Library; 29 suítes: casca do app + menu, drawer/accordion, modal/header/variação, login por PIN, detalhe da comanda, modais de compra/equipe, caixa/reports, página pública, **sino de alertas**, o áudio e o `useRealtime`) |
 
 ## Convenções e regras ao editar código
 
@@ -175,7 +175,7 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
 - **Sem `rowid`**: ordem de inserção de `stock_movement`, `outbox_event` e
   `purchase_item` vem da sequência `seq BIGSERIAL` (a média móvel é um replay
   do ledger, então a ordem precisa ser estável). Não trocar por `created_at`.
-- **Migrations**: o diretório tem **4 arquivos**, e o schema está **consolidado**
+- **Migrations**: o diretório tem **5 arquivos**, e o schema está **consolidado**
   — não procure os números antigos neste texto nem no histórico, eles não
   correspondem aos arquivos:
   | Arquivo | Conteúdo |
@@ -184,6 +184,7 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
   | `0002_whatsapp_connections.sql` | token por WABA + tabelas de inbound/outbound |
   | `0003_printer.sql` | flags `printer_enabled` / `printer_auto_print` |
   | `0003_profile_fields.sql` | `user.phone/email/photo_path`, `customer.email/active`, extensão `unaccent` |
+  | `0004_alerts.sql` | tabela `alert` (sino da casca): `seq`, `kind`, `title/body`, `order_id`, `channel`, `audience_roles`, `read_at` |
 
   Aplicadas pelo runner em `src/infra/db/migrate.ts` (advisory lock + tabela
   `_migrations`, uma transação por arquivo). Roda no boot em modo local e via
@@ -193,8 +194,8 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
   chaveia por filename em `_migrations.name`, e os bancos de dev **e de
   produção** já têm os dois registrados — **não renomear** (renomear tentaria
   reaplicar DDL e quebraria instalações existentes). Sempre que adicionar uma
-  migration, use número zero-padded lexicograficamente **maior**; os próximos
-  são `0004_*`.
+  migration, use número zero-padded lexicograficamente **maior**; o próximo é
+  `0005_*`.
 - **Escreva migration idempotente**: use `ADD COLUMN IF NOT EXISTS` /
   `CREATE ... IF NOT EXISTS`. O runner já pula arquivos registrados, mas o DDL
   não pode estourar se a coluna tiver sido adicionada por fora dele. Como o
@@ -228,8 +229,37 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
   confundir os dois. Suíte `test/printer.test.ts` com stub HTTP na porta 3456;
   **cada teste precisa de `resetState()`** (a mesa `t-1` compartilhada fica
   ocupada pelo teste anterior senão).
+- **Central de alertas (sino da casca)**: tabela `alert` (migration `0004`),
+  gravada em `openOrderUsecase` **dentro da transação da comanda** (mesma regra
+  do audit/outbox: se o alerta falhasse fora, o gerente nunca ouviria a mesa que
+  existe — o teste sabota o insert e prova o rollback). Três metades que
+  precisam concordar:
+  - **linha**: `createAlertTx` grava + faz o fan-out de `alert.created` por
+    `enqueueEvent`, um insert de outbox por room da audiência;
+  - **público**: `ORDER_ALERT_AUDIENCE` = `manager`/`cashier`/`kitchen`. O
+    garçom **não** entra (em comanda de balcão ele é quem abriu), e o sino dele
+    fica vazio — o que é informação, não bug;
+  - **rooms**: `alerts` (alerta sem público) e `alerts:<papel>`. O
+    `canJoinRoom` autoriza **o próprio papel** (`alerts:manager` para o
+    gerente), nunca "o room de qualquer papel" — é o mesmo recorte do REST, e
+    é o que impede o garçom de assinar o room do gerente.
+  `read_at` é **global por loja** (não por usuário): a pergunta é "alguém já
+  viu?", e quem responde é a tela da comanda (`OrderBoard` chama
+  `POST /alerts/mark-read` com o `orderId` ao abrir). Rotas em
+  `alert.routes.ts` **sem `requireRole`** — quem não tem audiência não recebe
+  linha, e fechar por papel faria o sino sumir do garçom/entregador.
+  `listAlertsUsecase` devolve `{ data, total, unread }` com `total`/`unread`
+  do conjunto TODO (badge acima de 20 pendências tem que contar direito).
+  O texto é função pura (`describeOrderAlert`) — mesma frase para balcão,
+  página, WhatsApp e iFood. A listagem ordena por `(created_at, seq)`: o
+  `created_at` é **texto com ms**, então dois alertas no mesmo milissegundo
+  empatariam sem o `seq` (mesma razão do `outbox_event`) — o teste fixa o
+  `created_at` das duas linhas e inverte a ordem do heap para provar o
+  desempate. Purga de 7 dias no job de maintenance (2.5).
+  Suíte `test/alerts.test.ts` (25 testes).
 - **Contagem**: `count()` do Drizzle (nunca `sql<number>\`count(*)\`` — no
-  Postgres o tipo dobigint sai como string). `sum(real)` devolve `number`.
+  Postgres o tipo bigint sai como string; se precisar de `count(*)` cru, caste
+  `::int`). `sum(real)` devolve `number`.
 - **Audit log + eventos outbox na mesma transação** da escrita de domínio.
   Sempre que criar/alterar algo relevante, registrar `logAction` e/ou
   `enqueueEvent` no mesmo `db.transaction`.
@@ -620,6 +650,52 @@ dentro da fase, a ordem indicada.
   em Configurações. Suíte `test/printer.test.ts` (10 testes). Nota de
   operação: em Docker, o backend alcança o daemon do host via `host_gateway`
   ou sidecar (`PRINTER_DAEMON_URL`).
+
+### Fase 10 — Central de alertas (implementado)
+
+- **10.1 Alerta de comanda no backend** — ✅ feito: tabela `alert` (migration
+  `0004`) gravada por `createAlertTx` dentro da transação de
+  `openOrderUsecase`, com fan-out `alert.created` para `alerts:<papel>`;
+  `audience_roles` = `manager`/`cashier`/`kitchen` (o garçom não ouve a própria
+  comanda de balcão). Rotas `GET /alerts` e `POST /alerts/mark-read` sem
+  `requireRole`, com o recorte por papel dentro do usecase; `canJoinRoom`
+  autoriza só o room do próprio papel. Texto em função pura
+  (`describeOrderAlert`), retido 7 dias pelo job de maintenance. Suíte
+  `test/alerts.test.ts` (25 testes) — inclui o teste de rollback (sabota o
+  insert do alerta e prova que a comanda não é criada) e o de desempate do
+  `seq` (empate de `created_at` não embaralha a ordem do sino).
+- **10.2 Sino, contador e marcação de lido** — ✅ feito: `AlertBell` no header
+  dos 5 perfis (drawer pela direita, sai por `createPortal` porque o header tem
+  `backdrop-blur` e viraria containing block do `fixed`), badge com o `unread`
+  do servidor (teto visual em `99+`), lista agrupada por dia que mostra as lidas
+  também, e "marcar todas". `read_at` é global: `OrderBoard` chama
+  `markRead(orderId)` ao abrir a comanda, por qualquer caminho. O clique navega
+  só para quem tem a tela de comandas e só com comanda aberta; nos demais
+  perfis (caixa/cozinha/entregador) ele só desmarca. `AlertsProvider` +
+  `OrderFocusProvider` no `app/` porque casca e página são irmãs na árvore.
+- **10.3 Som por tipo de alerta** — ✅ feito: Web Audio API sintetizado
+  (`shared/lib/audio.js`, sem arquivo de áudio) com a tabela de tons por
+  `alert.kind` em `entities/alert/lib/sounds.js`; toque no `alert.created` e
+  **uma repetição após 30s** se o alerta continuar não lido (cancelada ao
+  marcar lido, timers limpos no logout). Preferência `localStorage`
+  `pdv:alert-sound`, **por aparelho**, com toggle no rodapé do drawer. O
+  `AudioContext` só nasce depois de um gesto do usuário (listener único de
+  `pointerdown`/`keydown` na casca), e navegador sem Web Audio só perde o som.
+  Suítes: `AlertBell.test.jsx` (17 testes, fluxo completo com WS dublê),
+  `shared/lib/audio.test.js` (9), `shared/hooks/useRealtime.test.jsx` (3) e
+  `entities/alert` (19).
+- **10.4 Recarga e pendências** — como o `pollOutboxOnce` marca publicado
+  mesmo sem assinante na sala, o evento emitido durante uma queda de conexão
+  **não volta**: o `useRealtime` ganhou um 4º argumento `onReconnect` (dispara
+  só a partir da segunda abertura — a primeira é a montagem, que já carregou) e
+  o `AlertsProvider` recarrega por GET nele, além de recarregar no
+  `visibilitychange`. Testes: `useRealtime.test.jsx` (3) e o caso
+  "reconexão recarrega a lista" em `AlertBell.test.jsx`.
+- **10.5 Pendências** — evento de "alerta lido" no WS (o sino de outro terminal
+  só reflete quando aquele terminal recarrega, recarrega por foco ou reconecta —
+  não há push de `read_at`); `alertId` em `POST /alerts/mark-read` para marcar
+  um alerta público isolado (hoje a ausência de `orderId` significa "todas");
+  outros `kind` (estoque baixo, entrega parada).
 
 ## Critérios de verificação gerais
 

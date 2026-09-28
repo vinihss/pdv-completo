@@ -145,6 +145,7 @@ const TRANSIENT_TABLES = [
   "geocoding_cache",
   "ifood_event",
   "ifood_state",
+  "alert",
   '"order"',
   "customer",
 ] as const;

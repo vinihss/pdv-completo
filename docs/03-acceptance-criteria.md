@@ -158,6 +158,22 @@ Convenção: critérios marcados com ⚠️ cobrem comportamento que já gerou a
 - **Dado** a aba Compras do gerente, **quando** uma compra é registrada em outra tela/sessão, **então** o histórico atualiza via WS (evento `purchase.received` no room `inventory`), sem "Atualizar" manual.
 - **Dado** o gerente, **quando** ele acessa `GET /purchases`, **então** funciona; o garçom, na mesma rota, recebe `403 forbidden_role` — compras é exclusivo de gerente.
 
+## 17. Central de alertas — sino da casca (frontend §7, backend §7.2)
+
+- **Dado** um gerente, cozinha ou caixa logado, **quando** uma comanda é aberta por qualquer canal (balcão, página pública, WhatsApp, iFood), **então** o sino do header dele incrementa sem reload, via evento `alert.created`, e o alerta aparece na lista com mesa/canal.
+- **Dado** um garçom logado, **quando** ele abre uma comanda de balcão, **então** nenhum alerta nasce para ele (a audiência é `manager`/`cashier`/`kitchen`) e o sino dele fica vazio — o autor da ação não é notificado.
+- ⚠️ **Dado** um alerta entregue ao gerente, **quando** ele tenta assinar o room `alerts:manager` com o token de garçom, **então** o backend responde `join.denied` — o recorte do realtime é o mesmo do REST, e o garçom nunca vê linha de outro papel.
+- ⚠️ **Dado** mais pendências que a página pedida, **quando** o sino busca `GET /alerts?limit=20`, **então** `total` e `unread` contam o conjunto **todo** (não a página) — o badge acima de 20 pendências mostra o número certo, com teto visual em `99+`.
+- **Dado** um alerta não lido, **quando** o gerente abre a comanda correspondente na tela de comandas, **então** ele é marcado lido **sem clique no sino** (a tela da comanda avisa), e o badge cai.
+- ⚠️ **Dado** `read_at` global por loja, **quando** o garçom abriu a comanda e depois o gerente abre a lista de alertas, **então** o alerta já aparece como lido — "alguém já viu" é a pergunta, não "eu vi".
+- **Dado** um perfil sem tela de comandas (cozinha, caixa, entregador), **quando** ele toca num alerta, **então** o alerta é marcado lido e a tela **não** muda de aba.
+- **Dado** um alerta de comanda já fechada, **quando** o gerente toca nele, **então** ele é marcado lido e ele volta para a lista de comandas, sem tentar abrir detalhe inexistente.
+- **Dado** o som ligado (padrão), **quando** um alerta novo chega, **então** o Web Audio toca o par de tons do `alert.kind` **e repete uma vez 30s depois** se o alerta continuar não lido; marcar lido cancela a repetição.
+- **Dado** um navegador que ainda não registrou gesto do usuário, **quando** um alerta chega, **então** nenhum erro aparece na tela — o som é criado no primeiro `pointerdown`/`keydown` e o alerta permanece visível.
+- **Dado** o toggle "Som dos alertas" desligado, **quando** a página é recarregada em outro aparelho do mesmo usuário, **então** cada aparelho guarda a própria preferência (`pdv:alert-sound` em `localStorage`).
+- **Dado** um alerta com mais de 7 dias, **quando** o job de maintenance roda, **então** a linha é removida e a lista/badge do servidor refletem o novo total.
+- ⚠️ **Dado** o WebSocket do terminal caiu (queda de wi-fi, sono do aparelho), **quando** ele volta a abrir a conexão, **então** o sino recarrega a lista por `GET /alerts` e mostra a comanda que foi aberta durante a queda — o evento perdido não chega por WS (o outbox já marcou publicado), então a recarga é o que garante que o gerente não perde um pedido.
+
 ## Como usar este documento
 
 Cada bloco acima deve virar um ou mais casos de teste automatizado (integração, no mínimo, pros fluxos de `order`/`item`; unitário pros usecases de domínio). Os itens marcados ⚠️ são os candidatos naturais a teste automatizado prioritário, por já terem histórico de ambiguidade neste projeto — vale garantir que eles tenham cobertura antes de qualquer coisa mais "óbvia" da lista.

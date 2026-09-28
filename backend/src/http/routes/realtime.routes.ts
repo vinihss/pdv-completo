@@ -9,6 +9,12 @@ import { wsGateway } from "../../infra/realtime/ws-gateway.js";
 function canJoinRoom(user: AuthUser, room: string): boolean {
   const { sub, role } = user;
   if (room === `waiter:${sub}`) return true;
+  // Central de alertas: o room público (`alerts`, alerta sem restrição de
+  // público) e o room do PRÓPRIO papel. Autorizar o próprio e não "o room de
+  // qualquer papel" é o que impede o garçom de assinar `alerts:manager` e
+  // ouvir a comanda que ele não deveria — é o mesmo recorte que o
+  // `audience_roles` faz no REST (alert.usecases.ts).
+  if (room === "alerts" || room === `alerts:${role}`) return true;
   switch (role) {
     case "waiter":
       return room === "kitchen-display" || room === "deliveries";
@@ -61,6 +67,10 @@ export async function realtimeRoutes(app: FastifyInstance) {
     if (authUser.role === "cashier" || authUser.role === "manager") initialRooms.push("cash-drawer");
     // Gerente acompanha o estoque ao vivo (movimentos e alertas de estoque baixo).
     if (authUser.role === "manager") initialRooms.push("inventory");
+    // O sino da casca (todos os perfis) — o client também pede esses dois via
+    // `join`, mas vir aqui evita a ida-e-volta e garante o alerta no primeiro
+    // evento depois do login, sem depender do hook montado.
+    initialRooms.push("alerts", `alerts:${authUser.role}`);
 
     const conn = wsGateway.addConnection(socket as any, initialRooms);
 

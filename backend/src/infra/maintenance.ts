@@ -1,9 +1,13 @@
 import { and, eq, lt } from "drizzle-orm";
 import { db } from "./db/client.js";
-import { outboxEvents, idempotencyKeys, customerCarts } from "./db/schema.js";
+import { outboxEvents, idempotencyKeys, customerCarts, alerts } from "./db/schema.js";
 
 const INTERVAL_MS = 5 * 60_000;
 const OUTBOX_RETENTION_MS = 60 * 60_000; // publicados ficam 1h pra auditoria/debug
+// A central de alertas é a única dessas tabelas que alguém realmente lê (o sino
+// mostra o histórico), então a janela é longa: 7 dias dão para o gerente
+// conferir "ontem chegou isso e ninguém pegou" depois do turno.
+const ALERT_RETENTION_MS = 7 * 24 * 60 * 60_000;
 
 /**
  * 2.5 — evita crescimento ilimitado das tabelas de infraestrutura:
@@ -12,7 +16,9 @@ const OUTBOX_RETENTION_MS = 60 * 60_000; // publicados ficam 1h pra auditoria/de
  *   expirou; uma nova chamada com o mesmo correlationId deve poder reprocessar,
  *   ver idempotency.middleware.ts);
  * - `customer_cart` com `expires_at` no passado (carrinho server-side
- *   abandonado — cart.usecases.ts).
+ *   abandonado — cart.usecases.ts);
+ * - `alert` além da janela de retenção (o sino mostra o que chegou, não a
+ *   arqueologia do mês passado — alert.usecases.ts).
  */
 export async function runMaintenanceOnce() {
   const outboxCutoff = new Date(Date.now() - OUTBOX_RETENTION_MS).toISOString();
@@ -27,7 +33,15 @@ export async function runMaintenanceOnce() {
 
   const purgeCarts = await db.delete(customerCarts).where(lt(customerCarts.expiresAt, nowIso));
 
-  return { outbox: purgeOutbox.rowCount ?? 0, idempotencyKeys: purgeKeys.rowCount ?? 0, customerCarts: purgeCarts.rowCount ?? 0 };
+  const alertCutoff = new Date(Date.now() - ALERT_RETENTION_MS).toISOString();
+  const purgeAlerts = await db.delete(alerts).where(lt(alerts.createdAt, alertCutoff));
+
+  return {
+    outbox: purgeOutbox.rowCount ?? 0,
+    idempotencyKeys: purgeKeys.rowCount ?? 0,
+    customerCarts: purgeCarts.rowCount ?? 0,
+    alerts: purgeAlerts.rowCount ?? 0,
+  };
 }
 
 export function startMaintenanceJobs() {

@@ -54,20 +54,22 @@ src/
 ├── app/
 │   ├── providers/auth/       AuthContext + Login (vem do app/router)
 │   ├── providers/nav/        tela ativa do menu + seções por papel (menuSections)
+│   ├── providers/alerts/     lista, contador, toast, som, repetição e recarga do sino
+│   ├── providers/order-focus/  "abrir esta comanda" pedido por quem não é a página
 │   └── router.jsx
 ├── pages/                    7 telas compostas por papel
 │   ├── pdv/  manager/  kitchen/  cashier/  courier/  customer-menu/  login/
 ├── widgets/                  blocos de UI reutilizáveis
-│   ├── order-card/  status-badge/  money/  modal/  app-menu/  ...
+│   ├── order-card/  status-badge/  money/  modal/  app-menu/  alert-bell/  ...
 ├── features/                 ações do usuário com estado próprio
 │   ├── add-item/  close-order/  cancel-order/  open-cash-drawer/
 │   ├── cash-movement/  print-kitchen-ticket/  print-receipt/  product-catalog/
 ├── entities/                 domínio: modelo + API
-│   ├── order/  product/  table/  user/  store/  session/
+│   ├── order/  product/  table/  user/  store/  session/  alert/
 │   ├── delivery/  stock/  cash/  customer/  ifood/  reports/  audit/
 └── shared/                   genérico
     ├── api/http.js           único núcleo HTTP
-    ├── lib/                  format, theme, uuid (genéricos)
+    ├── lib/                  format, theme, uuid, money, audio (genéricos)
     ├── hooks/                useRealtime, useEscapeLayer, useBodyScrollLock, useFocusTrap
     └── ui/                   Toast, ConfirmModal, Drawer, AccordionMenu, Section/Field
 ```
@@ -93,6 +95,22 @@ src/
   atravessa duas camadas irmãs: quem desenha o menu (`app/router.jsx`) e quem
   desenha a tela (`pages/manager`). `pages` não pode importar `pages`, então
   o estado da tela ativa não pode morar na página.
+- **Sino de alertas** → mesmo padrão, em três fatias:
+  - `entities/alert` = a **API** (`GET /alerts`, `POST /alerts/mark-read`), a
+    **tabela de som por `alert.kind`** (`lib/sounds.js`) e os rótulos
+    (`model/alertView.js` — idade, subtítulo, "dá para abrir?");
+  - `app/providers/alerts` = lista, contador, `Toast`, WebSocket e o timer da
+    repetição; `app/providers/order-focus` = o id da comanda a abrir;
+  - `widgets/alert-bell` = o **desenho** (botão + badge + `Drawer` da lista).
+    O sino é da **casca** (`app/router.jsx` desenha o header dos 5 perfis), e
+    o `Drawer` sai por `createPortal` porque o header tem `backdrop-blur` — um
+    ancestral com `filter` vira containing block de `position: fixed`.
+- **Áudio** → `shared/lib/audio.js` só com o Web Audio (osciladores, envelope,
+  contexto). A **tabela de tons por tipo de alerta** fica em
+  `entities/alert/lib/sounds.js`, pelo mesmo motivo do BR Code: o
+  `AudioContext` é genérico, "som de comanda nova" é vocabulário de domínio —
+  e `shared` não pode carregar o termo `alert` no vocabulário das regras do
+  teste de fronteiras.
 
 ## 4. Classificação atual → destino
 
@@ -134,6 +152,8 @@ src/
 | `shared/components/StatusBadge` | `entities/order/ui` |
 | `shared/components/VariationModal` | `entities/product/ui` |
 | `shared/lib/{format,theme,uuid}` | `shared/lib` (ficam) |
+| `shared/lib/audio` | `shared/lib` (Web Audio puro) |
+| (novo) sino de alertas | `widgets/alert-bell` + `app/providers/{alerts,order-focus}` + `entities/alert` |
 | `shared/lib/money` | `shared/lib` (consolidado, §7) |
 | `shared/lib/pix` | `entities/payment` (Fase 3) |
 
@@ -247,7 +267,8 @@ saiu de lá foi para a entity que é dona do vocabulário:
 | `DeliveryStatusBadge` (dentro de `DeliveriesTab`) | `entities/delivery/ui` | badge de entrega, usado por 2 papéis |
 
 `shared` ficou com 5 primitivas (`Toast`, `Form`, `ConfirmModal`, `Modal`,
-`ScreenHeader`) e 4 libs genéricas (`format`, `money`, `theme`, `uuid`).
+`ScreenHeader`) e 5 libs genéricas (`format`, `money`, `theme`, `uuid`,
+`audio`).
 
 O atalho `features/orders/VariationModal.jsx` (que só re-exportava o
 compartilhado) foi removido: agora os dois consumidores importam de
@@ -359,9 +380,13 @@ Regras que caem disso:
 3. `src/__tests__/fsd-boundaries.test.js` é a rede de segurança estrutural
    (37 casos): barrels consistentes, `shared` sem vocabulário de domínio,
    direção de dependências e import só pela API pública.
-4. `npm run lint` (oxlint) tem 2 warnings pré-existentes em
-   `AuthProvider.jsx:79` e `Toast.jsx:3` (`only-export-components`) e 1 em
-   `public/sw.js` (`no-unused-vars`). Não são blocking. O
+4. `npm run lint` (oxlint) tem 5 warnings de `only-export-components` — um por
+   arquivo de provider que exporta o provider **e** o hook (`AuthProvider.jsx`,
+   `NavProvider.jsx`, `AlertsProvider.jsx`, `OrderFocusProvider.jsx`,
+   `Toast.jsx`), 1 em `public/sw.js` (`no-unused-vars`) e 1 no
+   `vendor/inspector-react`. Não são blocking: o padrão "hook no mesmo arquivo
+   do provider" é deliberado, e o warning é sobre Fast Refresh, não sobre
+   arquitetura. O
    `exhaustive-deps` de `LoginPage.jsx` foi resolvido com `useCallback` nos
    handlers de PIN.
 5. `http.js` guarda estado global mutável (`authToken`, `onUnauthorized`).
