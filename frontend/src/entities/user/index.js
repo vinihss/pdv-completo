@@ -1,1 +1,1 @@
-export { createUser, listUsers, resetPin, updateUser } from "./api/user.js";
+export { createUser, listUsers, removeUserPhoto, resetPin, updateUser, uploadUserPhoto } from "./api/user.js";

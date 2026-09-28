@@ -14,12 +14,13 @@
 // produto; futuro próximo só adiciona ingredient/product_ingredient e
 // passa a *calcular* esses deltas a partir da receita.
 
-import { and, count, desc, eq, inArray, like, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, type Tx } from "../../infra/db/client.js";
 import { stockMovements, products, categories, users } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
+import { normalizeAccents } from "../../domain/text.js";
 
 export const INVENTORY_ROOM = "inventory";
 
@@ -176,7 +177,10 @@ export async function applyStockMovementTx(
 // ---------- GET /stock ----------
 export async function listStockUsecase(input: { lowOnly?: boolean; search?: string; limit: number; offset: number }) {
   const conditions = [eq(products.trackStock, true)];
-  if (input.search) conditions.push(like(products.name, `%${input.search}%`));
+  if (input.search) {
+    const term = `%${normalizeAccents(input.search)}%`;
+    conditions.push(sql`unaccent(${products.name}) ILIKE unaccent(${term})`);
+  }
   const where = and(...conditions);
 
   const rows = await db.query.products.findMany({

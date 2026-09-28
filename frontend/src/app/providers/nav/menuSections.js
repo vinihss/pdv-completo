@@ -19,6 +19,7 @@ const MANAGER = ({ inventoryEnabled, purchaseEnabled }) => [
     items: [
       { id: "orders", label: "Comandas", icon: Receipt },
       { id: "cash", label: "Caixa", icon: Wallet },
+      { id: "customers", label: "Clientes", icon: Users },
       { id: "deliveries", label: "Entregas", icon: Truck },
       { id: "ifood", label: "iFood", icon: Store },
       { id: "whatsapp", label: "WhatsApp", icon: MessageCircle },
@@ -59,7 +60,6 @@ const MANAGER = ({ inventoryEnabled, purchaseEnabled }) => [
 const SINGLE_SCREEN = {
   waiter: { section: "Comandas", item: "orders", icon: Receipt },
   kitchen: { section: "Produção", item: "kitchen", icon: ChefHat },
-  cashier: { section: "Caixa", item: "cash", icon: Wallet },
   courier: { section: "Entregas", item: "deliveries", icon: Truck },
 };
 
@@ -68,9 +68,25 @@ function singleScreen(role) {
   return [{ id: section, label: section, icon, items: [{ id: item, label: section, icon }] }];
 }
 
+// Caixa tem duas telas: o fluxo de caixa e a manutenção de clientes (o balcão
+// identifica o cliente antes de abrir a comanda). Seção própria, como o
+// gerente — o menu vira coluna por causa do segundo item.
+const CASHIER = [
+  {
+    id: "operacao",
+    label: "Operação",
+    icon: Wallet,
+    items: [
+      { id: "cash", label: "Caixa", icon: Wallet },
+      { id: "customers", label: "Clientes", icon: Users },
+    ],
+  },
+];
+
 /** Seções do menu do papel, já filtradas pelos feature-toggles. */
 export function menuSectionsFor(role, { inventoryEnabled = false, purchaseEnabled = false } = {}) {
   if (role === "manager") return MANAGER({ inventoryEnabled, purchaseEnabled });
+  if (role === "cashier") return CASHIER;
   return singleScreen(role in SINGLE_SCREEN ? role : "waiter");
 }
 

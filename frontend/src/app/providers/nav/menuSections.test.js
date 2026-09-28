@@ -4,15 +4,15 @@ import { menuSectionsFor, hasExpandableSections, firstItemId } from "./menuSecti
 const labels = (sections) => sections.flatMap((s) => s.items.map((i) => `${s.label}/${i.label}`));
 
 describe("menuSectionsFor", () => {
-  it("gerente: 4 seções, 12 itens com estoque e compras ligados", () => {
+  it("gerente: 4 seções, 13 itens com estoque e compras ligados", () => {
     const sections = menuSectionsFor("manager", { inventoryEnabled: true, purchaseEnabled: true });
     expect(sections.map((s) => s.label)).toEqual(["Operação", "Catálogo", "Gestão", "Sistema"]);
-    expect(sections.flatMap((s) => s.items)).toHaveLength(12);
+    expect(sections.flatMap((s) => s.items)).toHaveLength(13);
   });
 
   it("gerente: os toggles de estoque e compras entram no catálogo", () => {
     expect(labels(menuSectionsFor("manager"))).toEqual([
-      "Operação/Comandas", "Operação/Caixa", "Operação/Entregas", "Operação/iFood",
+      "Operação/Comandas", "Operação/Caixa", "Operação/Clientes", "Operação/Entregas", "Operação/iFood",
       "Operação/WhatsApp",
       "Catálogo/Cadastros",
       "Gestão/Equipe", "Gestão/Relatórios", "Gestão/Auditoria",
@@ -28,14 +28,13 @@ describe("menuSectionsFor", () => {
     const ids = menuSectionsFor("manager", { inventoryEnabled: true, purchaseEnabled: true })
       .flatMap((s) => s.items)
       .map((i) => i.id);
-    expect(ids).toEqual(["orders", "cash", "deliveries", "ifood", "whatsapp", "catalog", "stock", "compras", "users", "reports", "audit", "settings"]);
+    expect(ids).toEqual(["orders", "cash", "customers", "deliveries", "ifood", "whatsapp", "catalog", "stock", "compras", "users", "reports", "audit", "settings"]);
   });
 
   it("perfis de tela única: uma seção com um item", () => {
     for (const [role, item, label] of [
       ["waiter", "orders", "Comandas"],
       ["kitchen", "kitchen", "Produção"],
-      ["cashier", "cash", "Caixa"],
       ["courier", "deliveries", "Entregas"],
     ]) {
       const sections = menuSectionsFor(role);
@@ -45,15 +44,21 @@ describe("menuSectionsFor", () => {
     }
   });
 
+  it("caixa tem duas telas: Caixa e Clientes", () => {
+    const sections = menuSectionsFor("cashier");
+    expect(labels(sections)).toEqual(["Operação/Caixa", "Operação/Clientes"]);
+  });
+
   it("papel desconhecido cai no menu do garçom (mesmo fallback da rota)", () => {
     expect(menuSectionsFor("system")).toEqual(menuSectionsFor("waiter"));
   });
 });
 
 describe("modo do menu", () => {
-  it("só o gerente tem algo para expandir", () => {
+  it("gerente e caixa têm algo para expandir", () => {
     expect(hasExpandableSections(menuSectionsFor("manager"))).toBe(true);
-    for (const role of ["waiter", "kitchen", "cashier", "courier"]) {
+    expect(hasExpandableSections(menuSectionsFor("cashier"))).toBe(true);
+    for (const role of ["waiter", "kitchen", "courier"]) {
       expect(hasExpandableSections(menuSectionsFor(role))).toBe(false);
     }
   });

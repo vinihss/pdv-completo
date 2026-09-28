@@ -17,12 +17,12 @@ import { users, categories, products, restaurantTables, storeSettings, kitchenGr
 // guarda de store_settings pulava o seed inteiro e os usuários novos nunca
 // apareciam.
 const DEMO_USERS = [
-  { name: "Ana Ribeiro", role: "waiter" as const, pin: "1234" },
-  { name: "Carlos Lima", role: "waiter" as const, pin: "5678" },
-  { name: "Roberto Alves", role: "manager" as const, pin: "9999" },
-  { name: "Caixa Teste", role: "cashier" as const, pin: "2468" },
-  { name: "Entregador Teste", role: "courier" as const, pin: "1357" },
-  { name: "Estação Cozinha", role: "kitchen" as const, pin: "0000" },
+  { name: "Ana Ribeiro", role: "waiter" as const, pin: "1234", phone: "11999990001", email: "ana.ribeiro@exemplo.com" },
+  { name: "Carlos Lima", role: "waiter" as const, pin: "5678", phone: "11999990002", email: "carlos.lima@exemplo.com" },
+  { name: "Roberto Alves", role: "manager" as const, pin: "9999", phone: "11999990003", email: "roberto.alves@exemplo.com" },
+  { name: "Caixa Teste", role: "cashier" as const, pin: "2468", phone: "11999990004", email: "caixa.teste@exemplo.com" },
+  { name: "Entregador Teste", role: "courier" as const, pin: "1357", phone: "11999990005", email: "entregador.teste@exemplo.com" },
+  { name: "Estação Cozinha", role: "kitchen" as const, pin: "0000", phone: "11999990006", email: "cozinha@exemplo.com" },
 ];
 
 async function reconcileDemoUsers() {
@@ -30,7 +30,7 @@ async function reconcileDemoUsers() {
     const found = await db.query.users.findFirst({ where: eq(users.name, u.name) });
     if (found) continue;
     const pinHash = await argon2.hash(u.pin);
-    await db.insert(users).values({ name: u.name, role: u.role, pinHash });
+    await db.insert(users).values({ name: u.name, role: u.role, pinHash, phone: u.phone ?? null, email: u.email ?? null });
     console.log(`[seed] + usuário demo criado: ${u.name} (${u.role})`);
   }
 }
@@ -68,7 +68,7 @@ async function seed() {
   let managerId: string = "";
   for (const u of DEMO_USERS) {
     const pinHash = await argon2.hash(u.pin);
-    const [created] = await db.insert(users).values({ name: u.name, role: u.role, pinHash }).returning();
+    const [created] = await db.insert(users).values({ name: u.name, role: u.role, pinHash, phone: u.phone ?? null, email: u.email ?? null }).returning();
     if (u.role === "manager") managerId = created.id;
   }
 

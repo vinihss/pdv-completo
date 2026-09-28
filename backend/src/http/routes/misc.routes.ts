@@ -24,8 +24,23 @@ import {
   updateKitchenGroupUsecase,
   deleteKitchenGroupUsecase,
 } from "../../application/kitchen-group.usecases.js";
-import { listUsersUsecase, createUserUsecase, updateUserUsecase, resetPinUsecase } from "../../application/user.usecases.js";
-import { searchCustomersUsecase, createCustomerUsecase } from "../../application/customer.usecases.js";
+import {
+  listUsersUsecase,
+  createUserUsecase,
+  updateUserUsecase,
+  resetPinUsecase,
+  saveUserPhotoUsecase,
+  clearUserPhotoUsecase,
+  type UserRole,
+} from "../../application/user.usecases.js";
+import {
+  listCustomersUsecase,
+  getCustomerDetailUsecase,
+  createCustomerUsecase,
+  updateCustomerUsecase,
+  searchCustomersUsecase,
+} from "../../application/customer.usecases.js";
+import { addCustomerAddressUsecase, setDefaultCustomerAddressUsecase, deleteCustomerAddressUsecase } from "../../application/self-service/customer-address.usecases.js";
 import { salesReportUsecase } from "../../application/report.usecases.js";
 import { listAuditLogUsecase } from "../../application/audit-log.usecases.js";
 import {
@@ -132,14 +147,40 @@ const categoryUpdateSchema = categoryCreateSchema.partial().extend({ active: z.b
 const kitchenGroupCreateSchema = z.object({ name: z.string().min(1), displayOrder: z.number().int().optional() });
 const kitchenGroupUpdateSchema = kitchenGroupCreateSchema.partial().extend({ active: z.boolean().optional() });
 
-const userCreateSchema = z.object({ name: z.string().min(1), role: z.enum(["waiter", "kitchen", "manager", "courier", "cashier"]) });
+const userRoleEnum = ["waiter", "kitchen", "manager", "courier", "cashier"] as const;
+const userCreateSchema = z.object({
+  name: z.string().min(1),
+  role: z.enum(userRoleEnum),
+  phone: z.string().optional().nullable(),
+  email: z.string().optional().nullable(),
+});
 const userUpdateSchema = z.object({
   name: z.string().min(1).optional(),
-  role: z.enum(["waiter", "kitchen", "manager", "courier", "cashier"]).optional(),
+  role: z.enum(userRoleEnum).optional(),
   active: z.boolean().optional(),
+  phone: z.string().optional().nullable(),
+  email: z.string().optional().nullable(),
+  // PIN manual (4-6 dígitos) — o reset-pin continua disponível para gerar
+  // um PIN aleatório.
+  pin: z.string().min(4).max(6).optional(),
 });
 
-const customerCreateSchema = z.object({ name: z.string().min(1), phone: z.string().optional() });
+const customerSchema = z.object({
+  name: z.string().min(1),
+  phone: z.string().optional().nullable(),
+  email: z.string().optional().nullable(),
+});
+const customerUpdateSchema = customerSchema.partial().extend({ active: z.boolean().optional() });
+const addressCreateSchema = z.object({
+  label: z.string().optional().nullable(),
+  street: z.string().min(1),
+  number: z.string().min(1),
+  complement: z.string().optional().nullable(),
+  neighborhood: z.string().min(1),
+  city: z.string().min(1),
+  reference: z.string().optional().nullable(),
+  isDefault: z.boolean().optional(),
+});
 
 // Compras (0017) — documento multi-item.
 const supplierCreateSchema = z.object({ name: z.string().min(1), phone: z.string().optional().nullable(), taxId: z.string().optional().nullable() });
@@ -194,11 +235,12 @@ export async function miscRoutes(app: FastifyInstance) {
 
   // ---------- Products ----------
   app.get("/products", { preHandler: requireRole("manager", "waiter", "kitchen") }, async (req) => {
-    const q = req.query as { category_id?: string; active?: string; q?: string; limit?: string; offset?: string };
+    const q = req.query as { category_id?: string; active?: string; q?: string; sort?: string; limit?: string; offset?: string };
     return listProductsUsecase({
       categoryId: q.category_id,
       active: q.active !== undefined ? q.active === "true" : undefined,
       search: q.q,
+      sort: q.sort,
       limit: Math.min(Number(q.limit ?? 50), 200),
       offset: Number(q.offset ?? 0),
     });
@@ -289,16 +331,68 @@ export async function miscRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     return resetPinUsecase(id);
   });
+  // Foto — upload multipart (multipart/form-data, campo "photo")
+  app.post("/users/:id/photo", { preHandler: requireRole("manager") }, async (req) => {
+    const { id } = req.params as { id: string };
+    const file = await req.file();
+    if (!file) throw Errors.validationFailed({ field: "photo" });
+    const ext = imageExtByMime[file.mimetype];
+    if (!ext) throw Errors.validationFailed({ field: "photo" });
+    const buffer = await file.toBuffer();
+    return saveUserPhotoUsecase(id, { buffer, ext }, req.authUser!.sub);
+  });
+  // Foto — remover
+  app.delete("/users/:id/photo", { preHandler: requireRole("manager") }, async (req) => {
+    const { id } = req.params as { id: string };
+    return clearUserPhotoUsecase(id, req.authUser!.sub);
+  });
 
   // ---------- Customers ----------
-  app.get("/customers", async (req) => {
-    const q = req.query as { search?: string };
-    return searchCustomersUsecase(q.search);
+  // Busca leve do garçom (abrir comanda com cliente): só ativos, sem email —
+  // a manutenção completa é a rota paginada abaixo, restrita a gerente/caixa.
+  app.get("/customers/search", { preHandler: requireRole("manager", "cashier", "waiter") }, async (req) => {
+    const q = (req.query as { q?: string }).q;
+    return searchCustomersUsecase(q);
   });
-  app.post("/customers", async (req, reply) => {
-    const body = customerCreateSchema.parse(req.body);
-    const created = await createCustomerUsecase(body);
+  app.get("/customers", { preHandler: requireRole("manager", "cashier") }, async (req) => {
+    const q = req.query as { search?: string; active?: string; limit?: string; offset?: string };
+    return listCustomersUsecase({
+      search: q.search,
+      active: q.active !== undefined ? q.active === "true" : undefined,
+      limit: Math.min(Number(q.limit ?? 100), 200),
+      offset: Number(q.offset ?? 0),
+    });
+  });
+  app.get("/customers/:id", { preHandler: requireRole("manager", "cashier") }, async (req) => {
+    const { id } = req.params as { id: string };
+    return getCustomerDetailUsecase(id);
+  });
+  // Criar cliente é operação de balcão (garçom abre comanda com cliente);
+  // editar/endereços seguem restritos a gerente/caixa.
+  app.post("/customers", { preHandler: requireRole("manager", "cashier", "waiter") }, async (req, reply) => {
+    const body = customerSchema.parse(req.body);
+    const created = await createCustomerUsecase(body, req.authUser!.sub);
     return reply.code(201).send(created);
+  });
+  app.patch("/customers/:id", { preHandler: requireRole("manager", "cashier") }, async (req) => {
+    const { id } = req.params as { id: string };
+    const body = customerUpdateSchema.parse(req.body);
+    return updateCustomerUsecase(id, body, req.authUser!.sub);
+  });
+  // Endereços do cliente (manutenção: adicionar / definir padrão / excluir)
+  app.post("/customers/:id/addresses", { preHandler: requireRole("manager", "cashier") }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = addressCreateSchema.parse(req.body);
+    const created = await addCustomerAddressUsecase({ customerId: id, ...body });
+    return reply.code(201).send(created);
+  });
+  app.post("/customers/:id/addresses/:addressId/default", { preHandler: requireRole("manager", "cashier") }, async (req) => {
+    const { id, addressId } = req.params as { id: string; addressId: string };
+    return setDefaultCustomerAddressUsecase(id, addressId);
+  });
+  app.delete("/customers/:id/addresses/:addressId", { preHandler: requireRole("manager", "cashier") }, async (req) => {
+    const { id, addressId } = req.params as { id: string; addressId: string };
+    return deleteCustomerAddressUsecase(id, addressId);
   });
 
   // ---------- Reports ----------

@@ -71,13 +71,13 @@ export async function createSelfServiceCustomerUsecase(input: { name: string; ph
 // ---------- POST /public/customers/:id/addresses ----------
 export async function addCustomerAddressUsecase(input: {
   customerId: string;
-  label?: string;
+  label?: string | null;
   street: string;
   number: string;
-  complement?: string;
+  complement?: string | null;
   neighborhood: string;
   city: string;
-  reference?: string;
+  reference?: string | null;
   isDefault?: boolean;
 }) {
   const customer = await db.query.customers.findFirst({ where: eq(customers.id, input.customerId) });
@@ -123,4 +123,40 @@ export async function listCustomerAddressesUsecase(customerId: string) {
     where: eq(customerAddresses.customerId, customerId),
   });
   return addresses.map(serializeAddress);
+}
+
+// ---------- Manutenção de endereço (gerente/caixa) ----------
+
+export async function setDefaultCustomerAddressUsecase(customerId: string, addressId: string) {
+  const customer = await db.query.customers.findFirst({ where: eq(customers.id, customerId) });
+  if (!customer) throw Errors.notFound("Cliente");
+  const address = await db.query.customerAddresses.findFirst({ where: eq(customerAddresses.id, addressId) });
+  if (!address || address.customerId !== customerId) throw Errors.notFound("Endereço");
+
+  // Um padrão por cliente: limpa os outros antes de marcar o escolhido.
+  await db.transaction(async (tx) => {
+    await tx.update(customerAddresses).set({ isDefault: false }).where(eq(customerAddresses.customerId, customerId));
+    await tx.update(customerAddresses).set({ isDefault: true }).where(eq(customerAddresses.id, addressId));
+  });
+}
+
+export async function deleteCustomerAddressUsecase(customerId: string, addressId: string) {
+  const customer = await db.query.customers.findFirst({ where: eq(customers.id, customerId) });
+  if (!customer) throw Errors.notFound("Cliente");
+  const address = await db.query.customerAddresses.findFirst({ where: eq(customerAddresses.id, addressId) });
+  if (!address || address.customerId !== customerId) throw Errors.notFound("Endereço");
+
+  await db.delete(customerAddresses).where(eq(customerAddresses.id, addressId));
+
+  // Se o removido era o padrão e sobraram endereços, o mais antigo vira padrão.
+  if (address.isDefault) {
+    const remaining = await db.query.customerAddresses.findMany({
+      where: eq(customerAddresses.customerId, customerId),
+      orderBy: (a, { asc }) => asc(a.createdAt),
+      limit: 1,
+    });
+    if (remaining[0]) {
+      await db.update(customerAddresses).set({ isDefault: true }).where(eq(customerAddresses.id, remaining[0].id));
+    }
+  }
 }

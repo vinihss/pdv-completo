@@ -78,17 +78,25 @@ false` esconde a cozinha e `uses_delivery: false` esconde os entregadores
 
 | Perfil | Telas apps | Rooms de realtime | Restrictions (backend) |
 |---|---|---|---|
-| waiter | Comandas | `waiter:{id}` + `kitchen-display` | comandas (criar/editar/fechar) |
+| waiter | Comandas | `waiter:{id}` + `kitchen-display` | comandas (criar/editar/fechar); cria cliente no balcão e busca clientes (`POST /customers`, `GET /customers/search`) |
 | kitchen | Cozinha | `kitchen-display` | só marcar itens prontos |
-| manager | Comandas + Configurações + Dinheiro + Entregar + Relatórios + Estoque + Auditoria + Equipe | `waiter:{id}` + `kitchen-display` + `cash-drawer` + `deliveries` + `inventory` | tudo (usa `kitchen-display` como room-broadcast de comandas) |
-| cashier | Dinheiro (gaveta de caixa) | `cash-drawer` | fluxo de caixa (`cash-flow.routes.ts`); 403 em gerência/comandas |
+| manager | Comandas + Configurações + Dinheiro + Clientes + Entregar + Relatórios + Estoque + Auditoria + Equipe | `waiter:{id}` + `kitchen-display` + `cash-drawer` + `deliveries` + `inventory` | tudo (usa `kitchen-display` como room-broadcast de comandas) |
+| cashier | Dinheiro (gaveta de caixa) + Clientes | `cash-drawer` | fluxo de caixa (`cash-flow.routes.ts`) + manutenção de clientes; 403 em gerência/comandas |
 | courier | Entregas | `deliveries` | só as entregas atribuídas a ele (`courier.routes.ts`); dispatch/deliver/fail |
 
 Rotas por perfil: `waiter`/`manager` em `order.routes.ts`, `kitchen` em
 `kitchen.routes.ts`, `cashier`/`manager` em `cash-flow.routes.ts`, `courier` em
-`courier.routes.ts`, `manager` **exclusivo** em `delivery-manager.routes.ts` /
+`courier.routes.ts`, `manager` **exclusivo** em `delivery-manager.routes.ts`
 `/users` / `/audit-log` / cadastros. O manager também atende `waiter:{id}` —
-ele enxerga as comandas na mesma tela do garçom.
+ele enxerga as comandas na mesma tela do garçom. Clientes: `GET /customers`
+(lista paginada), `GET /customers/:id` (detalhe + endereços), `PATCH
+/customers/:id` (editar/soft-delete/reativar) e endereços
+(`/customers/:id/addresses[/:addressId[/default]]`) são `manager`+`cashier`;
+`POST /customers` (criar) aceita `waiter` também (balcão); `GET /customers/search`
+é a busca leve do garçom (só ativos, sem email). Equipe: `POST/PATCH /users`
+aceitam `phone`/`email`; `PATCH /users/:id` aceita `pin` manual (4-6 dígitos,
+desbloqueia a conta); foto em `POST/DELETE /users/:id/photo` (mesmo padrão de
+`product.image_path`).
 
 Health check: `GET http://localhost:3000/health`
 
@@ -228,6 +236,10 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
 
 - **Sem lib de estado** (sem Redux/Zustand/React Query): server-authoritative.
   Padrão: mutation `await` + reload via REST; WS para refresh direcionado.
+- **Busca ignora acentos**: o backend usa a extensão `unaccent` do Postgres
+  (migration `0003`) + normalização no app (`normalizeAccents` em
+  `backend/src/domain/text.ts`); produtos, estoque e clientes buscam por nome
+  sem distinguir acentos/case.
 - **Realtime**: usar o hook `useRealtime(token, rooms, onEvent)` (`src/shared/hooks/useRealtime.js`).
   O token vai como **subprotocol** (`Sec-WebSocket-Protocol`), nunca na query
   string. Rooms: clients assinam `waiter:{userId}` + `kitchen-display`; o backend
@@ -306,6 +318,9 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
     `shared`): o pai formata e passa pronto. `PaymentModal.jsx` e
     `CloseCashDrawerModal.jsx` **não** movem de lugar — estão no allowlist
     `MONEY_ALLOWED` do `fsd-boundaries.test.js`.
+  - `Section` (`shared/components/Form.jsx`) aceita `collapsed`/`onToggle`
+    opcionais: com eles o cabeçalho vira botão de colapso (accordion de seção).
+    Sem, é estático — não recriar esse comportamento ad-hoc.
 - **Menu principal = accordion na esquerda, nos 5 perfis logados**
   (`widgets/app-menu/AppMenu.jsx`, dados em `app/providers/nav/menuSections.js`).
   - **Desktop (`lg`+)**: coluna de largura fixa ao lado do conteúdo — `w-72`
@@ -496,6 +511,34 @@ dentro da fase, a ordem indicada.
 - **7.4 Pendências** — revogação do token na API da Meta ao desconectar
   (hoje o apagamento é local); reconciliação de `phone_numbers`;
   `quality_rating` na UI; templates de mensagem com aprovação da Meta.
+
+### Fase 8 — Clientes, equipe e catálogo (implementado)
+
+- **8.1 Manutenção de clientes (gerente/caixa)** — ✅ feito: `customer.email` +
+  `customer.active` (soft-delete/reativação) na migration `0003`; CRUD completo
+  em `customer.usecases.ts` (lista paginada com busca, detalhe com endereços,
+  create/update com validação de email único); `customer_address` ganhou
+  `setDefaultCustomerAddressUsecase` e `deleteCustomerAddressUsecase`
+  (`self-service/customer-address.usecases.ts`). UI: aba "Clientes" no gerente
+  (`pages/manager/tabs/customers/` — CustomersTab + CustomerModal com gestão
+  de endereços: adicionar/excluir/marcar padrão) e no caixa (o `CashierApp`
+  agora é um mapa de telas Caixa/Clientes — o menu do caixa virou coluna).
+  Garçom segue criando cliente no balcão (`POST /customers`) e usando a busca
+  leve `GET /customers/search`. Suíte `test/team-customers.test.ts` (12 testes).
+- **8.2 Perfil completo de equipe** — ✅ feito: `user.phone`, `user.email`,
+  `user.photo_path` na migration `0003`; create/update aceitam telefone/email;
+  `PATCH /users/:id` aceita `pin` manual (além do `reset-pin` que gera
+  aleatório); foto em `POST/DELETE /users/:id/photo` (mesmo padrão do produto).
+  UI: `UsersTab` reescrita (avatar com foto/iniciais, telefone com máscara,
+  email, busca, filtro por perfil) + `UserModal` (criação/edição com todos os
+  campos e upload de foto).
+- **8.3 Catálogo com colapso, filtros e busca sem acentos** — ✅ feito:
+  produtos agrupados por categoria em accordion (Expandir/Recolher tudo,
+  contagem por grupo, "Sem categoria" como bloco final); seção de categorias
+  e grupos de produção colapsável (`Section` com `collapsed`/`onToggle`);
+  busca com debounce de 250ms; novos filtros de ordenação (nome/preço) e botão
+  "Limpar"; `GET /products` aceita `sort`. Busca sem acentos via extensão
+  `unaccent` (produtos, estoque e clientes).
 
 ## Critérios de verificação gerais
 

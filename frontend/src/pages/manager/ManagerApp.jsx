@@ -12,6 +12,7 @@ import WhatsAppTab from "./tabs/whatsapp/WhatsAppTab.jsx";
 import SettingsTab from "./tabs/settings/SettingsTab.jsx";
 import StockTab from "./tabs/inventory/StockTab.jsx";
 import PurchaseTab from "./tabs/purchase/PurchaseTab.jsx";
+import CustomersTab from "./tabs/customers/CustomersTab.jsx";
 import { useAuth } from "@/app/providers/auth";
 import { useNav } from "@/app/providers/nav";
 
@@ -31,6 +32,7 @@ export default function ManagerApp() {
   const SCREENS = {
     orders: <OrderBoard />,
     cash: <CashDrawerTab showToast={showToast} />,
+    customers: <CustomersTab showToast={showToast} />,
     deliveries: <DeliveriesTab showToast={showToast} />,
     catalog: <CatalogTab showToast={showToast} />,
     stock: <StockTab showToast={showToast} purchaseEnabled={purchaseEnabled} />,

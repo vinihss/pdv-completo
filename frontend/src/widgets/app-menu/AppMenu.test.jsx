@@ -109,12 +109,20 @@ describe("AppMenu", () => {
   });
 
   it("perfil de tela única: trilho de 64px, sem seções", () => {
-    const { container } = setup("cashier");
+    const { container } = setup("courier");
     expect(container.querySelector("aside").className).toContain("w-16");
     expect(container.querySelector("aside").className).not.toContain("w-72");
     const aside = asideOf(container);
-    expect(aside.getByTitle("Caixa")).toBeTruthy();
+    expect(aside.getByTitle("Entregas")).toBeTruthy();
     expect(aside.queryByRole("button", { name: /Operação/ })).toBeNull();
+  });
+
+  it("caixa tem duas telas: coluna de 72px com Caixa e Clientes", () => {
+    const { container } = setup("cashier");
+    expect(container.querySelector("aside").className).toContain("w-72");
+    const aside = asideOf(container);
+    expect(aside.getByRole("button", { name: "Caixa" })).toBeTruthy();
+    expect(aside.getByRole("button", { name: "Clientes" })).toBeTruthy();
   });
 
   it("mostra quem está logado no rodapé (e não no trilho)", () => {
@@ -137,11 +145,11 @@ describe("AppMenu", () => {
   });
 
   it("no celular o menu vira painel inteiro, com troca de usuário", () => {
-    const { container } = setup("cashier");
+    const { container } = setup("courier");
     fireEvent.click(screen.getByText("abrir"));
     const painel = within(screen.getByRole("dialog"));
     expect(screen.getByRole("dialog").getAttribute("aria-label")).toBe("Menu principal");
-    expect(painel.getByTitle("Caixa")).toBeTruthy();
+    expect(painel.getByTitle("Entregas")).toBeTruthy();
     expect(painel.getByText("Roberto Alves")).toBeTruthy();
     expect(painel.getByText("Trocar usuário")).toBeTruthy();
     // O botão do header é quem abre; a coluna do desktop segue no lugar.
@@ -149,9 +157,9 @@ describe("AppMenu", () => {
   });
 
   it("escolher uma tela no painel fecha o painel", () => {
-    setup("cashier");
+    setup("courier");
     fireEvent.click(screen.getByText("abrir"));
-    fireEvent.click(within(screen.getByRole("dialog")).getByTitle("Caixa"));
+    fireEvent.click(within(screen.getByRole("dialog")).getByTitle("Entregas"));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

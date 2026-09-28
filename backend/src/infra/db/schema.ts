@@ -79,6 +79,9 @@ export const users = pgTable("user", {
   failedAttempts: integer("failed_attempts").notNull().default(0),
   lockedUntil: text("locked_until"),
   active: boolean("active").notNull().default(true),
+  phone: text("phone"),
+  email: text("email"),
+  photoPath: text("photo_path"),
   createdAt: text("created_at").notNull().default(isoNow),
   updatedAt: text("updated_at").notNull().default(isoNow),
 });
@@ -89,9 +92,17 @@ export const customers = pgTable(
     id: id(),
     name: text("name").notNull(),
     phone: text("phone"),
+    email: text("email"),
+    // Soft-delete: cliente tem histórico de pedidos (order.customer_id), então
+    // a manutenção desativa em vez de apagar — reativável a qualquer momento.
+    active: boolean("active").notNull().default(true),
     createdAt: text("created_at").notNull().default(isoNow),
   },
-  (t) => [index("idx_customer_name").on(t.name), index("idx_customer_phone").on(t.phone)],
+  (t) => [
+    index("idx_customer_name").on(t.name),
+    index("idx_customer_phone").on(t.phone),
+    uniqueIndex("uq_customer_email").on(t.email).where(sql`${t.email} IS NOT NULL`),
+  ],
 );
 
 export const restaurantTables = pgTable("restaurant_table", {

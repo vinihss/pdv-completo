@@ -63,7 +63,7 @@ describe("AppFrame", () => {
     fireEvent.click(botao);
     const painel = within(screen.getByRole("dialog"));
     expect(botao.getAttribute("aria-expanded")).toBe("true");
-    fireEvent.click(painel.getByTitle("Caixa"));
+    fireEvent.click(painel.getByRole("button", { name: "Caixa" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByText("tela: caixa")).toBeTruthy();
   });

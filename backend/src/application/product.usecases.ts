@@ -1,4 +1,4 @@
-import { and, count, eq, like, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, sql, type SQL } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
 import { db } from "../infra/db/client.js";
@@ -9,11 +9,25 @@ import { logAction } from "../infra/audit-log.js";
 import { stockBalances, currentStock, applyStockMovementTx } from "./stock/stock.usecases.js";
 import { normalizeVariations, type VariationGroup } from "../domain/variations.js";
 import { getCache } from "../infra/cache/index.js";
+import { normalizeAccents } from "../domain/text.js";
 
 const cache = getCache();
 
-function productListKey(input: { categoryId?: string; active?: boolean; search?: string; limit: number; offset: number }): string {
+function productListKey(input: {
+  categoryId?: string;
+  active?: boolean;
+  search?: string;
+  sort?: string;
+  limit: number;
+  offset: number;
+}): string {
   return `products:list:${JSON.stringify(input)}`;
+}
+
+// Busca ignorando acentos (extensão unaccent, migration 0003) e case.
+function productSearchCondition(search: string): SQL {
+  const term = `%${search}%`;
+  return sql`unaccent(${products.name}) ILIKE unaccent(${term})`;
 }
 
 // Re-exportado pra não quebrar os consumidores históricos (menu público,
@@ -72,6 +86,7 @@ export async function listProductsUsecase(input: {
   categoryId?: string;
   active?: boolean;
   search?: string;
+  sort?: string;
   limit: number;
   offset: number;
 }) {
@@ -79,17 +94,24 @@ export async function listProductsUsecase(input: {
   const cached = cache.get<{ data: unknown[]; total: number }>(key);
   if (cached) return cached;
 
-  const conditions: any[] = [];
+  const conditions: SQL[] = [];
   if (input.categoryId) conditions.push(eq(products.categoryId, input.categoryId));
   if (input.active !== undefined) conditions.push(eq(products.active, input.active));
-  if (input.search) conditions.push(like(products.name, `%${input.search}%`));
+  if (input.search) conditions.push(productSearchCondition(normalizeAccents(input.search)));
   const where = conditions.length ? and(...conditions) : undefined;
+
+  const orderBy =
+    input.sort === "price_asc"
+      ? asc(products.price)
+      : input.sort === "price_desc"
+        ? desc(products.price)
+        : asc(products.name);
 
   const rows = await db.query.products.findMany({
     where,
     limit: input.limit,
     offset: input.offset,
-    orderBy: (p, { asc }) => asc(p.name),
+    orderBy,
   });
   const totalRow = await db.select({ count: count() }).from(products).where(where as any);
 
