@@ -1,7 +1,18 @@
 import React from "react";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import CustomerModal from "./CustomerModal.jsx";
+
+// O `CustomerModal` busca endereços via `fetch("/api/customers/:id")` no
+// useEffect de edição. Em node a URL relativa é inválida pro fetch — um
+// stub mínimo evita unhandled rejection sem mudar o que o teste cobre.
+beforeAll(() => {
+  vi.stubGlobal("fetch", (input) => {
+    const id = String(input).split("/").pop();
+    return Promise.resolve(new Response(JSON.stringify({ id, addresses: [] }), { status: 200 }));
+  });
+});
+afterAll(() => vi.unstubAllGlobals());
 
 // O `CustomerModal` só é montado em runtime pelas abas Clientes (gerente e
 // caixa), então build/tsc não protegem o JSX dele. Este é o teste de
