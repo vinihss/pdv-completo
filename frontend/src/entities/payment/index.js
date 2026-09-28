@@ -1,1 +1,1 @@
-export { buildPixPayload } from "./lib/pix.js";
+export { analyzePixKey, buildPixPayload, validarCnpj, validarCpf } from "./lib/pix.js";
