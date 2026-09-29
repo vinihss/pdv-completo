@@ -143,7 +143,15 @@ jobs:
 
             # Atualiza código para a tag
             echo "[deploy] Atualizando código para $TAG..."
-            git fetch --prune origin
+            # `--force` nas tags: quando a tag já existe no host e o remoto
+            # aponta para outro commit, o fetch REJEITA mover a tag
+            # ("would clobber existing tag") e o `checkout` abaixo fica
+            # num commit antigo — com cara de deploy novo e código velho. Foi
+            # o que aconteceu ao reusar a v1.0.2 enquanto se corrigia o
+            # pipeline. Aqui a tag remota é a fonte da verdade; forçar é o
+            # comportamento certo, e `--tags` garante que ela venha mesmo
+            # quando ninguém pediu o ref.
+            git fetch --prune --tags --force origin
             git checkout -f "$TAG"
             cp /tmp/pdv-active-upstream.bak deploy/state/active-upstream
 

@@ -17,7 +17,14 @@
 # ============================================================
 set -euo pipefail
 
-PG_CONTAINER="${PDV_PG_CONTAINER:-pdv-compose-postgres-1}"
+# O nome vem do projeto compose: switch.sh roda `docker compose -f
+# docker-compose.yml` de dentro de deploy/ e sem `-p`, então o compose
+# deriva o projeto do diretório ("deploy") e nomeia o container
+# <projeto>-<serviço>-1. O default anterior era "pdv-compose-postgres-1",
+# que só bateria numa instalação que não é a nossa — e aí o fallback abaixo
+# roda e falha, porque o host tinha mais de um Postgres (o de produção e um
+# de teste). O backup do CI parava em "2 containers Postgres no host".
+PG_CONTAINER="${PDV_PG_CONTAINER:-deploy-postgres-1}"
 PG_USER="${POSTGRES_USER:-pdv}"
 PG_DB="${POSTGRES_DB:-pdv}"
 UPLOADS_VOLUME="${PDV_UPLOADS_VOLUME:-pdv_backend_uploads}"
