@@ -1,0 +1,31 @@
+# Ambiente de build do app desktop (Tauri).
+#
+# Existe porque o AppImage não é empacotável em distros com binutils novo:
+# o `strip` embutido do linuxdeploy não reconhece a seção `.relr.dyn` das libs
+# do sistema e morre com "failed to run linuxdeploy" (acontece no Arch).
+# Num Debian com glibc 2.36 e binutils 2.40 o empacotamento sai limpo.
+#
+# Build da imagem:  docker build -t pdv-desktop-build -f docker/Dockerfile.desktop .
+# Usado por build-app.sh (--appimage-docker) e dá para usar direto:
+#   docker run --rm -v "$PWD":/app -w /app \
+#     -e VITE_DEFAULT_SERVER=https://app.exemplo.com \
+#     pdv-desktop-build npx tauri build --bundles appimage
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    CARGO_HOME=/usr/local/cargo \
+    RUSTUP_HOME=/usr/local/rustup \
+    PATH=/usr/local/cargo/bin:$PATH
+
+# Dependências de runtime e de compilação do Tauri (webview GTK no Linux).
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+      ca-certificates curl wget file xz-utils patchelf build-essential pkg-config \
+      libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
+      libssl-dev libxdo-dev \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null \
+    && apt-get install -y -qq nodejs \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+       | sh -s -- -y --profile minimal --default-toolchain stable \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
