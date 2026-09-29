@@ -88,31 +88,39 @@ jobs:
       # mesma: tag `v1.0.2` com `version: 0.2.0` no conf publicaria um
       # manifesto que nenhum app reconhece, e o update pareceria
       # simplesmente não existir, sem erro em lugar nenhum.
-      - name: Conferir versão (entrada por tag)
-        if: github.event_name == 'workflow_call'
+      #
+      # A entrada é detectada pelo formato da ref, e não por
+      # `github.event_name`: num workflow called o contexto `github` é o do
+      # CHAMADOR, então quem chega aqui por push de tag vê event_name=push,
+      # nunca workflow_call. Era assim que esta conferência — que existe
+      # justamente para pegar tag e conf divergentes — nunca rodou, e
+      # RELEASE_TAG ficava vazio para o `gh release create` lá embaixo.
+      - name: Conferir versão e definir a tag da release
         shell: pwsh
         run: |
-          $tag = '${{ github.ref_name }}'.TrimStart('v')
           $conf = Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json
-          if ($conf.version -ne $tag) {
-            Write-Error "Tag $tag nao bate com tauri.conf.json version=$($conf.version). O updater publica a versao do conf, entao um desvio aqui gera manifesto errado."
-            exit 1
-          }
-          Write-Host "Versao confere: $tag"
-          "RELEASE_TAG=${{ github.ref_name }}" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $ref = '${{ github.ref_name }}'
 
-      - name: Conferir versão (disparo manual)
-        if: github.event_name == 'workflow_dispatch'
-        shell: pwsh
-        run: |
-          $conf = Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json
-          Write-Host "Disparo manual a partir de ${{ github.ref_name }}"
-          if ('${{ github.ref }}' -like 'refs/tags/*') {
-            Write-Host "A ref ja e tag, mas quem manda na versao publicada e o conf: $($conf.version)"
+          if ($ref -like 'v*') {
+            # Entrada por tag (o caminho de sempre, via deploy-on-tag.yml).
+            $versao = $ref.TrimStart('v')
+            if ($conf.version -ne $versao) {
+              Write-Error "Tag $versao nao bate com tauri.conf.json version=$($conf.version). O updater publica a versao do conf, entao um desvio aqui gera manifesto errado."
+              exit 1
+            }
+            Write-Host "Versao confere: $versao"
+            $tag = $ref
           } else {
-            Write-Host "ATENCAO: run de branch, nao de tag. A release v$($conf.version) vai apontar para o commit deste run (--target), e e ele que_assinou o artefato."
+            # Disparo manual a partir de uma branch: quem manda na versao
+            # publicada e o conf, e a release aponta para o commit deste run
+            # (--target), que e o que assinou o artefato.
+            Write-Host "Disparo manual a partir de $ref, nao de tag."
+            Write-Host "ATENCAO: a release v$($conf.version) vai apontar para o commit deste run (--target), e e ele que assinou o artefato."
+            $tag = "v$($conf.version)"
           }
-          "RELEASE_TAG=v$($conf.version)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "RELEASE_TAG=$tag"
 
       - name: Gerar sidecar do daemon
         shell: bash
