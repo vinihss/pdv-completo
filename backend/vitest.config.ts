@@ -19,9 +19,11 @@ export default defineConfig({
     globalSetup: ["./test/global-setup.ts"],
     environment: "node",
     include: ["test/**/*.test.ts"],
-    // Suítes compartilham o mesmo banco de teste e o `resetState()` limpa
-    // estado global (cache da aplicação, tabelas) — roda uma por vez.
+    // Suítes compartilham o mesmo banco de teste, stubs HTTP em portas fixas
+    // e o `resetState()` limpa estado global — roda uma por vez.
     fileParallelism: false,
+    pool: "forks",
+    testTimeout: 30000,
     env: {
       DATABASE_URL: TEST_DATABASE_URL,
       DEPLOYMENT_MODE: "local",
