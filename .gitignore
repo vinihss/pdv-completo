@@ -13,6 +13,17 @@ backend/uploads/
 # Backups gerados pelo docker-up.sh / deploy/backup.sh
 deploy/backups/
 
+# Artefatos do auto-update publicados pelo CI (latest.json + installer .exe).
+# Ficam no servidor para o Caddy servir em /updates/*, nunca no git.
+deploy/updates/
+
+
 # Logs e misc
 *.log
 .DS_Store
+
+# Binário do app desktop (11 MB, gerado por printer/scripts/build-sidecar.sh e
+# pelo job do Windows no CI) — o instalador é compilado, nunca versionado
+frontend/src-tauri/target/
+frontend/src-tauri/binaries/
+frontend/src-tauri/gen/

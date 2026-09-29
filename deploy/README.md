@@ -115,11 +115,18 @@ curl -s -o /dev/null -D - -H "Origin: https://app.seudominio.com.br" \
 
 ### `Caddyfile` não atualiza sozinho (bind mount de arquivo)
 
-Sintoma: você edita o `deploy/Caddyfile`, roda `docker compose up -d`, e **nada
-muda**. Sem erro no log, health check passando, certificado emitido — só a
-config antiga continua valendo.
+> **Resolvido.** O Caddy agora recebe o **diretório** `deploy/` montado
+> (`./:/srv/pdv-deploy:ro`) e a config é aplicada por `caddy reload` dentro do
+> container (`deploy/caddy-assemble.sh`). A armadilha do inode não existe mais
+> porque o inode trocado é o de um arquivo *dentro* de um diretório montado.
+> O texto abaixo fica como registro do sintoma e do porquê — ele é a razão de
+> o compose montar diretório em vez de arquivo.
 
-Por quê: o compose monta o Caddyfile como **arquivo único**
+Sintoma (na configuração antiga): você edita o `deploy/Caddyfile`, roda
+`docker compose up -d`, e **nada muda**. Sem erro no log, health check
+passando, certificado emitido — só a config antiga continua valendo.
+
+Por quê: o compose montava o Caddyfile como **arquivo único**
 (`./Caddyfile:/etc/caddy/Caddyfile:ro`). O Compose calcula o hash do container a
 partir do *spec* do mount (caminho, alvo, modo) e **nunca do conteúdo do
 arquivo**. Logo, editar o Caddyfile não muda o hash e o container não é
@@ -133,22 +140,23 @@ container está com a versão certa:
 ```bash
 # tem que dar o MESMO hash dos dois lados
 md5sum deploy/Caddyfile
-docker exec deploy-caddy-1 md5sum /etc/caddy/Caddyfile
+docker exec deploy-caddy-1 md5sum /srv/pdv-deploy/Caddyfile
 ```
 
-Duas formas de resolver:
+Formas de resolver na configuração antiga (as duas continuam válidas se
+alguém montar arquivo em vez de diretório):
 
 ```bash
-# 1) recriar o container (o que a CI faz)
+# 1) recriar o container (o que a CI fazia, ~2s de proxy fora do ar)
 docker compose -f deploy/docker-compose.yml up -d --force-recreate caddy
 
 # 2) sobrescrever o arquivo SEM trocar o inode, e dar reload (zero downtime)
 cat /caminho/do/Caddyfile.novo > deploy/Caddyfile
-docker exec deploy-caddy-1 caddy reload --config /etc/caddy/Caddyfile
+docker exec deploy-caddy-1 sh /srv/pdv-deploy/caddy-assemble.sh reload
 ```
 
-O que **troca** o inode (e portanto quebra o bind mount) e o que **não** troca,
-medido em Linux:
+O que **troca** o inode (e portanto quebra o bind mount de arquivo) e o que
+**não** troca, medido em Linux:
 
 | Comando | Inode | O container passa a ver a config nova? |
 |---|---|---|
@@ -170,10 +178,8 @@ após restart            80ee0b41…   <- restart já resolve
 após --force-recreate   80ee0b41…   <- idem
 ```
 
-Sempre confira com o `md5sum` dos dois lados depois de mexer no Caddyfile.
-
-Por isso o workflow `deploy-on-tag.yml` tem um `--force-recreate caddy`
-explicito logo depois do `up -d --build` — não remova essa linha.
+**Hoje:** confira com o `md5sum` dos dois lados depois de mexer no Caddyfile,
+mas o `switch.sh` já aplica a config nova por `reload` como parte do deploy.
 
 
 ## Deploy automático por tag (GitHub Actions → Hostinger VPS)
@@ -184,12 +190,20 @@ O repositório possui o workflow **`.github/workflows/deploy-on-tag.yml`** com:
 - validações antes do deploy:
   - backend: `npm ci`, `npm run build`, `npm run test`;
   - frontend: `npm ci`, `npm run lint`, `npm run build`, `npm run test`;
+- job **Windows** (`build-desktop`): gera o instalador do app desktop
+  assinado, monta o manifesto do auto-update e publica os artefatos — ver
+  [Auto-update do app desktop](#auto-update-do-app-desktop);
 - deploy remoto por SSH com backup prévio e health check;
-- deploy com `docker compose up -d --build --remove-orphans` — **sem** `down -v`,
-  preservando o volume do Postgres e dos uploads;
-- `--force-recreate caddy` em seguida, porque o `Caddyfile` é bind mount de
-  arquivo e não se atualiza sozinho (ver
-  [`Caddyfile` não atualiza sozinho](#caddyfile-não-atualiza-sozinho-bind-mount-de-arquivo)).
+- deploy **sem downtime** com `deploy/switch.sh` (instância nova ao lado da
+  atual, healthcheck como portão, troca de upstream por `caddy reload` — sem
+  `down -v`, sem recriar o proxy, preservando o volume do Postgres e dos
+  uploads). Ver [Deploy sem downtime](#deploy-sem-downtime-switch-azulverde).
+
+O `deploy` só roda depois de `build-desktop`: o manifesto do update nunca
+chega ao servidor antes do backend no ar. Se a tag não bater com a
+`version` do `frontend/src-tauri/tauri.conf.json`, o job Windows falha de
+propósito — um descasamento ali publicaria um manifesto que nenhum app
+reconhece, e o update pareceria só não existir.
 
 ### Como usar
 
@@ -207,6 +221,41 @@ Configure em **Settings → Secrets and variables → Actions**:
 - `HOSTINGER_SSH_KEY` (chave privada OpenSSH/PEM)
 - `HOSTINGER_APP_PATH` (caminho absoluto do clone no VPS, ex.: `/opt/pdv-completo`)
 - `HOSTINGER_KNOWN_HOSTS` (opcional, recomendado)
+- `TAURI_SIGNING_PRIVATE_KEY` (chave Ed25519 do auto-update — ver abaixo)
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (senha dessa chave)
+- `UPDATE_BASE_URL` (opcional; padrão `https://app.umamisushiarte.com.br`)
+
+### Auto-update do app desktop
+
+O app Windows (Tauri) pergunta por update no boot. Duas rotas no Caddy:
+
+| Rota | O que serve |
+|---|---|
+| `/updates/desktop/<target>/<arch>/<versão-atual>` | sempre o mesmo `latest.json` (manifesto da versão mais recente) |
+| `/updates/files/windows-x86_64/...` | o instalador `.exe`, o `.exe.zip` e o `.sig` |
+
+Os arquivos vivem em `deploy/updates/` no servidor (bind mount somente-leitura
+em `/srv/pdv-updates`) e são publicados pelo job `build-desktop` via SSH. O
+diretório está no `.gitignore`.
+
+A chave de assinatura é a parte que importa: **sem o secret
+`TAURI_SIGNING_PRIVATE_KEY` o job Windows falha**, e é o que impede qualquer
+terceiro de assinar um update falso para o app. A senha é obrigatória junto:
+sem ela no ambiente, o CLI tenta perguntar por prompt e o build quebra no
+runner, que não tem terminal. A chave pública correspondente já está no
+`frontend/src-tauri/tauri.conf.json` (`plugins.updater.pubkey`).
+
+```bash
+# gerar um par novo (o público vai no conf, o privado no secret)
+cd frontend
+npx tauri signer generate -w /caminho/seguro/pdv.key -p 'senha-forte'
+gh secret set TAURI_SIGNING_PRIVATE_KEY --repo <owner>/<repo> < /caminho/seguro/pdv.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --repo <owner>/<repo> <<< 'senha-forte'
+```
+
+Guarde a chave e a senha **fora do repositório e fora do runner**: quem perde
+não consegue mais assinar versão nenhuma, e o app fica preso na versão em
+disco. Detalhes e o caminho completo em `docs/11-desktop-instalador.md` §6.
 
 ### Chave SSH e known_hosts (sem expor segredo)
 
@@ -286,6 +335,12 @@ O PIN do gerente é exibido **uma única vez** no log — anote na hora.
 
 Depois disso, entre com esse PIN e cadastre o resto (garçons, cozinha, mesas)
 pela própria tela de Configurações/Equipe — não precisa mexer no servidor de novo.
+
+A partir daí, **toda atualização é pelo `switch.sh`** (deploy sem downtime):
+
+```bash
+cd /root/pdv-completo && git pull && cd deploy && ./switch.sh
+```
 
 ### Reset total (começar do zero)
 
@@ -467,29 +522,30 @@ código não toca neles:
 - **Banco**: volume `pdv_postgres_data` (container `deploy-postgres-1`)
 - **Uploads**: volume `pdv_completo_deploy_backend_uploads` (ou `<projeto>_backend_uploads`)
 
-### Procedimento seguro
+O caminho normal é o `deploy/switch.sh` (deploy **sem downtime**, a seção
+seguinte). O procedimento com `docker compose up` abaixo é o alternativo para
+quando algo está quebrado no switch — ele **tem** janela de indisponibilidade.
+
+### Procedimento seguro (alternativo, com janela de erro)
 
 ```bash
-cd /root/pdv-completo/deploy
+cd /root/pdv-completo
 
 # 1. Backup rápido (segurança — não pula)
-docker exec deploy-postgres-1 pg_dump -U pdv pdv > backup_$(date +%F_%H%M%S).sql
+./deploy/backup.sh /opt/backups
 
 # 2. Atualiza o código
-cd /root/pdv-completo && git pull origin main
+git fetch --prune origin
+git checkout -f <tag-ou-commit>
 
 # 3. Rebuilda e recria os containers (volumes preservados)
 cd deploy
-docker compose build backend frontend
-docker compose up -d
+docker compose up -d --build --remove-orphans
 
-# 3b. O Caddyfile é bind mount de arquivo: o passo 3 NÃO o atualiza.
-#     Confira se o container recebeu a versão nova:
-md5sum Caddyfile
-docker exec deploy-caddy-1 md5sum /etc/caddy/Caddyfile
-#     Se divergirem (vai acontecer se o Caddyfile mudou no pull), force a
-#     recriação do proxy — só ele, sem tocar em volumes:
-docker compose up -d --force-recreate caddy
+# 3b. Aplica a Caddyfile nova por reload (o `up` acima não recria o proxy,
+#     porque o hash do container não depende do conteúdo do arquivo — ver
+#     a seção "Caddyfile não atualiza sozinho").
+docker exec "$(docker compose ps -q caddy)" sh /srv/pdv-deploy/caddy-assemble.sh reload
 
 # 4. Valida
 curl -s http://localhost:80/health
@@ -512,11 +568,22 @@ mudanças de schema, desde que você adicione o novo arquivo `.sql` em
 
 ### Via CI/CD (recomendado)
 
-Faça push/merge na `main` ou execute manualmente o workflow **Deploy
-Hostinger VPS** na aba Actions. O workflow já faz backup prévio e usa
-`docker compose up -d --build --remove-orphans` (sem `down -v`).
+Faça push/merge na `main` ou crie uma tag semântica: o workflow
+**`deploy-on-tag.yml`** faz backup prévio e chama `./deploy/switch.sh`, que é
+o deploy sem downtime (o Caddy **não** é recriado; a troca de upstream é um
+`caddy reload`).
 
 ### Rollback simples
+
+Preferir o `switch.sh`, que só troca o upstream depois que a instância
+anterior responde:
+
+```bash
+cd /root/pdv-completo/deploy
+./switch.sh --rollback
+```
+
+Ou, para voltar o código também (imagem antiga de verdade):
 
 ```bash
 cd /root/pdv-completo
@@ -530,16 +597,151 @@ docker compose build backend frontend && docker compose up -d
 > volumes (banco + uploads). Se precisar limpar, use `./deploy/reset.sh`
 > (com confirmação) e restaure o backup.
 
+## Deploy sem downtime (switch azul/verde)
+
+O `switch.sh` é o caminho normal de deploy. A ideia é nunca existir um
+instante em que o Caddy aponte para algo que não responde — não "quase zero de
+erro", e sim **zero requisição falha** durante o deploy, inclusive com o salão em pleno
+expediente.
+
+### Como funciona
+
+O compose tem **duas** cópias de cada serviço, com nomes diferentes e a mesma
+imagem (`extends`, não cópia):
+
+| | instância "atual" | instância "próxima" |
+|---|---|---|
+| backend | `backend` | `backend-next` (profile `canary`) |
+| frontend | `frontend` | `frontend-next` (profile `canary`) |
+
+```
+1. build da imagem nova ............ nada em produção é tocado
+2. up -d backend-next frontend-next  o tráfego segue na instância atual
+3. espera o healthcheck dos dois .... verde doente = ABORTA aqui, com o
+                                     proxy velho no ar (nada foi trocado)
+4. grava o ponteiro + caddy reload .. o proxy passa a mandar tráfego para a
+                                     instância nova
+5. drain (5s) e stop da antiga ...... SIGTERM drena as requisições em voo;
+                                     quem estava em WebSocket reconecta em
+                                     ~250ms e recarrega o estado por REST
+```
+
+O passo 3 é o portão: `/health` só responde **depois** das migrations
+(`server.ts` roda `runMigrations()` antes do `app.listen`), então "healthy"
+quer dizer "schema aplicado e pronto para tráfego".
+
+### Uso
+
+```bash
+cd /root/pdv-completo/deploy
+
+./switch.sh --status      # quem está no ar agora
+./switch.sh               # switch (o que a CI chama)
+./switch.sh --rollback    # volta para a instância anterior
+./switch.sh --install     # primeira instalação (sobe do zero)
+./switch.sh --no-build    # não rebuilida a imagem (reaproveita a tag)
+```
+
+Variáveis: `PDV_DRAIN_SECONDS` (5), `PDV_HEALTH_TIMEOUT` (120),
+`PDV_PROBE_URL` (URL pública conferida logo após o reload).
+
+O rollback é `./switch.sh --rollback`: ele **sobe** a instância que o switch
+parou (`start`, não `up` — o container parado é o da imagem anterior), espera
+ela ficar healthy, e só então aponta o proxy. Se ela não subir, o tráfego
+continua onde estava.
+
+### O ponteiro e a config do proxy
+
+A Caddyfile do repo tem o upstream como variável
+(`{$PDV_BACKEND_UPSTREAM:backend:3000}`). Quem decide o valor é
+`deploy/state/active-upstream` — duas linhas, escrita pelo `switch.sh` e lida
+pelo container do Caddy (`caddy-assemble.sh`), que monta a config efetiva
+**dentro do container** e roda `caddy validate` antes de aplicar. Não existe
+Caddyfile gerado no host: o do git é o que roda.
+
+O ponteiro é versionado com o valor padrão (`backend`/`frontend`) para que o
+diretório já venha com o dono certo — se ele não existisse, o Docker criaria
+`deploy/state/` como root no primeiro `up` e o `switch.sh` (que roda com o
+usuário do deploy) não conseguiria escrever nele. Como o switch reescreve o
+arquivo a cada deploy, ele aparece como modificado no `git status` entre um
+deploy e outro: isso é estado, não drift. Verificar os dois hashes ainda é
+válido, o caminho é que mudou:
+
+```bash
+md5sum Caddyfile
+docker exec deploy-caddy-1 md5sum /srv/pdv-deploy/Caddyfile
+```
+
+### WebSocket no reload: por que o `stream_close_delay`
+
+O Caddy fecha **todos** os WebSockets em qualquer reload de configuração,
+inclusive em rota que não mudou (limitação documentada em
+[caddyserver/caddy#6420](https://github.com/caddyserver/caddy/issues/6420) e
+[#7222](https://github.com/caddyserver/caddy/issues/7222)). O
+`stream_close_delay 5m` no bloco `/realtime*` adia esse fechamento: quem já
+estava conectado continua na instância antiga durante o drain.
+
+Medido no stack local durante um switch: o WebSocket **não** caiu no reload
+(só 3ms antes do `stop` da instância antiga, que é o comportamento esperado),
+e reconectou 293ms depois. Cliente que estava na instância que **sobreviveu**
+nem sente nada: a conexão nunca caiu.
+
+### Medir antes de confiar
+
+`probe-availability.sh` é a régua: aperta uma URL em intervalo curto durante
+um deploy e reporta falhas e o maior gap.
+
+```bash
+./probe-availability.sh --url https://app.seudominio.com.br/health --seconds 120 --interval 0.2 &
+./switch.sh
+wait   # imprime: requisições / falhas / disponibilidade / maior gap
+```
+
+Resultado medido em 4 switches no stack local (frontend e backend, 5hz):
+
+| run | URL | requisições | falhas | disponibilidade | maior gap |
+|---|---|---|---|---|---|
+| 1 | `/health` | 226 | 0 | 100,00% | 0,0s |
+| 2 | `/` | 224 | 0 | 100,00% | 0,0s |
+| 3 | `/health` | 219 | 0 | 100,00% | 0,0s |
+| 4 | `/` | 192 | 0 | 100,00% | 0,0s |
+
+O script sai com código 1 se houve qualquer falha — dá para usar como porteiro
+de um deploy manual.
+
+### O que ainda é uma janela pequena (e por quê)
+
+Durante os ~5s de drain, um cliente cujo WebSocket estava na instância antiga
+pode perder um evento de realtime: o `outbox_event` é reivindicado por uma
+das duas instâncias (a que está no ar naquele instante) e o WS daquele cliente
+está ligado à outra. O `useRealtime` do frontend chama `onResync` a cada
+reconexão, então o estado volta por REST em ~250ms. Fechar essa janela por
+completo exigiria **um só dono do outbox** entre as duas instâncias (advisory
+lock do Postgres para eleger líder, ou `LISTEN/NOTIFY`) — é pendência
+conhecida, deliberadamente fora do escopo agora: exigiria alterar os workers,
+e a decisão foi não mexer nisso neste deploy.
+
+### Memória
+
+O switch mantém **duas** cópias do backend e do frontend em pé por alguns
+minutos. Medido no VPS: backend ≈ 200MB, frontend ≈ 10MB, Postgres ≈ 100MB.
+Com 2,8Gi disponíveis, sobra folga.
+
 ## Rollback simples
 
-Se precisar voltar para um commit anterior:
+Se precisar voltar para um commit anterior (por exemplo, após um deploy
+publicado com bug):
 
 ```bash
 cd /opt/pdv-completo
 git fetch --prune origin
-git reset --hard <commit-ou-tag-estavel>
-docker compose -f deploy/docker-compose.yml up -d --build --remove-orphans
+git checkout -f <tag-estavel>
+cd deploy
+./switch.sh
 ```
+
+O `switch` garante o mesmo portão do deploy: se a versão antiga não ficar
+healthy, o proxy não é tocado e o job falha.
 
 Depois ajuste a `main` no GitHub para evitar redeploy do commit ruim.
 

@@ -4,31 +4,71 @@
 #
 # PostgreSQL é o ÚNICO banco suportado (o SQLite foi removido). O serviço
 # `postgres` abaixo sobe junto por padrão e o backend espera o healthcheck.
-# Para usar um Postgres gerenciado (RDS, Neon, etc.), aponte DATABASE_URL para
-# o endpoint externo e suba o backend sem a dependência do serviço local:
+# Para usar um Postgres gerenciado (RDS, Neon, etc.), aponte DATABASE_URL para o
+# endpoint externo e suba o backend sem a dependência do serviço local:
 #   docker compose up -d --no-deps backend frontend caddy
+#
+# ---------- Deploy sem downtime ----------
+# A partir do 2º deploy, NÃO use `docker compose up -d --build`: use
+# `deploy/switch.sh` (o mesmo que o CI chama). A topologia tem duas
+# instâncias de backend e duas de frontend — `backend`/`frontend` e
+# `backend-next`/`frontend-next` — que saem da MESMA âncora (e da mesma
+# imagem), então "próxima" e "atual" são só nomes. O que decide quem está
+# no ar é o ponteiro `state/active-upstream`, lido pelo container do Caddy
+# (ver caddy-assemble.sh). As instâncias `-next` estão no profile
+# `canary`: um `up` comum não as sobe, o que mantém esta instalação
+# igual à anterior para quem nunca fez um switch.
 # ============================================================
 services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    # Monta a config dentro do container e sobe/recarrega por ela. O
+    # `run` é o boot; o `reload` é o que o switch.sh chama para trocar o
+    # upstream sem derrubar quem está conectado.
+    #
+    # O entrypoint e a Caddyfile vêm do DIRETÓRIO montado, não de um
+    # arquivo único: o CI troca o código com `git checkout -f`, que
+    # substitui os arquivos por inodes novos — e um bind mount de arquivo
+    # deixaria o container preso ao inode antigo, servindo a configuração
+    # anterior sem reclamar no log. Montando o diretório, o conteúdo novo
+    # aparece no próximo reload.
+    entrypoint: ["/bin/sh", "/srv/pdv-deploy/caddy-assemble.sh"]
+    command: ["run"]
     ports:
       - "80:80"
       - "443:443"
     environment:
       - DOMAIN=${DOMAIN}
+      - PDV_CADDY_CONFIG=/srv/pdv-deploy/Caddyfile
+      - PDV_UPSTREAM_STATE=/srv/pdv-deploy/state/active-upstream
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # O diretório `deploy/` inteiro, só-leitura: é dele que saem a
+      # Caddyfile, o caddy-assemble.sh e o ponteiro de upstream (o único
+      # estado de deploy que vive no host).
+      - ./:/srv/pdv-deploy:ro
+      # Artefatos do auto-update (latest.json + installer). Escrito pelo CI
+      # em deploy/updates/ via SSH; servido somente-leitura pelo Caddy.
+      - ./updates:/srv/pdv-updates:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
       - backend
       - frontend
 
+  # ---------- Backend ----------
+  # `backend` e `backend-next` são o MESMO serviço com nomes diferentes
+  # (`extends`, não cópia: não há como os dois divergirem por esquecimento
+  # no meio do caminho). A diferença entre "atual" e "próxima" é o
+  # healthcheck + o `stop_grace_period`, não o conteúdo.
   backend:
     build:
       context: ../backend
       dockerfile: ${DOCKERFILE:-Dockerfile}
+    # Nome explícito para as duas instâncias compartilharem a imagem: o
+    # switch.sh faz `compose build backend` uma vez e as duas sobem com o
+    # mesmo tag (duas imagens iguais custariam build e disco à toa).
+    image: ${BACKEND_IMAGE:-pdv-backend:local}
     restart: unless-stopped
     environment:
       - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-local}
@@ -39,13 +79,13 @@ services:
       # Lista de origens permitidas, separada por vírgula. O padrão é só o
       # domínio do app; se o PDV também for servido em outro endereço (ex.:
       # hostname antigo do servidor), defina CORS_ORIGIN no .env com a lista
-      # completa — sem isso o navegador bloqueia a API e o app "carrega mas
+      # completa — se não, o navegador bloqueia a API e o app "carrega mas
       # não funciona".
       - CORS_ORIGIN=${CORS_ORIGIN:-https://${DOMAIN}}
       - PORT=3000
       - LOG_LEVEL=info
       # ---------- WhatsApp Cloud API (Embedded Signup) ----------
-      # Sem isto a aba "WhatsApp" do gerente mostra "não configurado" — o
+      # Sem isto a aba 'WhatsApp' do gerente mostra 'não configurado' — o
       # resto do app funciona normal.
       - META_APP_ID=${META_APP_ID:-}
       - META_APP_SECRET=${META_APP_SECRET:-}
@@ -54,15 +94,63 @@ services:
       - WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN:-}
     volumes:
       - backend_uploads:/app/uploads
+    # Portão do switch: o container só fica "healthy" depois que o
+    # /health responde, e o /health só abre depois das migrations
+    # (server.ts roda runMigrations() antes do app.listen). Sem isto o
+    # switch poderia cortar o tráfego para uma instância ainda sem schema.
+    # A imagem é node:slim, sem curl/wget — o próprio node faz o check.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    # O SIGTERM já drena as requisições em voo (app.close() em server.ts);
+    # a janela existe para o processo terminar isso antes do SIGKILL.
+    stop_grace_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
     # Não expõe porta pro host — só o Caddy fala com ele, via rede interna do compose
 
+  # Instância "próxima" do switch. Só sobe com `--profile canary`, que é
+  # o que o switch.sh usa. Mesmo ambiente, mesma imagem, mesmo volume de
+  # uploads do backend atual.
+  backend-next:
+    extends:
+      service: backend
+    profiles: ["canary"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ---------- Frontend ----------
+  # Mesma lógica: nginx servindo build estático, duas instâncias do mesmo
+  # tag. Sem healthcheck porque é conteúdo estático — o nginx atende assim
+  # que sobe, e o switch.sh confirma o resultado pelo probe HTTP.
   frontend:
     build: ../frontend
+    image: ${FRONTEND_IMAGE:-pdv-frontend:local}
     restart: unless-stopped
-    # idem — só o Caddy acessa
+    # nginx serve conteúdo estático, mas "estático" não quer dizer "pronto no
+    # instante": o switch espera este healthcheck antes de apontar o proxy,
+    # senão o primeiro F5 pós-deploy pega 502. A imagem nginx:alpine traz
+    # wget do busybox (não traz curl).
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 3s
+
+  frontend-next:
+    extends:
+      service: frontend
+    profiles: ["canary"]
 
   # Banco oficial. Sem profile: sobe sempre, e o backend espera o healthcheck.
   # (Postgres externo? ajuste DATABASE_URL no .env e use --no-deps, senão o

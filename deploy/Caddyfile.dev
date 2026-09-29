@@ -11,29 +11,43 @@
 	# API REST
 	handle /api/* {
 		uri strip_prefix /api
-		reverse_proxy backend:3000
+		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
 	}
 
 	# WebSocket em tempo real
 	handle /realtime* {
-		reverse_proxy backend:3000
+		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000} {
+			# ---------- Deploy sem downtime ----------
+			# O Caddy fecha TODOS os WebSockets em qualquer reload de config,
+			# inclusive em rota que não mudou (limitação documentada em
+			# caddyserver/caddy#6420 e #7222). O `stream_close_delay` adia esse
+			# fechamento: quem já estava conectado continua na instância antiga
+			# durante o drain e só se reconecta — com resync via REST — quando
+			# ela é de fato parada. Sem esta linha, todo reload derrubaria
+			# todas as telas do salão.
+			# Não há `lb_retries` aqui nem em /api: o gap de HTTP zero vem da
+			# ordem do switch (a instância nova só entra no proxy depois do
+			# healthcheck), não de retentativa — e repetir POST repetiria
+			# pagamento.
+			stream_close_delay 5m
+		}
 	}
 
 	# Fotos de produto servidas pelo backend
 	handle /uploads/* {
-		reverse_proxy backend:3000
+		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
 	}
 
 	# Webhooks da Meta (WhatsApp Cloud API). Fora de /api de propósito: a
 	# URL de callback é cadastrada no painel da Meta e não pode depender do
 	# prefixo que o backend usa na API REST.
 	handle /webhooks/* {
-		reverse_proxy backend:3000
+		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
 	}
 
 	# Health check
 	handle /health {
-		reverse_proxy backend:3000
+		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
 	}
 
 	# Resto: Vite dev server (HMR)

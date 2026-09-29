@@ -3,3 +3,8 @@ dist
 .env
 .env.*
 *.log
+# O build da imagem do frontend é só `npm run build` + nginx: nada do Tauri
+# entra nele. Sem estas linhas o contexto sobe 4GB (target/ do Rust) e cada
+# build spends >1min só transferindo isso.
+src-tauri/target
+src-tauri/binaries

@@ -17,34 +17,80 @@
 	# API REST
 	handle /api/* {
 		uri strip_prefix /api
-		reverse_proxy backend:3000
+		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
 	}
 
 	# WebSocket em tempo real
 	handle /realtime* {
-		reverse_proxy backend:3000
+		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000} {
+			# ---------- Deploy sem downtime ----------
+			# O Caddy fecha TODOS os WebSockets em qualquer reload de config,
+			# inclusive em rota que não mudou (limitação documentada em
+			# caddyserver/caddy#6420 e #7222). O `stream_close_delay` adia esse
+			# fechamento: quem já estava conectado continua na instância antiga
+			# durante o drain e só se reconecta — com resync via REST — quando
+			# ela é de fato parada. Sem esta linha, todo reload derrubaria
+			# todas as telas do salão.
+			# Não há `lb_retries` aqui nem em /api: o gap de HTTP zero vem da
+			# ordem do switch (a instância nova só entra no proxy depois do
+			# healthcheck), não de retentativa — e repetir POST repetiria
+			# pagamento.
+			stream_close_delay 5m
+		}
 	}
 
 	# Fotos de produto servidas pelo backend
 	handle /uploads/* {
-		reverse_proxy backend:3000
+		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
+	}
+
+	# ---------- Auto-update do app desktop ----------
+	# O app Windows pede o manifesto em
+	#   /updates/desktop/{{target}}/{{arch}}/{{current_version}}
+	# e o plugin (Rust) valida a assinatura Ed25519 antes de baixar. Duas
+	# peças, e a separação é o ponto:
+	#   /updates/desktop/... → sempre o MESMO latest.json (o manifesto da
+	#     versão mais recente). A URL é "dinâmica" só porque o plugin
+	#     interpola a versão atual; o conteúdo não muda por causa disso.
+	#     Assim um app antigo continua enxergando o manifesto novo sem
+	#     republicar um arquivo por versão instalada.
+	#   /updates/files/... → os artefatos (installer .exe, .exe.zip, .sig).
+	#     O .zip é o que o plugin baixa; o .exe fica junto para download
+	#     manual e o .sig para auditoria.
+	# O diretório é populado pelo CI (job build-desktop) via SSH — ver
+	# .github/workflows/deploy-on-tag.yml. Bind mount somente-leitura.
+	handle /updates/desktop/*/*/* {
+		rewrite * /latest.json
+		file_server {
+			root /srv/pdv-updates
+		}
+	}
+
+	handle /updates/files/* {
+		# `file_server` junta o root com o caminho INTEIRO da URL, então sem
+		# tirar o prefixo ele procuraria /srv/pdv-updates/files/updates/files/...
+		# e devolveria 404 (foi o que aconteceu na primeira versão desta rota).
+		uri strip_prefix /updates/files
+		file_server {
+			root /srv/pdv-updates/files
+		}
 	}
 
 	# Webhooks da Meta (WhatsApp Cloud API). Fora de /api de propósito: a
 	# URL de callback é cadastrada no painel da Meta e não pode depender do
 	# prefixo que o backend usa na API REST.
 	handle /webhooks/* {
-		reverse_proxy backend:3000
+		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
 	}
 
 	# Health check direto (útil pra monitoramento externo)
 	handle /health {
-		reverse_proxy backend:3000
+		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
 	}
 
 	# Resto: frontend estático (PWA)
 	handle {
-		reverse_proxy frontend:80
+		reverse_proxy {$PDV_FRONTEND_UPSTREAM:frontend:80}
 	}
 
 	encode gzip
