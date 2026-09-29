@@ -96,6 +96,7 @@ jobs:
       # justamente para pegar tag e conf divergentes — nunca rodou, e
       # RELEASE_TAG ficava vazio para o `gh release create` lá embaixo.
       - name: Conferir versão e definir a tag da release
+        working-directory: frontend
         shell: pwsh
         run: |
           $conf = Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json
@@ -151,6 +152,7 @@ jobs:
         run: npx tauri build --bundles nsis
 
       - name: Montar manifesto latest.json
+        working-directory: frontend
         shell: pwsh
         run: |
           $dir = 'src-tauri/target/release/bundle/nsis'
@@ -195,17 +197,20 @@ jobs:
       # falhar (secret ausente, VPS fora, pasta com dono errado), o job
       # quebra aqui — mas o .exe já está salvo e pode ser publicado a mão.
       - name: Anexar instalador na release do GitHub
+        working-directory: frontend
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = $env:RELEASE_TAG
-          # --target: a release tem de apontar para o commit que gerou este
-          # .exe. Sem isso ela nasce no topo da branch padrão — outro código,
-          # com o mesmo nome de versão.
-          gh release create $tag --title "PDV $tag" --target '${{ github.sha }}' --generate-notes || `
-            gh release upload $tag 'src-tauri/target/release/bundle/nsis/*.exe' --clobber
-          gh release view $tag --json url -q '"release: " + .url'
+          # --repo explicito: a inferencia por repositorio git depende do CWD,
+          # e este passo roda com working-directory=frontend. --target: a
+          # release tem de apontar para o commit que gerou este .exe. Sem isso
+          # ela nasce no topo da branch padrao — outro codigo, com o mesmo
+          # nome de versao.
+          gh release create $tag --repo '${{ github.repository }}' --title "PDV $tag" --target '${{ github.sha }}' --generate-notes || `
+            gh release upload $tag --repo '${{ github.repository }}' 'src-tauri/target/release/bundle/nsis/*.exe' --clobber
+          gh release view $tag --repo '${{ github.repository }}' --json url -q '"release: " + .url'
 
       # Publicar no servidor é o que dá o download por URL própria
       # (/updates/files/...) e o manifesto do auto-update. Falhar aqui é
@@ -242,7 +247,10 @@ jobs:
           username: ${{ secrets.HOSTINGER_USER }}
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
           known_hosts: ${{ secrets.HOSTINGER_KNOWN_HOSTS }}
-          source: 'src-tauri/target/release/bundle/nsis/*'
+          # `source` do scp-action é resolvido a partir do workspace, e não de
+          # um working-directory do step (que esta action não tem): o caminho
+          # precisa do prefixo `frontend/`, ao contrário dos passos pwsh acima.
+          source: 'frontend/src-tauri/target/release/bundle/nsis/*'
           target: ${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates/
 
       - name: Ajustar layout no servidor
@@ -266,6 +274,7 @@ jobs:
 
       - name: Resumo dos artefatos
         if: always()
+        working-directory: frontend
         shell: pwsh
         run: |
           Get-ChildItem 'src-tauri/target/release/bundle/nsis' -ErrorAction SilentlyContinue |
