@@ -339,6 +339,22 @@ jobs:
           # um working-directory do step (que esta action não tem).
           source: 'bundle/*'
           target: ${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates/
+          # O scp-action NÃO copia o conteúdo de um diretório: ele empacota
+          # os sources em tar e desempacota no destino. E o tar grava os
+          # paths COMO SÃO DADOS — `filepath.Glob("bundle/*")` devolve
+          # "bundle/latest.json", "bundle/PDV...exe", e o tar preserva esse
+          # prefixo. Sem isto o desempacotamento recriava
+          # deploy/updates/bundle/ em vez de soltar os arquivos em
+          # deploy/updates/, e o Caddy (que serve /srv/pdv-updates/latest.json,
+          # via bind mount ./updates:/srv/pdv-updates) respondia 404 para
+          # sempre: o manifesto existia, só que um diretório abaixo. O job
+          # passava, o auto-update nunca acontecia.
+          #
+          # `strip_components: 1` arranca esse primeiro elemento na extração.
+          # É o input documentado da action para isto, e é melhor do que
+          # depender de baixar o artefato na raiz do workspace (o que
+          # faria o `*` pegar qualquer outra coisa que estivesse lá).
+          strip_components: 1
 
       - name: Ajustar layout no servidor
         uses: appleboy/ssh-action@v1
@@ -359,4 +375,10 @@ jobs:
             # .exe, entao a assinatura chega como <exe>.sig. Listar as duas
             # extensoes de artefato e um `*.sig` cobre v2 e v1Compatible.
             mv -f -- *.exe *.zip *.sig files/windows-x86_64/ 2>/dev/null || true
+            # O `bundle/` é o que sobrou da publicação anterior, quando o
+            # scp-action desempacotava com o prefixo do source (ver o
+            # comentário no passo de scp). Não é servido pelo Caddy — só
+            # ocupava 212 MB e confundia quem fosse olhar o diretório.
+            # `--` e o cd acima mantêm isto restrito a $UPDATES/bundle.
+            rm -rf -- bundle
             ls -la . files/windows-x86_64
