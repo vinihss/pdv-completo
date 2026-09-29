@@ -326,6 +326,40 @@ O instalador de Windows (NSIS) só sai no Windows; no Linux/macOS use
 `--bundles deb`/`appimage` para validar o caminho. É o que o
 `build-desktop` faz no `windows-latest`, com `--bundles nsis`.
 
+### 8.1 O AppImage não empacota no Arch
+
+No Arch o `tauri build` morre em `failed to run linuxdeploy`. Não é bug do
+projeto: o `linuxdeploy` embute um `strip` de binutils antigo, que não
+reconhece a seção `.relr.dyn` das libs do sistema (o Arch usa binutils
+novo). O `.deb` sai normal na mesma máquina — só o AppImage é afetado.
+
+Quando for o caso:
+
+```bash
+bash build-app.sh --bundles deb        # .deb nativo, funciona no Arch
+bash build-app.sh --appimage-docker    # AppImage num debian:bookworm-slim
+```
+
+A segunda forma empacota num container (imagem `frontend/docker/Dockerfile.desktop`,
+cacheada; a primeira vez baixa as deps). Sai o mesmo AppImage que o CI gera,
+só que com glibc 2.36 em vez das libs da máquina.
+
+### 8.2 Build local sem chave de assinatura
+
+O empacotador do Tauri 2 assina o artefato de update **sempre** que
+`plugins.updater.pubkey` está no `tauri.conf.json`, e não existe flag de
+config que desligue isso (`-c` com `pubkey: ""` continua pedindo chave;
+`updater: null` morre antes com "failed to get updater configuration").
+Sem `TAURI_SIGNING_PRIVATE_KEY`, o build local terminava com erro **depois**
+de gerar o instalador.
+
+Por isso o `build-app.sh` sem `--release` gera uma chave descartável em
+`frontend/src-tauri/.local-signing.key` (ignorada pelo git) e avisa: um
+instalador assinado com ela **não** é aceito pelo updater de um app real,
+porque a pubkey do conf é outra. Serve para o script sair com status 0 e
+para o `.sig` existir, o que é o que o CI valida. Entrega é sempre com a
+chave de verdade, via `--release`.
+
 O que **exige** um Windows limpo:
 
 1. rodar o instalador gerado;
