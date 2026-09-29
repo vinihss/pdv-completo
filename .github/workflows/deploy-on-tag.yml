@@ -109,7 +109,20 @@ jobs:
             set -Eeuo pipefail
 
             APP_PATH="${{ secrets.HOSTINGER_APP_PATH }}"
-            TAG="${GITHUB_REF_NAME}"
+            # Interpolado no texto do script, e não lido do ambiente: o
+            # ssh-action roda isto num shell remoto dentro do container e só
+            # repassa as variáveis declaradas no input `envs`. GITHUB_REF_NAME
+            # é contexto do Actions, não uma env var do shell — com `set -u`
+            # o script morria em "GITHUB_REF_NAME: unbound variable" logo na
+            # primeira linha útil, 6 segundos depois de começar. A APP_PATH
+            # acima sempre funcionou por estar interpolada, o que é a
+            # diferença entre as duas linhas.
+            TAG="${{ github.ref_name }}"
+
+            if [ -z "$TAG" ]; then
+              echo "[deploy] TAG vazia: este workflow só faz sentido por push de tag v*.*.*"
+              exit 1
+            fi
 
             cd "$APP_PATH"
 
