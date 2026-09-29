@@ -101,6 +101,9 @@ COMPOSE_BASE=("${COMPOSE[@]}")
 COMPOSE+=(--profile canary)
 STATE_DIR="state"
 STATE_FILE="$STATE_DIR/active-upstream"
+# Onde o CI (job build-desktop) publica o instalador e o latest.json, por
+# SSH. O compose monta este diretório em /srv/pdv-updates no Caddy.
+UPDATES_DIR="updates"
 
 # Os dois nomes possíveis, e o papel de cada um. "live" é quem o Caddy está
 # apontando; "next" é o par que o switch vai promover.
@@ -200,6 +203,25 @@ svc_field() {
   docker inspect -f "$2" "$id" 2>/dev/null
 }
 
+# Garante que o diretório de artefatos do auto-update exista E seja gravável
+# pelo usuário do deploy. Sem isso o bind mount do Caddy cria o diretório como
+# root (`./updates:/srv/pdv-updates:ro`) e o scp do job build-desktop — que
+# roda com o usuário do CI — toma "permission denied", derrubando o job
+# inteiro: o instalador não chega ao servidor e o cliente não tem o que
+# baixar. Mesma armadilha do `state/`, mesmo remedy.
+ensure_updates_dir() {
+  mkdir -p "$UPDATES_DIR" 2>/dev/null ||
+    fail "não consegui criar $UPDATES_DIR (gravável pelo usuário atual?)."
+  if [ ! -w "$UPDATES_DIR" ]; then
+    fail "sem permissão de escrita em $UPDATES_DIR.
+   Se o Docker o criou como root (bind mount ./updates), rode:
+     sudo chown \"\$(id -u):\$(id -g)\" $UPDATES_DIR
+   Sem isso o CI não consegue publicar o instalador por SSH."
+  fi
+  [ -e "$UPDATES_DIR/files/windows-x86_64" ] ||
+    mkdir -p "$UPDATES_DIR/files/windows-x86_64"
+}
+
 # Recarrega o proxy. A config é montada DENTRO do container do Caddy a
 # partir do ponteiro acima (caddy-assemble.sh valida antes de aplicar).
 reload_caddy() {
@@ -296,6 +318,9 @@ do_status() {
 
 do_install() {
   say "primeira instalação — subindo o stack do zero"
+  # Antes do `up`: o bind mount ./updates é o que cria o diretório como root
+  # quando ele não existe, e aí o CI não consegue publicar o instalador.
+  ensure_updates_dir
   info "o Caddy sobe com a config montada no container, sem ponteiro (defaults backend/frontend)"
   # --remove-orphans não remove as instâncias "-next": elas são serviços do
   # próprio compose (profile `canary`), não órfãos — medido, o `up` sem o
@@ -322,6 +347,7 @@ do_switch() {
 
   require_tools
   say "switch: $old_be → $new_be (frontend $old_fe → $new_fe)"
+  ensure_updates_dir
 
   # --- 1. build (imagem compartilhada pelas duas instâncias) -----------
   if [ "$NO_BUILD" = "1" ]; then
@@ -388,6 +414,7 @@ do_switch() {
 # ----------------------------------------------------------------------
 do_rollback() {
   require_tools
+  ensure_updates_dir
   local cur_be cur_fe old_be old_fe
   cur_be="$(live_backend)"
   cur_fe="$(live_frontend)"

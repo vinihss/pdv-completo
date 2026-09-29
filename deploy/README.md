@@ -242,7 +242,15 @@ O app Windows (Tauri) pergunta por update no boot. Duas rotas no Caddy:
 
 Os arquivos vivem em `deploy/updates/` no servidor (bind mount somente-leitura
 em `/srv/pdv-updates`) e são publicados pelo job `build-desktop` via SSH. O
-diretório está no `.gitignore`.
+diretório está no `.gitignore` e **precisa existir no servidor com o dono do
+usuário de deploy** — `switch.sh` (`ensure_updates_dir`) e `install.sh` já
+criam e checam isso, porque o bind mount do Caddy criaria o diretório como
+root e o `scp` do CI falharia com *permission denied*.
+
+O **mesmo `.exe` é o que o cliente baixa**: `/updates/files/…` não é
+exclusivo do updater — é o canal de download do instalador, público, sem
+conta. O `latest.json` é o que o app consulta sozinho; o `.exe` é o que a
+pessoa baixa com o mouse.
 
 A chave de assinatura é a parte que importa: **sem o secret
 `TAURI_SIGNING_PRIVATE_KEY` o job Windows falha**, e é o que impede qualquer
@@ -297,6 +305,23 @@ sudo mkdir -p /opt/pdv-completo
 sudo chown -R "$USER":"$USER" /opt/pdv-completo
 git clone https://github.com/vinihss/pdv-completo.git /opt/pdv-completo
 cd /opt/pdv-completo
+
+# Diretório de artefatos do app Windows (instalador + latest.json). Precisa
+# existir COM O DONO CERTO antes do primeiro `docker compose up`: o compose
+# monta ./updates no Caddy, e bind mount de diretório inexistente faz o
+# Docker criá-lo como root — aí o scp do job build-desktop (que roda com o
+# usuário do CI, não com root) falha com "permission denied" e o instalador
+# nunca chega ao servidor. O switch.sh e o install.sh já criam e checam isso;
+# o comando abaixo é para um clone manual.
+mkdir -p deploy/updates/files/windows-x86_64
+chown -R "$USER":"$USER" deploy/updates
+```
+
+Verificação rápida depois do primeiro deploy do app Windows:
+
+```bash
+curl -sI https://SEU_DOMINIO/updates/desktop/windows-x86_64/x86_64/1.0.2 | head -1
+# 200 + o latest.json; se der 404, o diretório está vazio ou com o dono errado.
 ```
 
 Crie o arquivo de produção **somente no VPS** (opcional para bootstrap local):

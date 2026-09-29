@@ -61,11 +61,20 @@ MANAGER_NAME="${MANAGER_NAME:-Gerente}"
 log "Domínio: $DOMAIN"
 log "Estabelecimento: $MERCHANT_NAME"
 
-# ---------- 2. Subir containers ----------
+# ---------- 2. Diretório de artefatos do instalador Windows ----------
+# O compose monta ./updates no Caddy. Se o diretório não existir, o Docker o
+# cria como root e o job build-desktop não consegue publicar o instalador por
+# SSH depois (o scp roda com o usuário do CI, não com root). Criar aqui, com o
+# dono certo, é o que evita o "permission denied" no primeiro deploy.
+log "Preparando deploy/updates (instalador do app Windows)..."
+mkdir -p updates/files/windows-x86_64 || err "Não consegui criar deploy/updates"
+[ -w updates ] || err "deploy/updates sem permissão de escrita. Se o Docker o criou como root: sudo chown \"\$(id -u):\$(id -g)\" updates"
+
+# ---------- 3. Subir containers ----------
 log "Subindo containers (caddy + backend + frontend + postgres)..."
 docker compose -f docker-compose.yml up -d --build --remove-orphans
 
-# ---------- 3. Aguardar health check ----------
+# ---------- 4. Aguardar health check ----------
 log "Aguardando backend ficar saudável..."
 MAX_WAIT=180
 WAITED=0
@@ -78,17 +87,17 @@ until docker compose -f docker-compose.yml exec -T backend node -e "fetch('http:
 done
 log "Backend saudável."
 
-# ---------- 4. Seed: somente gerente ----------
+# ---------- 5. Seed: somente gerente ----------
 log "Criando usuário gerente (seed-prod)..."
 docker compose -f docker-compose.yml exec -T backend \
   node dist/infra/db/seed-prod.js
 
-# ---------- 5. Cardápio Unami (explícito, não automático) ----------
+# ---------- 6. Cardápio Unami (explícito, não automático) ----------
 log "Aplicando cardápio Unami (load-menu)..."
 docker compose -f docker-compose.yml exec -T backend \
   node dist/infra/db/load-menu.js
 
-# ---------- 6. Resumo ----------
+# ---------- 7. Resumo ----------
 echo ""
 echo "============================================================"
 echo " INSTALAÇÃO CONCLUÍDA"

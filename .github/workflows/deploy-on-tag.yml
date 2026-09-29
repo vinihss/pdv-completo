@@ -127,6 +127,20 @@ jobs:
           Write-Host "Manifesto $version -> $($zip.Name)"
           Get-Content $out
 
+      # A release vem ANTES do SSH de propósito: ela é o caminho de
+      # download do instalador que não depende de nada externo. Se o scp
+      # falhar (secret ausente, VPS fora, pasta com dono errado), o job
+      # quebra aqui — mas o .exe já está salvo e pode ser publicado a mão.
+      - name: Anexar instalador na release do GitHub
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create '${{ github.ref_name }}' --title 'PDV ${{ github.ref_name }}' --generate-notes || \
+          gh release upload '${{ github.ref_name }}' 'src-tauri/target/release/bundle/nsis/*.exe' --clobber
+
+      # Publicar no servidor é o que dá o download por URL própria
+      # (/updates/files/...) e o manifesto do auto-update. Falhar aqui é
+      # falha de verdade: sem isso o app instalado não encontra update.
       - name: Publicar no servidor (SSH)
         uses: appleboy/scp-action@v1
         with:
@@ -155,13 +169,6 @@ jobs:
             cd "$UPDATES"
             mv -f -- *.exe *.zip *.zip.sig files/windows-x86_64/ 2>/dev/null || true
             ls -la . files/windows-x86_64
-
-      - name: Anexar instalador na release do GitHub
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create '${{ github.ref_name }}' --title 'PDV ${{ github.ref_name }}' --generate-notes || \
-          gh release upload '${{ github.ref_name }}' 'src-tauri/target/release/bundle/nsis/*.exe' --clobber
 
   deploy:
     needs: [test-backend, test-frontend, build-desktop]
