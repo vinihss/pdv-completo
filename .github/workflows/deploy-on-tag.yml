@@ -135,7 +135,15 @@ jobs:
             # arquivo para saber de que lado está o tráfego: sem salvar,
             # ele promote a instância errada (e a imagem anterior se perde
             # como alvo de rollback).
-            cp deploy/state/active-upstream /tmp/pdv-active-upstream.bak
+            #
+            # `|| true` nos dois cp: o arquivo só existe a partir do commit
+            # 0fef83d (switch azul/verde). Num host que ainda está num
+            # commit anterior — como este, em v1.0.1-61 — ele não existe,
+            # e não há ponteiro a preservar: o switch.sh cria o estado na
+            # primeira execução. Sem o `|| true` o `set -e` matava o deploy
+            # em "cannot stat 'deploy/state/active-upstream'", depois de
+            # já ter feito o trabalho caro.
+            cp deploy/state/active-upstream /tmp/pdv-active-upstream.bak 2>/dev/null || true
 
             # Atualiza código para a tag
             echo "[deploy] Atualizando código para $TAG..."
@@ -149,7 +157,10 @@ jobs:
             # quando ninguém pediu o ref.
             git fetch --prune --tags --force origin
             git checkout -f "$TAG"
-            cp /tmp/pdv-active-upstream.bak deploy/state/active-upstream
+            # Se não havia ponteiro para preservar (host em commit antigo),
+            # deixa o arquivo que o checkout trouxe — é o estado inicial
+            # correto, e o switch.sh o ajusta na primeira execução.
+            cp /tmp/pdv-active-upstream.bak deploy/state/active-upstream 2>/dev/null || true
 
             # Backup ANTES do switch, e DEPOIS do checkout — não antes. O
             # backup roda o script que está no host, e o host só recebe o
