@@ -8,6 +8,35 @@ on:
 jobs:
   test-backend:
     runs-on: ubuntu-latest
+    # Os testes do backend rodam contra um Postgres DEDICADO (pdv_test), não
+    # contra o banco da aplicação: o global setup (backend/test/global-setup.ts)
+    # derruba e recria o schema `public` antes de cada suíte, o que num banco
+    # real apagaria os dados. Sem este serviço o job morria com ECONNREFUSED e
+    # o vitest ainda imprimia "No test files found", que engana: o glob está
+    # certo, quem falha é o setup.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          # Mesmas credenciais do default em backend/test/test-db.ts, para o
+          # banco efêmero do CI e o Postgres local de desenvolvimento não
+          # divergirem.
+          POSTGRES_USER: pdv
+          POSTGRES_PASSWORD: pdv_test_pw
+          POSTGRES_DB: pdv_test
+        ports:
+          - 55432:5432
+        # Sem healthcheck o vitest começa antes do Postgres aceitar conexão e
+        # o job falha de forma intermitente, dependendo da carga do runner.
+        options: >-
+          --health-cmd "pg_isready -U pdv -d pdv_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Aponta para o serviço acima. O global setup usa esta variável para
+      # recriar o schema e o config do vitest a repassa como DATABASE_URL.
+      TEST_DATABASE_URL: postgres://pdv:pdv_test_pw@localhost:55432/pdv_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
