@@ -23,6 +23,24 @@ Um único código-fonte, dois modos de deploy, diferenciados só por variável d
 
 Stack: Node.js + TypeScript, Fastify, Drizzle ORM (SQL-first sobre PostgreSQL), WebSocket para tempo real, Zod para validação, JWT + PIN numérico (argon2) para autenticação rápida em terminal compartilhado. O Postgres é o único banco suportado — o SQLite foi removido; `DEPLOYMENT_MODE` decide se o Postgres é o do compose local ou uma instância gerenciada.
 
+### Como o PDV chega à loja
+
+O mesmo frontend é servido de três formas, sem código duplicado:
+
+| Forma | Onde | Quem usa |
+|---|---|---|
+| **App Windows** (Tauri) | terminal da loja, instalado | garçom, cozinha, gerente, caixa, entregador |
+| **PWA no navegador** | servido pelo Caddy | computador de passagem, treino, contingência |
+| **Painel web** | qualquer navegador | gerente e cliente |
+
+O app Windows é um instalador único que também instala o daemon de impressão
+como serviço do Windows (a cozinha imprime com o app fechado). A loja é
+configurada por arquivo (`%ProgramData%\PDV\app.json`: `mode` local ou cloud,
+`apiBase`, `daemonUrl`) — não por um instalador diferente por loja. O app
+verifica atualização e conectividade antes de abrir, e uma falha de update
+nunca bloqueia: numa loja sem internet o PDV abre na versão em disco. Ver
+`11-desktop-instalador.md`.
+
 ## Perfis de usuário e telas
 
 | Perfil | Função | Tela / protótipo |

@@ -38,6 +38,7 @@ docs/       Specs originais (backend, frontend, critérios de aceite)
 | `docs/07-estoque.md` | Spec do controle de estoque: ledger `stock_movement`, flags de rollout, endpoints, regras de corretude e testes. |
 | `docs/08-estoque-profissional.md` | Spec do estoque profissional: fornecedores, compras multi-item, custo médio móvel, valorização, pendências (contagem, lote, multi-depósito). |
 | `docs/10-whatsapp-embedded-signup.md` | WhatsApp Cloud API: Embedded Signup v4, token por WABA, webhooks de mensagem e de status, diagnóstico. |
+| `docs/11-desktop-instalador.md` | App Windows (Tauri): instalador, config por loja, boot/update, daemon como serviço, o que falta. |
 
 ## Como rodar
 
@@ -130,12 +131,78 @@ npm run dev                # http://localhost:5173
 O Vite já proxeia `/api` e `/realtime` para `localhost:3000` (`vite.config.js`).
 O app é PWA instalável (ver `frontend/public/manifest.json`).
 
+### App desktop (Tauri)
+
+```bash
+cd frontend
+npm run desktop:build                      # build local (sidecar + instalador)
+bash build-app.sh --release                # build de entrega: exige chave de assinatura
+npx tauri dev                              # roda o app no desktop
+```
+
+`frontend/build-app.sh` é o processo em um comando: gera o sidecar (passo que
+não pode faltar, senão o `build.rs` aborta), confere que `tauri.conf.json` e
+`package.json` estão na mesma versão e chama o `tauri build`. Com `--release`
+ele **recusa** rodar sem `TAURI_SIGNING_PRIVATE_KEY` + senha, porque um
+instalador sem assinatura não é atualizado por nenhum app. Publicar é outra
+coisa: é a tag `vX.Y.Z` que o CI assina e publica (§ Update automático).
+
+O app Windows é o alvo: instalador único, config por loja em
+`%ProgramData%\PDV\app.json` e daemon de impressão instalado como serviço
+junto. **A lista do que ainda não foi provado (chave da assinatura fora do
+repo, secrets do deploy ausentes, `installer-hooks.nsh` nunca compilado) está
+em `docs/11-desktop-instalador.md` §9 — leia antes de chamar algo de
+"pronto".**
+
 ### Deploy
 
 Ver o runbook completo em `deploy/README.md` (Docker Compose + Caddy com HTTPS
 automático, backup do banco, seed de produção). Build de produção do frontend:
 `npm run build` (gera `dist/`, serve atrás de proxy reverso que encaminhe `/api`
 e `/realtime` pro backend).
+
+**Deploy é azul/verde com gap HTTP zero** (`deploy/switch.sh`): duas cópias de
+cada serviço (`backend`/`backend-next`, `frontend`/`frontend-next`, mesma imagem
+via `extends`; as `-next` ficam no profile `canary`), a troca de tráfego é um
+`caddy reload` e a instância antiga só é parada **depois** do healthcheck da
+nova. Regras que não mudam:
+
+- **O healthcheck é o portão**: `/health` só responde depois das migrations
+  (`runMigrations()` antes do `app.listen`), então verde = schema aplicado. Verde
+  doente → o switch aborta **antes** do reload, com o proxy velho no ar. Nunca
+  remover o healthcheck do backend nem do frontend esperando "confiar no log".
+- **Nenhuma alteração de backend é necessária para o switch** (drenagem por
+  SIGTERM + `app.close()` já existiam; `stop_grace_period: 30s` no compose).
+- **Sem `lb_retries` no Caddy, de propósito**: retentativa repetiria POST
+  (pagamento, lançamento de item). O gap zero vem da ordem (healthcheck antes
+  do reload), não de retry.
+- **O `reload` fecha todos os WebSockets** (caddyserver/caddy#6420, #7222) —
+  daí o `stream_close_delay 5m` no bloco `/realtime*` da Caddyfile, que adia o
+  fechamento e segura quem estava conectado durante o drain. Não remover.
+- **A Caddyfile do repo tem upstream por variável**
+  (`{$PDV_BACKEND_UPSTREAM:backend:3000}`). Quem monta a config efetiva é
+  `deploy/caddy-assemble.sh`, **dentro** do container, a partir do ponteiro de 2
+  linhas `deploy/state/active-upstream` (o host não gera Caddyfile). O compose
+  monta o **diretório** `deploy/` (`./:/srv/pdv-deploy:ro`), não arquivo: o
+  `git checkout -f` da tag troca o inode do arquivo e um mount de arquivo
+  deixaria o proxy servindo a config antiga em silêncio.
+- **`git checkout -f` reverte `deploy/state/active-upstream` para o padrão do
+  repo** — por isso o CI salva/restaura o ponteiro antes do switch (o switch lê
+  esse arquivo para saber de que lado está o tráfego).
+- **Migrations têm de ser expand/contract**: a verde roda as migrations no boot
+  (`DEPLOYMENT_MODE=local` default em `docker-compose.yml`), então a versão
+  antiga precisa continuar compatível com o schema novo (é o alvo do
+  `--rollback`).
+- **Pendência conhecida e deliberada**: durante o drain (~5s) um cliente cujo
+  WS está na instância antiga pode perder um evento de outbox reivindicado pela
+  nova; o `onResync` do `useRealtime` recompõe por REST em ~250ms. Fechar a
+  janela exige **um dono só do outbox** (advisory lock do Postgres para eleger
+  líder, ou `LISTEN/NOTIFY`) — os workers (outbox, maintenance, polling iFood)
+  **não** foram tocados neste trabalho. Antes de mexer neles, leia Fase 10.
+- **Mediu-se antes de confiar**: `deploy/probe-availability.sh` (sai != 0 se
+  houve falha). Últimas medições no stack local: 4 switches, 861 requisições,
+  0 falhas, 100% de disponibilidade, maior gap 0,0s; WebSocket reconectando em
+  293ms.
 
 ### Comandos úteis
 
@@ -151,7 +218,11 @@ e `/realtime` pro backend).
 | `npm run test` | backend | vitest 5 (Postgres dedicado `pdv_test` via `TEST_DATABASE_URL`; caixa, comandas, idempotência, maintenance, stock, whatsapp, printer, compras, clientes/equipe/perfis) |
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
-| `npm run test` | frontend | vitest (jsdom + Testing Library; 21 suítes: casca do app + menu, drawer/accordion, modal/header/variação, login por PIN, detalhe da comanda, modais de compra/equipe, caixa/reports, página pública) |
+| `npm run test` | frontend | vitest (jsdom + Testing Library; 27 suítes: casca do app + menu, drawer/accordion, modal/header/variação, login por PIN, detalhe da comanda, modais de compra/equipe, caixa/reports, página pública, config e boot do app desktop) |
+| `go test ./...` | `printer/daemon` | suíte do daemon (caminhos, config padrão, CORS, templates embutidos, health) |
+| `bash printer/scripts/build-sidecar.sh` | raiz | gera o sidecar do daemon em `frontend/src-tauri/binaries/` (Windows/Linux/macOS) |
+| `./switch.sh` | deploy | deploy sem downtime (instância nova + `caddy reload`); `--status`, `--rollback`, `--install`, `--no-build` |
+| `./probe-availability.sh --url <url> --seconds N` | deploy | mede o gap de downtime real (sai != 0 se houve falha) |
 
 ## Convenções e regras ao editar código
 
@@ -196,7 +267,12 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
   inexistente → 404; daemon fora do ar → `service_unavailable` (503) — nunca
   confundir os dois. Suíte `test/printer.test.ts` com stub HTTP na porta 3456;
   **cada teste precisa de `resetState()`** (a mesa `t-1` compartilhada fica
-  ocupada pelo teste anterior senão).
+  ocupada pelo teste anterior senão). O daemon em si é Go, em `printer/daemon/`,
+  e é distribuído como **sidecar do app Windows** (`printer/scripts/build-sidecar.sh`
+  gera o `.exe` que o instalador embute; `frontend/src-tauri/installer-hooks.nsh`
+  copia para a pasta do app e registra o serviço `PDVPrinterDaemon`). O
+  `mock_server.go` é só TCP cru na 9100 para teste, **não** vai para o
+  instalador. Detalhes em `printer/README.md` e `docs/11-desktop-instalador.md`.
 - **Contagem**: `count()` do Drizzle (nunca `sql<number>\`count(*)\`` — no
   Postgres o tipo dobigint sai como string). `sum(real)` devolve `number`.
 - **Audit log + eventos outbox na mesma transação** da escrita de domínio.
@@ -392,6 +468,58 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
 - Service worker registrado só em produção (`src/main.jsx`). `sw.js` ignora
   `/api` e `/realtime` (sempre rede) e faz cache-first de `/assets/*`.
 
+### App desktop (Tauri, Windows)
+
+O mesmo `App.jsx` roda como PWA no navegador e como app Windows. A distinção
+está toda em `src/shared/lib/platform.js` (`isDesktop()`, `isTauri()`) e
+`src/shared/lib/appConfig.js` (`apiBase()`, `wsEndpoint()`): no desktop a API
+vira `tauri-plugin-http` (contorna CORS) e a URL vem de
+`%APPDATA%\PDV\app.json` → `%ProgramData%\PDV\app.json`, lidos por comando
+Rust (`src-tauri/src/lib.rs`). O PWA segue com `/api` relativo e **não
+entra** no boot gate.
+
+- **Boot gate é obrigatório no desktop**: `src/app/boot/` verifica update e
+  conectividade antes de abrir (`BootGate` → `bootSequence.js`, estado puro
+  testável). Regra que não muda: **falha de update não bloqueia, API fora do
+  ar bloqueia**. A ordem depende de `mode`: `cloud` faz health check antes do
+  update (o manifesto mora no mesmo servidor, então o aviso de internet sai no
+  primeiro segundo), `local` faz update antes (loja offline é o caso comum e
+  gasta só o timeout de 3 s). Testes: `bootSequence.test.js` + `BootGate.test.jsx`.
+- **Sidecar é obrigatório antes de `cargo check`**: o `tauri.conf.json`
+  declara `externalBin: ["binaries/pdv-printer-daemon"]` e o `build.rs` do Tauri
+  aborta se o binário da plataforma atual não existir. Rodar
+  `../../printer/scripts/build-sidecar.sh` (cross-compila, gera
+  Windows + Linux + macOS; só o `.exe` entra no instalador). O diretório
+  `binaries/` é gitignored — 11 MB não vão para o repositório.
+- **Versão JS×Rust do Tauri precisa bater em major.minor**, senão o
+  `tauri build` aborta com "Found version mismatched Tauri packages" (o
+  `cargo check` passa e engana). Ao mexer em `@tauri-apps/*`, conferir com
+  `npx tauri info` e ajustar o crate no `Cargo.lock` (`cargo update -p tauri
+  --precise <versão>`) ou fixar o npm na mesma minor.
+- **Update automático ligado** (Fase 4 do plano de desktop): crate
+  `tauri-plugin-updater` + `updater:default` na capability,
+  `bundle.createUpdaterArtifacts: true`, `plugins.updater` no
+  `tauri.conf.json` (pubkey + endpoint `/updates/desktop/{{target}}/{{arch}}/
+  {{current_version}}`) e job `build-desktop` no CI que assina e publica o
+  manifesto. A assinatura tem senha: sem `TAURI_SIGNING_PRIVATE_KEY` ou sem
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` o job falha de propósito (o CLI cairia
+  num prompt que runner sem terminal não atende). Ambos são secrets — **nunca
+  no repo**. `requireSignedVersion: true` amarra a versão à assinatura (sem
+  isso, um manifesto adulterado força downgrade para um artefato antigo
+  genuíno). Regras que não mudam: falha de
+  update não bloqueia o boot, o manifesto é validado em Ed25519 no Rust, e o
+  endpoint é "dinâmico" só na URL (o Caddy faz `rewrite` para um `latest.json`
+  único). Publicar versão = `version` no `tauri.conf.json`/`package.json`
+  igual à tag; o CI falha se divergir. Detalhes em
+  `docs/11-desktop-instalador.md` §6.
+- **`cargo fmt --check` não é gate aqui** (o crate usa indentação de 2 espaços
+  do template do Tauri). O que vale: `cargo check --message-format short` e
+  `go test ./...` em `printer/daemon/`.
+- Windows é o alvo de build do instalador; Linux/macOS servem para
+  `cargo check`/`tauri dev`. O que depende de Windows (NSIS, serviço,
+  assinatura) **não** foi rodado numa máquina real ainda — não marcar como
+  validado sem abrir o `.exe` num Windows limpo.
+
 ## Roadmap priorizado de melhorias
 
 O roadmap abaixo é o plano de evolução. Cada item tem causa e localização
@@ -578,6 +706,38 @@ dentro da fase, a ordem indicada.
   em Configurações. Suíte `test/printer.test.ts` (10 testes). Nota de
   operação: em Docker, o backend alcança o daemon do host via `host_gateway`
   ou sidecar (`PRINTER_DAEMON_URL`).
+
+### Fase 10 — Deploy sem downtime (implementado)
+
+- **10.1 Switch azul/verde com gap HTTP zero** — ✅ feito: `deploy/switch.sh`
+  (`switch`/`install`/`rollback`/`status`), instâncias duplicadas via `extends`
+  + profile `canary`, healthcheck como portão (backend **e** frontend), ponteiro
+  de upstream (`deploy/state/active-upstream`) lido pelo container do Caddy
+  (`deploy/caddy-assemble.sh`, com `caddy validate` antes de aplicar) e troca
+  por `caddy reload` — o proxy não é recriado, então o `git checkout -f` da tag
+  passa a ser visto sem `--force-recreate`. `useRealtime` ganhou `onResync`
+  (recompõe por REST a cada reconexão, inclusive no primeiro socket) e a
+  Caddyfile ganhou `stream_close_delay 5m` em `/realtime*` para o reload não
+  derrubar quem está conectado. `deploy/probe-availability.sh` mede o gap de
+  verdade (sai != 0 se houve falha): 4 switches, 861 requisições, 0 falhas,
+  maior gap 0,0s; WS reconectou em 293ms. Abort e `--rollback` testados no
+  stack local isolado (verde doente deixa o proxy velho no ar).
+- **10.2 Correções que o deploy sem downtime exigiu** — ✅ feito: a imagem do
+  backend não buildava (`npm ci --omit=dev` instalava `better-sqlite3`, peer
+  opcional do `drizzle-orm` marcado `devOptional`, e o node-gyp morria sem
+  toolchain → `backend/Dockerfile` usa `--omit=optional`); `frontend/.dockerignore`
+  passou a excluir `src-tauri/target` (o contexto do build era 4GB);
+  `deploy/state/` é versionado para o `git checkout` não deixar o diretório
+  root-owned; e o compose do Caddy monta o **diretório** `deploy/` em vez de
+  arquivo (armadilha do inode).
+- **10.3 Pendências** — **um dono só do outbox** (advisory lock do Postgres
+  para eleger líder entre as duas instâncias, ou `LISTEN/NOTIFY`): durante o
+  drain um cliente na instância antiga pode perder um evento (o `onResync`
+  recompõe em ~250ms). Migrations expand/contract como pré-requisito de
+  qualquer rollback. `--rollback` hoje só reverte a instância (imagem); reverter
+  também o schema exigiria uma migration de descida. **Workers não foram
+  tocados** neste trabalho (decisão explícita) — `outbox-dispatcher.ts`,
+  `maintenance.ts` e o polling iFood seguem com dono por processo.
 
 ## Critérios de verificação gerais
 
