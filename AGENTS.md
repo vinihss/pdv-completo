@@ -598,6 +598,20 @@ entra** no boot gate.
   único). Publicar versão = `version` no `tauri.conf.json`/`package.json`
   igual à tag; o CI falha se divergir. Detalhes em
   `docs/11-desktop-instalador.md` §6.
+- **O instalador tem um workflow só** (`.github/workflows/build-desktop.yml`),
+  com `workflow_call` **e** `workflow_dispatch`: o job `build-desktop` do
+  `deploy-on-tag.yml` é só um `uses:` para ele, e o mesmo arquivo gera o
+  instalador sob demanda (aba Actions, sem tag e sem deploy do backend).
+  Regra ao mexer: **uma única definição de build**. Se o passo de assinar,
+  o `latest.json` ou o `scp` mudar, muda no `build-desktop.yml` — não em
+  cópia. Três coisas que já quebraram e valem lembrar: (1) `permissions:
+  contents: write` precisa estar **no job que chama** (`workflow_call` usa a
+  interseção das permissões, senão o `gh release create` falha no fim do
+  run, com o manifesto já montado); (2) no disparo manual a release se
+  chama pela versão do `tauri.conf.json` e precisa de `--target ${{
+  github.sha }}`, senão nasce no topo da branch padrão; (3) o
+  `desktop-windows.yml` é **legado** (sem assinatura, sem manifesto) — não
+  publicar por ele.
 - **`cargo fmt --check` não é gate aqui** (o crate usa indentação de 2 espaços
   do template do Tauri). O que vale: `cargo check --message-format short` e
   `go test ./...` em `printer/daemon/`.

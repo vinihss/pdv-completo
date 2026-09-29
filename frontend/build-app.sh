@@ -147,7 +147,8 @@ find src-tauri/target/release/bundle -maxdepth 2 -name '*.exe*' -o -maxdepth 2 -
   | sed 's|^|    |'
 echo
 if [ "$RELEASE" -eq 1 ]; then
-  echo "Para publicar: suba a tag v$CONF_VERSION (o job build-desktop no CI assina e publica)."
+  echo "Para publicar: suba a tag v$CONF_VERSION (o CI assina e publica), ou dispare"
+  echo "o workflow 'Instalador Windows (Tauri)' na aba Actions para gerar so o instalador."
 else
   echo "Isto NÃO é build de entrega. Para publicar, use --release e a tag."
 fi
