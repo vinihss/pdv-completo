@@ -5,6 +5,7 @@ import { listKitchenGroups } from "@/entities/kitchen-group";
 import { useAuth } from "@/app/providers/auth";
 import { useRealtime } from "@/shared/hooks";
 import { minutesSince, variationsText } from "@/shared/lib";
+import { assetUrl } from "@/shared/lib/server";
 
 // "3:20" — formato de cronômetro da tela da cozinha, não "3m 20s".
 function formatMinSec(minutesFloat) {
@@ -140,7 +141,7 @@ export default function KitchenDisplay() {
                   </span>
                 </div>
                 {t.imagePath && (
-                  <img src={t.imagePath} alt={t.name} className="w-full h-20 object-cover rounded-xl mb-3" />
+                  <img src={assetUrl(t.imagePath)} alt={t.name} className="w-full h-20 object-cover rounded-xl mb-3" />
                 )}
                 <div className="font-display text-2xl font-bold leading-tight mb-1">{t.name}</div>
                 {variation && <div className="text-stone-400 text-base mb-2">{variation}</div>}
@@ -175,7 +176,7 @@ export default function KitchenDisplay() {
                   </span>
                 </div>
                 {t.imagePath && (
-                  <img src={t.imagePath} alt={t.name} className="w-full h-16 object-cover rounded-lg mb-2" />
+                  <img src={assetUrl(t.imagePath)} alt={t.name} className="w-full h-16 object-cover rounded-lg mb-2" />
                 )}
                 <div className="font-display text-lg font-bold leading-tight">{t.quantity}× {t.name}</div>
                 {variation && <div className="text-stone-400 text-sm">{variation}</div>}

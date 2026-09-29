@@ -105,8 +105,29 @@ lista:
 CORS_ORIGIN=https://app.umamisushiarte.com.br
 ```
 
+**App desktop (Tauri) entra na lista também.** O app roda na origem
+`tauri://localhost` (Linux) e `http://tauri.localhost` (Windows), que não é o
+domínio de ninguém — sem as duas entradas o app abre mas **toda chamada de API
+é bloqueada** (mesmo sintoma: tela carrega, lista de usuários não vem):
+
+```
+CORS_ORIGIN=https://app.umamisushiarte.com.br,tauri://localhost,http://tauri.localhost
+```
+
+Conferir se entrou, sem abrir o app:
+
+```bash
+curl -s -D- -o /dev/null -X OPTIONS \
+  -H 'Origin: tauri://localhost' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: authorization,content-type' \
+  https://app.seudominio.com.br/api/auth/login | grep -i access-control-allow-origin
+# esperado: access-control-allow-origin: tauri://localhost
+```
+
 Depois de mudar, o container precisa ser recriado (variável de ambiente não é
-reconhecida em hot reload):
+reconhecida em hot reload — `docker compose restart backend` **não** basta,
+ele reinicia com o env antigo):
 
 ```bash
 docker compose up -d --force-recreate backend

@@ -8,6 +8,7 @@ import { useAuth } from "@/app/providers/auth";
 import { formatBRL } from "@/shared/lib";
 import { VariationModal } from "@/entities/product";
 import ReviewCartModal from "./ReviewCartModal.jsx";
+import { assetUrl } from "@/shared/lib/server";
 
 export default function AddItemScreen({ order, onClose, onConfirmed, showToast }) {
   const { storeSettings } = useAuth();
@@ -145,7 +146,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
                   </span>
                 )}
                 {p.imagePath && (
-                  <img src={p.imagePath} alt={p.name} className="w-full h-24 object-cover rounded-xl -mt-1 mb-2" />
+                  <img src={assetUrl(p.imagePath)} alt={p.name} className="w-full h-24 object-cover rounded-xl -mt-1 mb-2" />
                 )}
                 <div className="font-semibold text-sm mb-1 pr-6">{p.name}</div>
                 <div className="text-emerald-400 text-sm font-bold">{formatBRL(p.price)}</div>

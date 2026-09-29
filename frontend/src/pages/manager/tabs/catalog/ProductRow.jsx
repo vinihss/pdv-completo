@@ -1,6 +1,7 @@
 import React from "react";
 import { Package, Eye, EyeOff, UtensilsCrossed } from "lucide-react";
 import { formatBRL } from "@/shared/lib";
+import { assetUrl } from "@/shared/lib/server";
 
 export function ProductRow({ product: p, categoryName, onOpen, onToggleActive, ifoodIntegrationEnabled = false, kitchenEnabled = true }) {
   return (
@@ -10,7 +11,7 @@ export function ProductRow({ product: p, categoryName, onOpen, onToggleActive, i
     >
       <div className="flex items-center gap-3 min-w-0">
         {p.imagePath ? (
-          <img src={p.imagePath} alt={p.name} className="w-10 h-10 rounded-lg object-cover shrink-0" />
+          <img src={assetUrl(p.imagePath)} alt={p.name} className="w-10 h-10 rounded-lg object-cover shrink-0" />
         ) : (
           <div className="w-10 h-10 rounded-lg bg-stone-900 border border-stone-700 flex items-center justify-center text-stone-600 shrink-0">
             <Package size={18} />
