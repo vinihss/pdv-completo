@@ -92,6 +92,7 @@ services:
       - WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID=${WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID:-}
       - WHATSAPP_GRAPH_VERSION=${WHATSAPP_GRAPH_VERSION:-v25.0}
       - WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN:-}
+      - APP_TAG=${APP_TAG:-}
     volumes:
       - backend_uploads:/app/uploads
     # Portão do switch: o container só fica "healthy" depois que o

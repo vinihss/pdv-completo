@@ -109,7 +109,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get("/health", async (_req, reply) => {
     const healthy = await checkDatabaseHealth();
     if (healthy) {
-      return reply.code(200).send({ status: "ok", database: "connected" });
+      return reply.code(200).send({ status: "ok", database: "connected", tag: process.env.APP_TAG ?? "" });
     }
     return reply.code(503).send({ status: "degraded", database: "disconnected" });
   });

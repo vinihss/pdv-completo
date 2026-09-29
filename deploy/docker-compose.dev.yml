@@ -32,6 +32,7 @@ services:
       - CORS_ORIGIN=
       - PORT=3000
       - LOG_LEVEL=info
+      - APP_TAG=${APP_TAG:-}
     depends_on:
       postgres:
         condition: service_healthy
