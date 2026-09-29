@@ -94,7 +94,7 @@ jobs:
       HOSTINGER_APP_PATH: ${{ secrets.HOSTINGER_APP_PATH }}
 
   deploy:
-    needs: [test-backend, test-frontend, build-desktop]
+    needs: [test-backend, test-frontend]
     runs-on: ubuntu-latest
     steps:
       - name: Deploy sem downtime no VPS via SSH
