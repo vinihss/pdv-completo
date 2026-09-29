@@ -5,6 +5,7 @@
 #   bash build-app.sh                  # build local (dev/teste)
 #   bash build-app.sh --release        # build de entrega: exige chave
 #   bash build-app.sh --bundles nsis   # só um tipo de instalador
+#   bash build-app.sh --appimage-docker  # AppImage via container Debian
 #
 # O passo que ninguém pode esquecer é o sidecar: o `tauri.conf.json`
 # declara `externalBin: ["binaries/pdv-printer-daemon"]` e o `build.rs`
@@ -19,10 +20,12 @@ FRONTEND="$ROOT/frontend"
 
 RELEASE=0
 BUNDLES=""
+APPIMAGE_DOCKER=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --release) RELEASE=1; shift ;;
     --bundles) BUNDLES="--bundles ${2:?--bundles precisa do tipo}"; shift 2 ;;
+    --appimage-docker) APPIMAGE_DOCKER=1; shift ;;
     -h|--help) sed -n '3,9p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "Opção desconhecida: $1" >&2; exit 1 ;;
   esac
@@ -86,9 +89,32 @@ fi
 # ---------- 4. Build ----------
 # O `tauri build` roda `npm run build` antes (beforeBuildCommand), então o
 # frontend não precisa ser compilado separado.
-echo "==> tauri build ${BUNDLES:-todos os alvos}"
-# shellcheck disable=SC2086
-npx tauri build $BUNDLES
+#
+# O AppImage é o único alvo que NÃO dá para gerar em toda distro. O
+# `linuxdeploy` embute um `strip` antigo que não reconhece a seção `.relr.dyn`
+# das libs do sistema — no Arch o build morre com "failed to run linuxdeploy".
+# Não é problema do projeto, e o `.deb` sai normal na mesma máquina. Quando
+# isso acontece, `--appimage-docker` empacota num debian:bookworm-slim
+# (glibc 2.36), que é o mesmo AppImage que o CI gera.
+if [ "$APPIMAGE_DOCKER" -eq 1 ]; then
+  command -v docker >/dev/null || { echo "--appimage-docker precisa de docker" >&2; exit 1; }
+  IMAGE="pdv-desktop-build"
+  if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    echo "==> Preparando a imagem de build ($IMAGE); só na primeira vez"
+    docker build -t "$IMAGE" -f docker/Dockerfile.desktop .
+  fi
+  echo "==> AppImage em debian:bookworm-slim (compila o Rust de novo, demora)"
+  docker run --rm -v "$FRONTEND":/app -w /app \
+    -e VITE_DEFAULT_SERVER="${VITE_DEFAULT_SERVER:-}" "$IMAGE" \
+    npx tauri build --bundles appimage
+  # O container roda como root e deixa o target/ com dono root.
+  docker run --rm -v "$FRONTEND/src-tauri/target":/t alpine chown -R "$(id -u):$(id -g)" /t
+  BUNDLES=""
+else
+  echo "==> tauri build ${BUNDLES:-todos os alvos}"
+  # shellcheck disable=SC2086
+  npx tauri build $BUNDLES
+fi
 
 echo
 echo "==> Artefatos em src-tauri/target/release/bundle/"
