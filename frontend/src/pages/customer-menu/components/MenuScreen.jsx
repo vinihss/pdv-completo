@@ -49,16 +49,21 @@ export default function MenuScreen({
   ];
   const pills = sections.map((s) => ({ id: s.id, name: s.name }));
 
-  const query = searchTerm.trim().toLowerCase();
+  const normalize = (s) =>
+    s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  const query = normalize(searchTerm.trim());
   const results = searching
     ? allProducts.filter(
-        (p) => p.name.toLowerCase().includes(query) || (p.description ?? "").toLowerCase().includes(query)
+        (p) => normalize(p.name).includes(query) || normalize(p.description ?? "").includes(query)
       )
     : [];
 
   const pill = (active) =>
     `shrink-0 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
-      active ? "bg-amber-500 text-[var(--brand-accent-foreground)]" : "bg-stone-900 text-stone-300 border border-stone-800"
+      active
+        ? "bg-amber-500 text-[var(--brand-accent-foreground)]"
+        : "bg-stone-900 text-stone-300 border-b-2 border-stone-600"
     }`;
 
   return (
@@ -104,7 +109,7 @@ export default function MenuScreen({
       >
         <div className="py-3 space-y-2.5">
           <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-0.5 text-stone-500 pointer-events-none" />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-500 pointer-events-none" />
             <input
               value={searchTerm}
               onChange={(e) => onSearchChange(e.target.value)}
@@ -115,7 +120,7 @@ export default function MenuScreen({
             {searchTerm && (
               <button
                 onClick={() => onSearchChange("")}
-                className="absolute right-2.5 top-1/2 -translate-y-0.5 text-stone-500 hover:text-stone-300"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-500 hover:text-stone-300"
                 aria-label="Limpar busca"
               >
                 <X size={15} />
@@ -124,7 +129,7 @@ export default function MenuScreen({
           </div>
           {/* pills somem durante a busca: não há seção para pular */}
           {!searching && (
-            <div className="flex gap-2 overflow-x-auto pb-0.5">
+            <div className="flex gap-2 overflow-x-auto pb-0.5 scrollbar-none">
               {pills.map((p) => (
                 <button key={p.id} onClick={() => onSelectSection(p.id)} className={pill(activeSection === p.id)}>
                   {p.name}
@@ -159,7 +164,10 @@ export default function MenuScreen({
         ) : (
           sections.map((s) => (
             <section key={s.id} id={`sec-${s.id}`} data-section={s.id} className="scroll-mt-28 pt-4">
-              <h2 className="text-[13px] font-bold uppercase tracking-wide text-stone-500 mb-1">{s.name}</h2>
+              <h2 className="text-[15px] font-extrabold uppercase tracking-wider text-stone-200 mb-3 mt-2 flex items-center gap-3">
+                {s.name}
+                <span className="flex-1 h-px bg-stone-800" />
+              </h2>
               {s.id === "destaques" ? (
                 <div className="grid grid-cols-3 xl:grid-cols-4 gap-3 pt-1">
                   {s.products.map((p) => (

@@ -13,7 +13,7 @@ export default function ProductTile({ product, cart, onOpen }) {
   const hasOptions = (product.variations?.length ?? 0) > 0;
 
   return (
-    <button onClick={() => onOpen(product)} className="flex flex-col text-left" aria-label={`Ver ${product.name}`}>
+    <button onClick={() => onOpen(product)} className="flex flex-col text-left cursor-pointer transition-transform hover:scale-[1.02]" aria-label={`Ver ${product.name}`}>
       <div className="relative aspect-square rounded-xl overflow-hidden bg-stone-800">
         {product.imagePath ? (
           <img src={assetUrl(product.imagePath)} alt={product.name} className="w-full h-full object-cover" loading="lazy" />

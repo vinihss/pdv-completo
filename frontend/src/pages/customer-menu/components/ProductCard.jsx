@@ -18,7 +18,7 @@ export default function ProductCard({ product, cart, onOpen, onInc, onDec, onEdi
   const groups = product.variations ?? [];
 
   return (
-    <div className="flex items-start gap-3 py-3 border-b border-stone-800/60 last:border-0">
+    <div className="flex items-start gap-3 py-3 border-b border-stone-800/60 last:border-0 rounded-lg cursor-pointer transition-colors hover:bg-stone-900/40">
       <div className="min-w-0 flex-1">
         <button onClick={() => onOpen(product)} className="block w-full text-left" aria-label={`Ver ${product.name}`}>
           <p className="text-[14.5px] font-semibold leading-tight text-stone-50">{product.name}</p>

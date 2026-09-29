@@ -353,12 +353,13 @@ export default function CustomerMenuPage() {
     // rolar — medir cedo demais esconderia a barra para sempre.
     const timer = setTimeout(measure, 500);
     window.addEventListener("resize", measure);
-    window.addEventListener("scroll", syncScrollState, { passive: true });
+    const scrollEl = scrollSource();
+    scrollEl.addEventListener("scroll", syncScrollState, { passive: true });
     return () => {
       clearTimeout(timer);
       cancelAnimationFrame(rafRef.current);
       window.removeEventListener("resize", measure);
-      window.removeEventListener("scroll", syncScrollState);
+      scrollEl.removeEventListener("scroll", syncScrollState);
     };
   }, [menu, screen, syncScrollState]);
 
@@ -570,7 +571,7 @@ export default function CustomerMenuPage() {
           flutuante (canto inferior direito no desktop, barra no celular) e abre
           a tela cheia de carrinho. */}
       <div className="w-full max-w-[480px] lg:max-w-5xl mx-auto min-h-screen bg-stone-950 relative flex flex-col lg:px-8 lg:py-8">
-        <div ref={menuScrollRef} className="contents lg:flex lg:flex-col lg:min-w-0 lg:overflow-y-auto lg:max-h-[calc(100vh-4rem)] lg:pr-1">
+        <div ref={menuScrollRef} className="contents lg:flex lg:flex-col lg:min-w-0 lg:overflow-y-auto lg:max-h-[calc(100vh-4rem)] lg:pr-1 scrollbar-none">
         {screen === "menu" && (
           <MenuScreen
             menu={menu}
