@@ -104,7 +104,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
         <div className="flex gap-2 overflow-x-auto pb-1">
           <button
             onClick={() => setActiveCategory(null)}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold ${!activeCategory ? "bg-amber-500 text-stone-950" : "bg-stone-900 border border-stone-800 text-stone-400"}`}
+            className={`shrink-0 px-3 py-1.5 text-xs font-semibold border-b-2 ${!activeCategory ? "text-amber-500 border-amber-500" : "text-stone-400 border-transparent"}`}
           >
             Todos
           </button>
@@ -112,7 +112,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
             <button
               key={c.id}
               onClick={() => setActiveCategory(c.id)}
-              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold ${activeCategory === c.id ? "bg-amber-500 text-stone-950" : "bg-stone-900 border border-stone-800 text-stone-400"}`}
+              className={`shrink-0 px-3 py-1.5 text-xs font-semibold border-b-2 ${activeCategory === c.id ? "text-amber-500 border-amber-500" : "text-stone-400 border-transparent"}`}
             >
               {c.name}
             </button>

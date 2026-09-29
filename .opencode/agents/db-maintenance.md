@@ -47,16 +47,23 @@ Este documento contém:
 
 ## Acesso ao Banco
 
+**Variáveis de ambiente** (já configuradas no shell):
+- `HOSTINGER_VPS_HOST` = IP do servidor
+- `HOSTINGER_VPS_USER` = usuário SSH
+
 ```bash
-ssh <vps-host>
+ssh $HOSTINGER_VPS_USER@$HOSTINGER_VPS_HOST
 docker ps --format '{{.Names}}' | grep -i postgres
 docker exec -it <container-name> psql -U pdv -d pdv
 ```
 
 Para operações em lote:
 ```bash
-docker exec -i <container> psql -U pdv -d pdv < script.sql
+ssh $HOSTINGER_VPS_USER@$HOSTINGER_VPS_HOST "docker exec -i <container> psql -U pdv -d pdv < script.sql"
 ```
+
+**Container PostgreSQL**: `deploy-postgres-1`
+**Container Frontend**: `deploy-frontend-next-1`
 
 ## Exemplos de Uso
 
