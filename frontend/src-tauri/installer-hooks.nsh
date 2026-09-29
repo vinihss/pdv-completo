@@ -42,8 +42,8 @@ Var PDV_ServiceOk
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
-  Call PDV_StopDaemon
-  Call PDV_DeleteDaemon
+  Call un.PDV_StopDaemon
+  Call un.PDV_DeleteDaemon
 !macroend
 
 ; --------------------------------------------------------------------------
@@ -113,5 +113,29 @@ Function PDV_StopDaemon
 FunctionEnd
 
 Function PDV_DeleteDaemon
+  ExecWait '$SYSDIR\sc.exe delete ${PDV_DAEMON_SERVICE}' $0
+FunctionEnd
+
+; --------------------------------------------------------------------------
+; Mesmas duas operações, agora para o desinstalador.
+;
+; Não é duplicação por preguiça: o NSIS gera o instalador e o desinstalador
+; como stubs separados, e uma função "un.*" não é visível da seção de
+; instalação (nem o contrário). Pior: dentro da seção de desinstalação o
+; Call só aceita nome começado em "un." — o makensis aborta com "Call must
+; be used with function names starting with un. in the uninstall section",
+; que é o erro que este arquivo deu no primeiro build de verdade.
+;
+; O que dá para compartilhar são as !define e o LogicLib: as duas são de
+; compilação, não de runtime. O corpo precisa existir dos dois lados.
+; --------------------------------------------------------------------------
+Function un.PDV_StopDaemon
+  ExecWait '$SYSDIR\sc.exe stop ${PDV_DAEMON_SERVICE}' $0
+  ${If} $0 == 0
+    Sleep 1500
+  ${EndIf}
+FunctionEnd
+
+Function un.PDV_DeleteDaemon
   ExecWait '$SYSDIR\sc.exe delete ${PDV_DAEMON_SERVICE}' $0
 FunctionEnd
