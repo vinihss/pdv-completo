@@ -8,8 +8,6 @@ import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
 import { emitCustomerStageChangedTx } from "./customer-stage.js";
 import { registerPaymentUsecase, closeOrderUsecase } from "../order/order.usecases.js";
 import { notifyDispatched, notifyDelivered, notifyFailed } from "../../integrations/whatsapp/whatsapp.notifier.js";
-import { printCourierOrder } from "../../integrations/printer/printer.usecases.js";
-import { getSettings } from "../order/order.usecases.js";
 
 const DELIVERY_ROOM = "deliveries";
 
@@ -71,15 +69,6 @@ export async function dispatchDeliveryUsecase(input: { deliveryId: string; couri
 
   notifyDispatched(updated.orderId).catch((err) => console.error("falha ao notificar saída pro cliente:", err));
 
-  // Impressão automática do courier (pós-commit, fire-and-forget).
-  try {
-    const settings = await getSettings();
-    if (settings.printerEnabled && settings.printerAutoPrint) {
-      printCourierOrder(updated.orderId).catch((err) => console.error("falha ao imprimir comanda no courier:", err));
-    }
-  } catch (err) {
-    console.error("falha ao verificar flags de impressão:", err);
-  }
 
   return serialize(updated);
 }

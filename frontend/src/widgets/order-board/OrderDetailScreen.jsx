@@ -4,7 +4,8 @@ import {
 } from "lucide-react";
 import { ConfirmModal, ScreenHeader } from "@/shared/components";
 import { updateItemStatus, deleteItem, closeOrder } from "@/entities/order";
-import { printOrder } from "@/entities/printer";
+import { useMenuForma, isPrintAgentAvailable } from "@/entities/printer/menuForma";
+import { toMenuFormaReceipt } from "@/entities/printer/menuForma.mapper";
 import { useAuth } from "@/app/providers/auth";
 import { formatBRL } from "@/shared/lib";
 import { StatusBadge } from "@/entities/order";
@@ -29,15 +30,24 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
   const [printing, setPrinting] = useState(false);
 
   const printerEnabled = storeSettings?.printerEnabled ?? false;
+  const { connected, print } = useMenuForma();
 
   async function handlePrint(destination) {
     setPrinting(true);
     try {
-      await printOrder(order.id, destination);
+      if (!connected) {
+        const available = await isPrintAgentAvailable();
+        if (!available) {
+          showToast("MenuForma Print Agent não está rodando. Instale em menuforma.com/print-agent", "error");
+          return;
+        }
+      }
+      const receipt = toMenuFormaReceipt(order, storeSettings?.merchantName);
+      print(receipt);
       showToast(`Pedido enviado para impressão (${destination === "kitchen" ? "cozinha" : "entrega"}).`, "success");
       setPrintOpen(false);
     } catch (e) {
-      showToast(e.message, "error");
+      showToast(e.message || "Falha ao conectar com o Print Agent", "error");
     } finally {
       setPrinting(false);
     }
