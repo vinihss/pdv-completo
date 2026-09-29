@@ -202,6 +202,29 @@ jobs:
       # Publicar no servidor é o que dá o download por URL própria
       # (/updates/files/...) e o manifesto do auto-update. Falhar aqui é
       # falha de verdade: sem isso o app instalado não encontra update.
+      #
+      # Este passo vem antes do scp por um motivo concreto: o job `deploy`
+      # (que roda o switch.sh, dono do ensure_updates_dir) só acontece
+      # DEPOIS deste workflow, na entrada por tag. Sem criar o diretório aqui,
+      # a primeira publicação de uma instalação nova quebra no scp — e
+      # quebra depois de já ter feito o trabalho caro e a release.
+      - name: Preparar deploy/updates no servidor
+        if: inputs.publicar_no_servidor
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.HOSTINGER_HOST }}
+          port: ${{ secrets.HOSTINGER_PORT || '22' }}
+          username: ${{ secrets.HOSTINGER_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          known_hosts: ${{ secrets.HOSTINGER_KNOWN_HOSTS }}
+          script: |
+            set -Eeuo pipefail
+            UPDATES="${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates"
+            # `-p` sem problema: o dono é o mesmo usuário do scp, então não
+            # há como o Docker criar isto antes como root (o que faria o scp
+            # falhar com permission denied — ver switch.sh).
+            mkdir -p "$UPDATES/files/windows-x86_64"
+
       - name: Publicar no servidor (SSH)
         if: inputs.publicar_no_servidor
         uses: appleboy/scp-action@v1
