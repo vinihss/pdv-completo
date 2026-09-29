@@ -39,6 +39,7 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
   const [pixQueue, setPixQueue] = useState(null); // [{id, amount}] pendentes de confirmação
 
   const pixKey = (storeSettings?.pixKey ?? "").trim();
+  const pixKeyType = storeSettings?.pixKeyType ?? null;
   const merchantName = (storeSettings?.merchantName ?? "").trim();
   const merchantCity = (storeSettings?.merchantCity ?? "").trim();
   const pixAvailable = Boolean(pixKey && merchantName && merchantCity);
@@ -147,7 +148,7 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
   }
 
   if (pixQueue) {
-    const storeSettingsForPix = { pixKey, merchantName, merchantCity };
+    const storeSettingsForPix = { pixKey, pixKeyType, merchantName, merchantCity };
     return (
       <Modal
         title={`Pix${pixQueue.length > 1 ? ` (${pixQueue.length} restantes)` : ""}`}

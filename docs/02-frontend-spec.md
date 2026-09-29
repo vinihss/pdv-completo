@@ -24,6 +24,12 @@ Tela inicial não é login tradicional (usuário/senha) — é uma **seleção d
   → erro: mensagem de PIN inválido, sem detalhar motivo (bloqueio, etc — evita dar pista pra tentativa de força bruta)
 ```
 
+O avatar é a **foto** de quem está cadastrado (`GET /auth/users` devolve
+`photoPath`/`uploads`), com as iniciais do primeiro e do segundo nome como
+fallback — inclusive na tela do PIN. O mesmo componente (`UserAvatar`, em
+`shared/components`) é o que desenha a identidade de quem está logado no menu,
+porque `POST /auth/login` também devolve a foto.
+
 A tela de PIN tem **duas vias de entrada, mesma regra** (só dígitos, corte em 6):
 
 - **keypad na tela** (1-9, 0, apagar, "Voltar (Esc)") — o principal no tablet;
@@ -37,7 +43,7 @@ gatilho) e o botão fica desabilitado abaixo de 4 dígitos. `Esc` volta para a
 seleção de usuário. Implementação: `frontend/src/pages/login/LoginPage.jsx`
 (testes em `LoginPage.test.jsx`).
 
-Troca de usuário: qualquer tela tem acesso rápido a "trocar usuário", que descarta o token local e volta pra essa tela — sem precisar de "logout" formal.
+Troca de usuário: qualquer tela tem acesso rápido a "trocar usuário", que descarta o token local e volta pra essa tela — sem precisar de "logout" formal. O botão mora no **canto direito do header** da casca (ícone circular, sem texto) e não é repetido no painel do menu do celular, porque o scrim do painel cobre o header.
 
 **Grid de usuários é filtrado por `store_settings.kitchen_enabled`**: se a cozinha estiver desativada (seção 5), usuários com role `kitchen` não aparecem na seleção — não faz sentido oferecer login pra uma estação que o estabelecimento não usa. Isso é um filtro de exibição, não uma restrição de conta: o usuário `kitchen` continua existindo, só não aparece até o gerente reativar o recurso.
 
@@ -258,7 +264,66 @@ Ao lançar itens na comanda (fluxo do garçom, seção 4.4), cada linha confirma
 
 `kitchen-display-prototype.jsx` implementa esse comportamento de forma navegável: toque nos cartões da zona "Em preparo" para marcar como pronto, cronômetros reais por item, destaque de urgência por cor/pulso, chegada simulada de novos pedidos a cada ~14s, e remoção simulada de itens da faixa "Prontos" a cada ~11s (representando o garçom confirmando a entrega no app dele).
 
-## 7. Pontos em aberto para decisão de produto
+## 7. Central de alertas (sino da casca)
+
+O header de **todos** os perfis logados (garçom, gerente, cozinha, caixa,
+entregador) tem um sino. Ele é o canal de "chamaram você": o sino não é do
+pedido, é da **loja**. Hoje o único tipo de alerta é a abertura de comanda, e
+ele nasce de **todos** os canais — balcão, página pública, WhatsApp e iFood
+passam pelo mesmo `openOrderUsecase`, então o mesmo alerta serve para os quatro.
+
+```
+[Header: logo | título | sino | usuário]
+  → sino mostra badge com o número de alertas não lidos
+  → toque: abre Drawer pela direita com a lista (mais recentes primeiro)
+      → agrupada por dia, lidas e não lidas juntas (lidas em cinza, sem badge)
+      → "Marcar todas como lidas" no rodapé
+      → toggle "Som dos alertas" no rodapé (preferência do aparelho)
+      → tocar num alerta: navega e abre a comanda, se a tela existir e a
+        comanda estiver aberta; nos outros perfis, só desmarca
+```
+
+**Quem ouve.** A audiência do alerta é `manager`, `cashier` e `kitchen`. O
+garçom **não** entra: em comanda de balcão ele é quem abriu, e notificar o
+autor da própria ação é ruído. O sino dele aparece e fica vazio — isso é
+informação, não bug.
+
+**"Lido" é global, não por usuário.** A pergunta que a loja quer responder é
+"alguém já viu?", não "o fulano viu?". Por isso `read_at` mora no alerta, e não
+na sessão: quem responde é a tela da comanda (`OrderBoard` marca os alertas da
+comanda como lidos ao abrir, por qualquer caminho) e o clique no sino. O
+gerente e o garçom chegam no mesmo estado depois que qualquer um dos dois abriu
+a comanda.
+
+**Som.** O toque é sintetizado no cliente (Web Audio API, sem arquivo de
+áudio) com uma tabela de tons por `alert.kind` — "comanda nova" é o único tipo
+hoje. Ele toca no `alert.created` e **repete uma vez 30s depois** se o alerta
+continuar não lido; marcar lido cancela a repetição. O `AudioContext` só nasce
+depois do primeiro gesto do usuário (política de autoplay do navegador), e um
+navegador sem Web Audio só perde o som — nunca o alerta. A preferência é do
+**aparelho** (`localStorage`), não da conta: o tablet da salada e o do caixa
+tocam independentemente.
+
+**Dados.** `GET /alerts` (`{ data, total, unread }` — contadores do conjunto
+todo, não da página) e `POST /alerts/mark-read` (`{ orderId }` ou vazio, para
+todas). O `unread` do badge vem do servidor, não da contagem local. Retenção de
+7 dias (job de maintenance).
+
+**Um alarme não pode perder o evento.** O backend não tem buffer de eventos
+perdidos — o evento publicado enquanto a conexão do terminal estava fora não
+chega depois. Por isso a lista recarrega por `GET` em dois momentos que não são
+o carregamento inicial: **ao reconectar o WebSocket** e **ao voltar o foco da
+aba**. O sino é quem puxa essas recargas (o `useRealtime` expõe um callback de
+reconexão); a comanda aberta continua sendo a fonte do "já vi".
+
+Implementação: `widgets/alert-bell` (desenho) + `app/providers/alerts` (lista,
+contador, toast, som, repetição) + `app/providers/order-focus` (pedido de
+abrir comanda) + `entities/alert` (API, tons e rótulos). O drawer sai por
+`createPortal(document.body)`: o header tem `backdrop-blur`, e um ancestral com
+`filter` vira containing block de `position: fixed` — sem o portal o painel
+abriria dentro do header.
+
+## 8. Pontos em aberto para decisão de produto
 
 Ambos os pontos que estavam aqui foram resolvidos:
 
@@ -267,7 +332,7 @@ Ambos os pontos que estavam aqui foram resolvidos:
 
 Se novos pontos de decisão de produto surgirem, entram aqui.
 
-## 8. Resumo de telas
+## 9. Resumo de telas
 
 | Tela | Perfil | Fonte de dados |
 |---|---|---|
@@ -284,3 +349,4 @@ Se novos pontos de decisão de produto surgirem, entram aqui.
 | Cadastro de usuários | Manager | CRUD de `user` |
 | Configurações (mesas, cozinha, pagamentos, Pix) | Manager | `GET/PUT /store-settings` |
 | Log de atividades | Waiter, Manager | `GET /audit-log?order_id=` |
+| Central de alertas (sino do header) | Todos | `GET /alerts`, `POST /alerts/mark-read`, WS `alert.created` |

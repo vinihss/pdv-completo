@@ -40,6 +40,8 @@ docs/       Specs originais (backend, frontend, critérios de aceite)
 | `docs/10-whatsapp-embedded-signup.md` | WhatsApp Cloud API: Embedded Signup v4, token por WABA, webhooks de mensagem e de status, diagnóstico. |
 | `docs/11-desktop-instalador.md` | App Windows (Tauri): instalador, config por loja, boot/update, daemon como serviço, o que falta. |
 
+| `docs/11-pix-pendencias.md` | BR Code do Pix: o que foi corrigido (GUI minúscula, txid alfanumérico, teto de 99 bytes, `pixKeyType` respeitado, chave canônica no banco) e as pendências (quiet zone, copia e cola). |
+
 ## Como rodar
 
 Requer Node.js 20+.
@@ -79,11 +81,11 @@ false` esconde a cozinha e `uses_delivery: false` esconde os entregadores
 
 | Perfil | Telas apps | Rooms de realtime | Restrictions (backend) |
 |---|---|---|---|
-| waiter | Comandas | `waiter:{id}` + `kitchen-display` | comandas (criar/editar/fechar); cria cliente no balcão e busca clientes (`POST /customers`, `GET /customers/search`) |
-| kitchen | Cozinha | `kitchen-display` | só marcar itens prontos |
-| manager | Comandas + Configurações + Dinheiro + Clientes + Entregar + Relatórios + Estoque + Auditoria + Equipe | `waiter:{id}` + `kitchen-display` + `cash-drawer` + `deliveries` + `inventory` | tudo (usa `kitchen-display` como room-broadcast de comandas) |
-| cashier | Dinheiro (gaveta de caixa) + Clientes | `cash-drawer` | fluxo de caixa (`cash-flow.routes.ts`) + manutenção de clientes; 403 em gerência/comandas |
-| courier | Entregas | `deliveries` | só as entregas atribuídas a ele (`courier.routes.ts`); dispatch/deliver/fail |
+| waiter | Comandas | `waiter:{id}` + `kitchen-display` + `alerts` + `alerts:waiter` | comandas (criar/editar/fechar); cria cliente no balcão e busca clientes (`POST /customers`, `GET /customers/search`) |
+| kitchen | Cozinha | `kitchen-display` + `alerts` + `alerts:kitchen` | só marcar itens prontos |
+| manager | Comandas + Configurações + Dinheiro + Clientes + Entregar + Relatórios + Estoque + Auditoria + Equipe | `waiter:{id}` + `kitchen-display` + `cash-drawer` + `deliveries` + `inventory` + `alerts` + `alerts:manager` | tudo (usa `kitchen-display` como room-broadcast de comandas) |
+| cashier | Dinheiro (gaveta de caixa) + Clientes | `cash-drawer` + `alerts` + `alerts:cashier` | fluxo de caixa (`cash-flow.routes.ts`) + manutenção de clientes; 403 em gerência/comandas |
+| courier | Entregas | `deliveries` + `alerts` + `alerts:courier` | só as entregas atribuídas a ele (`courier.routes.ts`); dispatch/deliver/fail |
 
 Rotas por perfil: `waiter`/`manager` em `order.routes.ts`, `kitchen` em
 `kitchen.routes.ts`, `cashier`/`manager` em `cash-flow.routes.ts`, `courier` em
@@ -195,7 +197,7 @@ nova. Regras que não mudam:
   `--rollback`).
 - **Pendência conhecida e deliberada**: durante o drain (~5s) um cliente cujo
   WS está na instância antiga pode perder um evento de outbox reivindicado pela
-  nova; o `onResync` do `useRealtime` recompõe por REST em ~250ms. Fechar a
+  nova; o `onReconnect` do `useRealtime` recompõe por REST em ~250ms. Fechar a
   janela exige **um dono só do outbox** (advisory lock do Postgres para eleger
   líder, ou `LISTEN/NOTIFY`) — os workers (outbox, maintenance, polling iFood)
   **não** foram tocados neste trabalho. Antes de mexer neles, leia Fase 10.
@@ -215,10 +217,10 @@ nova. Regras que não mudam:
 | `npm run seed:prod` | backend | seed de primeiro deploy (sem dados fictícios) |
 | `npm run db:migrate` | backend | aplica `migrations/*.sql` (também roda no boot em modo local) |
 | `npm run db:deactivate-demo` | backend | desativa o cardápio fictício do `seed` (use `-- --dry-run` para só listar) |
-| `npm run test` | backend | vitest 5 (Postgres dedicado `pdv_test` via `TEST_DATABASE_URL`; caixa, comandas, idempotência, maintenance, stock, whatsapp, printer, compras, clientes/equipe/perfis) |
+| `npm run test` | backend | vitest 5, 16 suítes (Postgres dedicado `pdv_test` via `TEST_DATABASE_URL`; caixa, comandas, idempotência, maintenance, stock, whatsapp, printer, compras, clientes/equipe/perfis, alertas, chave Pix) |
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
-| `npm run test` | frontend | vitest (jsdom + Testing Library; 27 suítes: casca do app + menu, drawer/accordion, modal/header/variação, login por PIN, detalhe da comanda, modais de compra/equipe, caixa/reports, página pública, config e boot do app desktop) |
+| `npm run test` | frontend | vitest (jsdom + Testing Library; 34 suítes: casca do app + menu, drawer/accordion, modal/header/variação, login por PIN, detalhe da comanda, modais de compra/equipe, caixa/reports, página pública, **sino de alertas**, o áudio, o `useRealtime`, config e boot do app desktop) |
 | `go test ./...` | `printer/daemon` | suíte do daemon (caminhos, config padrão, CORS, templates embutidos, health) |
 | `bash printer/scripts/build-sidecar.sh` | raiz | gera o sidecar do daemon em `frontend/src-tauri/binaries/` (Windows/Linux/macOS) |
 | `./switch.sh` | deploy | deploy sem downtime (instância nova + `caddy reload`); `--status`, `--rollback`, `--install`, `--no-build` |
@@ -245,16 +247,47 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
 - **Sem `rowid`**: ordem de inserção de `stock_movement`, `outbox_event` e
   `purchase_item` vem da sequência `seq BIGSERIAL` (a média móvel é um replay
   do ledger, então a ordem precisa ser estável). Não trocar por `created_at`.
-- **Migrations**: `backend/migrations/0001_init.sql` (schema base) e
-  `0002_whatsapp_connections.sql` (token por WABA), aplicadas pelo runner em
-  `src/infra/db/migrate.ts` (advisory lock + tabela `_migrations`, uma
-  transação por arquivo). Roda no boot em modo local e via `npm run db:migrate`.
+- **Migrations**: o diretório tem **5 arquivos**, e o schema está **consolidado**
+  — não procure os números antigos neste texto nem no histórico, eles não
+  correspondem aos arquivos:
+  | Arquivo | Conteúdo |
+  |---|---|
+  | `0001_init.sql` | **todo** o schema (tabelas, índices, extensões do app): inclui `order_payment`, `featured`, `unit_cost`, `purchase_item_id`, iFood, delivery, customer_address, geocoding_cache, cash_flow, estoque |
+  | `0002_whatsapp_connections.sql` | token por WABA + tabelas de inbound/outbound |
+  | `0003_printer.sql` | flags `printer_enabled` / `printer_auto_print` |
+  | `0003_profile_fields.sql` | `user.phone/email/photo_path`, `customer.email/active`, extensão `unaccent` |
+  | `0004_alerts.sql` | tabela `alert` (sino da casca): `seq`, `kind`, `title/body`, `order_id`, `channel`, `audience_roles`, `read_at` |
+
+  Aplicadas pelo runner em `src/infra/db/migrate.ts` (advisory lock + tabela
+  `_migrations`, uma transação por arquivo). Roda no boot em modo local e via
+  `npm run db:migrate`.
 - **Colisão `0003_*`**: o diretório tem **dois** arquivos `0003_*`
   (`0003_printer.sql` e `0003_profile_fields.sql`). É de propósito: o runner
-  chaveia por filename em `_migrations.name`, e o banco de dev já tem os dois
-  registrados — **não renomear** (renomear tentaria reaplicar DDL e quebraria
-  instalações existentes). Sempre que adicionar uma migration, use número
-  zero-padded lexicograficamente **maior**; os próximos são `0004_*`.
+  chaveia por filename em `_migrations.name`, e os bancos de dev **e de
+  produção** já têm os dois registrados — **não renomear** (renomear tentaria
+  reaplicar DDL e quebraria instalações existentes). Sempre que adicionar uma
+  migration, use número zero-padded lexicograficamente **maior**; o próximo é
+  `0005_*`.
+- **Escreva migration idempotente**: use `ADD COLUMN IF NOT EXISTS` /
+  `CREATE ... IF NOT EXISTS`. O runner já pula arquivos registrados, mas o DDL
+  não pode estourar se a coluna tiver sido adicionada por fora dele. Como o
+  boot agora **aborta** quando a migration falha (ver item seguinte), um DDL
+  frágil derruba o container em vez de degradar em silêncio.
+- **O boot falha se a migration falhar** (`src/http/server.ts`): `main()`
+  aguarda `runMigrations()` dentro de `try/catch` e propaga o erro, saindo com
+  `exit 1`. Antes era fire-and-forget (sem `await`) e o backend subia com o
+  schema pela metade — health check 200 e 500 em runtime. **Não reintroduza o
+  `runMigrations()` sem `await`.**
+- **Build da imagem do backend**: `Dockerfile` faz `npm ci` + `npm prune
+  --omit=dev` no estágio `build` (que tem `python3 make g++`) e a imagem final
+  só copia o `node_modules` compilado. **Não reintroduza `npm ci --omit=dev` no
+  estágio final**: o `drizzle-orm` declara `better-sqlite3` como peer
+  dependency *opcional*, então o npm o instala mesmo com `--omit=dev` (marcado
+  `devOptional` no lockfile) e o install script dispara o node-gyp, que estoura
+  sem toolchain. O `better-sqlite3` é usado de verdade por
+  `migrate-sqlite-to-pg.ts`, então não pode simplesmente sair do lockfile.
+  Esse bug já quebrou um deploy em 28/09/2026: a versão anterior só compilava
+  por **cache de layer** — sempre valide com `docker build --no-cache`.
 - **Impressão térmica (daemon local, não fiscal)**: flags `printer_enabled`/
   `printer_auto_print` em `store_settings` (default off). O backend envia JSON
   estruturado para `PRINTER_DAEMON_URL` (default `http://127.0.0.1:8080`); o
@@ -273,8 +306,39 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
   copia para a pasta do app e registra o serviço `PDVPrinterDaemon`). O
   `mock_server.go` é só TCP cru na 9100 para teste, **não** vai para o
   instalador. Detalhes em `printer/README.md` e `docs/11-desktop-instalador.md`.
+
+  ocupada pelo teste anterior senão).
+- **Central de alertas (sino da casca)**: tabela `alert` (migration `0004`),
+  gravada em `openOrderUsecase` **dentro da transação da comanda** (mesma regra
+  do audit/outbox: se o alerta falhasse fora, o gerente nunca ouviria a mesa que
+  existe — o teste sabota o insert e prova o rollback). Três metades que
+  precisam concordar:
+  - **linha**: `createAlertTx` grava + faz o fan-out de `alert.created` por
+    `enqueueEvent`, um insert de outbox por room da audiência;
+  - **público**: `ORDER_ALERT_AUDIENCE` = `manager`/`cashier`/`kitchen`. O
+    garçom **não** entra (em comanda de balcão ele é quem abriu), e o sino dele
+    fica vazio — o que é informação, não bug;
+  - **rooms**: `alerts` (alerta sem público) e `alerts:<papel>`. O
+    `canJoinRoom` autoriza **o próprio papel** (`alerts:manager` para o
+    gerente), nunca "o room de qualquer papel" — é o mesmo recorte do REST, e
+    é o que impede o garçom de assinar o room do gerente.
+  `read_at` é **global por loja** (não por usuário): a pergunta é "alguém já
+  viu?", e quem responde é a tela da comanda (`OrderBoard` chama
+  `POST /alerts/mark-read` com o `orderId` ao abrir). Rotas em
+  `alert.routes.ts` **sem `requireRole`** — quem não tem audiência não recebe
+  linha, e fechar por papel faria o sino sumir do garçom/entregador.
+  `listAlertsUsecase` devolve `{ data, total, unread }` com `total`/`unread`
+  do conjunto TODO (badge acima de 20 pendências tem que contar direito).
+  O texto é função pura (`describeOrderAlert`) — mesma frase para balcão,
+  página, WhatsApp e iFood. A listagem ordena por `(created_at, seq)`: o
+  `created_at` é **texto com ms**, então dois alertas no mesmo milissegundo
+  empatariam sem o `seq` (mesma razão do `outbox_event`) — o teste fixa o
+  `created_at` das duas linhas e inverte a ordem do heap para provar o
+  desempate. Purga de 7 dias no job de maintenance (2.5).
+  Suíte `test/alerts.test.ts` (25 testes).
 - **Contagem**: `count()` do Drizzle (nunca `sql<number>\`count(*)\`` — no
-  Postgres o tipo dobigint sai como string). `sum(real)` devolve `number`.
+  Postgres o tipo bigint sai como string; se precisar de `count(*)` cru, caste
+  `::int`). `sum(real)` devolve `number`.
 - **Audit log + eventos outbox na mesma transação** da escrita de domínio.
   Sempre que criar/alterar algo relevante, registrar `logAction` e/ou
   `enqueueEvent` no mesmo `db.transaction`.
@@ -364,8 +428,8 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
   `src/features/customer-menu/cartLogic.js` (testada sem DOM): chave de linha,
   agrupamento por produto e grupos obrigatórios (a antiga "regra do stepper"
   saiu junto com `ProductStepper`).
-- **Destaques da página pública**: `product.featured` (migration `0020`, default
-  `false`) alimenta a vitrine "Destaques" do `/pedido` — 3 colunas, card
+- **Destaques da página pública**: `product.featured` (coluna no `0001_init.sql`,
+  default `false`) alimenta a vitrine "Destaques" do `/pedido` — 3 colunas, card
   `ProductTile`; o produto continua na sua categoria (comportamento iFood). Marcado
   no cadastro (`ProductModal`, toggle "Em destaque na página de pedidos"; o campo
   só vai no payload quando o toggle existe — um edit com `uses_delivery` off não
@@ -430,8 +494,15 @@ Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens).
     header da casca é `h-14`.
   - **Mobile**: `Drawer` de tela cheia, aberto pelo botão `Menu` do header
     (`lg:hidden`, `aria-controls="app-menu-painel"`). Escolher uma tela fecha o
-    painel; o rodapé do painel tem "Trocar usuário" porque o scrim cobre o
-    "Sair" do header.
+    painel; o rodapé do painel tem só a identidade de quem está logado — o
+    "Sair" é um botão circular no canto direito do header e **não** é
+    duplicado aqui (o scrim do painel é `fixed inset-0 z-50` e cobre o header
+    `z-40`, então no celular ele só é alcançado com o painel fechado).
+  - **Avatar das pessoas**: `UserAvatar` (`shared/components`) desenha a foto
+    quando existe e as iniciais quando não — usada na grade do login, na tela
+    do PIN e na identidade do menu. Não é só do login: `photoPath` vem em
+    `GET /auth/users` e em `POST /auth/login` (a sessão guarda o objeto
+    inteiro em `sessionStorage`), então quem está logado também tem foto.
   - **Regra de degeneração**: seção com **um** item não vira cabeçalho — o
     próprio item é a linha (nada de "Configurações" dentro de "Sistema"); menu
     sem nenhuma seção com 2+ itens vira trilho de ícones.
@@ -592,12 +663,31 @@ dentro da fase, a ordem indicada.
 - **4.3 Buffer de eventos no reconnect do WS**: `sync.request` responde vazio
   (`realtime.routes.ts:35-37`); client recarrega via REST, mas não é o sync
   completo da spec §8.
-- **4.4 ~~QR Pix (BR Code)~~** — ✅ feito: `frontend/src/lib/pix.js` gera o BR
-  Code (EMV + CRC-16/CCITT-FALSE) no client; o `PaymentModal` de
+- **4.4 ~~QR Pix (BR Code)~~** — ✅ feito: `frontend/src/entities/payment/lib/pix.js`
+  gera o BR Code (EMV + CRC-16/CCITT-FALSE) no client; o `PaymentModal` de
   `WaiterApp.jsx` registra `confirmed:false`, exibe o QR a partir de
   `store_settings.pix_key`/`merchant_name`/`merchant_city` e confirma com
   `confirmed:true`. Sem chave/nome/cidade configurados, a opção Pix fica
-  desabilitada com aviso.
+  desabilitada com aviso. **Corrigido em 28/09/2026**: o app do banco recusava
+  o QR por GUI em maiúsculas (`BR.GOV.BCB.PIX`) e txid com hífen (`order.id` é
+  `crypto.randomUUID()`). **Corrigido em 29/09/2026**: o `pixKeyType` das
+  configurações era gravado e nunca lido, e a dedução por formato tratava 11
+  dígitos como CPF — o telefone do gerente saía no BR Code sem DDI e o app do
+  banco respondia "CPF inválido". Agora `analyzePixKey(raw, typeHint)` usa
+  `store_settings.pixKeyType` como autoritativo, canonicaliza telefone em E.164
+  (10/11 díg → `+55`, 12+ com `55` → `+`) e só cai na dedução (com aviso) quando
+  o valor não cabe no tipo escolhido. O `SettingsTab` mostra a prévia do tipo
+  efetivo e o `PaymentModal` repassa `pixKeyType` ao `PixQrScreen` — sem isso o
+  tipo nem chegava à tela. No mesmo dia, `backend/src/domain/pix-key.ts`
+  (`canonicalizePixKey`) passou a canonicalizar a chave no
+  `PUT /store-settings` (telefone em E.164, documento só dígitos, e-mail
+  minúsculo), fechando a pendência 3.1 da doc. **A regra existe em dois lugares
+  de propósito** — o domain (o que entra no banco) e o `pix.js` (o que monta o
+  BR Code, que é gerado no client, e serve de rede de segurança para
+  instalação com chave em máscara): mudou uma, mude a outra. Chave
+  incompatível com o tipo **não** recusa o `PUT`, volta como veio. Suítes:
+  `test/pix-key.test.ts` (6) e `entities/payment/lib/pix.test.js` (30).
+  Pendências em `docs/11-pix-pendencias.md`.
 
 ### Fase 5 — Estoque (implementado)
 
@@ -626,8 +716,8 @@ dentro da fase, a ordem indicada.
   `product.cost_price`, snapshot em `order_item.cost_price` (só com
   `inventory_enabled && purchase_enabled && track_stock`; sem o módulo ligado,
   custo manual — paridade preservada), valorização em `GET /inventory/value`
-  (média × saldo). `stock_movement.unit_cost` + `purchase_item_id`
-  (migration `0017`). Flags: `purchase_enabled` default off; compra de produto
+  (média × saldo). `stock_movement.unit_cost` + `purchase_item_id` (colunas do
+  `0001_init.sql`). Flags: `purchase_enabled` default off; compra de produto
   sem `track_stock` → 422. Idempotente via `correlationId`. Doc em
   `docs/08-estoque-profissional.md`; suíte `test/purchase.test.ts` (7 testes).
 - **6.2 UI de compras** — ✅ feito: aba "Compras" no gerenciador (visível só com
@@ -707,32 +797,77 @@ dentro da fase, a ordem indicada.
   operação: em Docker, o backend alcança o daemon do host via `host_gateway`
   ou sidecar (`PRINTER_DAEMON_URL`).
 
-### Fase 10 — Deploy sem downtime (implementado)
+### Fase 10 — Central de alertas (implementado)
 
-- **10.1 Switch azul/verde com gap HTTP zero** — ✅ feito: `deploy/switch.sh`
+- **10.1 Alerta de comanda no backend** — ✅ feito: tabela `alert` (migration
+  `0004`) gravada por `createAlertTx` dentro da transação de
+  `openOrderUsecase`, com fan-out `alert.created` para `alerts:<papel>`;
+  `audience_roles` = `manager`/`cashier`/`kitchen` (o garçom não ouve a própria
+  comanda de balcão). Rotas `GET /alerts` e `POST /alerts/mark-read` sem
+  `requireRole`, com o recorte por papel dentro do usecase; `canJoinRoom`
+  autoriza só o room do próprio papel. Texto em função pura
+  (`describeOrderAlert`), retido 7 dias pelo job de maintenance. Suíte
+  `test/alerts.test.ts` (25 testes) — inclui o teste de rollback (sabota o
+  insert do alerta e prova que a comanda não é criada) e o de desempate do
+  `seq` (empate de `created_at` não embaralha a ordem do sino).
+- **10.2 Sino, contador e marcação de lido** — ✅ feito: `AlertBell` no header
+  dos 5 perfis (drawer pela direita, sai por `createPortal` porque o header tem
+  `backdrop-blur` e viraria containing block do `fixed`), badge com o `unread`
+  do servidor (teto visual em `99+`), lista agrupada por dia que mostra as lidas
+  também, e "marcar todas". `read_at` é global: `OrderBoard` chama
+  `markRead(orderId)` ao abrir a comanda, por qualquer caminho. O clique navega
+  só para quem tem a tela de comandas e só com comanda aberta; nos demais
+  perfis (caixa/cozinha/entregador) ele só desmarca. `AlertsProvider` +
+  `OrderFocusProvider` no `app/` porque casca e página são irmãs na árvore.
+- **10.3 Som por tipo de alerta** — ✅ feito: Web Audio API sintetizado
+  (`shared/lib/audio.js`, sem arquivo de áudio) com a tabela de tons por
+  `alert.kind` em `entities/alert/lib/sounds.js`; toque no `alert.created` e
+  **uma repetição após 30s** se o alerta continuar não lido (cancelada ao
+  marcar lido, timers limpos no logout). Preferência `localStorage`
+  `pdv:alert-sound`, **por aparelho**, com toggle no rodapé do drawer. O
+  `AudioContext` só nasce depois de um gesto do usuário (listener único de
+  `pointerdown`/`keydown` na casca), e navegador sem Web Audio só perde o som.
+  Suítes: `AlertBell.test.jsx` (17 testes, fluxo completo com WS dublê),
+  `shared/lib/audio.test.js` (9), `shared/hooks/useRealtime.test.jsx` (3) e
+  `entities/alert` (19).
+- **10.4 Recarga e pendências** — como o `pollOutboxOnce` marca publicado
+  mesmo sem assinante na sala, o evento emitido durante uma queda de conexão
+  **não volta**: o `useRealtime` ganhou um 4º argumento `onReconnect` (dispara
+  só a partir da segunda abertura — a primeira é a montagem, que já carregou) e
+  o `AlertsProvider` recarrega por GET nele, além de recarregar no
+  `visibilitychange`. Testes: `useRealtime.test.jsx` (3) e o caso
+  "reconexão recarrega a lista" em `AlertBell.test.jsx`.
+- **10.5 Pendências** — evento de "alerta lido" no WS (o sino de outro terminal
+  só reflete quando aquele terminal recarrega, recarrega por foco ou reconecta —
+  não há push de `read_at`); `alertId` em `POST /alerts/mark-read` para marcar
+  um alerta público isolado (hoje a ausência de `orderId` significa "todas");
+  outros `kind` (estoque baixo, entrega parada).
+
+### Fase 11 — Deploy sem downtime (implementado)
+
+- **11.1 Switch azul/verde com gap HTTP zero** — ✅ feito: `deploy/switch.sh`
   (`switch`/`install`/`rollback`/`status`), instâncias duplicadas via `extends`
   + profile `canary`, healthcheck como portão (backend **e** frontend), ponteiro
   de upstream (`deploy/state/active-upstream`) lido pelo container do Caddy
   (`deploy/caddy-assemble.sh`, com `caddy validate` antes de aplicar) e troca
   por `caddy reload` — o proxy não é recriado, então o `git checkout -f` da tag
-  passa a ser visto sem `--force-recreate`. `useRealtime` ganhou `onResync`
-  (recompõe por REST a cada reconexão, inclusive no primeiro socket) e a
+  passa a ser visto sem `--force-recreate`. `useRealtime` ganhou `onReconnect`
+  (recompõe por REST a cada reconexão; a primeira abertura é a montagem, que
+  já carregou) e a
   Caddyfile ganhou `stream_close_delay 5m` em `/realtime*` para o reload não
   derrubar quem está conectado. `deploy/probe-availability.sh` mede o gap de
   verdade (sai != 0 se houve falha): 4 switches, 861 requisições, 0 falhas,
   maior gap 0,0s; WS reconectou em 293ms. Abort e `--rollback` testados no
   stack local isolado (verde doente deixa o proxy velho no ar).
-- **10.2 Correções que o deploy sem downtime exigiu** — ✅ feito: a imagem do
-  backend não buildava (`npm ci --omit=dev` instalava `better-sqlite3`, peer
-  opcional do `drizzle-orm` marcado `devOptional`, e o node-gyp morria sem
-  toolchain → `backend/Dockerfile` usa `--omit=optional`); `frontend/.dockerignore`
-  passou a excluir `src-tauri/target` (o contexto do build era 4GB);
+- **11.2 Correções que o deploy sem downtime exigiu** — ✅ feito:
+  `frontend/.dockerignore` passou a excluir `src-tauri/target` (o contexto do
+  build era 4GB);
   `deploy/state/` é versionado para o `git checkout` não deixar o diretório
   root-owned; e o compose do Caddy monta o **diretório** `deploy/` em vez de
   arquivo (armadilha do inode).
-- **10.3 Pendências** — **um dono só do outbox** (advisory lock do Postgres
+- **11.3 Pendências** — **um dono só do outbox** (advisory lock do Postgres
   para eleger líder entre as duas instâncias, ou `LISTEN/NOTIFY`): durante o
-  drain um cliente na instância antiga pode perder um evento (o `onResync`
+  drain um cliente na instância antiga pode perder um evento (o `onReconnect`
   recompõe em ~250ms). Migrations expand/contract como pré-requisito de
   qualquer rollback. `--rollback` hoje só reverte a instância (imagem); reverter
   também o schema exigiria uma migration de descida. **Workers não foram

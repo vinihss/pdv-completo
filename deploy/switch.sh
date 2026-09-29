@@ -16,7 +16,7 @@
 #      da Caddyfile impede que o reload derrube essas conexões.
 #   5. para a instância antiga ....... SIGTERM drena as requisições em voo
 #      (app.close()) e os WebSockets dela caem; o app reconecta em ~250ms
-#      e recarrega o estado por REST (useRealtime -> onResync).
+#      e recarrega o estado por REST (useRealtime -> onReconnect).
 #
 # Em nenhum momento existe um instante em que o Caddy aponte para algo
 # que não está respondendo — por isso o gap de HTTP é 0, e não "quase 0".

@@ -90,14 +90,22 @@ describe("AppFrame", () => {
     expect(container.querySelector("aside")).toBeNull();
   });
 
-  it("AppFrame isolado também funciona, desde que dentro de um NavProvider", async () => {
+  // A casca depende dos três providers (menu, sino e foco de comanda) — os três
+  // guardam estado que atravessa casca↔página, então nenhum pode ser prop.
+  it("AppFrame isolado também funciona, desde que dentro dos três providers", async () => {
     const { NavProvider } = await import("@/app/providers/nav");
+    const { AlertsProvider } = await import("@/app/providers/alerts");
+    const { OrderFocusProvider } = await import("@/app/providers/order-focus");
     session("manager");
     render(
       <NavProvider role="manager">
-        <AppFrame>
-          <p>conteúdo</p>
-        </AppFrame>
+        <AlertsProvider>
+          <OrderFocusProvider>
+            <AppFrame>
+              <p>conteúdo</p>
+            </AppFrame>
+          </OrderFocusProvider>
+        </AlertsProvider>
       </NavProvider>
     );
     expect(screen.getByText("conteúdo")).toBeTruthy();

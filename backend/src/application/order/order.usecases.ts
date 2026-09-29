@@ -22,6 +22,7 @@ import { notifyReady } from "../../integrations/whatsapp/whatsapp.notifier.js";
 import { printKitchenOrder } from "../../integrations/printer/printer.usecases.js";
 import { findOpenDrawerTx } from "../cash-flow/cash-flow.usecases.js";
 import { applyStockMovementTx, stockBalance, computeMovingAverageTx, INVENTORY_ROOM } from "../stock/stock.usecases.js";
+import { createAlertTx, describeOrderAlert, ORDER_ALERT_KIND, ORDER_ALERT_AUDIENCE } from "../alert/alert.usecases.js";
 import { getCache } from "../../infra/cache/index.js";
 
 const cache = getCache();
@@ -221,6 +222,37 @@ export async function openOrderUsecase(input: {
       tableId: input.tableId,
       customerId: input.customerId,
       tabLabel: input.tabLabel,
+    });
+
+    // Alerta do sino (0004). Fica AQUI, e não em cada canal, porque todos os
+    // quatro passam por esta função: balcão (`POST /orders`), self-service
+    // (order-intake), iFood (ingest) e qualquer canal novo. Se ficasse em cada
+    // chamador, um canal novo nasceria mudo.
+    //
+    // O texto precisa do número da mesa / nome do cliente, que a linha do
+    // pedido não traz (só os ids) — por isso as duas leituras abaixo. São
+    // leituras por PK dentro de uma transação que já fez UPDATE condicional +
+    // INSERT + logAction, então o custo é desprezível e o ganho (alerta legível
+    // "Nova comanda · Mesa 3") é todo para quem lê.
+    const channel = input.channel ?? "balcao";
+    const [table, customer] = await Promise.all([
+      input.tableId ? tx.query.restaurantTables.findFirst({ where: eq(restaurantTables.id, input.tableId) }) : null,
+      input.customerId ? tx.query.customers.findFirst({ where: eq(customers.id, input.customerId) }) : null,
+    ]);
+    const { title, body } = describeOrderAlert({
+      channel,
+      // Para mesa, o rótulo é o número da pessoa — um id de mesa no alerta
+      // seria inútil. Sem mesa (pub/cliente), o tabLabel é o rótulo de verdade.
+      label: input.tableId ? (table?.number ? `Mesa ${table.number}` : "Mesa") : input.tabLabel,
+      customerName: (customer as any)?.name,
+    });
+    await createAlertTx(tx, {
+      kind: ORDER_ALERT_KIND,
+      title,
+      body,
+      orderId: created.id,
+      channel,
+      audience: ORDER_ALERT_AUDIENCE,
     });
 
     return created;

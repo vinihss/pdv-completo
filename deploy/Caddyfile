@@ -2,7 +2,7 @@
 # Caddy — proxy reverso com HTTPS automático (Let's Encrypt).
 #
 # Domínios:
-#   umamisushiarte.com.br      → redirect para o Instagram (não serve o app)
+#   umamisushiarte.com.br      → redirect para a vitrine pública (app./pedido)
 #   app.umamisushiarte.com.br  → aplicação (backend + frontend)
 #
 # Todos precisam de registro DNS tipo A apontando para o IP do
@@ -96,12 +96,27 @@
 	encode gzip
 }
 
-# ---------- Domínio principal: redirect pro Instagram ----------
-# Não serve o app: quem digitar o domínio cai no perfil do restaurante.
-# CUIDADO: o handle é `umamisusharte` (sem o "o" no meio) — o
-# `umamisushoarte` anterior levava a um perfil inexistente.
+# ---------- Domínio principal: vitrine pública ----------
+# Não serve o app: quem digitar o domínio sem `app.` cai direto na página de
+# pedidos (rota pública `/pedido/*` do CustomerMenuPage, sem login).
+#
+# O path é `/pedido` no SINGULAR — é o que o React Router declara
+# (`frontend/src/app/router.jsx`). `/pedidos` cai no catch-all `/*` e mostra a
+# tela de login, então nunca use o plural aqui.
+#
+# O `redir` é de site inteiro: qualquer caminho no domínio raiz
+# (`umamisushiarte.com.br/qualquer-coisa`) vai para a vitrine, sem
+# precisar repetir a regra por path.
+#
+# SEM `permanent` = 302 temporário, de propósito. O 308 (`permanent`) é cacheado
+# pelo navegador com força: quem já abriu o domínio antes continua indo para o
+# destino antigo mesmo depois do deploy, até limpar o cache. Enquanto o
+# destino estiver sendo ajustado, deixe 302 e valide com curl:
+#   curl -sI https://umamisushiarte.com.br | grep -i location
+# Quando o destino estiver definitivo, volte `permanent` no fim da linha
+# (relembre: precisa de `--force-recreate caddy` ou `caddy reload`).
 umamisushiarte.com.br, www.umamisushiarte.com.br {
-	redir https://www.instagram.com/umamisusharte permanent
+	redir https://app.umamisushiarte.com.br/pedido
 }
 
 # ---------- Subdomínio: a aplicação ----------

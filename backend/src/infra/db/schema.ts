@@ -345,6 +345,40 @@ export const stockMovements = pgTable(
   ],
 );
 
+// ---------- alertas (sino do app) ----------
+// Central de alertas: o que chega (abertura de comanda) com o estado de
+// "não visualizado" persistido no servidor. Sem isso o contador do sino morreria
+// num F5 — e um tablet deitado na mesa é o caso normal, não a exceção.
+//
+// `read_at` é global, não por usuário: o alerta pergunta "alguém já viu isso?",
+// e quem responde é a tela da comanda (POST /alerts/mark-read, chamado por
+// OrderDetailScreen). `audienceRoles` filtra a recepção: NULL/vazio = todos os
+// papéis; preenchido = só os listados (o recorte do realtime são os rooms
+// `alerts` e `alerts:<role>` — ver application/alert/alert.usecases.ts).
+export const alerts = pgTable(
+  "alert",
+  {
+    id: id(),
+    // Ordem de inserção: `created_at` é texto com precisão de milissegundo, e
+    // dois alertas no mesmo ms empatariam num ORDER BY só por ele (mesma razão
+    // do `seq` de outbox_event).
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+    kind: text("kind").notNull().default("order_created"),
+    title: text("title").notNull(),
+    body: text("body"),
+    orderId: text("order_id").references(() => orders.id, { onDelete: "cascade" }),
+    channel: text("channel"),
+    audienceRoles: text("audience_roles").array(),
+    readAt: text("read_at"),
+    createdAt: text("created_at").notNull().default(isoNow),
+  },
+  (t) => [
+    index("idx_alert_created_at").on(t.createdAt, t.seq),
+    index("idx_alert_unread").on(t.createdAt).where(sql`${t.readAt} IS NULL`),
+    index("idx_alert_order").on(t.orderId),
+  ],
+);
+
 // ---------- fluxo de caixa ----------
 // Uma sessão aberta por vez: o índice único parcial garante no banco o que
 // antes era só regra de usecase (ver findOpenDrawerTx).

@@ -17,6 +17,10 @@ deploy/backups/
 # Ficam no servidor para o Caddy servir em /updates/*, nunca no git.
 deploy/updates/
 
+# Cópias manuais de arquivos de configuração durante deploy
+# (deploy/Caddyfile.bak.<timestamp>, deploy/.env.bak.<timestamp>)
+*.bak.*
+*.bak
 
 # Logs e misc
 *.log

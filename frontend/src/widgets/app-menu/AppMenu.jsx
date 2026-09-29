@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { LogOut } from "lucide-react";
-import { AccordionMenu, Drawer } from "@/shared/components";
+import { AccordionMenu, Drawer, UserAvatar } from "@/shared/components";
 import { useAuth } from "@/app/providers/auth";
 import { useNav, menuSectionsFor, hasExpandableSections, firstItemId } from "@/app/providers/nav";
 import { useLowStockCount } from "@/entities/stock";
@@ -25,7 +24,7 @@ const ROLE_LABEL = {
  * girar o tablet perderia o que o usuário tinha aberto.
  */
 export default function AppMenu() {
-  const { session, storeSettings, logout } = useAuth();
+  const { session, storeSettings } = useAuth();
   const { activeId, setActiveId, drawerOpen, closeDrawer } = useNav();
   const lowCount = useLowStockCount();
 
@@ -89,6 +88,9 @@ export default function AppMenu() {
     />
   );
 
+  // Mesma identidade na coluna do desktop e no painel do celular.
+  const identity = <Identity name={session?.user?.name} role={session?.user?.role} photoPath={session?.user?.photoPath} />;
+
   return (
     <>
       <aside
@@ -98,36 +100,29 @@ export default function AppMenu() {
       >
         <div className="flex-1 overflow-y-auto">{menu()}</div>
         {variant === "full" && (
-          <div className="shrink-0 border-t border-stone-800 p-3">
-            <Identity name={session?.user?.name} role={session?.user?.role} />
-          </div>
+          <div className="shrink-0 border-t border-stone-800 p-3">{identity}</div>
         )}
       </aside>
 
       <Drawer open={drawerOpen} onClose={closeDrawer} panelId="app-menu-painel" label="Menu principal" panelClassName="w-full border-r">
         <div className="flex-1 overflow-y-auto">{menu()}</div>
-        <div className="shrink-0 border-t border-stone-800 p-3">
-          <Identity name={session?.user?.name} role={session?.user?.role} />
-          {/* No celular o scrim cobre o "Sair" do header — sem este botão o
-              entregador preso no painel não trocaria de usuário. */}
-          <button
-            type="button"
-            onClick={logout}
-            className="mt-2 w-full flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold text-stone-400 hover:text-red-400 hover:bg-stone-800/60 transition-colors"
-          >
-            <LogOut size={14} /> Trocar usuário
-          </button>
-        </div>
+        {/* Só a identidade: o "Sair" mora no canto do topo e sai daqui. O
+            scrim do painel é `fixed inset-0 z-50` e cobre o header (`z-40`),
+            então no celular ele só é alcançado com o painel fechado. */}
+        <div className="shrink-0 border-t border-stone-800 p-3">{identity}</div>
       </Drawer>
     </>
   );
 }
 
-function Identity({ name, role }) {
+function Identity({ name, role, photoPath }) {
   return (
-    <div className="min-w-0">
-      <p className="text-sm font-semibold text-stone-200 truncate">{name ?? "—"}</p>
-      <p className="text-[11px] text-stone-500 truncate">{ROLE_LABEL[role] ?? role}</p>
+    <div className="flex items-center gap-2.5 min-w-0">
+      <UserAvatar name={name} photoPath={photoPath} className="w-8 h-8 text-[11px]" />
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-stone-200 truncate">{name ?? "—"}</p>
+        <p className="text-[11px] text-stone-500 truncate">{ROLE_LABEL[role] ?? role}</p>
+      </div>
     </div>
   );
 }

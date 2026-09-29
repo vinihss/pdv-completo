@@ -1,10 +1,35 @@
 import React, { useState, useEffect } from "react";
 import { Upload, ImageOff, Store, RefreshCcw, AlertTriangle } from "lucide-react";
 import { updateStoreSettings, uploadStoreLogo, removeStoreLogo } from "@/entities/store";
+import { analyzePixKey, PIX_KEY_TYPE_LABELS } from "@/entities/payment";
 import { useAuth } from "@/app/providers/auth";
 import { applyBrandPrimary, DEFAULT_PRIMARY_COLOR, isDesktop } from "@/shared/lib";
 import { Section, Field, ToggleRow, inputClass } from "@/shared/components";
 import AppSection from "./AppSection.jsx";
+
+// O que o BR Code vai realmente conter. Sem isso o gerente salva "51991432485"
+// como telefone e só descobre o problema quando o cliente tenta pagar: o app do
+// banco lê 11 dígitos como CPF e recusa o QR.
+function PixKeyPreview({ pixKey, pixKeyType }) {
+  const { key, type, warnings } = analyzePixKey(pixKey, pixKeyType);
+
+  if (!key) return null;
+
+  return (
+    <div className="text-xs text-stone-400">
+      <p>
+        Será usada no QR como <span className="text-stone-200 font-medium">{PIX_KEY_TYPE_LABELS[type] ?? "—"}</span>:{" "}
+        <span className="font-mono text-stone-200">{key}</span>
+      </p>
+      {warnings.map((w) => (
+        <p key={w} className="flex items-start gap-1.5 mt-1.5 text-amber-300">
+          <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+          {w}
+        </p>
+      ))}
+    </div>
+  );
+}
 
 export default function SettingsTab({ showToast }) {
   const { storeSettings, refreshStoreSettings } = useAuth();
@@ -286,10 +311,11 @@ export default function SettingsTab({ showToast }) {
           <Field label="Tipo da chave">
             <select value={form.pixKeyType} onChange={(e) => set({ pixKeyType: e.target.value })} className={inputClass}>
               {["cpf", "cnpj", "email", "phone", "random"].map((t) => (
-                <option key={t} value={t}>{t}</option>
+                <option key={t} value={t}>{PIX_KEY_TYPE_LABELS[t]}</option>
               ))}
             </select>
           </Field>
+          <PixKeyPreview pixKey={form.pixKey} pixKeyType={form.pixKeyType} />
         </Section>
       )}
 

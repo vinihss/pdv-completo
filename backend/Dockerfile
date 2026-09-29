@@ -10,24 +10,25 @@ COPY package*.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
+# `npm ci --omit=dev` NÃO pode rodar aqui: o drizzle-orm declara better-sqlite3
+# como peer dependency OPCIONAL, então o npm o instala mesmo com --omit=dev (marcado
+# `devOptional` no lockfile). Como ele tem install script, o node-gyp roda e
+# estoura sem toolchain. E o `--omit=dev` no estágio final só funcionava por
+# cache de layer — um build --no-cache quebrava. Aqui a toolchain existe, então
+# prunes as dev deps DEPOIS de compilar o que precisa compilar.
+RUN npm prune --omit=dev
 
 # ---------- imagem final, sem ferramentas de build ----------
 FROM node:22-slim
 WORKDIR /app
 ENV NODE_ENV=production
 
-COPY package*.json ./
-# `--omit=optional` não é poda: o drizzle-orm (dependência de produção)
-# declara `better-sqlite3` como peer opcional, então o npm marca o pacote
-# como devOptional e o instala mesmo com `--omit=dev` — disparando um
-# node-gyp que falha nesta imagem (sem toolchain de build). O SQLite foi
-# removido do produto; o único uso do pacote é o script avulso
-# `db:migrate:sqlite`, que roda fora do container. Sem isto, o build da
-# imagem de produção quebra sempre que o prebuild do better-sqlite3 não
-# consegue baixar o binário pronto.
-RUN npm ci --omit=dev --omit=optional
-
+# node_modules vem já compilado do estágio de build (argon2 e o próprio
+# better-sqlite3), então a imagem final não precisa de python3/make/g++ nem
+# de um segundo `npm ci` — e não depende de cache de layer para buildar.
+COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY package*.json ./
 COPY migrations ./migrations
 COPY seed-data ./seed-data
 

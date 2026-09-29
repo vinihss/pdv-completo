@@ -10,8 +10,8 @@ vi.mock("@/entities/stock", () => ({ useLowStockCount: () => mocks.lowCount }));
 const { default: AppMenu } = await import("./AppMenu.jsx");
 const { NavProvider, useNav } = await import("@/app/providers/nav");
 
-function loggedIn(role, storeSettings = {}) {
-  mocks.auth = { session: { token: "t", user: { id: "u1", name: "Roberto Alves", role } }, storeSettings, logout: vi.fn() };
+function loggedIn(role, storeSettings = {}, photoPath = null) {
+  mocks.auth = { session: { token: "t", user: { id: "u1", name: "Roberto Alves", role, photoPath } }, storeSettings, logout: vi.fn() };
 }
 
 /** O botão de abrir mora no header (casca); aqui um botão equivalente. */
@@ -25,8 +25,8 @@ function Harness() {
   );
 }
 
-function setup(role, storeSettings) {
-  loggedIn(role, storeSettings);
+function setup(role, storeSettings, photoPath) {
+  loggedIn(role, storeSettings, photoPath);
   return render(
     <NavProvider role={role}>
       <Harness />
@@ -133,6 +133,16 @@ describe("AppMenu", () => {
     expect(asideOf(caixa.container).queryByText("Roberto Alves")).toBeNull();
   });
 
+  it("a identidade mostra a foto de quem está logado (a sessão carrega photoPath)", () => {
+    const { container } = setup("manager", {}, "/uploads/u1.png");
+    expect(asideOf(container).getByAltText("Roberto Alves").getAttribute("src")).toBe("/uploads/u1.png");
+  });
+
+  it("sem foto, a identidade cai nas iniciais", () => {
+    const { container } = setup("manager");
+    expect(asideOf(container).getByText("RA")).toBeTruthy();
+  });
+
   it("badge de estoque baixo no item Estoque e no cabeçalho da seção", () => {
     mocks.lowCount = 3;
     const { container } = setup("manager", { inventoryEnabled: true });
@@ -144,14 +154,16 @@ describe("AppMenu", () => {
     expect(within(aside.getByText("Estoque").closest("button")).getByText("3")).toBeTruthy();
   });
 
-  it("no celular o menu vira painel inteiro, com troca de usuário", () => {
+  it("no celular o menu vira painel inteiro, sem repetir o 'Sair' do header", () => {
     const { container } = setup("courier");
     fireEvent.click(screen.getByText("abrir"));
     const painel = within(screen.getByRole("dialog"));
     expect(screen.getByRole("dialog").getAttribute("aria-label")).toBe("Menu principal");
     expect(painel.getByTitle("Entregas")).toBeTruthy();
     expect(painel.getByText("Roberto Alves")).toBeTruthy();
-    expect(painel.getByText("Trocar usuário")).toBeTruthy();
+    // O "Sair" mora no canto do header (o scrim do painel o cobre), então o
+    // rodapé do painel é só a identidade.
+    expect(painel.queryByText("Trocar usuário")).toBeNull();
     // O botão do header é quem abre; a coluna do desktop segue no lugar.
     expect(container.querySelector("aside")).toBeTruthy();
   });

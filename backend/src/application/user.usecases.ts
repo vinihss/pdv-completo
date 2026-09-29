@@ -12,6 +12,16 @@ export type UserRole = "waiter" | "kitchen" | "manager" | "courier" | "cashier";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/**
+ * O banco guarda só o nome do arquivo; quem consome a API precisa do caminho
+ * público. Fonte única do prefixo — a foto é servida em `/uploads/` sem auth
+ * (o mesmo argumento das fotos de produto), então isso vale inclusive para as
+ * rotas públicas do login.
+ */
+export function photoUrl(photoPath: string | null | undefined): string | null {
+  return photoPath ? `/uploads/${photoPath}` : null;
+}
+
 function serialize(u: typeof users.$inferSelect) {
   return {
     id: u.id,
@@ -20,7 +30,7 @@ function serialize(u: typeof users.$inferSelect) {
     active: u.active,
     phone: u.phone ?? null,
     email: u.email ?? null,
-    photoPath: u.photoPath ? `/uploads/${u.photoPath}` : null,
+    photoPath: photoUrl(u.photoPath),
     createdAt: u.createdAt,
   };
 }

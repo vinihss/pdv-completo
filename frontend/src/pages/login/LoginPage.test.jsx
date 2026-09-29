@@ -3,7 +3,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/react";
 import LoginPage from "./LoginPage.jsx";
 
-const users = [{ id: "u1", name: "Ana Ribeiro", role: "waiter" }];
+const users = [
+  // Sem foto (o caso comum: ninguém cadastrou foto ainda) e com foto — a grade
+  // precisa saber desenhar os dois.
+  { id: "u1", name: "Ana Ribeiro", role: "waiter" },
+  { id: "u2", name: "Bruno Costa", role: "manager", photoPath: "/uploads/u2.png" },
+];
 
 vi.mock("@/entities/session", () => ({
   listLoginUsers: () => Promise.resolve(users),
@@ -130,5 +135,27 @@ describe("LoginPage — PIN", () => {
     await openPinScreen();
     fireEvent.keyDown(window, { key: "Escape" });
     await screen.findByText("Selecione seu nome para continuar");
+  });
+});
+
+// A spec pede "seleção de avatar/nome" (docs/02 §3) e o tablet é compartilhado:
+// sem a foto, o garçom não reconhece o colega da foto de perfil. A foto vem em
+// `GET /auth/users` e a mesma grade/a tela de PIN é reusada depois do clique.
+describe("LoginPage — avatar da equipe", () => {
+  afterEach(cleanup);
+
+  it("grade mostra a foto de quem tem e as iniciais de quem não tem", async () => {
+    render(<LoginPage />);
+    const foto = await screen.findByAltText("Bruno Costa");
+    expect(foto.getAttribute("src")).toBe("/uploads/u2.png");
+    expect(screen.getByText("AR")).toBeTruthy();
+  });
+
+  it("a tela de PIN mostra a foto de quem está entrando", async () => {
+    render(<LoginPage />);
+    fireEvent.click(await screen.findByText("Bruno Costa"));
+    expect(screen.getByAltText("Bruno Costa").getAttribute("src")).toBe("/uploads/u2.png");
+    // E o nome segue na tela, para a confirmação do PIN.
+    expect(screen.getByText("Digite seu PIN")).toBeTruthy();
   });
 });
