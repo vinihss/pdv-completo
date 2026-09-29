@@ -223,69 +223,21 @@ jobs:
           gh release view $tag --repo '${{ github.repository }}' --json url -q '"release: " + .url'
 
       # Publicar no servidor é o que dá o download por URL própria
-      # (/updates/files/...) e o manifesto do auto-update. Falhar aqui é
-      # falha de verdade: sem isso o app instalado não encontra update.
+      # (/updates/files/...) e o manifesto do auto-update. Isso NÃO é feito
+      # aqui: ver o job `publish` abaixo e o motivo de ele existir.
       #
-      # Este passo vem antes do scp por um motivo concreto: o job `deploy`
-      # (que roda o switch.sh, dono do ensure_updates_dir) só acontece
-      # DEPOIS deste workflow, na entrada por tag. Sem criar o diretório aqui,
-      # a primeira publicação de uma instalação nova quebra no scp — e
-      # quebra depois de já ter feito o trabalho caro e a release.
-      - name: Preparar deploy/updates no servidor
-        if: inputs.publicar_no_servidor
-        uses: appleboy/ssh-action@v1
+      # O bundle vai para um artefato do run, e o job `publish` é quem o
+      # manda para o VPS. Além de o ssh-action não funcionar no runner
+      # Windows, essa separação é o que torna a publicação barata de
+      # iterar: o build do instalador leva ~20 min, mas se o publish
+      # falhar dá para re-runar SÓ ele, baixando o bundle do artefato.
+      - name: Guardar o bundle para o job de publicação
+        uses: actions/upload-artifact@v4
         with:
-          host: ${{ secrets.HOSTINGER_HOST }}
-          port: ${{ secrets.HOSTINGER_PORT || '22' }}
-          username: ${{ secrets.HOSTINGER_USER }}
-          key: ${{ secrets.HOSTINGER_SSH_KEY }}
-          known_hosts: ${{ secrets.HOSTINGER_KNOWN_HOSTS }}
-          script: |
-            set -Eeuo pipefail
-            UPDATES="${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates"
-            # `-p` sem problema: o dono é o mesmo usuário do scp, então não
-            # há como o Docker criar isto antes como root (o que faria o scp
-            # falhar com permission denied — ver switch.sh).
-            mkdir -p "$UPDATES/files/windows-x86_64"
-
-      - name: Publicar no servidor (SSH)
-        if: inputs.publicar_no_servidor
-        uses: appleboy/scp-action@v1
-        with:
-          host: ${{ secrets.HOSTINGER_HOST }}
-          port: ${{ secrets.HOSTINGER_PORT || '22' }}
-          username: ${{ secrets.HOSTINGER_USER }}
-          key: ${{ secrets.HOSTINGER_SSH_KEY }}
-          known_hosts: ${{ secrets.HOSTINGER_KNOWN_HOSTS }}
-          # `source` do scp-action é resolvido a partir do workspace, e não de
-          # um working-directory do step (que esta action não tem): o caminho
-          # precisa do prefixo `frontend/`, ao contrário dos passos pwsh acima.
-          source: 'frontend/src-tauri/target/release/bundle/nsis/*'
-          target: ${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates/
-
-      - name: Ajustar layout no servidor
-        if: inputs.publicar_no_servidor
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.HOSTINGER_HOST }}
-          port: ${{ secrets.HOSTINGER_PORT || '22' }}
-          username: ${{ secrets.HOSTINGER_USER }}
-          key: ${{ secrets.HOSTINGER_SSH_KEY }}
-          known_hosts: ${{ secrets.HOSTINGER_KNOWN_HOSTS }}
-          script: |
-            set -Eeuo pipefail
-            UPDATES="${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates"
-            # scp joga tudo no mesmo nivel; o Caddy espera latest.json na raiz
-            # e os artefatos em files/windows-x86_64/ (ver Caddyfile).
-            mkdir -p "$UPDATES/files/windows-x86_64"
-            cd "$UPDATES"
-            # latest.json fica na raiz; todo o resto vai para o diretorio da
-            # plataforma. O glob de assinatura e `*.sig`, e nao `*.zip.sig`:
-            # em createUpdaterArtifacts=true o artefato do updater e o proprio
-            # .exe, entao a assinatura chega como <exe>.sig. Listar as duas
-            # extensoes de artefato e um `*.sig` cobre v2 e v1Compatible.
-            mv -f -- *.exe *.zip *.sig files/windows-x86_64/ 2>/dev/null || true
-            ls -la . files/windows-x86_64
+          name: nsis-bundle
+          path: frontend/src-tauri/target/release/bundle/nsis
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Resumo dos artefatos
         if: always()
@@ -301,3 +253,110 @@ jobs:
             Write-Host 'o app instalado nao vai encontrar esta versao. Para publicar depois, dispare'
             Write-Host 'este workflow de novo com "publicar_no_servidor" marcado.'
           }
+
+  # Publicar latest.json + instalador em deploy/updates/ no VPS.
+  #
+  # Job separado, e em Linux, por causa de uma incompatibilidade concreta: o
+  # appleboy/ssh-action e o scp-action nao rodam no runner Windows. O primeiro
+  # build de verdade morreu assim, depois de 20 min de compilacao:
+  #
+  #   Unknown or unsupported platform: mingw64_nt-10.0-26100.
+  #   Supported platforms are Linux, Darwin, and Windows.
+  #
+  # O shell do runner Windows e Git Bash (MSYS/MinGW), e o entrypoint dessas
+  # actions-docker nao reconhece esse uname. Nao e segredo faltando nem VPS
+  # fora: e a plataforma. O job `deploy` de deploy-on-tag.yml usa as MESMAS
+  # actions e funciona, porque roda em ubuntu-latest.
+  #
+  # Onde este job falha, a release do GitHub ja existe com o .exe anexado
+  # (o build faz isso antes), entao o download por URL do GitHub nunca
+  # dependeu do VPS.
+  #
+  # Uma limitacao conhecida e NAO corrigida aqui: o secret
+  # HOSTINGER_KNOWN_HOSTS nao e verificado. ssh-action v1 e scp-action v1
+  # nao tem input `known_hosts` (o proprio action avisa "Unexpected input(s)
+  # 'known_hosts'") e o input que eles aceitam para isto e `fingerprint`, que
+  # espera outro formato. Passar o secret num input inexistente da a impressao
+  # de que a chave do host esta sendo conferida, o que e pior do que openly
+  # nao passar. A correcao de verdade e deriving o fingerprint do secret e
+  # passar em `fingerprint`, ou trocar o scp por openssh nativo com o
+  # known_hosts escrito em ~/.ssh. O job `deploy` de deploy-on-tag.yml tem a
+  # mesma lacuna.
+  publish:
+    needs: build
+    if: inputs.publicar_no_servidor
+    runs-on: ubuntu-latest
+    steps:
+      # O mkdir vem antes do scp por um motivo concreto: o job `deploy` (dono
+      # do ensure_updates_dir, em deploy-on-tag.yml) só acontece DEPOIS deste
+      # workflow, na entrada por tag. Sem criar o diretório aqui, a primeira
+      # publicação de uma instalação nova quebra no scp — e quebra depois de
+      # já ter feito o trabalho caro.
+      - name: Preparar deploy/updates no servidor
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.HOSTINGER_HOST }}
+          port: ${{ secrets.HOSTINGER_PORT || '22' }}
+          username: ${{ secrets.HOSTINGER_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          script: |
+            set -Eeuo pipefail
+            UPDATES="${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates"
+            # `-p` sem problema: o dono é o mesmo usuário do scp, então não
+            # há como o Docker criar isto antes como root (o que faria o scp
+            # falhar com permission denied — ver switch.sh).
+            mkdir -p "$UPDATES/files/windows-x86_64"
+
+      - name: Baixar o bundle do run
+        uses: actions/download-artifact@v4
+        with:
+          name: nsis-bundle
+          path: bundle
+
+      - name: Conferir o que será publicado
+        run: |
+          set -Eeuo pipefail
+          ls -la bundle
+          test -f bundle/latest.json || { echo "Faltou o latest.json no bundle"; exit 1; }
+          sig=$(ls bundle/*.sig 2>/dev/null | head -1)
+          test -n "$sig" || { echo "Faltou a assinatura no bundle"; exit 1; }
+          # O manifesto tem que apontar para um arquivo que realmente vai
+          # subir. Errar aqui é melhor que publicar um latest.json que aponta
+          # para o vazio — o app instalado ignoraria a versão em silêncio.
+          artefato="${sig%.sig}"
+          jq -r '.platforms["windows-x86_64"].url' bundle/latest.json | grep -qF "/$(basename "$artefato")" \
+            || { echo "O latest.json nao aponta para $(basename "$artefato")"; jq . bundle/latest.json; exit 1; }
+          echo "OK: manifesto aponta para $(basename "$artefato")"
+
+      - name: Publicar no servidor (SCP)
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.HOSTINGER_HOST }}
+          port: ${{ secrets.HOSTINGER_PORT || '22' }}
+          username: ${{ secrets.HOSTINGER_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          # `source` do scp-action é resolvido a partir do workspace, e não de
+          # um working-directory do step (que esta action não tem).
+          source: 'bundle/*'
+          target: ${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates/
+
+      - name: Ajustar layout no servidor
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.HOSTINGER_HOST }}
+          port: ${{ secrets.HOSTINGER_PORT || '22' }}
+          username: ${{ secrets.HOSTINGER_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          script: |
+            set -Eeuo pipefail
+            UPDATES="${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates"
+            # scp joga tudo no mesmo nivel; o Caddy espera latest.json na raiz
+            # e os artefatos em files/windows-x86_64/ (ver Caddyfile).
+            cd "$UPDATES"
+            # latest.json fica na raiz; todo o resto vai para o diretorio da
+            # plataforma. O glob de assinatura e `*.sig`, e nao `*.zip.sig`:
+            # em createUpdaterArtifacts=true o artefato do updater e o proprio
+            # .exe, entao a assinatura chega como <exe>.sig. Listar as duas
+            # extensoes de artefato e um `*.sig` cobre v2 e v1Compatible.
+            mv -f -- *.exe *.zip *.sig files/windows-x86_64/ 2>/dev/null || true
+            ls -la . files/windows-x86_64
