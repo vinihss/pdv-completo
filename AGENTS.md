@@ -103,7 +103,7 @@ O mesmo código cobre 5 perfis, cada um com sua superfície no login e seus pap�
 
 Duas armadilhas que já custaram tempo (detalhe em `docs/11-desktop-instalador.md` §8.1-8.2):
 
-- **AppImage não empacota no Arch** — o `strip` do `linuxdeploy` não conhece a seção `.relr.dyn` das libs do Arch e o build morre com "failed to run linuxdeploy". O `.deb` sai normal; para o AppImage use `bash build-app.sh --appimage-docker` (empacota num `debian:bookworm-slim`).
+- **AppImage não empacota no Arch** — o `strip` do `linuxdeploy` não conhece a seção `.relr.dyn` das libs do Arch e o build morre with "failed to run linuxdeploy". The `.deb` sai normal; para o AppImage use `bash build-app.sh --appimage-docker` (empacota num `debian:bookworm-slim`).
 - **Build local sempre pede chave de assinatura** — o Tauri 2 assina o artefato de update sempre que `plugins.updater.pubkey` está no conf, e nenhuma flag de `-c` desliga. Sem isso o build local terminava com erro *depois* de gerar o instalador. O script agora gera uma chave descartável em `src-tauri/.local-signing.key` (fora do git): o instalador sai, o `.sig` existe, e nenhum app real atualiza por ele — entrega continua exigindo `--release` com a chave de verdade.
 
 O app Windows é o alvo: instalador único, config por loja em `%ProgramData%\PDV\app.json` e daemon de impressão instalado como serviço junto. **A lista do que ainda não foi provado (chave da assinatura fora do repo, secrets do deploy ausentes, `installer-hooks.nsh` nunca compilado) está em `docs/11-desktop-instalador.md` §9 — leia antes de chamar algo de "pronto".**
@@ -117,7 +117,6 @@ O app Windows é o alvo: instalador único, config por loja em `%ProgramData%\PD
 | courier | Entregas | `deliveries` + `alerts` + `alerts:courier` | só as entregas atribuídas a ele |
 
 O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles de rollout — `kitchen_enabled: false` esconde a cozinha e `uses_delivery: false` esconde os entregadores.
-
 ## Comandos úteis
 
 | Comando | Onde | O que faz |
