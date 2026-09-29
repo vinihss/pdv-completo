@@ -247,7 +247,8 @@ jobs:
             Write-Error "Release $tag ficou sem assets depois do upload (assets=$assets)"
             exit 1
           }
-          gh release view $tag --repo '${{ github.repository }}' --json url -q '"release: " + .url + " | assets: '" + $assets + '"'
+          gh release view $tag --repo '${{ github.repository }}' --json url -q '"release: " + .url'
+          Write-Host "assets na release: $assets"
 
       # Publicar no servidor é o que dá o download por URL própria
       # (/updates/files/...) e o manifesto do auto-update. Isso NÃO é feito
