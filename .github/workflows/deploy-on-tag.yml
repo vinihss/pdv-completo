@@ -129,10 +129,6 @@ jobs:
             echo "[deploy] Versão atual: $(git describe --tags --always 2>/dev/null || echo 'desconhecida')"
             echo "[deploy] Deploy da tag: $TAG"
 
-            # Backup antes do deploy (não corromper dados)
-            echo "[deploy] Criando backup antes do deploy..."
-            ./deploy/backup.sh /opt/backups
-
             # Guarda o ponteiro de "qual instância está no ar" ANTES do
             # checkout. O `git checkout -f` abaixo reverte o arquivo para o
             # conteúdo do repo (sempre `backend`), e o switch lê esse
@@ -154,6 +150,20 @@ jobs:
             git fetch --prune --tags --force origin
             git checkout -f "$TAG"
             cp /tmp/pdv-active-upstream.bak deploy/state/active-upstream
+
+            # Backup ANTES do switch, e DEPOIS do checkout — não antes. O
+            # backup roda o script que está no host, e o host só recebe o
+            # código da tag no checkout: com o backup antes dele, o script
+            # usado era o da versão anterior, e qualquer correção feita na
+            # tag não valia nada (foi assim que a correção do container do
+            # Postgres não chegou ao deploy — o host rodou o backup.sh velho
+            # e abortou de novo em "2 containers Postgres no host").
+            #
+            # O banco não muda no checkout (só código), então o snapshot é o
+            # mesmo — e fica mais perto do momento em que as migrations vão
+            # mexer nele, que é o que importa para rollback.
+            echo "[deploy] Criando backup antes do deploy..."
+            ./deploy/backup.sh /opt/backups
 
             # O switch faz tudo: build da imagem nova, sobe a instância
             # "-next" ao lado da atual, espera o healthcheck (o /health só
