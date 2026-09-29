@@ -25,10 +25,12 @@ func TestResolveDir(t *testing.T) {
 		{name: "vazio cai no padrão", value: "", want: filepath.Join(base, "data")},
 		{name: "relativo ancora no config", value: "./fila", want: filepath.Join(base, "fila")},
 		{name: "relativo sem ./", value: "fila", want: filepath.Join(base, "fila")},
-		// filepath.IsAbs só reconhece letra de drive no Windows — que é onde o
-		// daemon roda. Nos outros SOs vale a semântica do próprio S.O.
+		// Caminho com raiz é respeitado em todo S.O. No Windows o
+		// filepath.IsAbs sozinho não pegaria "/srv/pdv/fila" (exige letra de
+		// drive), e o daemon acabava lendo/gravando no diretório errado.
 		{name: "absolutão é respeitado", value: "/srv/pdv/fila", want: "/srv/pdv/fila"},
 		{name: "absolutão Windows", value: `C:\PDV\fila`, want: `C:\PDV\fila`, onlyWindows: true},
+		{name: "absolutão Windows com barra invertida", value: `\PDV\fila`, want: `\PDV\fila`, onlyWindows: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

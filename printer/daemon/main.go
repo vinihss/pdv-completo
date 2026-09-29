@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -271,6 +272,19 @@ func resolveDir(value, baseDir, fallback string) string {
 	}
 	if filepath.IsAbs(value) {
 		return filepath.Clean(value)
+	}
+	// No Windows filepath.IsAbs só aceita letra de drive ou UNC (volumeNameLen),
+	// mas "\fila" e "/fila" também são absolutos para quem opera o serviço: são
+	// a raiz da unidade corrente. Sem esta checagem eles caíam no Join de
+	// baixo e o daemon lia/gravava em %ProgramData%\PDV Printer\fila em vez de
+	// C:\fila — silenciosamente, porque o diretório errado é criado sem erro.
+	//
+	// Só no Windows: no Unix "/" já foi tratado pelo IsAbs acima e "\" é um
+	// caractere válido de nome de arquivo, não raiz. Devolvido sem Clean de
+	// propósito, porque o Clean do Windows troca "/" por "\" e reescreveria a
+	// string que o operador escreveu no config.
+	if runtime.GOOS == "windows" && (strings.HasPrefix(value, "/") || strings.HasPrefix(value, `\`)) {
+		return value
 	}
 	return filepath.Join(baseDir, value)
 }
