@@ -46,42 +46,79 @@ Além disso, no mesmo commit (`entities/payment/lib/pix.js`):
   no próprio teste: é a única forma de pegar o comprimento de 3 dígitos, que
   nenhuma asserção de string pegaria.
 
-## 2. `analyzePixKey` — tipo deduzido, checksum só avisa
+## 2. `analyzePixKey` — o tipo vem das configurações
 
-O tipo da chave Pix é dedutível do próprio formato, então a geração do payload
-**não depende** de `store_settings.pixKeyType`. Chave salva com máscara
-(`519.914.324-85`, `+55 (51) 99143-2485`, `11.222.333/0001-81`) é
-canonicalizada na hora de montar o BR Code.
+`analyzePixKey(raw, typeHint)` usa `store_settings.pixKeyType` como
+**autoritativo**: é o gerente quem diz se a chave é telefone ou CPF, e os
+formatos se cruzam — CPF e celular no formato nacional têm exatamente os mesmos
+11 dígitos, então deduzir "11 dígitos = CPF" transformava o telefone do gerente
+num BR Code sem DDI, e o app do banco respondia **"CPF inválido"**. Era o tipo
+que estava morto, não o gerente: o `select` da tela era salvo no banco e nunca
+lido em lugar nenhum.
 
-Duas decisões deliberadas:
+Três decisões:
 
-- **11 dígitos é ambíguo** — CPF e celular no formato nacional têm exatamente o
-  mesmo formato. O padrão é tratar como **CPF**; quem quiser telefone digita o
-  `+55` e cai no ramo de E.164.
+- **O tipo escolhido manda quando o valor é compatível.** Só quando não cabe é
+  que a dedução pelo formato assume (CPF 11 dígitos, CNPJ 14, e-mail com "@",
+  telefone em E.164, EVP é UUID), e aí a divergência vira aviso. O caminho
+  inverso é proibido: um tipo incompatível não pode "forçar" a chave.
+- **Sem tipo, 11 dígitos continua sendo CPF** — não há como desempatar, e o
+  padrão é o que não manda dinheiro para o número de outra pessoa.
 - **Dígito verificador errado é aviso, nunca reclassificação.** A tentação é
   "CPF válido → cpf, senão → telefone", e isso é perigoso: um CPF digitado
-  errado viraria uma chave de telefone *válida*, e o cliente pagaria para o
-  número de outra pessoa. Falha muito pior do que o app do banco recusar o QR.
-  O aviso aparece no modal do `PixQrScreen`, que não trava a geração.
+  errado viraria uma chave de telefone *válida*. O aviso aparece no modal do
+  `PixQrScreen`, que não trava a geração.
+
+O telefone sai sempre em **E.164**, porque o DDI é obrigatório: 10 dígitos
+(DDD + fixo) e 11 dígitos (DDD + celular) recebem o `+55`; 12+ dígitos já com o
+`55` mantêm o `+`; máscara e parênteses são removidos. O 11 dígitos fora do
+padrão de celular (3º dígito ≠ 9) assume `+55` **com aviso** — o gerente
+escolheu "telefone", então a intenção dele manda, mas dizemos na tela que o
+formato é ambíguo. A prévia do que será gerado fica em
+`SettingsTab.jsx` (`PixKeyPreview`), para o erro aparecer no cadastro e não só
+na hora de cobrar.
+
+A suíte `entities/payment/lib/pix.test.js` fixa a dedução sem tipo; o caminho
+com tipo é coberto pela prévia da tela de Configurações e pelo `buildPixPayload`
+do `PaymentModal` (que repassa `pixKeyType` para o `PixQrScreen`).
 
 ## 3. Pendências
 
-### 3.1 Normalizar a chave também no `PATCH /store-settings`
+### 3.1 ~~Normalizar a chave também no `PATCH /store-settings`~~ — feito em 29/09/2026
 
-Hoje a sanitização acontece **só na hora de gerar o QR**
-(`store-settings.usecases.ts:80` valida `merchantName`/`merchantCity` mas
-salva `pixKey` cru). Funciona, mas o banco guarda lixo e qualquer consumidor
-futuro do `pix_key` vai ler a chave com máscara. Normalizar no save deixa o
-banco canônico; a sanitização na geração continua como rede de segurança.
+`backend/src/domain/pix-key.ts` (`canonicalizePixKey`) canonicaliza a chave no
+`PUT /store-settings`, e agora ela sabe o tipo: telefone sai em E.164,
+documento só em dígitos, e-mail em minúsculas, EVP em minúsculas. O `pixKeyType`
+é o que desempata, e o resto é o mesmo.
 
-### 3.2 `pixKeyType` virou campo morto
+Duas decisões, para o `PUT` não virar porta de entrada de erro:
 
-Depois de §2, o `pixKeyType` é **gravado e nunca lido** em lugar nenhum. Por
-decisão explícita ficou como está (não quebrar o banco de quem já salvou uma
-instalação), mas as opções são: remover o `select` de `SettingsTab.jsx:286` e
-a coluna, ou passar a exibi-lo como **derivado** do valor, mostrando ao gerente
-o que o sistema deduziu. Se remover a coluna, precisa de migration `0004_*`
-com `DROP COLUMN IF EXISTS`.
+- **Chave incompatível com o tipo volta como veio** (`canonical ?? raw`). Recusar
+  o `PUT` inteiro bloquearia o gerente de salvar as outras configurações por um
+  erro de um campo, e descartar o que ele digitou seria pior. A divergência
+  vira aviso na geração do QR, no lugar certo.
+- **Dígito verificador não recusa save.** É aviso, igual no client — e
+  reclassificar a chave seria pior do que o app do banco recusar o QR.
+
+A regra existe em **dois lugares** de propósito: `domain/pix-key.ts` (o que
+entra no banco) e `entities/payment/lib/pix.js` (o que monta o BR Code, que é
+gerado no client). Instalação com chave já salva com máscara continua
+funcionando pela segunda. Mudou uma, mude a outra.
+
+Cobertura: `test/pix-key.test.ts` (6 testes, round-trip pela API + leitura da
+coluna) e `entities/payment/lib/pix.test.js` (30 testes, incluindo o
+caso do bug: 11 dígitos com `pixKeyType: "phone"` → `+5551991432485` no
+campo `26.01`).
+
+
+### 3.2 ~~`pixKeyType` virou campo morto~~ — resolvido em 29/09/2026
+
+O campo é **lido**: `analyzePixKey` e `buildPixPayload` recebem
+`store_settings.pixKeyType` e ele é autoritativo (ver §2). O `select` da tela
+passou a mostrar o rótulo em PT-BR e ganhou a prévia do tipo efetivo. A coluna
+`pix_key_type` segue no schema — **não** remover sem migration `0005_*` com
+`DROP COLUMN IF EXISTS`, porque ainda é a fonte da verdade do que o gerente
+escolheu.
 
 ### 3.3 Quiet zone do QR
 

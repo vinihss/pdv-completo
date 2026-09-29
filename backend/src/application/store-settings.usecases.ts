@@ -4,6 +4,7 @@ import path from "node:path";
 import { db } from "../infra/db/client.js";
 import { storeSettings } from "../infra/db/schema.js";
 import { Errors } from "../domain/errors.js";
+import { canonicalizePixKey } from "../domain/pix-key.js";
 import { config } from "../config/env.js";
 import { logAction } from "../infra/audit-log.js";
 import { getCache } from "../infra/cache/index.js";
@@ -87,13 +88,20 @@ export async function updateStoreSettingsUsecase(input: {
 
   const nameOrCityChanged = input.merchantName !== current.merchantName || input.merchantCity !== current.merchantCity;
 
+  // A chave Pix entra canônica no banco (telefone em E.164, documento só
+  // dígitos, e-mail em minúsculas). Quem decide o formato é o `pixKeyType` que
+  // o gerente salvou, e não a dedução por formato: 11 dígitos são CPF e celular
+  // ao mesmo tempo, e chutar "CPF" punha o telefone do gerente sem DDI no QR.
+  // O client repete a mesma regra na hora de gerar (`domain/pix-key.ts`).
+  const pixKey = canonicalizePixKey(input.pixKey, input.pixKeyType);
+
   const [updated] = await db
     .update(storeSettings)
     .set({
       merchantName: input.merchantName,
       merchantCity: input.merchantCity,
       brandColor: input.brandColor,
-      pixKey: input.pixKey,
+      pixKey,
       pixKeyType: input.pixKeyType,
       usesTables: input.usesTables,
       kitchenEnabled: input.kitchenEnabled,

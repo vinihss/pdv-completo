@@ -65,17 +65,33 @@ function crc16(payload) {
 // ---------------------------------------------------------------------------
 // Chave Pix
 //
-// O tipo da chave é deduzido do próprio formato, e não do
-// `store_settings.pixKeyType`: CPF tem 11 dígitos, CNPJ 14, e-mail tem "@",
-// telefone em E.164 começa com "+" e a aleatória (EVP) é um UUID. O BACEN
-// aceita a chave exatamente no formato canônico, então a entrada é
-// canonicalizada aqui — assim a chave salva com máscara
+// O tipo vem de `store_settings.pixKeyType` — é o gerente quem diz se a chave
+// é telefone ou CPF, e os formatos se cruzam: CPF e celular no formato nacional
+// têm exatamente os mesmos 11 dígitos, então deduzir "11 dígitos = CPF"
+// transformava o telefone do gerente num QR que o app do banco recusava por
+// "CPF inválido". A dedução pelo formato é o plano B, usado só quando o valor
+// não cabe no tipo escolhido (e sempre com aviso).
+//
+// O BACEN aceita a chave exatamente no formato canônico, então a entrada é
+// canonicalizada nos dois caminhos — assim a chave salva com máscara
 // ("519.914.324-85", "+55 (51) 99143-2485") ainda gera um BR Code válido.
 // ---------------------------------------------------------------------------
 
 const E_MAIL = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
 const EVP = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SO_DIGITOS = /^\d+$/;
+
+const TIPOS = ["cpf", "cnpj", "email", "phone", "random"];
+
+// Rótulo em PT-BR do tipo efetivo, para a tela de Configurações mostrar o que
+// o BR Code vai realmente conter.
+export const PIX_KEY_TYPE_LABELS = {
+  cpf: "CPF",
+  cnpj: "CNPJ",
+  email: "E-mail",
+  phone: "Telefone",
+  random: "Chave aleatória (EVP)",
+};
 
 function digitoVerificador(base, pesos) {
   const soma = [...base].reduce((acc, digito, i) => acc + Number(digito) * pesos[i], 0);
@@ -99,28 +115,100 @@ export function validarCnpj(cnpj) {
   return Number(cnpj[12]) === d1 && Number(cnpj[13]) === d2;
 }
 
-// O dígito verificador é aviso, nunca classificador: um CPF digitado errado
-// que caísse no ramo "telefone" viraria uma chave válida de outra pessoa, e o
-// cliente pagaria para o número errado. Preferimos recusar com aviso.
-export function analyzePixKey(raw) {
-  const value = String(raw ?? "").trim();
-  const warnings = [];
+// Telefone tem de sair sempre em E.164. Sem o DDI o app do banco lê a chave
+// como documento ("51991432485" vira CPF) e recusa. O Settings aceita a chave
+// como o gerente digita, então o input vem nos formatos nacionais, com
+// máscara: DDD + fixo (10), DDD + celular (11, o 3º dígito é sempre 9), e os
+// mesmos com o 55 do DDI já digitado (12 ou 13).
+//
+// O dígito 9 é só aviso: a hipótese padrão para 11 dígitos é celular nacional,
+// porque o gerente escolheu "telefone" nas configurações e a intenção dele
+// manda. O aviso cobre o formato ambíguo sem bloquear a cobrança.
+function canonicalizarTelefone(value) {
+  const digits = value.replace(/\D/g, "");
+  const telefone = (key, avisos) => ({ key, type: "phone", warnings: avisos || [] });
 
-  if (!value) return { key: "", type: null, warnings: ["Chave Pix não configurada."] };
+  if (value.startsWith("+")) {
+    const key = `+${digits}`;
+    return telefone(key, key.length < 3 || key.length > 15
+      ? ["A chave Pix de telefone está fora do formato E.164."]
+      : []);
+  }
+
+  // DDI + DDD + celular (13) ou DDI + DDD + fixo (12).
+  if (digits.length >= 12 && digits.startsWith("55")) return telefone(`+${digits}`);
+
+  // DDI + DDD + fixo, sem o 9 do celular (11 começando por 55).
+  if (digits.length === 11 && digits.startsWith("55")) return telefone(`+${digits}`);
+
+  // DDD + celular.
+  if (digits.length === 11 && digits[2] === "9") return telefone(`+55${digits}`);
+
+  // DDD + fixo.
+  if (digits.length === 10) return telefone(`+55${digits}`);
+
+  if (digits.length === 11) {
+    return telefone(`+55${digits}`, [
+      "A chave Pix de telefone tem 11 dígitos e não começa por 9 — confira se o número já inclui o DDD.",
+    ]);
+  }
+
+  return null;
+}
+
+// Canonicaliza a chave no tipo escolhido pelo gerente. Devolve `null` quando o
+// valor não é compatível com o tipo — aí quem decide é a dedução pelo formato.
+function canonicalizarPorTipo(value, tipo) {
+  if (tipo === "email") {
+    if (!value.includes("@")) return null;
+    const key = value.toLowerCase().replace(/\s+/g, "");
+    return {
+      key,
+      type: "email",
+      warnings: E_MAIL.test(key) ? [] : ["A chave Pix de e-mail não parece um endereço válido."],
+    };
+  }
+
+  if (tipo === "random") {
+    return EVP.test(value) ? { key: value.toLowerCase(), type: "random", warnings: [] } : null;
+  }
+
+  // Telefone e documento são feitos de dígitos; letra aqui já é outra coisa.
+  if (/[^\d\s.()/+-]/.test(value)) return null;
+
+  if (tipo === "phone") return canonicalizarTelefone(value);
+
+  if (tipo === "cpf" || tipo === "cnpj") {
+    const digits = value.replace(/\D/g, "");
+    if (digits.length !== (tipo === "cpf" ? 11 : 14)) return null;
+    const confere = tipo === "cpf" ? validarCpf(digits) : validarCnpj(digits);
+    return {
+      key: digits,
+      type: tipo,
+      warnings: confere
+        ? []
+        : [`Os dígitos verificadores do ${PIX_KEY_TYPE_LABELS[tipo]} não conferem — confira a chave Pix antes de cobrar.`],
+    };
+  }
+
+  return null;
+}
+
+// Plano B: tipo deduzido pelo próprio formato. Só entra aqui quando não há
+// `typeHint` ou quando o valor não cabe nele.
+function deduzirTipoPix(value) {
+  const avisos = [];
+  const resultado = (key, type) => ({ key, type, warnings: avisos });
 
   if (value.includes("@")) {
     const key = value.toLowerCase().replace(/\s+/g, "");
-    if (!E_MAIL.test(key)) warnings.push("A chave Pix de e-mail não parece um endereço válido.");
-    return { key, type: "email", warnings };
+    if (!E_MAIL.test(key)) avisos.push("A chave Pix de e-mail não parece um endereço válido.");
+    return resultado(key, "email");
   }
 
-  if (EVP.test(value)) return { key: value.toLowerCase(), type: "random", warnings };
+  if (EVP.test(value)) return { key: value.toLowerCase(), type: "random", warnings: [] };
 
-  if (value.startsWith("+")) {
-    const key = `+${value.replace(/\D/g, "")}`;
-    if (key.length < 3 || key.length > 15) warnings.push("A chave Pix de telefone está fora do formato E.164.");
-    return { key, type: "phone", warnings };
-  }
+  if (value.startsWith("+")) return canonicalizarTelefone(value);
 
   // máscaras de CPF ("509.876.543-21") e CNPJ ("11.222.333/0001-81")
   if (/[^\d\s.()/-]/.test(value)) {
@@ -130,27 +218,53 @@ export function analyzePixKey(raw) {
   const digits = value.replace(/\D/g, "");
 
   // 11 dígitos é ambíguo: CPF (509.876.543-21) e celular no formato nacional
-  // (51 99143-2485) têm exatamente o mesmo formato. O padrão é tratar como
-  // CPF — quem quiser telefone digita o "+55" e cai no caso de cima.
+  // (51 99143-2485) têm exatamente o mesmo formato. Sem `pixKeyType` não há como
+  // desempatar, e o padrão é tratar como CPF.
   if (digits.length === 11) {
     if (!validarCpf(digits)) {
-      warnings.push("Os dígitos verificadores do CPF não conferem — confira a chave Pix antes de cobrar.");
+      avisos.push("Os dígitos verificadores do CPF não conferem — confira a chave Pix antes de cobrar.");
     }
-    return { key: digits, type: "cpf", warnings };
+    return resultado(digits, "cpf");
   }
 
   if (digits.length === 14) {
     if (!validarCnpj(digits)) {
-      warnings.push("Os dígitos verificadores do CNPJ não conferem — confira a chave Pix antes de cobrar.");
+      avisos.push("Os dígitos verificadores do CNPJ não conferem — confira a chave Pix antes de cobrar.");
     }
-    return { key: digits, type: "cnpj", warnings };
+    return resultado(digits, "cnpj");
   }
 
   if (SO_DIGITOS.test(digits) && (digits.length === 10 || (digits.length >= 12 && digits.startsWith("55")))) {
-    return { key: digits.length === 10 ? `+55${digits}` : `+${digits}`, type: "phone", warnings };
+    return canonicalizarTelefone(value);
   }
 
-  return { key: digits, type: null, warnings: ["Não foi possível identificar o tipo da chave Pix."] };
+  avisos.push("Não foi possível identificar o tipo da chave Pix.");
+  return resultado(digits, null);
+}
+
+export function analyzePixKey(raw, typeHint) {
+  const value = String(raw ?? "").trim();
+  const tipo = TIPOS.includes(typeHint) ? typeHint : null;
+
+  if (!value) return { key: "", type: null, warnings: ["Chave Pix não configurada."] };
+
+  if (tipo) {
+    const escolhida = canonicalizarPorTipo(value, tipo);
+    if (escolhida) return escolhida;
+  }
+
+  const deduzida = deduzirTipoPix(value);
+  if (!tipo) return deduzida;
+
+  // O tipo das configurações não serviu para o valor. O gerente precisa saber,
+  // porque salvou um tipo que não bate com o que digitou.
+  return {
+    ...deduzida,
+    warnings: [
+      `A chave Pix não é do tipo "${PIX_KEY_TYPE_LABELS[tipo]}" escolhido nas configurações — usando o tipo deduzido pelo formato.`,
+      ...deduzida.warnings,
+    ],
+  };
 }
 
 // O BACEN exige txid de 1 a 25 caracteres ALFANUMÉRICOS. A `order.id` é um
@@ -174,8 +288,8 @@ function formatAmount(amount) {
   return valor.toFixed(2);
 }
 
-export function buildPixPayload({ pixKey, merchantName, merchantCity, amount, txid, description }) {
-  const { key } = analyzePixKey(pixKey);
+export function buildPixPayload({ pixKey, pixKeyType, merchantName, merchantCity, amount, txid, description }) {
+  const { key } = analyzePixKey(pixKey, pixKeyType);
   const gui = field("00", GUI);
 
   // 26 = "26" + GUI + "01" + chave + ["02" + descrição]. A descrição só pode

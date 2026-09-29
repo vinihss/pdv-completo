@@ -38,7 +38,7 @@ docs/       Specs originais (backend, frontend, critérios de aceite)
 | `docs/07-estoque.md` | Spec do controle de estoque: ledger `stock_movement`, flags de rollout, endpoints, regras de corretude e testes. |
 | `docs/08-estoque-profissional.md` | Spec do estoque profissional: fornecedores, compras multi-item, custo médio móvel, valorização, pendências (contagem, lote, multi-depósito). |
 | `docs/10-whatsapp-embedded-signup.md` | WhatsApp Cloud API: Embedded Signup v4, token por WABA, webhooks de mensagem e de status, diagnóstico. |
-| `docs/11-pix-pendencias.md` | BR Code do Pix: o que foi corrigido (GUI minúscula, txid alfanumérico, teto de 99 bytes) e as pendências (normalizar chave no save, `pixKeyType` morto, quiet zone, copia e cola). |
+| `docs/11-pix-pendencias.md` | BR Code do Pix: o que foi corrigido (GUI minúscula, txid alfanumérico, teto de 99 bytes, `pixKeyType` respeitado, chave canônica no banco) e as pendências (quiet zone, copia e cola). |
 
 ## Como rodar
 
@@ -149,7 +149,7 @@ e `/realtime` pro backend).
 | `npm run seed:prod` | backend | seed de primeiro deploy (sem dados fictícios) |
 | `npm run db:migrate` | backend | aplica `migrations/*.sql` (também roda no boot em modo local) |
 | `npm run db:deactivate-demo` | backend | desativa o cardápio fictício do `seed` (use `-- --dry-run` para só listar) |
-| `npm run test` | backend | vitest 5 (Postgres dedicado `pdv_test` via `TEST_DATABASE_URL`; caixa, comandas, idempotência, maintenance, stock, whatsapp, printer, compras, clientes/equipe/perfis) |
+| `npm run test` | backend | vitest 5 (Postgres dedicado `pdv_test` via `TEST_DATABASE_URL`; caixa, comandas, idempotência, maintenance, stock, whatsapp, printer, compras, clientes/equipe/perfis, chave Pix) |
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
 | `npm run test` | frontend | vitest (jsdom + Testing Library; 29 suítes: casca do app + menu, drawer/accordion, modal/header/variação, login por PIN, detalhe da comanda, modais de compra/equipe, caixa/reports, página pública, **sino de alertas**, o áudio e o `useRealtime`) |
@@ -539,9 +539,24 @@ dentro da fase, a ordem indicada.
   `confirmed:true`. Sem chave/nome/cidade configurados, a opção Pix fica
   desabilitada com aviso. **Corrigido em 28/09/2026**: o app do banco recusava
   o QR por GUI em maiúsculas (`BR.GOV.BCB.PIX`) e txid com hífen (`order.id` é
-  `crypto.randomUUID()`); agora `analyzePixKey` canonicaliza a chave e deduz o
-  tipo pelo formato, sem depender de `pixKeyType`. Pendências em
-  `docs/11-pix-pendencias.md`.
+  `crypto.randomUUID()`). **Corrigido em 29/09/2026**: o `pixKeyType` das
+  configurações era gravado e nunca lido, e a dedução por formato tratava 11
+  dígitos como CPF — o telefone do gerente saía no BR Code sem DDI e o app do
+  banco respondia "CPF inválido". Agora `analyzePixKey(raw, typeHint)` usa
+  `store_settings.pixKeyType` como autoritativo, canonicaliza telefone em E.164
+  (10/11 díg → `+55`, 12+ com `55` → `+`) e só cai na dedução (com aviso) quando
+  o valor não cabe no tipo escolhido. O `SettingsTab` mostra a prévia do tipo
+  efetivo e o `PaymentModal` repassa `pixKeyType` ao `PixQrScreen` — sem isso o
+  tipo nem chegava à tela. No mesmo dia, `backend/src/domain/pix-key.ts`
+  (`canonicalizePixKey`) passou a canonicalizar a chave no
+  `PUT /store-settings` (telefone em E.164, documento só dígitos, e-mail
+  minúsculo), fechando a pendência 3.1 da doc. **A regra existe em dois lugares
+  de propósito** — o domain (o que entra no banco) e o `pix.js` (o que monta o
+  BR Code, que é gerado no client, e serve de rede de segurança para
+  instalação com chave em máscara): mudou uma, mude a outra. Chave
+  incompatível com o tipo **não** recusa o `PUT`, volta como veio. Suítes:
+  `test/pix-key.test.ts` (6) e `entities/payment/lib/pix.test.js` (30).
+  Pendências em `docs/11-pix-pendencias.md`.
 
 ### Fase 5 — Estoque (implementado)
 

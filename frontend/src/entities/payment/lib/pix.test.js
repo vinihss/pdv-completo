@@ -50,6 +50,15 @@ function campo(payload, id) {
   return parseTlv(payload).find((f) => f.id === id);
 }
 
+// A chave Pix é o subcampo "01" do campo 26, logo depois da GUI — que entra
+// como o TLV "00"/14, então o parser só começa depois dela.
+function chavePixDoPayload(payload) {
+  const gui = "0014br.gov.bcb.pix";
+  const conta = campo(payload, "26").value;
+  expect(conta.startsWith(gui)).toBe(true);
+  return parseTlv(conta.slice(gui.length)).find((f) => f.id === "01").value;
+}
+
 describe("BR Code — estrutura", () => {
   it("crc16 é o CCITT-FALSE (check value 29B1 para '123456789')", () => {
     expect(crc16("123456789")).toBe("29B1");
@@ -221,6 +230,78 @@ describe("analyzePixKey", () => {
       type: null,
       warnings: [expect.stringMatching(/Não foi possível identificar/)],
     });
+  });
+});
+
+// `pixKeyType` das configurações é a fonte da verdade: 11 dígitos são CPF e
+// celular ao mesmo tempo, e chutar "CPF" fazia o telefone do gerente sair no
+// BR Code sem DDI — o app do banco respondia "CPF inválido" e recusava o QR.
+describe("analyzePixKey — tipo das configurações (pixKeyType)", () => {
+  it("telefone de 11 dígitos sai em E.164, não como CPF", () => {
+    const r = analyzePixKey("51991432485", "phone");
+    expect(r).toMatchObject({ key: "+5551991432485", type: "phone", warnings: [] });
+  });
+
+  it("mesma chave, mesmo tipo salvo: o BR Code vai com o DDI", () => {
+    // regressão do bug reportado: sem o tipo, 11 dígitos viravam CPF
+    expect(chavePixDoPayload(buildPixPayload(BASE))).toBe("51991432485");
+    const comTipo = buildPixPayload({ ...BASE, pixKeyType: "phone" });
+    expect(chavePixDoPayload(comTipo)).toBe("+5551991432485");
+    expect(validarCrc(comTipo)).toBe(true);
+  });
+
+  it("telefone com máscara, DDI digitado ou fixo", () => {
+    expect(analyzePixKey("+55 (51) 99143-2485", "phone").key).toBe("+5551991432485");
+    expect(analyzePixKey("5551991432485", "phone").key).toBe("+5551991432485");
+    expect(analyzePixKey("5133334444", "phone").key).toBe("+555133334444");
+    expect(analyzePixKey("+55 51 3333-4444", "phone").key).toBe("+555133334444");
+  });
+
+  it("11 dígitos fora do padrão de celular assume +55 e avisa", () => {
+    // a intenção do gerente (tipo phone) manda, mas o formato é ambíguo
+    const r = analyzePixKey("21255512345", "phone");
+    expect(r).toMatchObject({ key: "+5521255512345", type: "phone" });
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]).toMatch(/não começa por 9/);
+  });
+
+  it("CPF e CNPJ do tipo salvo perdem a máscara, e DV errado só avisa", () => {
+    expect(analyzePixKey("509.876.543-21", "cpf")).toMatchObject({ key: "50987654321", type: "cpf" });
+    const dv = analyzePixKey("51991432485", "cpf");
+    expect(dv).toMatchObject({ key: "51991432485", type: "cpf" });
+    expect(dv.warnings).toHaveLength(1);
+    expect(dv.warnings[0]).toMatch(/dígitos verificadores do CPF/);
+    expect(analyzePixKey("11.222.333/0001-81", "cnpj").key).toBe("11222333000181");
+  });
+
+  it("e-mail e chave aleatória do tipo salvo são canonicalizados", () => {
+    expect(analyzePixKey(" Fulano.Telefone@Banco.com.BR ", "email")).toMatchObject({
+      key: "fulano.telefone@banco.com.br",
+      type: "email",
+      warnings: [],
+    });
+    expect(analyzePixKey("123E4567-E12B-12D1-A456-426655440000", "random")).toMatchObject({
+      key: "123e4567-e12b-12d1-a456-426655440000",
+      type: "random",
+    });
+  });
+
+  it("tipo incompatível com o valor cai na dedução e avisa", () => {
+    // nunca no sentido inverso: tipo não pode "forçar" uma chave que não é dele
+    const email = analyzePixKey("fulano@banco.com.br", "phone");
+    expect(email).toMatchObject({ key: "fulano@banco.com.br", type: "email" });
+    expect(email.warnings[0]).toMatch(/não é do tipo "Telefone"/);
+
+    const fixo = analyzePixKey("5133334444", "cpf");
+    expect(fixo).toMatchObject({ key: "+555133334444", type: "phone" });
+    expect(fixo.warnings[0]).toMatch(/não é do tipo "CPF"/);
+  });
+
+  it("tipo desconhecido ou ausente não atrapalha a dedução", () => {
+    const base = { key: "51991432485", type: "cpf" };
+    expect(analyzePixKey("51991432485", undefined)).toMatchObject(base);
+    expect(analyzePixKey("51991432485", null)).toMatchObject(base);
+    expect(analyzePixKey("51991432485", "telefone")).toMatchObject(base);
   });
 });
 

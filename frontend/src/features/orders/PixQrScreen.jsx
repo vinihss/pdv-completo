@@ -8,9 +8,10 @@ import { formatBRL } from "@/shared/lib";
 export default function PixQrScreen({ order, amount, storeSettings, onBack, onConfirm, submitting }) {
   const [dataUrl, setDataUrl] = useState(null);
   const value = amount ?? orderTotal(order);
-  const { warnings } = analyzePixKey(storeSettings.pixKey);
+  const { warnings } = analyzePixKey(storeSettings.pixKey, storeSettings.pixKeyType);
   const payload = buildPixPayload({
     pixKey: storeSettings.pixKey,
+    pixKeyType: storeSettings.pixKeyType,
     merchantName: storeSettings.merchantName,
     merchantCity: storeSettings.merchantCity,
     amount: value,
