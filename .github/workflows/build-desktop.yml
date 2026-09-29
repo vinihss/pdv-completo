@@ -156,14 +156,24 @@ jobs:
         shell: pwsh
         run: |
           $dir = 'src-tauri/target/release/bundle/nsis'
-          # Descoberta pelo artefato, nao por nome fixo: o sufixo do zip mudou
-          # entre versoes do Tauri (.exe.zip, .nsis.zip) e um glob rigido
-          # publicaria um manifesto apontando para arquivo inexistente — o
+          # Descoberta pelo .sig, nao por extensao do artefato.
+          #
+          # Com createUpdaterArtifacts=true (modo v2, o que o conf usa) o
+          # Tauri nao gera NENHUM zip no Windows: o updater reusa o proprio
+          # instalador, e a assinatura sai como <artefato>.sig. O .nsis.zip
+          # so existe em createUpdaterArtifacts="v1Compatible". Exigir .zip
+          # aqui foi o que travou o primeiro build de verdade.
+          #
+          # A assinatura e a ancora confiavel: por definicao e o artefato + .sig,
+          # entao derivar por ela funciona nos dois modos e em qualquer Tauri
+          # futuro, sem hardcodar extensao. Um glob rigido no artefato
+          # publicaria manifesto apontando para arquivo inexistente — o
           # sintoma seria "update simplesmente nao acontece", sem erro.
-          $zip = Get-ChildItem "$dir/*.zip" | Select-Object -First 1
-          if (-not $zip) { Write-Error "Nenhum artefato .zip em $dir"; exit 1 }
-          $sig = "$($zip.FullName).sig"   # o .sig e sempre o artefato + .sig
-          if (-not (Test-Path $sig)) { Write-Error "Falta a assinatura $sig"; exit 1 }
+          $sig = Get-ChildItem "$dir/*.sig" | Select-Object -First 1
+          if (-not $sig) { Write-Error "Nenhum .sig em $dir (build do instalador nao rodou?)"; exit 1 }
+          # So o ultimo segmento some: "X.exe.sig" -> "X.exe", "X.nsis.zip.sig" -> "X.nsis.zip".
+          $artefato = [IO.Path]::GetFileNameWithoutExtension($sig.Name)
+          $sigFull = $sig.FullName
 
           $base = '${{ secrets.UPDATE_BASE_URL }}'
           if (-not $base) { $base = 'https://app.umamisushiarte.com.br' }
@@ -180,8 +190,8 @@ jobs:
             pub_date  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
             platforms = @{
               'windows-x86_64' = @{
-                signature = (Get-Content $sig -Raw).Trim()
-                url       = "$base/updates/files/windows-x86_64/$($zip.Name)"
+                signature = (Get-Content $sigFull -Raw).Trim()
+                url       = "$base/updates/files/windows-x86_64/$artefato"
               }
             }
           }
@@ -189,7 +199,7 @@ jobs:
           # manifesto (falha de parse em silencio, update nao acontece).
           $out = Join-Path $dir 'latest.json'
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $out -Encoding utf8NoBOM
-          Write-Host "Manifesto $version -> $($zip.Name)"
+          Write-Host "Manifesto $version -> $artefato"
           Get-Content $out
 
       # A release vem ANTES do SSH de propósito: ela é o caminho de
@@ -269,7 +279,12 @@ jobs:
             # e os artefatos em files/windows-x86_64/ (ver Caddyfile).
             mkdir -p "$UPDATES/files/windows-x86_64"
             cd "$UPDATES"
-            mv -f -- *.exe *.zip *.zip.sig files/windows-x86_64/ 2>/dev/null || true
+            # latest.json fica na raiz; todo o resto vai para o diretorio da
+            # plataforma. O glob de assinatura e `*.sig`, e nao `*.zip.sig`:
+            # em createUpdaterArtifacts=true o artefato do updater e o proprio
+            # .exe, entao a assinatura chega como <exe>.sig. Listar as duas
+            # extensoes de artefato e um `*.sig` cobre v2 e v1Compatible.
+            mv -f -- *.exe *.zip *.sig files/windows-x86_64/ 2>/dev/null || true
             ls -la . files/windows-x86_64
 
       - name: Resumo dos artefatos
