@@ -1,3 +1,19 @@
+/**
+ * Rotas de fluxo de caixa (cash flow).
+ *
+ * Endpoints:
+ *   GET  /cash-drawer/current  — caixa atual
+ *   GET  /cash-drawer          — listar caixas
+ *   GET  /cash-drawer/summary  — resumo por período
+ *   GET  /cash-drawer/:id      — detalhe do caixa
+ *   POST /cash-drawer/open     — abrir caixa (idempotente)
+ *   POST /cash-drawer/sangria  — sangria (idempotente)
+ *   POST /cash-drawer/suprimento — suprimento (idempotente)
+ *   POST /cash-drawer/close    — fechar caixa (idempotente)
+ *
+ * Use cases: `backend/src/application/cash-flow/cash-flow.usecases.ts`
+ * Testes: `backend/test/cash-flow.test.ts`
+ */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";

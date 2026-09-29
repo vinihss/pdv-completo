@@ -1,3 +1,26 @@
+/**
+ * Router principal do app.
+ *
+ * Rotas:
+ *   /login     — LoginPage (todos os perfis)
+ *   /pdv       — PdvPage (waiter)
+ *   /manager   — ManagerApp (manager)
+ *   /kitchen   — KitchenDisplay (kitchen)
+ *   /cashier   — CashierApp (cashier)
+ *   /courier   — CourierApp (courier)
+ *   /pedido    — CustomerMenuPage (público)
+ *
+ * Providers:
+ *   AuthProvider — autenticação e sessão
+ *   NavProvider — navegação e menu
+ *   AlertsProvider — central de alertas
+ *   OrderFocusProvider — foco na comanda
+ *
+ * Componentes:
+ *   AppFrame — casca com header, menu e alertas
+ *   AppMenu — menu principal (accordion)
+ *   AlertBell — sino de alertas
+ */
 import React from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { LogOut, Menu } from "lucide-react";

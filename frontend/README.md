@@ -1,16 +1,45 @@
-# React + Vite
+# PDV — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+App React (Vite) para o PDV Restaurante/Pub. Instalável como PWA e disponível como app Windows (Tauri).
 
-Currently, two official plugins are available:
+## Guias para agentes
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Convenções frontend**: `docs/agent-frontend.md` (FSD, camadas, componentes, overlays, menu, Tauri)
+- **Mapa de telas**: `docs/agent-frontend-map.md` (em breve)
+- **Testes**: `docs/agent-testing.md`
 
-## React Compiler
+## Rodando localmente
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Requer Node.js 20+ e o backend rodando em `localhost:3000`.
 
-## Expanding the Oxlint configuration
+```bash
+npm install
+npm run dev                # http://localhost:5173
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+O Vite já proxeia `/api` e `/realtime` para `localhost:3000` (`vite.config.js`).
+
+## Scripts
+
+| Comando | O que faz |
+|---|---|
+| `npm run dev` | Servidor de desenvolvimento (Vite) |
+| `npm run build` | Build de produção → `dist/` |
+| `npm run preview` | Preview do build de produção |
+| `npm run lint` | oxlint |
+| `npm run test` | vitest (jsdom + Testing Library; 34 suítes) |
+| `npm run desktop:build` | Build do app desktop (Tauri) |
+
+## Estrutura (FSD)
+
+```
+src/
+├── app/           # bootstrap: router + providers
+├── pages/         # telas por papel (pdv, manager, kitchen, cashier, courier, login)
+├── widgets/       # blocos reusados (order-board, cash-drawer, app-menu, alert-bell)
+├── features/      # ações do usuário (orders)
+├── entities/      # domínio: api + model + ui
+└── shared/        # genérico: api/http, components, hooks, lib
+```
+
+Ver `docs/agent-frontend.md` para o guia completo de convenções e arquitetura.

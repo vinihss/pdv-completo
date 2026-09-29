@@ -1,6 +1,6 @@
 # ============================================================
 # Caddyfile LOCAL (sem HTTPS) — usado pelo docker-compose.local.yml
-# (docker-up.sh na raiz do projeto).
+# (~/umami-utils/docker-up.sh).
 #
 # Endereço ":80": HTTP puro, sem hostname específico — aceita qualquer
 # Host, então funciona tanto em http://localhost quanto em
