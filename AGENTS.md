@@ -28,9 +28,11 @@ printer/   Daemon Go para impressão térmica (ESC/POS)
 | `docs/03-acceptance-criteria.md` | Critérios de aceite em formato Dado/Quando/Então |
 | `docs/07-estoque.md` | Controle de estoque: ledger, flags, endpoints, regras |
 | `docs/08-estoque-profissional.md` | Estoque profissional: fornecedores, compras, custo médio móvel |
+| `docs/09-frontend-fsd.md` | Histórico das fases da migração para FSD no frontend |
 | `docs/10-whatsapp-embedded-signup.md` | WhatsApp Cloud API: Embedded Signup v4, webhooks |
 | `docs/11-desktop-instalador.md` | App Windows (Tauri): instalador, boot/update, daemon |
-| `docs/11-pix-pendencias.md` | BR Code do Pix: correções e pendências |
+| `docs/11-pix-pendencias.md` | BR Code do Pix: por que o QR era recusado (GUI minúscula, txid, teto de 99 bytes) e o que ficou pendente |
+| `docs/12-n-plus-one-list-orders.md` | Roadmap: eliminar N+1 em `listOrders` |
 
 ### Guias para agentes
 
@@ -40,6 +42,14 @@ printer/   Daemon Go para impressão térmica (ESC/POS)
 | `docs/agent-frontend.md` | Convenções frontend: FSD, camadas, componentes, overlays, menu, Tauri |
 | `docs/agent-deploy.md` | Deploy azul/verde: switch, healthcheck, regras, backup |
 | `docs/agent-testing.md` | Como rodar testes: backend (16 suítes), frontend (34 suítes), printer |
+| `docs/agent-api-index.md` | Índice de todos os endpoints da API, agrupados por domínio |
+| `docs/agent-glossary.md` | Glossário de termos do domínio (BR Code, FSD, blue/green, …) |
+| `docs/agent-backend-map.md` | Mapa arquivo→conteúdo do backend (onde mexer para cada assunto) |
+| `docs/agent-frontend-map.md` | Mapa arquivo→conteúdo do frontend (idem, por feature) |
+
+Os `agent-*.md` são os guias de entrada rápida: convenções e mapa de arquivos.
+Os docs numerados são o detalhe — spec completa, histórico de decisão e o que
+ficou pendente. Os dois conjuntos se complementam, não se substituem.
 
 ### Outros
 

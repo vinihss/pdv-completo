@@ -2,7 +2,8 @@
 
 Estrutura **FSD** (*Feature-Sliced Design*), pensada para facilitar extensão e
 personalização — inclusive por agentes de IA. Estratégia completa e histórico
-das fases em `docs/09-frontend-fsd.md`.
+das fases em `docs/09-frontend-fsd.md`; convenções e mapa de arquivos em
+`docs/agent-frontend.md` e `docs/agent-frontend-map.md`.
 
 Regra de ouro: **cada camada só importa de camadas abaixo dela**, e `shared`
 só guarda o que não tem vocabulário de domínio.
