@@ -1,9 +1,9 @@
 # ============================================================
-# Deploy LOCAL (sem HTTPS) — usado pelo docker-up.sh na raiz.
+# Deploy LOCAL (sem HTTPS) — usado pelo ~/umami-utils/docker-up.sh.
 # Compose standalone (não é override): o merge de `ports` entre
 # arquivos concatenaria 80/443 duplicados do compose cloud.
 #
-# Uso: PDV_PORT=8080 ./docker-up.sh  (porta padrão: 80)
+# Uso: PDV_PORT=8080 ~/umami-utils/docker-up.sh  (porta padrão: 80)
 # Acesso: http://localhost  ou  http://<IP-da-maquina-na-LAN>
 #
 # Mesma topologia do compose de produção: `backend`/`frontend` +

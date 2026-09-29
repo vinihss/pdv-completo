@@ -1,3 +1,57 @@
+/**
+ * Rotas diversas (catálogo, estoque, compras, clientes, equipe, relatórios, configurações).
+ *
+ * Endpoints:
+ *   GET    /store-settings          — obter configurações
+ *   PUT    /store-settings          — atualizar configurações (manager)
+ *   POST   /store-settings/logo     — upload de logo (manager)
+ *   DELETE /store-settings/logo     — remover logo (manager)
+ *   POST   /store/geocode-restaurant — geocodificar endereço (manager)
+ *   GET    /products                — listar produtos
+ *   POST   /products                — criar produto (manager)
+ *   PATCH  /products/:id            — atualizar produto (manager)
+ *   PATCH  /products/:id/deactivate — desativar produto (manager)
+ *   PATCH  /products/:id/activate   — ativar produto (manager)
+ *   POST   /products/:id/image      — upload de imagem (manager)
+ *   DELETE /products/:id/image      — remover imagem (manager)
+ *   GET    /categories              — listar categorias
+ *   POST   /categories              — criar categoria (manager)
+ *   PATCH  /categories/:id          — atualizar categoria (manager)
+ *   DELETE /categories/:id          — remover categoria (manager)
+ *   GET    /kitchen-groups          — listar grupos de produção
+ *   POST   /kitchen-groups          — criar grupo (manager)
+ *   PATCH  /kitchen-groups/:id      — atualizar grupo (manager)
+ *   DELETE /kitchen-groups/:id      — remover grupo (manager)
+ *   GET    /users                   — listar usuários (manager)
+ *   POST   /users                   — criar usuário (manager)
+ *   PATCH  /users/:id               — atualizar usuário (manager)
+ *   PATCH  /users/:id/reset-pin     — resetar PIN (manager)
+ *   POST   /users/:id/photo         — upload de foto (manager)
+ *   DELETE /users/:id/photo         — remover foto (manager)
+ *   GET    /customers/search        — busca leve (manager, cashier, waiter)
+ *   GET    /customers               — lista paginada (manager, cashier)
+ *   GET    /customers/:id           — detalhe + endereços (manager, cashier)
+ *   POST   /customers               — criar cliente (manager, cashier, waiter)
+ *   PATCH  /customers/:id           — editar/soft-delete/reativar (manager, cashier)
+ *   POST   /customers/:id/addresses — adicionar endereço (manager, cashier)
+ *   POST   /customers/:id/addresses/:addressId/default — marcar padrão (manager, cashier)
+ *   DELETE /customers/:id/addresses/:addressId — remover endereço (manager, cashier)
+ *   GET    /reports/sales          — relatório de vendas (manager)
+ *   GET    /stock                   — listar estoque (manager)
+ *   GET    /stock/movements         — listar movimentos (manager)
+ *   POST   /stock/:productId/movements — movimento manual (manager)
+ *   GET    /suppliers               — listar fornecedores (manager)
+ *   POST   /suppliers               — criar fornecedor (manager)
+ *   PATCH  /suppliers/:id           — atualizar fornecedor (manager)
+ *   POST   /purchases               — criar compra (manager)
+ *   GET    /purchases               — listar compras (manager)
+ *   GET    /purchases/:id           — detalhe da compra (manager)
+ *   GET    /inventory/value         — valorização do estoque (manager)
+ *   GET    /audit-log               — listar logs de auditoria (manager)
+ *
+ * Use cases: `backend/src/application/` (product, category, kitchen-group, user, customer, report, stock, purchase, store-settings, audit-log)
+ * Testes: `backend/test/` (catalog, stock, purchase, team-customers, profiles)
+ */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { Errors } from "../../domain/errors.js";

@@ -10,7 +10,7 @@ dist/
 # Fotos de produto (uploads) — produção em volume Docker (pdv_backend_uploads)
 backend/uploads/
 
-# Backups gerados pelo docker-up.sh / deploy/backup.sh
+# Backups gerados pelo ~/umami-utils/docker-up.sh / deploy/backup.sh
 deploy/backups/
 
 # Artefatos do auto-update publicados pelo CI (latest.json + installer .exe).

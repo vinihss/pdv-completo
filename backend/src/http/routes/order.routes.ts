@@ -1,3 +1,26 @@
+/**
+ * Rotas de comandas (orders).
+ *
+ * Endpoints:
+ *   POST   /orders                    — abrir comanda (idempotente)
+ *   GET    /orders                    — listar comandas
+ *   GET    /orders/:id                — detalhe da comanda
+ *   POST   /orders/:id/items          — lançar itens em lote (idempotente)
+ *   PATCH  /orders/:id/items/:itemId  — atualizar item (lock otimista)
+ *   DELETE /orders/:id/items/:itemId  — remover item
+ *   PATCH  /orders/:id/status         — mudar status
+ *   PATCH  /orders/:id/close          — fechar comanda (idempotente)
+ *   PUT    /orders/:id/payments       — registrar pagamento
+ *   PATCH  /orders/:id/payments/:paymentId — confirmar pagamento
+ *   DELETE /orders/:id/payments/:paymentId — remover pagamento
+ *   PATCH  /orders/:id/payment        — legado: pagamento de intenção única
+ *   GET    /tables                    — listar mesas
+ *   POST   /tables                    — criar mesa
+ *   PATCH  /tables/:id                — atualizar mesa
+ *
+ * Use cases: `backend/src/application/order/order.usecases.ts`
+ * Testes: `backend/test/order-flow.test.ts`
+ */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";

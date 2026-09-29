@@ -1,8 +1,8 @@
 -- ============================================================
 -- Migration 0021 — cardápio do restaurante Unami (japonês)
 --
--- Carga de catálogo gerada a partir de `full_atualizado.md` (raiz do
--- repo): 11 categorias e 63 produtos com nome, descrição e preço.
+-- Carga de catálogo gerada a partir de `~/umami-utils/full_atualizado.md`:
+-- 11 categorias e 63 produtos com nome, descrição e preço.
 -- Este arquivo é DADO, não schema — não há nenhum ALTER TABLE, só
 -- INSERTs, e nada é apagado.
 --

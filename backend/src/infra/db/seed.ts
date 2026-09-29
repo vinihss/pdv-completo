@@ -12,7 +12,7 @@ import { users, categories, products, restaurantTables, storeSettings, kitchenGr
 
 // Usuários demo são reconciliados em TODA execução do seed (não só no primeiro
 // populate): cada um é inserido apenas se ainda não existir pelo nome. Isso faz
-// o `./docker-up.sh` criar usuários de teste novos (ex.: Caixa, Entregador)
+// o `~/umami-utils/docker-up.sh` criar usuários de teste novos (ex.: Caixa, Entregador)
 // mesmo quando o banco já foi seedado por uma versão antiga do seed — antes, a
 // guarda de store_settings pulava o seed inteiro e os usuários novos nunca
 // apareciam.

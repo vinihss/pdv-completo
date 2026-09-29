@@ -1,6 +1,6 @@
 # ============================================================
 # Caddyfile DEV (sem HTTPS) — usado pelo docker-compose.dev.yml
-# (./docker-up.sh dev, hot reload).
+# (~/umami-utils/docker-up.sh dev, hot reload).
 #
 # Diferença pro Caddyfile.local: o frontend dev roda o Vite (HMR)
 # na porta 5173 do container, e o reverse_proxy precisa apontar

@@ -23,7 +23,7 @@
 #
 # Uso:
 #   ./switch.sh                  # switch (o que o CI chama)
-#   ./switch.sh --profile local  # mesmo switch no stack local (docker-up.sh)
+#   ./switch.sh --profile local  # mesmo switch no stack local (~/umami-utils/docker-up.sh)
 #   ./switch.sh --rollback       # volta para a instância anterior
 #   ./switch.sh --status         # quem está no ar agora
 #   ./switch.sh --install        # primeira instalação (sobe do zero)
