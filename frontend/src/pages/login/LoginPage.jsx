@@ -5,7 +5,7 @@ import { getStoreInfo } from "@/entities/store";
 import { useAuth } from "@/app/providers/auth";
 import { Modal, UserAvatar } from "@/shared/components";
 import { applyBrandPrimary } from "@/shared/lib";
-import { assetUrl, currentServerLabel, setServerBase, getServerBase, serverDefault } from "@/shared/lib/server";
+import { assetUrl, currentServerLabel, fetchTag, setServerBase, getServerBase, serverDefault } from "@/shared/lib/server";
 
 const ROLE_META = {
   waiter: { label: "Garçom", icon: ClipboardList },
@@ -38,6 +38,7 @@ export default function Login() {
   const [error, setError] = useState(null);
   const [shake, setShake] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [serverTag, setServerTag] = useState(null);
   // App desktop: o servidor é configuração (a origem do app é tauri://localhost).
   // No navegador o campo aparece preenchido com a origem atual, mas o app
   // funciona sem tocar nele.
@@ -69,6 +70,10 @@ export default function Login() {
         applyBrandPrimary(s?.brandColor);
       })
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchTag().then(setServerTag);
   }, []);
 
   function openPinScreen(user) {
@@ -223,7 +228,7 @@ export default function Login() {
               className="inline-flex items-center gap-2 text-stone-600 hover:text-stone-400 text-xs transition-colors max-w-full"
             >
               <Server size={12} className="shrink-0" />
-              <span className="truncate">Servidor: {currentServerLabel()}</span>
+              <span className="truncate">Servidor: {currentServerLabel()}{serverTag ? ` v${serverTag}` : ""}</span>
             </button>
           </div>
         </div>

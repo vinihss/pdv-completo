@@ -69,6 +69,17 @@ export function apiUrl(path) {
   return `${getServerBase()}/api${path}`;
 }
 
+export async function fetchTag() {
+  try {
+    const res = await fetch(`${getServerBase()}/health`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.tag || null;
+  } catch {
+    return null;
+  }
+}
+
 export function wsUrl() {
   const base = getServerBase();
   if (!base) {
