@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -128,23 +130,21 @@ type Daemon struct {
 }
 
 func main() {
-	configPath := "config.json"
-	if value := os.Getenv("PDV_PRINTER_CONFIG"); value != "" {
-		configPath = value
-	}
-	cfg, err := loadConfig(configPath)
+	configPath := resolveConfigPath(os.Args[1:])
+	cfg, err := ensureConfig(configPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 	if cfg.Listen == "" {
 		cfg.Listen = "127.0.0.1:8080"
 	}
-	if cfg.DataDir == "" {
-		cfg.DataDir = "./data"
-	}
-	if cfg.TemplatesDir == "" {
-		cfg.TemplatesDir = "./templates"
-	}
+	// Caminho relativo é resolvido a partir de onde está o config.json: o
+	// serviço do Windows roda com CWD em System32, então "./data" cairia em
+	// C:\Windows\System32\data e a fila de impressão morria no primeiro
+	// restart. Um caminho absoluto no config continua valendo.
+	baseDir := filepath.Dir(mustAbs(configPath))
+	cfg.DataDir = resolveDir(cfg.DataDir, baseDir, "data")
+	cfg.TemplatesDir = resolveDir(cfg.TemplatesDir, baseDir, "templates")
 	if cfg.Retry.MaxAttempts <= 0 {
 		cfg.Retry.MaxAttempts = 8
 	}
@@ -185,7 +185,7 @@ func main() {
 	mux.HandleFunc("/api/jobs/retry", daemon.retry)
 
 	server := &http.Server{
-		Addr: cfg.Listen, Handler: withCORS(mux, cfg.AllowedOrigins),
+		Addr: cfg.Listen, Handler: withCORS(mux, allowedOrigins(cfg)),
 		ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -193,6 +193,127 @@ func main() {
 	}
 	log.Printf("PDV printer daemon em %s; templates=%s", cfg.Listen, cfg.TemplatesDir)
 	log.Fatal(server.ListenAndServe())
+}
+
+// defaultConfig é o ponto de partida de uma instalação nova. As impressoras
+// vêm sem endereço de propósito: `status` falso e address vazio fazem o
+// /health dizer "sem impressora configurada" em vez de mandar para um
+// endereço herdado de outra loja.
+func defaultConfig() Config {
+	return Config{
+		Listen: "127.0.0.1:8080",
+		AllowedOrigins: []string{
+			"tauri://localhost",
+			"http://tauri.localhost",
+			"http://localhost:1420",
+		},
+		Retry: RetryConfig{
+			MaxAttempts:      8,
+			BaseDelaySecs:    2,
+			MaxDelaySecs:     120,
+			PollIntervalSecs: 2,
+		},
+		Printers: map[string]PrinterProfile{
+			"kitchen": {Template: "kitchen-default", Status: true},
+			"courier": {Template: "courier-default", Status: true},
+			"fiscal":  {Template: "fiscal-default", Status: true},
+		},
+	}
+}
+
+// ensureConfig carrega o config.json e, se ele não existir, cria um padrão.
+// O instalador só precisa apontar o serviço para o caminho: quem escreve o
+// arquivo é o próprio daemon, que é o lugar onde a estrutura do arquivo é
+// conhecida. Se não der para criar (sem permissão, disco cheio), o daemon
+// segue com o padrão em memória — imprimir continua funcionando, só não
+// sobrevive a um restart até alguém criar o arquivo.
+func ensureConfig(path string) (Config, error) {
+	cfg, err := loadConfig(path)
+	if err == nil {
+		return cfg, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		// os.IsNotExist não olha dentro de %w; aqui o erro vem envelopado por
+		// loadConfig e o daemon morreria num primeiro start.
+		return Config{}, err
+	}
+	log.Printf("config %s inexistente; criando padrão", path)
+	if writeErr := writeDefaultConfig(path); writeErr != nil {
+		log.Printf("aviso: não consegui criar %s (%v); usando padrão em memória", path, writeErr)
+	}
+	return defaultConfig(), nil
+}
+
+func writeDefaultConfig(path string) error {
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0750); err != nil {
+			return err
+		}
+	}
+	content, err := json.MarshalIndent(defaultConfig(), "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(content, '\n'), 0640)
+}
+
+func mustAbs(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	return abs
+}
+
+func resolveDir(value, baseDir, fallback string) string {
+	if value == "" {
+		value = filepath.Join(".", fallback)
+	}
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value)
+	}
+	return filepath.Join(baseDir, value)
+}
+
+// defaultConfigPath é onde o serviço do Windows procura o config quando não
+// recebe --config: %ProgramData% é o único lugar que sobrevive a
+// reinstalar o app e a atualizar o Windows. O instalador não precisa passar
+// nada por linha de comando — o que evita a aspa escapada que o sc.exe
+// exige quando o binPath carrega argumentos.
+func defaultConfigPath() string {
+	if dir := os.Getenv("ProgramData"); dir != "" {
+		return filepath.Join(dir, "PDV Printer", "config.json")
+	}
+	return "config.json"
+}
+
+// resolveConfigPath decide de onde sai o config.json. Ordem: flag explícita
+// (útil para teste e instalação manual) > PDV_PRINTER_CONFIG > primeiro
+// argumento solto > %ProgramData%\PDV Printer\config.json.
+func resolveConfigPath(args []string) string {
+	path := ""
+	for i, arg := range args {
+		switch {
+		case arg == "--config" || arg == "-c":
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+		case strings.HasPrefix(arg, "--config="):
+			return strings.TrimPrefix(arg, "--config=")
+		case !strings.HasPrefix(arg, "-") && path == "":
+			path = arg
+		}
+	}
+	if path == "" {
+		path = "config.json"
+	}
+	if value := os.Getenv("PDV_PRINTER_CONFIG"); value != "" && path == "config.json" {
+		return value
+	}
+	if path == "config.json" {
+		return defaultConfigPath()
+	}
+	return path
 }
 
 func loadConfig(path string) (Config, error) {
@@ -223,13 +344,46 @@ func migrate(db *sql.DB) error {
 	return nil
 }
 
+//go:embed templates/*.json
+var embeddedTemplates embed.FS
+
+// loadTemplates parte dos templates embutidos no binário e deixa o arquivo do
+// cliente sobrepor por id. Antes o daemon dependia de um diretório de
+// templates instalado ao lado: se ele sumisse (instalação pela metade, update
+// do app, antivírus limpando pasta), o serviço não subia e o PDV ficava sem
+// impressão. Com o embutido, o baseline sempre existe.
 func (d *Daemon) loadTemplates() error {
-	entries, err := os.ReadDir(d.cfg.TemplatesDir)
-	if err != nil {
-		return fmt.Errorf("ler templates: %w", err)
-	}
 	loaded := map[string]Template{}
+	entries, err := embeddedTemplates.ReadDir("templates")
+	if err != nil {
+		return fmt.Errorf("ler templates embutidos: %w", err)
+	}
 	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		content, err := embeddedTemplates.ReadFile("templates/" + entry.Name())
+		if err != nil {
+			return err
+		}
+		template, err := parseTemplate(entry.Name(), content)
+		if err != nil {
+			return err
+		}
+		loaded[template.ID] = template
+	}
+
+	custom, err := os.ReadDir(d.cfg.TemplatesDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("ler templates: %w", err)
+		}
+		d.mu.Lock()
+		d.templates = loaded
+		d.mu.Unlock()
+		return nil
+	}
+	for _, entry := range custom {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
@@ -237,15 +391,9 @@ func (d *Daemon) loadTemplates() error {
 		if err != nil {
 			return err
 		}
-		var template Template
-		if err := json.Unmarshal(content, &template); err != nil {
-			return fmt.Errorf("template %s inválido: %w", entry.Name(), err)
-		}
-		if template.ID == "" || template.Destination == "" {
-			return fmt.Errorf("template %s sem id/destination", entry.Name())
-		}
-		if template.Columns == 0 {
-			template.Columns = 48
+		template, err := parseTemplate(entry.Name(), content)
+		if err != nil {
+			return err
 		}
 		loaded[template.ID] = template
 	}
@@ -255,8 +403,52 @@ func (d *Daemon) loadTemplates() error {
 	return nil
 }
 
+func parseTemplate(name string, content []byte) (Template, error) {
+	var template Template
+	if err := json.Unmarshal(content, &template); err != nil {
+		return Template{}, fmt.Errorf("template %s inválido: %w", name, err)
+	}
+	if template.ID == "" || template.Destination == "" {
+		return Template{}, fmt.Errorf("template %s sem id/destination", name)
+	}
+	if template.Columns == 0 {
+		template.Columns = 48
+	}
+	return template, nil
+}
+
 func (d *Daemon) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"status": "ok"})
+	// "no ar" e "pronto para imprimir" são coisas diferentes: numa instalação
+	// nova o daemon sobe sem nenhuma impressora configurada e, se o health só
+	// disser "ok", o gerente só descobre que a bobina não sai quando a
+	// comanda chega. `printers` fica vazio nesse estado.
+	configured := make([]string, 0, len(d.cfg.Printers))
+	for name, profile := range d.cfg.Printers {
+		if strings.TrimSpace(profile.Address) != "" {
+			configured = append(configured, name)
+		}
+	}
+	sort.Strings(configured)
+	writeJSON(w, 200, map[string]any{
+		"status":      "ok",
+		"printers":    configured,
+		"ready":       len(configured) > 0,
+		"templates":   len(d.templates),
+		"queue_depth": d.queueDepth(),
+	})
+}
+
+// queueDepth é o tamanho da fila de impressão. Um número alto e crescendo é o
+// sinal de que a impressora está offline há tempo demais.
+func (d *Daemon) queueDepth() int {
+	if d.db == nil {
+		return 0
+	}
+	var total int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM print_jobs WHERE status IN ('queued','printing','retry_waiting')`).Scan(&total); err != nil {
+		return 0
+	}
+	return total
 }
 
 func (d *Daemon) listTemplates(w http.ResponseWriter, r *http.Request) {
@@ -746,10 +938,34 @@ func addQRCode(e *escpos, value string) {
 	e.feed(1)
 }
 
-func withCORS(next http.Handler, allowedOrigins []string) http.Handler {
+// Origens do app Tauri. O WebView2 do Windows reporta `http://tauri.localhost`
+// e o macOS/Linux `tauri://localhost`; sem elas o daemon responde sem o
+// cabeçalho de CORS e o app não consegue imprimir de dentro do Tauri. Vão
+// sempre, independentemente do config do cliente: qualquer site aberto no
+// navegador não consegue forjar essas origens, então não se perde nada.
+var builtinOrigins = []string{
+	"tauri://localhost",
+	"http://tauri.localhost",
+	"https://tauri.localhost",
+}
+
+func allowedOrigins(cfg Config) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(builtinOrigins)+len(cfg.AllowedOrigins))
+	for _, origin := range append(append([]string{}, builtinOrigins...), cfg.AllowedOrigins...) {
+		if origin == "" || seen[origin] {
+			continue
+		}
+		seen[origin] = true
+		out = append(out, origin)
+	}
+	return out
+}
+
+func withCORS(next http.Handler, origins []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		for _, allowed := range allowedOrigins {
+		for _, allowed := range origins {
 			if origin != "" && origin == allowed {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Add("Vary", "Origin")

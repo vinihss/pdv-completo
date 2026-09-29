@@ -2,8 +2,9 @@ import React, { useState, useEffect } from "react";
 import { Upload, ImageOff, Store, RefreshCcw, AlertTriangle } from "lucide-react";
 import { updateStoreSettings, uploadStoreLogo, removeStoreLogo } from "@/entities/store";
 import { useAuth } from "@/app/providers/auth";
-import { applyBrandPrimary, DEFAULT_PRIMARY_COLOR } from "@/shared/lib";
+import { applyBrandPrimary, DEFAULT_PRIMARY_COLOR, isDesktop } from "@/shared/lib";
 import { Section, Field, ToggleRow, inputClass } from "@/shared/components";
+import AppSection from "./AppSection.jsx";
 
 export default function SettingsTab({ showToast }) {
   const { storeSettings, refreshStoreSettings } = useAuth();
@@ -291,6 +292,8 @@ export default function SettingsTab({ showToast }) {
           </Field>
         </Section>
       )}
+
+      {isDesktop() && <AppSection showToast={showToast} />}
 
       {error && (
         <div className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2.5">

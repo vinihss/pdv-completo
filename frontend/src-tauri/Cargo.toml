@@ -1,7 +1,7 @@
 [package]
 name = "app"
-version = "0.1.0"
-description = "A Tauri App"
+version = "0.2.0"
+description = "PDV — aplicativo desktop"
 authors = ["you"]
 license = ""
 repository = ""
@@ -21,5 +21,16 @@ tauri-build = { version = "2.6.3", features = [] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-tauri = { version = "2.11.6", features = [] }
+tauri = { version = "2.12.0", features = [] }
 tauri-plugin-log = "2"
+# HTTP vai pelo Rust porque o app desktop roda na origem `tauri.localhost`, e
+# o backend (CORS_ORIGIN com o domínio) não libera essa origem. O plugin
+# ignora CORS; no web continua sendo `fetch` normal.
+tauri-plugin-http = "2"
+# `relaunch()` depois que o updater instala a nova versão.
+tauri-plugin-process = "2"
+# Update automático no boot. Sem este crate o `checkForUpdate()` do JS
+# sempre falha e o app abre na versão em disco (comportamento correto em
+# loja offline, mas sem update). A chave pública em tauri.conf.json
+# valida o manifesto; a privada vive em TAURI_SIGNING_PRIVATE_KEY.
+tauri-plugin-updater = "2"

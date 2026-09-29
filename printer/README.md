@@ -7,7 +7,7 @@ O fluxo de integração é:
 ```text
 Sua aplicação React/Tauri
         ↓ HTTP local
-http://127.0.0.1:8080
+        http://127.0.0.1:8080
         ↓
 Daemon Go
   ├── fila SQLite local
@@ -25,11 +25,23 @@ O frontend **não precisa conhecer ESC/POS**, o endereço TCP da impressora ou a
 daemon/main.go                    serviço local e API HTTP
  daemon/config.example.json        configuração da estação
  daemon/templates/*.json           layouts ESC/POS editáveis
+ scripts/build-sidecar.sh          gera o executável para o instalador do app
  scripts/install-linux.sh           instalação como serviço systemd
  scripts/install-windows.ps1       instalação como serviço Windows
 ```
 
 A pasta `src/` e a configuração Tauri presentes no pacote são apenas uma tela de demonstração. Elas não são necessárias para integrar o seu frontend React próprio.
+
+## Instalação pelo app (caminho normal)
+
+No PDV deste repositório o daemon **não é instalado separado**: ele vem
+embutido no instalador do app e sobe como serviço do Windows junto com ele. O
+que o `build-sidecar.sh` gera é o mesmo `.exe` que o instalador carrega, e o
+`installer-hooks.nsh` do Tauri copia para a pasta do app, cria o serviço e o
+inicia. Ver `docs/11-desktop-instalador.md`.
+
+Este README cobre a instalação manual, útil para desenvolver o daemon ou
+rodá-lo numa máquina sem o app.
 
 ## Pré-requisitos do computador da impressora
 
@@ -78,19 +90,46 @@ Edite `config.json`:
 }
 ```
 
+### Onde o config é lido
+
+Sem argumento nenhum, o daemon procura o arquivo nesta ordem:
+
+```text
+1. --config <caminho>  (ou -c, ou o primeiro argumento solto)
+2. %PDV_PRINTER_CONFIG%
+3. %ProgramData%\PDV Printer\config.json
+4. ./config.json
+```
+
+O passo 3 é o que o serviço do Windows usa: `%ProgramData%` sobrevive a
+reinstalar o app, e como o caminho é padrão o instalador não precisa passar
+argumento pelo `binPath` do serviço.
+
+Se o arquivo não existir, o daemon **cria um padrão** e segue funcionando com
+ele em memória. As impressoras nascem sem endereço de propósito — o
+`/health` responde `ready: false` em vez de mandar para um endereço herdado de
+outra loja.
+
+`data_dir` e `templates_dir` podem ser relativos: relativos aonde está o
+`config.json`, e não ao diretório de trabalho. Isso importa no Windows, onde
+o serviço roda com CWD em `C:\Windows\System32` e um `./data` solto criaria a
+fila fora do lugar.
+
 ### Configurações importantes
 
 | Campo | Descrição |
 |---|---|
 | `listen` | Endereço da API local. Mantenha `127.0.0.1:8080`. |
 | `data_dir` | Diretório do banco SQLite e da fila local. |
-| `templates_dir` | Diretório dos templates JSON. |
+| `templates_dir` | Diretório dos templates JSON (opcional: os embutidos servem). |
 | `allowed_origins` | Origens do seu frontend que poderão fazer chamadas HTTP. |
 | `printers.kitchen` | Impressora/template usados para cozinha. |
 | `printers.courier` | Impressora/template usados para motoboy. |
 | `printers.fiscal` | Impressora/template usados para fiscal. |
 
-Se seu React for executado em outra porta durante o desenvolvimento, adicione a origem correspondente, por exemplo:
+As origens do Tauri (`tauri://localhost`, `http://tauri.localhost`) já são
+liberadas sem aparecer no arquivo, porque o WebView2 do Windows é quem chama o
+daemon. Qualquer outro frontend precisa ser listado:
 
 ```json
 "allowed_origins": [
@@ -114,11 +153,22 @@ Teste se o daemon está funcionando:
 curl http://127.0.0.1:8080/health
 ```
 
-Resposta esperada:
+Resposta de uma loja com as impressoras configuradas:
 
 ```json
-{"status":"ok"}
+{
+  "status": "ok",
+  "printers": ["courier", "kitchen"],
+  "ready": true,
+  "templates": 3,
+  "queue_depth": 0
+}
 ```
+
+`status: ok` é só "o processo está no ar". O que diz se dá para imprimir é
+`ready` — ele é `false` quando nenhum perfil de impressora tem endereço
+preenchido, que é o estado de uma instalação nova. `queue_depth` alto e
+crescendo é o sinal de que a impressora está offline há tempo demais.
 
 O banco da fila será criado automaticamente em:
 
@@ -155,14 +205,33 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\install-windows.ps1
 ```
 
-Edite a configuração:
+O script compila o daemon (se houver Go), instala em
+`C:\Program Files\PDV Printer` e registra o serviço `PDVPrinterDaemon` com
+início automático e reinício em caso de falha.
+
+Depois de instalar, ajuste a configuração:
 
 ```powershell
 notepad "$env:ProgramData\PDV Printer\config.json"
 Restart-Service PDVPrinterDaemon
 ```
 
-O script instala o daemon em `C:\Program Files\PDV Printer` e registra o serviço `PDVPrinterDaemon` para iniciar automaticamente.
+O config é criado pelo daemon no primeiro start, então ele existe mas ainda
+não tem o IP da impressora — preencha `printers.kitchen.address` (e as outras
+destinos) antes de esperar bobina.
+
+Para conferir se a impressora responde:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8080/api/printers/status?destination=kitchen
+```
+
+Se o `install-windows.ps1` pedir o binário já compilado e não encontrar Go,
+gere o executável antes:
+
+```bash
+./scripts/build-sidecar.sh
+```
 
 ## 4. Integrar o seu React/Tauri
 
@@ -632,11 +701,21 @@ daemon/templates/
 └── fiscal-default.json
 ```
 
-O cliente pode alterar o arquivo JSON sem modificar o frontend. Depois de alterar um template, reinicie o daemon:
+Esses três vão **embutidos no binário** (`go:embed`), e é o que o serviço
+encontra quando `templates_dir` não existe — que é o caso padrão depois da
+instalação pelo app. O diretório é opcional de propósito: um template embutido
+não some por update, antivírus ou instalação pela metade.
+
+Um arquivo no `templates_dir` **sobrescreve** o embutido de mesmo id, então
+layout de cliente continua possível. O cliente pode alterar o arquivo JSON sem
+modificar o frontend. Depois de alterar um template, reinicie o daemon:
 
 ```bash
 # Linux
 sudo systemctl restart pdv-printer
+
+# Windows
+Restart-Service PDVPrinterDaemon
 
 # Desenvolvimento
 # encerre e execute novamente: go run .
@@ -676,6 +755,10 @@ Depois, aponte o destino no `config.json`:
 }
 ```
 
+Para isso funcionar na loja, o arquivo precisa estar no `templates_dir` da
+máquina (`%ProgramData%\PDV Printer\templates` na instalação do app, criado à
+mão) — o embutido serve de padrão, não de pasta de arquivos.
+
 ## Vários clientes ou estações
 
 Cada computador que possui uma impressora deve ter sua própria instalação do daemon e seu próprio `config.json`.
@@ -702,9 +785,22 @@ Somente a configuração local e os templates mudam.
 
 - O daemon escuta somente em `127.0.0.1` por padrão.
 - O frontend não escolhe o endereço TCP da impressora.
-- As origens CORS devem ser listadas explicitamente em `allowed_origins`.
+- As origens CORS devem ser listadas explicitamente em `allowed_origins`. As
+  origens do Tauri são liberadas sempre e não precisam ser listadas.
 - O daemon limita o corpo JSON a 512 KB e usa timeouts de rede.
 - A fila usa SQLite local.
 - O valor monetário usa centavos inteiros (`total_cents`).
 - Não exponha a porta 8080 para a rede sem adicionar autenticação e uma política de acesso adequada.
 - Valide a variante exata da MP-4200 quanto a codificação de acentos, corte, QR Code e conexão USB/Ethernet.
+
+## Testes
+
+```bash
+cd daemon
+go test ./...
+```
+
+A suíte cobre o que quebra em campo, não a matemática dos templates: resolução
+de caminho (serviço com CWD em `System32`), origem do config, criação do
+config padrão, CORS, templates embutidos e o `/health` distinguindo "no ar" de
+"pronto para imprimir".

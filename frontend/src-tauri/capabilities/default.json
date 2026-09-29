@@ -6,6 +6,9 @@
     "main"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "http:default",
+    "process:allow-restart",
+    "updater:default"
   ]
 }

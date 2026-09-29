@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
+import { wsEndpoint } from "@/shared/lib";
 
 /**
  * Espelha useRealtime pra cliente anônimo (tela de confirmação do /pedido):
@@ -18,8 +19,8 @@ export function usePublicRealtime(rooms, onEvent) {
   const roomsKey = JSON.stringify(rooms ?? []);
 
   const connect = useCallback(() => {
-    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${proto}//${window.location.host}/realtime/public`);
+    // No web cai no host atual; no desktop, na origem configurada.
+    const ws = new WebSocket(wsEndpoint("/realtime/public"));
     wsRef.current = ws;
 
     ws.onopen = () => {

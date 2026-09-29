@@ -1,7 +1,7 @@
 // Client HTTP fino sobre a API real (ver 01-backend-spec.md §7).
 // Nada de dados mockados: todo estado vem do backend.
 
-const BASE = "/api";
+import { apiBase, isDesktop, originBase } from "@/shared/lib";
 
 let authToken = null;
 let onUnauthorized = null;
@@ -14,11 +14,28 @@ export function setUnauthorizedHandler(fn) {
   onUnauthorized = fn;
 }
 
+// No desktop a API pode estar em outra máquina e a webview roda na origem
+// `tauri.localhost`, que o backend não libera no CORS. O plugin http do
+// Tauri faz a requisição pelo Rust, que não sofre com CORS. No web é o
+// `fetch` de sempre — o plugin nem é importado.
+let desktopFetch = null;
+function fetchImpl(input, init) {
+  if (!isDesktop()) return fetch(input, init);
+  if (!desktopFetch) {
+    desktopFetch = import("@tauri-apps/plugin-http")
+      .then((mod) => mod.fetch)
+      // Sem o plugin registrado (build sem o Rust), ainda funciona se o
+      // backend liberar a origem da webview.
+      .catch(() => (...args) => fetch(...args));
+  }
+  return desktopFetch.then((f) => f(input, init));
+}
+
 async function request(method, path, body) {
   const headers = { "Content-Type": "application/json" };
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetchImpl(`${apiBase()}${path}`, {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -52,7 +69,7 @@ async function upload(path, fieldName, file) {
   const headers = {};
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
-  const res = await fetch(`${BASE}${path}`, { method: "POST", headers, body: form });
+  const res = await fetchImpl(`${apiBase()}${path}`, { method: "POST", headers, body: form });
 
   if (res.status === 401) {
     onUnauthorized?.();
@@ -70,6 +87,32 @@ async function upload(path, fieldName, file) {
   }
 
   return payload;
+}
+
+// Health check do sistema. O Caddy expõe /health na RAIZ (fora do prefixo
+// /api, ver deploy/Caddyfile) e o backend local responde em
+// http://127.0.0.1:3000/health. É o que o boot do app desktop usa para
+// saber se o sistema está no ar ANTES de mandar o gestor para o login.
+//
+// Timeout por Promise.race em vez de AbortController: o fetch do plugin do
+// Tauri roda no Rust e o `signal` não é garantido lá.
+export async function pingApi(timeoutMs = 5000) {
+  const base = originBase();
+  const url = base ? `${base}/health` : "/health";
+  let timer;
+  try {
+    const res = await Promise.race([
+      fetchImpl(url, { method: "GET" }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("timeout")), timeoutMs);
+      }),
+    ]);
+    return Boolean(res?.ok);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export { request, upload };

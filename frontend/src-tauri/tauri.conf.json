@@ -1,21 +1,22 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "pdv",
-  "version": "0.1.0",
-  "identifier": "com.tauri.dev",
-  
+  "productName": "PDV",
+  "version": "0.2.0",
+  "identifier": "com.pdvapp.desktop",
   "build": {
-    "frontendDist": "../build",
-    "devUrl": "http://localhost",
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
   "app": {
     "windows": [
       {
-        "title": "pdv",
-        "width": 800,
-        "height": 600,
+        "label": "main",
+        "title": "PDV",
+        "width": 1280,
+        "height": 800,
+        "center": true,
         "resizable": true,
         "fullscreen": false
       }
@@ -27,6 +28,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
+    "externalBin": [
+      "binaries/pdv-printer-daemon"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -34,8 +39,32 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "displayLanguageSelector": false,
+        "installerHooks": "installer-hooks.nsh"
+      },
+      "webviewInstallMode": {
+        "type": "offlineInstaller"
+      }
+    },
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "dialog": false,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg1NkUzMENCMTIzM0VFMkYKUldRdjdqTVN5ekJ1aFYwSkdXSTM2Y3J6aU8yajBaSDJIVG1XU0R1TXo0VGJySm81QjdRVy9rRDkK",
+      "endpoints": [
+        "https://app.umamisushiarte.com.br/updates/desktop/{{target}}/{{arch}}/{{current_version}}"
+      ],
+      "windows": {
+        "installMode": "passive"
+      },
+      "requireSignedVersion": true
     }
   }
 }
