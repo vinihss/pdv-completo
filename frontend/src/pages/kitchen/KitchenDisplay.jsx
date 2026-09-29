@@ -66,7 +66,7 @@ export default function KitchenDisplay() {
     [loadTickets, showToast]
   );
 
-  useRealtime(session?.token, ["kitchen-display"], handleWsEvent);
+  useRealtime(session?.token, ["kitchen-display"], handleWsEvent, loadTickets);
 
   async function markReady(ticket) {
     try {

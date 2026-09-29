@@ -64,7 +64,7 @@ export default function StockTab({ showToast, purchaseEnabled = false }) {
     },
     [load]
   );
-  useRealtime(session?.token, ["inventory"], handleEvent);
+  useRealtime(session?.token, ["inventory"], handleEvent, load);
 
   const lowCount = rows.filter((r) => r.low).length;
 

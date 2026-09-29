@@ -139,7 +139,7 @@ export default function PurchaseTab({ showToast }) {
     },
     [load]
   );
-  useRealtime(session?.token, ["inventory"], handleEvent);
+  useRealtime(session?.token, ["inventory"], handleEvent, load);
 
   return (
     <div className="p-5 max-w-2xl mx-auto space-y-4">

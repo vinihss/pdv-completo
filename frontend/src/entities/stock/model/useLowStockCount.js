@@ -32,9 +32,14 @@ export function useLowStockCount() {
   }, [refresh]);
 
   // Ao vivo: qualquer movimento de estoque em qualquer tela (room "inventory").
-  useRealtime(session?.token, enabled ? ["inventory"] : [], (msg) => {
-    if (msg.type === "stock.movement" || msg.type === "stock.low") refresh();
-  });
+  useRealtime(
+    session?.token,
+    enabled ? ["inventory"] : [],
+    (msg) => {
+      if (msg.type === "stock.movement" || msg.type === "stock.low") refresh();
+    },
+    refresh
+  );
 
   return count;
 }

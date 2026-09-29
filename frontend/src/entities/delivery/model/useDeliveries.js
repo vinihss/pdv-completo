@@ -45,7 +45,7 @@ export function useDeliveries(scope = "manager") {
   }, [reload]);
 
   const rooms = session ? ["deliveries"] : [];
-  useRealtime(session?.token, rooms, reload);
+  useRealtime(session?.token, rooms, reload, reload);
 
   return { deliveries, couriers, loading, reload };
 }

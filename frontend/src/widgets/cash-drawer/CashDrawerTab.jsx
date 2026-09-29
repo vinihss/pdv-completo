@@ -61,7 +61,7 @@ export default function CashDrawerTab({ showToast }) {
 
   // Refresca ao vivo quando outro terminal altera o caixa (pagamentos em
   // dinheiro também são broadcast para o room "cash-drawer").
-  useRealtime(session?.token, ["cash-drawer"], () => reload());
+  useRealtime(session?.token, ["cash-drawer"], () => reload(), reload);
 
   async function loadMore() {
     try {

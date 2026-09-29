@@ -56,7 +56,7 @@ export function useOrders() {
   );
 
   const rooms = session ? [`waiter:${session.user.id}`, "kitchen-display"] : [];
-  useRealtime(session?.token, rooms, handleEvent);
+  useRealtime(session?.token, rooms, handleEvent, reloadAll);
 
   return { orders, loading, reloadAll, reloadOne, setOrders };
 }

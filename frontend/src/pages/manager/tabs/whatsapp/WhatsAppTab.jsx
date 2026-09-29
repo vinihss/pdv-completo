@@ -72,7 +72,7 @@ export default function WhatsAppTab({ showToast }) {
     },
     [load]
   );
-  useRealtime(session?.token, ["whatsapp"], handleEvent);
+  useRealtime(session?.token, ["whatsapp"], handleEvent, load);
 
   const onConnect = async () => {
     setConnecting(true);
