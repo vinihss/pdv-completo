@@ -79,7 +79,7 @@ Function PDV_InstallDaemon
   StrCpy $1 0
   ${DoWhile} $1 < 10
     ${If} $0 == 0
-      Break
+      ${Break}
     ${EndIf}
     Sleep 1000
     ExecWait '$SYSDIR\sc.exe create ${PDV_DAEMON_SERVICE} binPath= "$INSTDIR\${PDV_DAEMON_DIR}\${PDV_DAEMON_EXE}" start= auto DisplayName= "${PDV_DAEMON_DISPLAY}"' $0
