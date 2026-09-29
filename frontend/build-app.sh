@@ -60,11 +60,18 @@ if [ "$CONF_VERSION" != "$PKG_VERSION" ]; then
 fi
 echo "==> Versão: $CONF_VERSION"
 
-# ---------- 3. Assinatura (só em entrega) ----------
-# O updater REJEITA artefato sem assinatura válida, então um build de
-# entrega sem chave é inútil: sai um instalador que nenhum app atualiza.
-# Em build local seguimos sem chave (e avisamos), porque serve para
-# conferir se o app abre.
+# ---------- 3. Assinatura ----------
+# O empacotador do Tauri 2 assina o artefato de update SEMPRE que
+# `plugins.updater.pubkey` está no tauri.conf.json — e não há flag de config
+# que desligue isso (testado: `-c '{"plugins":{"updater":{"pubkey":""}}}'`
+# continua pedindo chave, e `updater:null` morre antes com "failed to get
+# updater configuration"). Sem TAURI_SIGNING_PRIVATE_KEY o build local
+# TERMINA COM ERRO, mesmo tendo gerado o instalador.
+#
+# Então o build local gera uma chave descartável na máquina. Ela serve só para
+# o script sair com status 0: um instalador assinado com essa chave NÃO é
+# aceito pelo updater do app, porque a pubkey real está no conf. Entrega
+# sempre com a chave de verdade (--release).
 if [ "$RELEASE" -eq 1 ]; then
   if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ] || [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
     cat >&2 <<'MSG'
@@ -81,8 +88,16 @@ MSG
   echo "==> Assinatura: chave e senha presentes"
 else
   if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
-    echo "==> AVISO: sem TAURI_SIGNING_PRIVATE_KEY. Build local sem assinatura."
-    echo "    O instalador sai, mas nenhum app consegue atualizar por ele."
+    LOCAL_KEY="$FRONTEND/src-tauri/.local-signing.key"
+    if [ ! -f "$LOCAL_KEY" ]; then
+      echo "==> Gerando chave de assinatura local (descartavel)"
+      npx tauri signer generate -w "$LOCAL_KEY" -p pdv-local --force >/dev/null
+    fi
+    export TAURI_SIGNING_PRIVATE_KEY="$(cat "$LOCAL_KEY")"
+    export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="pdv-local"
+    echo "==> Chave local em uso. O instalador deste build NAO atualiza"
+    echo "    nenhum app real (a pubkey do conf é outra). Isso é esperado"
+    echo "    em build de desenvolvimento."
   fi
 fi
 
@@ -96,24 +111,34 @@ fi
 # Não é problema do projeto, e o `.deb` sai normal na mesma máquina. Quando
 # isso acontece, `--appimage-docker` empacota num debian:bookworm-slim
 # (glibc 2.36), que é o mesmo AppImage que o CI gera.
+TAURI_ARGS=()
+[ -n "$BUNDLES" ] && TAURI_ARGS+=($BUNDLES)
+
 if [ "$APPIMAGE_DOCKER" -eq 1 ]; then
   command -v docker >/dev/null || { echo "--appimage-docker precisa de docker" >&2; exit 1; }
   IMAGE="pdv-desktop-build"
   if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-    echo "==> Preparando a imagem de build ($IMAGE); só na primeira vez"
+    echo "==> Preparando a imagem de build ($IMAGE); so na primeira vez"
     docker build -t "$IMAGE" -f docker/Dockerfile.desktop .
   fi
   echo "==> AppImage em debian:bookworm-slim (compila o Rust de novo, demora)"
+  # `-e VAR` sem valor repassa o valor do host: sem a chave o empacotador
+  # dentro do container aborta no passo de update (ver secao 3).
   docker run --rm -v "$FRONTEND":/app -w /app \
-    -e VITE_DEFAULT_SERVER="${VITE_DEFAULT_SERVER:-}" "$IMAGE" \
-    npx tauri build --bundles appimage
+    -e VITE_DEFAULT_SERVER="${VITE_DEFAULT_SERVER:-}" \
+    -e TAURI_SIGNING_PRIVATE_KEY -e TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
+    "$IMAGE" npx tauri build --bundles appimage
   # O container roda como root e deixa o target/ com dono root.
   docker run --rm -v "$FRONTEND/src-tauri/target":/t alpine chown -R "$(id -u):$(id -g)" /t
-  BUNDLES=""
 else
   echo "==> tauri build ${BUNDLES:-todos os alvos}"
-  # shellcheck disable=SC2086
-  npx tauri build $BUNDLES
+  # `set -u` reclama de array vazio em bash < 4.4, e o caso "--release" sem
+  # --bundles deixa a lista vazia de verdade.
+  if [ ${#TAURI_ARGS[@]} -eq 0 ]; then
+    npx tauri build
+  else
+    npx tauri build "${TAURI_ARGS[@]}"
+  fi
 fi
 
 echo

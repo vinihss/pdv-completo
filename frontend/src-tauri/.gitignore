@@ -2,3 +2,8 @@
 # will have compiled files and executables
 /target/
 /gen/schemas
+
+# Chave de assinatura local, gerada pelo build-app.sh quando não há chave de
+# entrega. Nunca versionar: é um throwaway de desenvolvimento.
+/.local-signing.key
+/.local-signing.key.pub

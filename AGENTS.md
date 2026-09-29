@@ -149,6 +149,21 @@ ele **recusa** rodar sem `TAURI_SIGNING_PRIVATE_KEY` + senha, porque um
 instalador sem assinatura não é atualizado por nenhum app. Publicar é outra
 coisa: é a tag `vX.Y.Z` que o CI assina e publica (§ Update automático).
 
+Duas armadilhas que já custaram tempo (detalhe em `docs/11-desktop-instalador.md`
+§8.1-8.2):
+
+- **AppImage não empacota no Arch** — o `strip` do `linuxdeploy` não conhece a
+  seção `.relr.dyn` das libs do Arch e o build morre com "failed to run
+  linuxdeploy". O `.deb` sai normal; para o AppImage use
+  `bash build-app.sh --appimage-docker` (empacota num `debian:bookworm-slim`).
+- **Build local sempre pede chave de assinatura** — o Tauri 2 assina o
+  artefato de update sempre que `plugins.updater.pubkey` está no conf, e
+  nenhuma flag de `-c` desliga. Sem isso o build local terminava com erro
+  *depois* de gerar o instalador. O script agora gera uma chave descartável
+  em `src-tauri/.local-signing.key` (fora do git): o instalador sai, o `.sig`
+  existe, e nenhum app real atualiza por ele — entrega continua exigindo
+  `--release` com a chave de verdade.
+
 O app Windows é o alvo: instalador único, config por loja em
 `%ProgramData%\PDV\app.json` e daemon de impressão instalado como serviço
 junto. **A lista do que ainda não foi provado (chave da assinatura fora do
