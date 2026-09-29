@@ -1,4 +1,20 @@
-name: Desktop Windows
+name: Desktop Windows (LEGADO — não use para publicar)
+
+# ============================================================
+# NÃO É O CAMINHO DE PUBLICAÇÃO.
+#
+# O instalador que vai para a loja é o `build-desktop.yml` (mesma
+# definição usada pelo deploy por tag), que assina o artefato, roda os
+# testes e publica o `latest.json` do auto-update no servidor. Este
+# arquivo só gera `.msi`/`.exe` em release rascunho, sem os secrets de
+# assinatura — e como `createUpdaterArtifacts: true` está no
+# `tauri.conf.json`, o `tauri build` aqui deve falhar por falta de
+# `TAURI_SIGNING_PRIVATE_KEY`.
+#
+# Mantido só porque já é referenciado por gente; remover quando ninguém
+# precisar mais dele. Para instalar/atualizar o app do cliente, use
+# `build-desktop.yml`.
+# ============================================================
 
 # Gera o instalador do app desktop (Tauri) para Windows a partir do mesmo
 # código do PWA. O Linux é buildado localmente com `npm run desktop:build`

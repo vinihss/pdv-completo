@@ -38,137 +38,31 @@ jobs:
           npm run test
 
   build-desktop:
-    # Gera o instalador Windows assinado e publica o manifesto do updater.
-    # Só roda em tag: é o que define a versão, e o app instalado pergunta
-    # "existe 0.3.0?" comparando com o manifesto servido.
-    runs-on: windows-latest
+    # O instalador em si é o workflow `build-desktop.yml`, que também pode
+    # ser disparado sozinho ("gerar só o instalador", sem tag e sem deploy
+    # do backend). Aqui ele roda porque é a tag que define a versão: o app
+    # instalado pergunta "existe <versão>?" comparando com o manifesto que
+    # este passo publica.
+    uses: ./.github/workflows/build-desktop.yml
+    # `contents: write` precisa estar AQUI, não só no workflow chamado: em
+    # `workflow_call` o token é a interseção das permissões de quem chama com
+    # as do chamado, então sem isto o `gh release create` do instalador falha
+    # com "resource not accessible by integration" — e o passo do manifesto
+    # vem antes dele, ou seja, o run só quebra no fim, com tudo pronto.
     permissions:
       contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-          cache-dependency-path: printer/daemon/go.sum
-
-      - name: Conferir versão (tag x tauri.conf.json)
-        shell: pwsh
-        run: |
-          $tag = '${{ github.ref_name }}'.TrimStart('v')
-          $conf = Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json
-          if ($conf.version -ne $tag) {
-            Write-Error "Tag $tag nao bate com tauri.conf.json version=$($conf.version). O updater publica a versao do conf, entao um desvio aqui gera manifesto errado."
-            exit 1
-          }
-          Write-Host "Versao confere: $tag"
-
-      - name: Gerar sidecar do daemon
-        shell: bash
-        run: bash printer/scripts/build-sidecar.sh
-
-      - name: Instalar dependencias
-        working-directory: frontend
-        run: npm ci
-
-      - name: Build do frontend
-        working-directory: frontend
-        run: npm run build
-
-      - name: Build do instalador (assinado)
-        working-directory: frontend
-        env:
-          # A chave publica esta no tauri.conf.json (plugins.updater.pubkey);
-          # a privada so existe aqui. Sem TAURI_SIGNING_PRIVATE_KEY o build
-          # falha em vez de gerar artefato que o app rejeita.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx tauri build --bundles nsis
-
-      - name: Montar manifesto latest.json
-        shell: pwsh
-        run: |
-          $dir = 'src-tauri/target/release/bundle/nsis'
-          # Descoberta pelo artefato, nao por nome fixo: o sufixo do zip mudou
-          # entre versoes do Tauri (.exe.zip, .nsis.zip) e um glob rigido
-          # publicaria um manifesto apontando para arquivo inexistente — o
-          # sintoma seria "update simplesmente nao acontece", sem erro.
-          $zip = Get-ChildItem "$dir/*.zip" | Select-Object -First 1
-          if (-not $zip) { Write-Error "Nenhum artefato .zip em $dir"; exit 1 }
-          $sig = "$($zip.FullName).sig"   # o .sig e sempre o artefato + .sig
-          if (-not (Test-Path $sig)) { Write-Error "Falta a assinatura $sig"; exit 1 }
-
-          $base = '${{ secrets.UPDATE_BASE_URL }}'
-          if (-not $base) { $base = 'https://app.umamisushiarte.com.br' }
-          $base = $base.TrimEnd('/')
-          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
-
-          # Chave da plataforma = {{target}}-{{arch}} do endpoint dinamico.
-          # O alvo e Windows x64; um dia sair arm64 vira outra chave aqui.
-          $manifest = @{
-            version   = $version
-            notes     = "PDV $version"
-            pub_date  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-            platforms = @{
-              'windows-x86_64' = @{
-                signature = (Get-Content $sig -Raw).Trim()
-                url       = "$base/updates/files/windows-x86_64/$($zip.Name)"
-              }
-            }
-          }
-          # utf8NoBOM: um BOM no inicio faz o serde_json do plugin recusar o
-          # manifesto (falha de parse em silencio, update nao acontece).
-          $out = Join-Path $dir 'latest.json'
-          $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $out -Encoding utf8NoBOM
-          Write-Host "Manifesto $version -> $($zip.Name)"
-          Get-Content $out
-
-      # A release vem ANTES do SSH de propósito: ela é o caminho de
-      # download do instalador que não depende de nada externo. Se o scp
-      # falhar (secret ausente, VPS fora, pasta com dono errado), o job
-      # quebra aqui — mas o .exe já está salvo e pode ser publicado a mão.
-      - name: Anexar instalador na release do GitHub
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create '${{ github.ref_name }}' --title 'PDV ${{ github.ref_name }}' --generate-notes || \
-          gh release upload '${{ github.ref_name }}' 'src-tauri/target/release/bundle/nsis/*.exe' --clobber
-
-      # Publicar no servidor é o que dá o download por URL própria
-      # (/updates/files/...) e o manifesto do auto-update. Falhar aqui é
-      # falha de verdade: sem isso o app instalado não encontra update.
-      - name: Publicar no servidor (SSH)
-        uses: appleboy/scp-action@v1
-        with:
-          host: ${{ secrets.HOSTINGER_HOST }}
-          port: ${{ secrets.HOSTINGER_PORT || '22' }}
-          username: ${{ secrets.HOSTINGER_USER }}
-          key: ${{ secrets.HOSTINGER_SSH_KEY }}
-          known_hosts: ${{ secrets.HOSTINGER_KNOWN_HOSTS }}
-          source: 'src-tauri/target/release/bundle/nsis/*'
-          target: ${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates/
-
-      - name: Ajustar layout no servidor
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.HOSTINGER_HOST }}
-          port: ${{ secrets.HOSTINGER_PORT || '22' }}
-          username: ${{ secrets.HOSTINGER_USER }}
-          key: ${{ secrets.HOSTINGER_SSH_KEY }}
-          known_hosts: ${{ secrets.HOSTINGER_KNOWN_HOSTS }}
-          script: |
-            set -Eeuo pipefail
-            UPDATES="${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates"
-            # scp joga tudo no mesmo nivel; o Caddy espera latest.json na raiz
-            # e os artefatos em files/windows-x86_64/ (ver Caddyfile).
-            mkdir -p "$UPDATES/files/windows-x86_64"
-            cd "$UPDATES"
-            mv -f -- *.exe *.zip *.zip.sig files/windows-x86_64/ 2>/dev/null || true
-            ls -la . files/windows-x86_64
+    with:
+      publicar_no_servidor: true
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      UPDATE_BASE_URL: ${{ secrets.UPDATE_BASE_URL }}
+      HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
+      HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
+      HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
+      HOSTINGER_SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+      HOSTINGER_KNOWN_HOSTS: ${{ secrets.HOSTINGER_KNOWN_HOSTS }}
+      HOSTINGER_APP_PATH: ${{ secrets.HOSTINGER_APP_PATH }}
 
   deploy:
     needs: [test-backend, test-frontend, build-desktop]

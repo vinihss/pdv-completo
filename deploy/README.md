@@ -232,6 +232,38 @@ chega ao servidor antes do backend no ar. Se a tag não bater com a
 propósito — um descasamento ali publicaria um manifesto que nenhum app
 reconhece, e o update pareceria só não existir.
 
+### O instalador é o `build-desktop.yml` (também dá para rodar sozinho)
+
+O job Windows acima **não tem steps próprios**: ele chama
+**`.github/workflows/build-desktop.yml`**, que é a definição única do
+instalador. Esse mesmo arquivo tem `workflow_dispatch`, então dá para gerar
+só o instalador quando quiser, sem tag e sem deploy do backend:
+
+1. aba **Actions** → **Instalador Windows (Tauri)** → **Run workflow**;
+2. escolha a branch/commit (o `.exe` sempre sai daquele código);
+3. `publicar_no_servidor`:
+   - **marcado** — assina, cria/atualiza a release e publica o
+     `latest.json` + instalador em `deploy/updates/`. É o que faz o
+     auto-update funcionar; use como padrão;
+   - **desmarcado** — gera e anexa na release do GitHub, mas **não serve
+     o manifesto**: o app instalado não vai encontrar essa versão. Serve
+     para conferir que o build do runner Windows continua funcionando sem
+     mexer no que está no ar.
+4. `nota` é opcional e aparece como observação do update no app.
+
+Dois avisos sobre essa porta:
+
+- A release é nomeada pela **versão do `tauri.conf.json`** do commit
+  escolhido, não pela branch. O run avisa quando veio de branch, e a
+  release aponta para o commit exato que assinou o artefato (`--target`).
+- Rodar duas vezes a mesma versão no modo padrão **sobrescreve** o
+  manifesto servido. Só faça isso de novo quando quiser que o app instalado
+  passe a ver aquela versão.
+
+O `.github/workflows/desktop-windows.yml` é **legado**: gera `.msi`/`.exe`
+em release rascunho, sem assinatura e sem publicar o manifesto. Não é o
+caminho de publicação.
+
 ### Como usar
 
 1. Crie uma tag semântica: `git tag v1.0.0 && git push origin v1.0.0`

@@ -231,7 +231,7 @@ Peças, e onde cada uma mora:
 | Instalação sem travar o app | `plugins.updater.windows.installMode: passive` |
 | Lógica de falha não bloqueia | `entities/updater/api/updater.js` + `bootSequence.js` |
 | Endpoint e artefatos | `deploy/Caddyfile` → `/updates/desktop/*/*/*` e `/updates/files/*` |
-| Build + assinatura + publicação | `.github/workflows/deploy-on-tag.yml` → job `build-desktop` |
+| Build + assinatura + publicação | `.github/workflows/build-desktop.yml` (por tag via `deploy-on-tag.yml`, ou por `workflow_dispatch`) |
 | Chave privada + senha | secrets `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` |
 
 Quatro decisões que valem explicadas:
@@ -270,6 +270,36 @@ instalador NSIS assinado, monta o `latest.json`, publica por SSH em
 `deploy/updates/` no servidor e anexa o instalador na release do GitHub. O job
 `deploy` só roda depois dele (`needs:`), então o manifesto nunca chega antes
 do backend no ar.
+
+### 6.1.1 Gerar o instalador sem tag (só o instalador)
+
+O job acima não tem steps próprios: ele chama
+**`.github/workflows/build-desktop.yml`**, que é a definição única do
+instalador. Esse workflow também aceita `workflow_dispatch`, então dá para
+produzir o instalador a qualquer momento pela aba **Actions** →
+**Instalador Windows (Tauri)** → **Run workflow**:
+
+| Input | Efeito |
+|---|---|
+| `publicar_no_servidor` (padrão marcado) | assina, cria/atualiza a release e publica `latest.json` + `.exe` em `deploy/updates/` — é o que o app instalado consulta |
+| `publicar_no_servidor` desmarcado | gera e anexa na release, **sem** servir o manifesto: o app instalado não encontra essa versão (serve para checar o build do runner sem mexer no ar) |
+| `nota` (opcional) | texto do update mostrado no app |
+
+Três coisas que valem saber antes de usar essa porta:
+
+- **A release é nomeada pela versão do `tauri.conf.json`** do commit
+  escolhido, não pela branch. O run avisa quando a ref não é tag.
+- **A release aponta para o commit que assinou o artefato** (`--target
+  ${{ github.sha }}`): sem isso ela nasceria no topo da branch padrão, com o
+  mesmo nome de versão mas outro código.
+- **Repetir a mesma versão sobrescreve o `latest.json` servido.** O run
+  manual é exatamente para isso — republicar é a intenção —, mas isso
+  significa que um dispare acidental entrega uma versão que você não testou
+  no Windows.
+
+O `.github/workflows/desktop-windows.yml` é legado: gera `.msi`/`.exe` em
+release rascunho, sem assinatura e sem publicar o manifesto. Não é o
+caminho de publicação — ele está marcado no próprio arquivo.
 
 O serviço de impressão continua no caminho: o `installer-hooks.nsh` roda a
 cada instalação, e o update é uma instalação.
@@ -348,9 +378,9 @@ um sintoma que dá para reproduzir ou um arquivo que não existe.
 | # | Pendência | Evidência / onde | Como resolver |
 |---|---|---|---|
 | 1 | **Guardar a chave e a senha fora do repo.** Hoje estão em `/tmp/opencode/pdv-updater.key` e `.password`, que é temporário. | Sem a privada, nenhuma versão é assinável; sem a senha, o CLI cai num prompt e o build falha. | Copiar os dois arquivos para local durável (gerenciador de senhas + backup offline). Depois, considerar revogar: trocar a chave é gerar par novo, atualizar `plugins.updater.pubkey` e republicar o manifesto. |
-| 2 | **Os secrets do deploy não existem no repositório.** A tag `v1.0.1` (26/09) falhou com `error: missing server host`; `gh secret list` mostra só os dois `TAURI_SIGNING_*`. Faltam `HOSTINGER_HOST`, `HOSTINGER_USER`, `HOSTINGER_SSH_KEY`, `HOSTINGER_APP_PATH` (+ `HOSTINGER_PORT`, `HOSTINGER_KNOWN_HOSTS` opcionais). | `deploy/README.md` §Secrets, `.github/workflows/deploy-on-tag.yml` | Cadastrar em Settings → Secrets and variables → Actions. Sem isso o `build-desktop` quebra no `scp` e o `deploy` no `ssh-action`. |
-| 3 | **Definir a versão da primeira tag.** `tauri.conf.json` e `package.json` estão em `0.2.0`. | O job `build-desktop` falha se a tag divergir do conf — de propósito. | Bumpar os dois arquivos juntos antes de `git tag vX.Y.Z`. |
-| 4 | **Rodar a primeira tag de verdade.** O caminho do manifesto foi provado com Caddy local e diretório falso, nunca contra o VPS. | `deploy/Caddyfile` + volume `./updates` | Após a tag: `curl https://app.umamisushiarte.com.br/updates/desktop/windows-x86_64/x86_64/0.2.0` tem que devolver o `latest.json`. |
+| 2 | **Os secrets de servidor ainda não existem no repositório.** Os dois `TAURI_SIGNING_*` já foram cadastrados (28/09); `gh secret list` não mostra nenhum `HOSTINGER_*` nem `UPDATE_BASE_URL`. | `deploy/README.md` §Secrets | Cadastrar `HOSTINGER_HOST`, `HOSTINGER_USER`, `HOSTINGER_SSH_KEY`, `HOSTINGER_APP_PATH` (+ `HOSTINGER_PORT`, `HOSTINGER_KNOWN_HOSTS` opcionais) e `UPDATE_BASE_URL`. Sem isso o instalador quebra no `scp` e o `deploy` no `ssh-action`. **Ate la, o disparo manual com `publicar_no_servidor` desmarcado ainda produz o instalador assinado na release** — da para preparar a validacao em Windows. |
+| 3 | **A primeira tag ainda nao existe.** `tauri.conf.json` e `package.json` estao em `1.0.2` (iguais entre si, que e o que o job exige). | O job `build-desktop` falha se a tag divergir do conf — de proposito. | `git tag v1.0.2 && git push origin v1.0.2`, ou gerar so o instalador pelo disparo manual do `build-desktop.yml`. |
+| 4 | **Rodar a primeira tag de verdade.** O caminho do manifesto foi provado com Caddy local e diretório falso, nunca contra o VPS. | `deploy/Caddyfile` + volume `./updates` | Apos a primeira publicacao: `curl https://app.umamisushiarte.com.br/updates/desktop/windows/x86_64/0.0.0` tem que devolver o `latest.json` (a versao do URL e ignorada pelo `rewrite` — 0.0.0 so para nao nascer de um app real). |
 
 Detalhe do item 4 que só aparece em produção: `deploy/updates/` fica **untracked**
 dentro do clone no servidor. O `git checkout -f` do deploy preserva, mas um
