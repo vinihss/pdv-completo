@@ -140,6 +140,54 @@ daemon. Qualquer outro frontend precisa ser listado:
 
 Não use `"*"` em `allowed_origins`.
 
+## Fluxo no app web: o navegador chama o daemon direto
+
+No app web, **não existe túnel nem IP público**: o navegador e o daemon estão
+na mesma máquina. A tela chama `http://127.0.0.1:8080` e pronto.
+
+Isso tem uma consequência prática: a origem que importa aqui é a do **app**,
+não a do `localhost`. Se o app é servido de um domínio (por exemplo
+`https://app.umamisushiarte.com.br`), a entrada correspondente precisa estar em
+`allowed_origins`:
+
+```json
+"allowed_origins": [
+  "tauri://localhost",
+  "http://localhost:1420",
+  "http://localhost:3000",
+  "https://app.umamisushiarte.com.br"
+]
+```
+
+Para rodar local pelos containers do PDV, a origem é a do Caddy — `http://localhost`
+(ou `http://localhost:<PDV_PORT>` se a porta não for a 80). Descubra a real pela
+barra de endereços do navegador e use exatamente ela.
+
+### Como depurar quando a impressão não sai
+
+O navegador não distingue "daemon fora do ar" de "CORS bloqueado": os dois
+chegam como `fetch failed` no console. Verifique nesta ordem:
+
+1. `curl http://127.0.0.1:8080/health` — se não responder, o daemon não está
+   rodando (é a causa mais comum);
+2. se responder, confira se a origem que aparece na barra de endereços está
+   literalmente em `allowed_origins`, e reinicie o daemon depois de editar o
+   config;
+3. `GET /api/printers/status?destination=kitchen` — `reachable: false` indica
+   impressora desligada ou endereço errado em `printers.*`.
+
+### Impressão automática exige o backend com acesso ao daemon
+
+O botão de imprimir da comanda é manual e vai do navegador direto ao daemon.
+Já a **impressão automática** (`printerAutoPrint` em Configurações) é disparada
+pelo backend ao abrir a comanda e no self-service — sem browser envolvido. Para
+funcionar, o backend precisa alcançar o daemon por `PRINTER_DAEMON_URL`.
+
+Se o backend roda numa VPS e o daemon só existe na máquina do usuário, esses
+dois caminhos não se encontram. Com o modelo "app web + daemon local", deixe a
+impressão automática **desligada** e use o botão — que é o caminho testado. Para
+auto-impressão nesse cenário é preciso túnel (o daemon conecta na VPS) ou VPN.
+
 ## 2. Executar em desenvolvimento
 
 ```bash
