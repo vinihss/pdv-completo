@@ -10,7 +10,7 @@ import { usePublicRealtime } from "@/shared/hooks";
 import { Modal } from "@/shared/components";
 import { applyBrandPrimary, variationsText, formatBRL } from "@/shared/lib";
 import { VariationModal } from "@/entities/product";
-import { lineKey, toServerLine, variationGroups, hasVariations, missingRequiredGroups } from "@/entities/cart";
+import { lineKey, toServerLine, variationGroups, hasVariations, missingRequiredGroups, saveCartLocal, loadCartLocal, clearCartLocal } from "@/entities/cart";
 import MenuScreen from "./components/MenuScreen.jsx";
 import CartLine from "./components/CartLine.jsx";
 import { assetUrl } from "@/shared/lib/server";
@@ -120,6 +120,7 @@ export default function CustomerMenuPage() {
       .then((m) => {
         setMenu(m);
         hydrateCartFromServer(m, digitsOnly(prefilledPhone));
+        hydrateCartFromLocal(m);
       })
       .catch((e) => setMenuError(e.message));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -202,6 +203,25 @@ export default function CustomerMenuPage() {
       .catch(() => {});
   }
 
+  function hydrateCartFromLocal(m) {
+    const items = loadCartLocal();
+    if (!items || items.length === 0) return;
+    const menuIds = new Set(m.categories.flatMap((c) => c.products.map((prod) => prod.id)));
+    const next = {};
+    for (const it of items) {
+      if (!it?.productId || !menuIds.has(it.productId)) continue;
+      const quantity = Math.max(1, Math.min(99, Number(it.quantity) || 1));
+      const variations = it.selectedVariations ?? {};
+      next[lineKey(it.productId, variations)] = {
+        productId: it.productId,
+        quantity,
+        selectedVariations: variations,
+        notes: it.notes ?? "",
+      };
+    }
+    if (Object.keys(next).length > 0) setCart(next);
+  }
+
   // ---------- mutações do carrinho ----------
 
   // Nenhum produto entra no carrinho em um toque: todo clique abre a ficha
@@ -240,6 +260,7 @@ export default function CustomerMenuPage() {
     }
     setCart(next);
     scheduleCartSave(next);
+    saveCartLocal(Object.values(next).filter((l) => l.quantity > 0).map(toServerLine));
   }
 
   function addLine(product, selectedVariations, notes, quantity = 1) {
@@ -259,6 +280,7 @@ export default function CustomerMenuPage() {
     };
     setCart(next);
     scheduleCartSave(next);
+    saveCartLocal(Object.values(next).filter((l) => l.quantity > 0).map(toServerLine));
   }
   function addToCartLine(key) {
     const line = cart[key];
@@ -266,6 +288,7 @@ export default function CustomerMenuPage() {
     const next = { ...cart, [key]: { ...line, quantity: line.quantity + 1 } };
     setCart(next);
     scheduleCartSave(next);
+    saveCartLocal(Object.values(next).filter((l) => l.quantity > 0).map(toServerLine));
   }
   function removeFromCartLine(key) {
     const line = cart[key];
@@ -280,6 +303,7 @@ export default function CustomerMenuPage() {
     }
     setCart(next);
     scheduleCartSave(next);
+    saveCartLocal(Object.values(next).filter((l) => l.quantity > 0).map(toServerLine));
   }
   function changeNotes(key, text) {
     const line = cart[key];
@@ -287,6 +311,7 @@ export default function CustomerMenuPage() {
     const next = { ...cart, [key]: { ...line, notes: text } };
     setCart(next);
     scheduleCartSave(next);
+    saveCartLocal(Object.values(next).filter((l) => l.quantity > 0).map(toServerLine));
   }
 
   // Barra de busca: fica sempre visível se o cardápio não tem o que rolar (senão
@@ -398,6 +423,7 @@ export default function CustomerMenuPage() {
     setStatusPoll(null);
     setCheckoutError(null);
     setCancelError(null);
+    clearCartLocal();
     const p = digitsOnly(phoneRef.current);
     if (!p) {
       setActiveOrder(null);
@@ -433,7 +459,8 @@ export default function CustomerMenuPage() {
       });
       setOrder(created);
       setScreen("confirmation");
-      // Pedido criado: o rascunho cumpriu o papel, some do servidor.
+      // Pedido criado: o rascunho cumpriu o papel, some do servidor e do cache local.
+      clearCartLocal();
       const p = digitsOnly(phone);
       if (p) clearPublicCart(p).catch(() => {});
     } catch (e) {

@@ -73,6 +73,7 @@ describe("CustomerMenuPage (integração)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     currentMenu = baseMenu;
+    localStorage.clear();
     // jsdom não faz layout: scrollIntoView não existe, e o teste quer saber
     // qual seção foi alvo do clique.
     Element.prototype.scrollIntoView = vi.fn();
@@ -193,6 +194,7 @@ describe("CustomerMenuPage (layout de loja)", () => {
     // aria-label idêntico ("Adicionar X-Burger"), deixando getByLabelText
     // ambíguo. Agora não há stepper — o clique no card abre a ficha, que é o
     // gatilho único para qualquer um dos dois.
+    localStorage.clear();
     currentMenu = withFeatured();
     await renderPage();
 
