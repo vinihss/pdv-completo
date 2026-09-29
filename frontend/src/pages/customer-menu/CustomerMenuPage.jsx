@@ -13,6 +13,7 @@ import { VariationModal } from "@/entities/product";
 import { lineKey, toServerLine, variationGroups, hasVariations, missingRequiredGroups } from "@/entities/cart";
 import MenuScreen from "./components/MenuScreen.jsx";
 import CartLine from "./components/CartLine.jsx";
+import { assetUrl } from "@/shared/lib/server";
 
 function formatAddress(a) {
   return `${a.street}, ${a.number}${a.complement ? ` - ${a.complement}` : ""} · ${a.neighborhood}, ${a.city}`;
@@ -998,7 +999,7 @@ function TopBar({ title, onBack, logoUrl }) {
       </button>
       <h1 className="text-[15.5px] font-semibold text-stone-50">{title}</h1>
       {logoUrl && (
-        <img src={logoUrl} alt="Logo do restaurante" className="h-9 w-9 rounded-full object-contain shrink-0 ml-auto" />
+        <img src={assetUrl(logoUrl)} alt="Logo do restaurante" className="h-9 w-9 rounded-full object-contain shrink-0 ml-auto" />
       )}
     </div>
   );

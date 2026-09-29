@@ -1,4 +1,4 @@
-import { and, count, desc, eq, notInArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { db, type Tx } from "../../infra/db/client.js";
 import {
   orders,
@@ -949,7 +949,85 @@ export async function listOrdersUsecase(input: { status?: "open" | "closed"; lim
     limit: input.limit,
     offset: input.offset,
   });
-  const data = await Promise.all(rows.map((o) => serializeOrder(o.id)));
+
+  if (rows.length === 0) {
+    const totalRow = await db.select({ count: count() }).from(orders).where(where as any);
+    return { data: [], total: totalRow[0]?.count ?? 0 };
+  }
+
+  const orderIds = rows.map((o) => o.id);
+
+  const itemsWithProducts = await db
+    .select({
+      item: orderItems,
+      productName: products.name,
+      productImagePath: products.imagePath,
+      productKitchenGroupId: products.kitchenGroupId,
+    })
+    .from(orderItems)
+    .innerJoin(products, eq(products.id, orderItems.productId))
+    .where(inArray(orderItems.orderId, orderIds));
+
+  const allPayments = await db.query.orderPayments.findMany({
+    where: inArray(orderPayments.orderId, orderIds),
+  });
+
+  const tableIds = [...new Set(rows.map((o) => o.tableId).filter(Boolean))] as string[];
+  const customerIds = [...new Set(rows.map((o) => o.customerId).filter(Boolean))] as string[];
+
+  const tables: (typeof restaurantTables.$inferSelect)[] = tableIds.length > 0
+    ? await db.query.restaurantTables.findMany({ where: inArray(restaurantTables.id, tableIds) })
+    : [];
+  const customerRows: (typeof customers.$inferSelect)[] = customerIds.length > 0
+    ? await db.query.customers.findMany({ where: inArray(customers.id, customerIds) })
+    : [];
+
+  const tableMap = new Map(tables.map((t) => [t.id, t]));
+  const customerMap = new Map(customerRows.map((c) => [c.id, c]));
+
+  const itemsByOrder = new Map<string, typeof itemsWithProducts>();
+  for (const row of itemsWithProducts) {
+    const list = itemsByOrder.get(row.item.orderId) ?? [];
+    list.push(row);
+    itemsByOrder.set(row.item.orderId, list);
+  }
+
+  const paymentsByOrder = new Map<string, typeof allPayments>();
+  for (const p of allPayments) {
+    const list = paymentsByOrder.get(p.orderId) ?? [];
+    list.push(p);
+    paymentsByOrder.set(p.orderId, list);
+  }
+
+  const data = rows.map((order) => ({
+    id: order.id,
+    status: order.status,
+    tableId: order.tableId,
+    tableNumber: order.tableId ? tableMap.get(order.tableId)?.number ?? null : null,
+    customerId: order.customerId,
+    customerName: order.customerId ? customerMap.get(order.customerId)?.name ?? null : null,
+    tabLabel: order.tabLabel,
+    waiterId: order.waiterId,
+    channel: order.channel,
+    externalRef: order.externalRef,
+    deliveryFee: order.deliveryFee,
+    cancelReason: order.cancelReason,
+    paymentMethod: order.paymentMethod,
+    paymentConfirmedAt: order.paymentConfirmedAt,
+    paymentConfirmedBy: order.paymentConfirmedBy,
+    openedAt: order.openedAt,
+    closedAt: order.closedAt,
+    items: (itemsByOrder.get(order.id) ?? []).map(
+      ({ item, productName, productImagePath, productKitchenGroupId }) =>
+        serializeItem(item, {
+          name: productName,
+          imagePath: productImagePath,
+          kitchenGroupId: productKitchenGroupId,
+        })
+    ),
+    payments: (paymentsByOrder.get(order.id) ?? []).map(serializePayment),
+  }));
+
   const totalRow = await db.select({ count: count() }).from(orders).where(where as any);
   return { data, total: totalRow[0]?.count ?? data.length };
 }

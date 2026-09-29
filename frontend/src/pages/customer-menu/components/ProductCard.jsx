@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { formatBRL, variationsText } from "@/shared/lib";
 import { Minus, Plus } from "lucide-react";
 import { linesOfProduct, lineKey, productQty } from "@/entities/cart";
+import { assetUrl } from "@/shared/lib/server";
 
 // Card de linha das categorias: um produto abaixo do outro, foto à direita
 // (texto ocupa a largura restante). Sem botão de "+": o clique no card abre a
@@ -79,7 +80,7 @@ export default function ProductCard({ product, cart, onOpen, onInc, onDec, onEdi
 
       <div className="relative shrink-0">
         {product.imagePath ? (
-          <img src={product.imagePath} alt={product.name} className="w-20 h-20 rounded-lg object-cover" loading="lazy" />
+          <img src={assetUrl(product.imagePath)} alt={product.name} className="w-20 h-20 rounded-lg object-cover" loading="lazy" />
         ) : (
           <div className="w-20 h-20 rounded-lg bg-stone-800 flex items-center justify-center text-stone-600 font-display text-lg font-bold">
             {(product.name?.[0] ?? "?").toUpperCase()}

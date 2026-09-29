@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { assetUrl } from "@/shared/lib/server";
 
 function initialsOf(name) {
   const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
@@ -34,7 +35,7 @@ export default function UserAvatar({ name, photoPath, className = "" }) {
   if (showPhoto) {
     return (
       <img
-        src={photoPath}
+        src={assetUrl(photoPath)}
         alt={name}
         onError={() => setFailedSrc(photoPath)}
         className={`block rounded-full object-cover shrink-0 bg-stone-800 ${className}`}

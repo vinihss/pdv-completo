@@ -4,6 +4,7 @@ import { listUsers, updateUser, resetPin } from "@/entities/user";
 import { ConfirmModal, inputClass, Section } from "@/shared/components";
 import { initials, maskPhone } from "@/shared/lib";
 import UserModal from "./UserModal.jsx";
+import { assetUrl } from "@/shared/lib/server";
 
 const ROLE_LABEL = { waiter: "Garçom", kitchen: "Cozinha", manager: "Gerente", courier: "Entregador", cashier: "Caixa" };
 const ROLE_BADGE = {
@@ -104,7 +105,7 @@ export default function UsersTab({ showToast }) {
               className={`flex items-center gap-3 bg-stone-900 border border-stone-800 rounded-xl px-4 py-3 ${!u.active ? "opacity-50" : ""}`}
             >
               {u.photoPath ? (
-                <img src={u.photoPath} alt={u.name} className="w-11 h-11 rounded-full object-cover shrink-0" />
+                <img src={assetUrl(u.photoPath)} alt={u.name} className="w-11 h-11 rounded-full object-cover shrink-0" />
               ) : (
                 <div className="w-11 h-11 rounded-full bg-stone-800 border border-stone-700 flex items-center justify-center text-stone-400 font-bold shrink-0">
                   {initials(u.name)}

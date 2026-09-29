@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Delete, ChefHat, UtensilsCrossed, ClipboardList, Lock, Loader2, Wallet } from "lucide-react";
+import { Delete, ChefHat, UtensilsCrossed, ClipboardList, Lock, Loader2, Wallet, Server } from "lucide-react";
 import { listLoginUsers } from "@/entities/session";
 import { getStoreInfo } from "@/entities/store";
 import { useAuth } from "@/app/providers/auth";
-import { UserAvatar } from "@/shared/components";
+import { Modal, UserAvatar } from "@/shared/components";
 import { applyBrandPrimary } from "@/shared/lib";
+import { assetUrl, currentServerLabel, setServerBase, getServerBase, serverDefault } from "@/shared/lib/server";
 
 const ROLE_META = {
   waiter: { label: "Garçom", icon: ClipboardList },
@@ -37,7 +38,23 @@ export default function Login() {
   const [error, setError] = useState(null);
   const [shake, setShake] = useState(false);
   const [checking, setChecking] = useState(false);
+  // App desktop: o servidor é configuração (a origem do app é tauri://localhost).
+  // No navegador o campo aparece preenchido com a origem atual, mas o app
+  // funciona sem tocar nele.
+  const [serverOpen, setServerOpen] = useState(false);
+  const [serverDraft, setServerDraft] = useState(getServerBase());
+  const [serverError, setServerError] = useState(null);
   const errorTimer = useRef(null);
+
+  function saveServer() {
+    const result = setServerBase(serverDraft);
+    if (!result.ok) {
+      setServerError(result.error);
+      return;
+    }
+    // Recarrega para que login, logo e store info venham do servidor novo.
+    window.location.reload();
+  }
 
   // Carregamento inicial de dados da loja
   useEffect(() => {
@@ -149,7 +166,7 @@ export default function Login() {
         <div className="w-full max-w-md fade-up">
           <div className="text-center mb-10">
             {logoUrl ? (
-              <img src={logoUrl} alt="Logo do restaurante" className="w-32 h-32 rounded-full object-contain mx-auto mb-5" />
+              <img src={assetUrl(logoUrl)} alt="Logo do restaurante" className="w-32 h-32 rounded-full object-contain mx-auto mb-5" />
             ) : (
               <div className="w-14 h-14 rounded-full bg-amber-500 flex items-center justify-center mx-auto mb-4">
                 <Lock size={26} className="text-stone-950" strokeWidth={2.5} />
@@ -194,7 +211,69 @@ export default function Login() {
               })}
             </div>
           )}
+
+          <div className="mt-8 flex justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                setServerDraft(getServerBase());
+                setServerError(null);
+                setServerOpen(true);
+              }}
+              className="inline-flex items-center gap-2 text-stone-600 hover:text-stone-400 text-xs transition-colors max-w-full"
+            >
+              <Server size={12} className="shrink-0" />
+              <span className="truncate">Servidor: {currentServerLabel()}</span>
+            </button>
+          </div>
         </div>
+      )}
+
+      {serverOpen && (
+        <Modal
+          title="Servidor"
+          subtitle="Endereço do backend (vazio = servidor padrão do app)"
+          onClose={() => setServerOpen(false)}
+          footer={
+            <div className="flex gap-2 w-full">
+              <button
+                type="button"
+                onClick={() => setServerOpen(false)}
+                className="flex-1 py-3 rounded-xl bg-stone-800 hover:bg-stone-700 transition-colors text-sm font-medium"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={saveServer}
+                className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 transition-colors text-stone-950 text-sm font-semibold"
+              >
+                Salvar
+              </button>
+            </div>
+          }
+        >
+          <input
+            type="url"
+            inputMode="url"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            value={serverDraft}
+            onChange={(e) => {
+              setServerDraft(e.target.value);
+              setServerError(null);
+            }}
+            placeholder="https://app.seudominio.com.br"
+            aria-label="Endereço do servidor"
+            className="w-full bg-stone-900 border border-stone-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500"
+          />
+          {serverError && <p className="text-red-400 text-xs mt-2">{serverError}</p>}
+          <p className="text-stone-600 text-xs mt-3">
+            O app recarrega ao salvar. Vazio volta ao servidor padrão
+            {serverDefault() ? ` (${serverDefault()})` : " desta instalação"}.
+          </p>
+        </Modal>
       )}
 
       {screen === "pin" && selectedUser && (

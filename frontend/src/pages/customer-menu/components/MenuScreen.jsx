@@ -3,6 +3,7 @@ import { Search, X, ShoppingBag } from "lucide-react";
 import { formatBRL } from "@/shared/lib";
 import ProductCard from "./ProductCard.jsx";
 import ProductTile from "./ProductTile.jsx";
+import { assetUrl } from "@/shared/lib/server";
 
 // ---------------------------------------------------------------------------
 // Cardápio da página pública, no layout de loja do iFood:
@@ -67,7 +68,7 @@ export default function MenuScreen({
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
           <span />
           {logoUrl ? (
-            <img src={logoUrl} alt="Logo do restaurante" className="h-14 w-14 rounded-full object-contain" />
+            <img src={assetUrl(logoUrl)} alt="Logo do restaurante" className="h-14 w-14 rounded-full object-contain" />
           ) : (
             <div className="h-14 w-14 rounded-full bg-stone-800 flex items-center justify-center">
               <span className="font-display text-xl font-bold text-amber-400">{(merchantName?.[0] ?? "B").toUpperCase()}</span>

@@ -3,6 +3,7 @@ import { Camera, Trash2 } from "lucide-react";
 import { createUser, updateUser, uploadUserPhoto, removeUserPhoto } from "@/entities/user";
 import { Field, inputClass, Modal } from "@/shared/components";
 import { maskPhone, initials } from "@/shared/lib";
+import { assetUrl } from "@/shared/lib/server";
 
 const ROLE_LABEL = { waiter: "Garçom", kitchen: "Cozinha", manager: "Gerente", cashier: "Caixa", courier: "Entregador" };
 const ROLES = Object.keys(ROLE_LABEL);
@@ -12,7 +13,7 @@ function Avatar({ user, editable = false, onPick }) {
   return (
     <div className="relative shrink-0 self-start">
       {user?.photoPath ? (
-        <img src={user.photoPath} alt={user.name} className="w-16 h-16 rounded-full object-cover border border-stone-700" />
+        <img src={assetUrl(user.photoPath)} alt={user.name} className="w-16 h-16 rounded-full object-cover border border-stone-700" />
       ) : (
         <div className="w-16 h-16 rounded-full bg-stone-800 border border-stone-700 flex items-center justify-center text-stone-400 font-bold text-lg">
           {initials(user?.name ?? "?")}

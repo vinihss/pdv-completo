@@ -1,6 +1,7 @@
 import React from "react";
 import { formatBRL } from "@/shared/lib";
 import { productQty } from "@/entities/cart";
+import { assetUrl } from "@/shared/lib/server";
 
 // Card dos Destaques (vitrine): 3 colunas, foto quadrada e abaixo o preço e o
 // título — na ordem que o cliente lê. Não há botão de "+": o clique abre a
@@ -15,7 +16,7 @@ export default function ProductTile({ product, cart, onOpen }) {
     <button onClick={() => onOpen(product)} className="flex flex-col text-left" aria-label={`Ver ${product.name}`}>
       <div className="relative aspect-square rounded-xl overflow-hidden bg-stone-800">
         {product.imagePath ? (
-          <img src={product.imagePath} alt={product.name} className="w-full h-full object-cover" loading="lazy" />
+          <img src={assetUrl(product.imagePath)} alt={product.name} className="w-full h-full object-cover" loading="lazy" />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-stone-600 font-display text-2xl font-bold">
             {(product.name?.[0] ?? "?").toUpperCase()}

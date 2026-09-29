@@ -9,7 +9,8 @@
     "lint": "oxlint",
     "test": "vitest run",
     "preview": "vite preview",
-    "desktop:build": "bash build-app.sh"
+    "desktop:build": "bash build-app.sh",
+    "desktop:dev": "tauri dev"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

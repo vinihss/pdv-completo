@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Minus, Plus } from "lucide-react";
 import { formatBRL } from "@/shared/lib";
 import { Modal } from "@/shared/components";
+import { assetUrl } from "@/shared/lib/server";
 
 /**
  * Seleção de variações de um produto — compartilhado entre o lançamento do
@@ -103,7 +104,7 @@ export default function VariationModal({
       }
     >
       {/* ficha completa: foto grande, com o nome/preço logo abaixo */}
-      {imagePath && <img src={imagePath} alt={product.name} className="w-full aspect-[16/10] object-cover" />}
+      {imagePath && <img src={assetUrl(imagePath)} alt={product.name} className="w-full aspect-[16/10] object-cover" />}
 
       <div className="p-5">
         {(typeof price === "number" || product.description) && (
