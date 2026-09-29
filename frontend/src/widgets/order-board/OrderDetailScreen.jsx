@@ -33,7 +33,7 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
   async function handlePrint(destination) {
     setPrinting(true);
     try {
-      await printOrder(order.id, destination);
+      await printOrder(order, destination);
       showToast(`Pedido enviado para impressão (${destination === "kitchen" ? "cozinha" : "entrega"}).`, "success");
       setPrintOpen(false);
     } catch (e) {
