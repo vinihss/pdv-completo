@@ -2478,6 +2478,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pdv-entregador"
+version = "0.1.0"
+dependencies = [
+ "pdv-shared",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-http",
+]
+
+[[package]]
+name = "pdv-garcon"
+version = "0.1.0"
+dependencies = [
+ "pdv-shared",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-http",
+]
+
+[[package]]
 name = "pdv-kds"
 version = "0.1.0"
 dependencies = [

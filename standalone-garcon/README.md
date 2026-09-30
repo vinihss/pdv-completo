@@ -1,47 +1,101 @@
-# PDV Garçom — app mobile da família standalone
+# PDV Garçom — app móvel do garçom
 
-Crate Tauri do app **Garçom** (`com.pdvapp.garcon`) para lançamento de pedidos
-direto na mesa. Família: `standalone-pdv` (Caixa), `standalone-kds` (Cozinha),
-`standalone-garcon` (Garçom), `standalone-entregador` (Entregador).
+Crate Tauri do app **Garçom** (`com.pdvapp.garcon`) da família standalone.
+É o app que o garçom carrega no bolso: abre comanda, lança itens, entrega e
+fecha conta. É o segundo app mobile da família (com o Entregador) e o que
+mais depende de WebSocket: o `useRealtime` do frontend é o que mantém a
+comanda sincronizada com a cozinha e o caixa em tempo real.
 
-## Decisões-chave
+> **Não confundir com o app em produção.** `frontend/src-tauri`
+> (`com.pdvapp.desktop`, productName "PDV", v1.0.11) continua no repo, em
+> produção, em transição. Os dois apps coexistem na mesma loja durante a
+> troca. Por isso tudo que identifica este app é distinto: `productName`
+> "PDV Garçom", `identifier` `com.pdvapp.garcon`.
 
-| Item | Valor | Explicação |
-|---|---|---|
-| `productName` | `PDV Garçom` | Distinto do app v1 (`frontend/src-tauri`) que continua em produção. |
-| `identifier` | `com.pdvapp.garcon` | Único por app, permite coexistir na mesma máquina/loja. |
-| `frontendDist` | `../frontend/dist/garcon` | Bundle do profile `garcon` (já existe em `frontend/dist/garcon/index.html`). |
-| `version` | `0.1.0` | Igual em `tauri.conf.json` e `Cargo.toml`. |
-| `updater` | **false** | Distribuição por loja/APK, não por `latest.json`. Não há bloco `plugins.updater`. |
-| `process` | **false** | Plugin não existe em mobile; sem updater não há quem chame `app.restart()`. |
-| **Impressão** | **não** | Sem `externalBin`, `installer-hooks.nsh`, módulos de impressão. |
-| **Plugins** | via `pdv_shared::Plugins` | `Plugins { updater: false, process: false, log: false }.apply(...)` — **explicitamente**, não via `pdv_shared::builder()` (que liga tudo). |
+## Com o que este app se divide
 
-## O que vem do shared
+| Onde | O quê |
+|---|---|
+| `standalone-shared` (crate `pdv_shared`) | o `app.json` por instalação (`AppConfig`), os 3 commands de config e o registro comum de plugins (`Plugins`). Também o **esquema** de impressoras (`Transport`, `PrinterProfile`, `PrintersConfig`), importado e não reimplementado. |
+| este crate | ciclo de vida, `tauri.conf.json`, capabilities. |
 
-- `pdv-shared` (`pdv_shared`): `AppConfig`/commands (`app_config`, `save_app_config`, `reset_app_config`) e registro de plugins.
-- `tauri-plugin-http` é **dependência direta** (ACL): necessário para `http:default` constar nas permissions descobertas pelo `tauri_build`. O registro continua por `Plugins::apply`.
+Duas decisões que moram no shared e que valem saber:
 
-## Comandos
+- **A config fica fora do diretório de instalação** (`%APPDATA%\PDV\app.json`,
+  com `%ProgramData%` como padrão de máquina). O auto-update substitui os
+  arquivos do diretório de instalação a cada versão, então config dentro dele
+  seria sobrescrita e a loja perderia a URL do backend e as impressoras.
+- **O HTTP vai pelo Rust** (`tauri-plugin-http`), nunca por `fetch` no webview:
+  o app roda na origem `tauri.localhost` e o backend libera CORS só para o
+  domínio configurado, então o `fetch` seria bloqueado pelo navegador do app.
 
-```bash
-# Verificar
-cargo fmt --check 2>/dev/null || rustfmt --edition 2021 --config tab_spaces=2,max_width=100 src/lib.rs src/main.rs build.rs
-cargo check
+## ACL: o plugin é dependência direta, mesmo sem registro aqui
+
+Quem registra os plugins é `pdv_shared::Plugins`. Ainda assim
+`tauri-plugin-http` está em `[dependencies]` deste crate, e não é
+removível: o `tauri_build` monta a ACL varrendo os `tauri-plugin-*` das
+dependências **do próprio crate**, então uma permissão de plugin que vem só
+pelo `pdv-shared` não existe e o build morre com
+
+```
+Permission http:default not found, expected one of core:default, ...
 ```
 
-> **Nota workspace:** Este crate **ainda não** está em `[workspace.members]` do `/Cargo.toml`. O erro `current package believes it's in a workspace when it's not` ao rodar `cargo check` dentro do crate é **esperado** nesta fase (conforme instruções). Não edite `/Cargo.toml` nem tente corrigir com `exclude`.
+Verificado no build do KDS (mesmo padrão). O mesmo vale para os outros
+apps da família. `tauri-plugin-log` é a exceção consciente: o shared o
+registra e nenhuma permissão `log:*` está no capability.
 
-## Pendências para build mobile (Android/iOS)
+## Build
 
-**Não é possível rodar `tauri android init/build` neste ambiente** (sem Android SDK/NDK). O que falta:
+```bash
+# crate — `tauri build` roda o `beforeBuildCommand` do tauri.conf.json
+#    (`cd ../frontend && npm run build:garcon`), então o frontend não precisa
+#    ser compilado separado
+cargo check          # ou: cargo tauri build
+```
 
-1. **Projeto Android/Gradle** (`gen/android/`) — gerado por `tauri android init`.
-2. **AndroidManifest.xml** e permissões de sistema — gerados/ajustados pelo `init`.
-3. **Schemas de capabilities mobile** — hoje o `$schema` em `capabilities/default.json` aponta para `../gen/schemas/desktop-schema.json` (existe em build desktop). Com `tauri android init` surgem `gen/schemas/mobile-schema.json` (ou schemas específicos por target) e o schema mobile passa a ser o correto.
-4. **Validação de ACL mobile** — o Tauri 2 usa schemas distintos para desktop/mobile; o apontamento atual é **esperado até o `init` rodar** (não inventar).
+O `beforeDevCommand` sobe `npm run dev`, que é o profile `all` (o app
+inteiro, com as 4 telas) e não a entry do garçom. O `frontend` não tem um
+`dev:garcon` e esta fase não mexe nele. Para desenvolver:
 
-**Observações:**
-- `app.windows[0]` tem tamanho celular coerente (412×892). No mobile o Tauri usa a tela do sistema — este entry existe porque o host compila o caminho desktop.
-- O `invoke_handler` registra **apenas** os 3 commands do shared (sem commands próprios de domínio).
-- Seguindo o padrão dos apps irmãos: comentários explicam o *porquê*, não o óbvio.
+```bash
+cd ../frontend && VITE_APP_PROFILE=garcon npm run dev   # terminal 1
+cargo tauri dev                                          # terminal 2
+```
+
+## Versão
+
+`0.1.0`, **igual** no `Cargo.toml` e no `tauri.conf.json` — o build de entrega
+confere os dois e falha se divergirem (divergente, o instalador sai com uma
+versão e o `latest.json` outra, e o update "não existe" sem erro nenhum).
+
+Atenção para quem escrever o script de build: a conferência é
+`standalone-garcon/Cargo.toml` × `standalone-garcon/tauri.conf.json`. **Não**
+compare com `frontend/package.json` — hoje ele está em `1.0.2` e é o
+versionamento do bundle web, não dos 4 apps.
+
+## Mobile: o que falta para o build
+
+O `tauri android init` e o `tauri android build` não rodam neste ambiente
+(sem Android SDK/NDK). O que falta:
+
+- `gen/android/` (projeto Gradle) — que `tauri android init` gera;
+- o `AndroidManifest.xml` e as permissões de sistema;
+- o schema de capabilities em mobile (`mobile-schema.json` vs
+  `desktop-schema.json` do desktop) — o `$schema` do
+  `capabilities/default.json` aponta para `../gen/schemas/desktop-schema.json`,
+  que é o schema do desktop. O schema mobile só existe depois do `init`.
+
+O `app.windows` do `tauri.conf.json` tem tamanho de celular (412x892) porque
+o `cargo check` do host compila o caminho desktop. No mobile, o Tauri usa a
+tela do sistema.
+
+## Pendências conhecidas
+
+- O `Cargo.toml` da raiz precisa listar `standalone-garcon` em `members` (a raiz é
+  do orquestrador).
+- O `.gitignore` da raiz tem `standalone-*/binaries/`, que esconde o
+  `binaries/README.md` deste crate (o `binaries/.gitignore` interno não
+  consegue reexcluir o diretório). Ou a regra da raiz vira
+  `standalone-*/binaries/*` com exceção, ou a doc do sidecar fica só na raiz
+  deste README.

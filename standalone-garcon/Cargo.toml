@@ -1,26 +1,43 @@
-# Garçom — app mobile (Android/iOS) da família standalone (PDV, KDS, Garçom,
-# Entregador).
+# Garçom — o app móvel do garçom, app Tauri standalone da família (PDV, KDS,
+# Garçom, Entregador).
 #
-# Crate independente, pasta-irmã na raiz do repo. Não enxerga o app v1 em
-# `frontend/src-tauri`. O código comum vem do `pdv-shared` (crate `pdv_shared`).
+# Crate independente, pasta-irmã na raiz do repo. Ele não enxerga o app v1 em
+# `frontend/src-tauri`, que continua em produção: nada aqui é importado de lá
+# e nada lá é importado daqui. O que é comum aos 4 apps vem do `pdv-shared`
+# (crate lib `pdv_shared`).
 #
-# Sem `serde`/`serde_json` aqui (os commands de config são do shared).
-# Sem `tauri-plugin-updater`/`tauri-plugin-process`. Sem impressora — app do
-# garçom não imprime. O `tauri-plugin-http` é dependência direta apenas para
-# o ACL ler as permissions (capabilities citam `http:default`).
+# A lista de dependências é curta de propósito:
 #
-# **ATENÇÃO (mobile):** `tauri android init` e `tauri android build` não rodam
-# neste ambiente (sem Android SDK/NDK). O que falta para o build mobile está
-# detalhado no README deste crate.
+#   - Sem `serde`/`serde_json`. O `AppConfig` e os 3 commands de config são do
+#     shared; este crate não desserializa nada, ele só registra o que já vem
+#     pronto.
+#   - Sem `tauri-plugin-updater`/`tauri-plugin-process`. Os plugins ficam com o
+#     shared, que cuida do registro; declará-los aqui duplicaria a escolha em
+#     dois lugares.
+#   - Sem `[target.'cfg(windows)'.dependencies] windows`. As features de spooler
+#     (`Win32_Graphics_Printing` e companhia) são do `standalone-pdv`, que é
+#     quem manda o ticket para a fila. O garçom não imprime: quem imprime é o
+#     caixa, e o daemon dele (o sidecar) é quem fala com a impressora.
 
 [package]
+# O nome do pacote é o do binário (`pdv-garcon.exe` no Windows) e é o que
+# diferencia esta instalação da do app v1, cujo pacote se chama `app` (`app.exe`).
+# Não pode ser o mesmo: a mesma máquina pode ter os dois instalados, e dois
+# instaladores escrevendo um binário de mesmo nome é o tipo de conflito que só
+# aparece na loja, nunca em dev.
 name = "pdv-garcon"
+# Igual ao `version` do tauri.conf.json. Os dois precisam bater porque o
+# instalador do Windows tira a versão do conf e o `cargo` usa a do manifesto;
+# divergindo, o binário e o about do app contam histórias diferentes.
 version = "0.1.0"
-description = "PDV Garçom — app mobile para lançamento de pedidos direto na mesa"
+description = "PDV Garçom — app móvel do garçom para lançar pedidos da mesa"
 edition = "2021"
 rust-version = "1.77.2"
 publish = false
 
+# Mesmo formato do `frontend/src-tauri`. O `staticlib`/`cdylib` existem para o
+# projeto mobile do Tauri, que é o alvo principal deste app; o formato é o da
+# família e divergir agora só criaria uma diferença para explicar sem ganho.
 [lib]
 name = "pdv_garcon_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -30,8 +47,24 @@ tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
 tauri = { version = "2.12.0", features = [] }
-# Dep direta por ACL: o `capabilities/default.json` cita `http:default`.
-# Ver comentário em standalone-kds/Cargo.toml. Registro é feito por
-# `pdv-shared::Plugins`.
+# O `http` é a única exceção à regra "nenhum plugin aqui", e a exceção é do
+# ACL, não de estilo.
+#
+# O `capabilities/default.json` deste app precisa validar `http:default` (é
+# pelo plugin `http` que o garçom fala com a API), e o build script
+# só consegue ler os arquivos de permissão de um plugin se o plugin for
+# dependência DIRETA: ele os acha pelas variáveis `DEP_*`, que o Cargo só
+# entrega a quem depende direto (o `tauri-plugin-http` declara
+# `links = "tauri-plugin-http"`, e o metadata do build dele vira
+# `DEP_TAURI_PLUGIN_HTTP_PERMISSION_FILES_PATH`). Sendo transitive, via
+# `pdv-shared`, o build morre com
+# "Permission http:default not found, expected one of core:...".
+#
+# Repare que declarar aqui NÃO registra o plugin: quem registra é o
+# `Plugins` do shared, no `run()`. A dependência direta serve só para o ACL
+# conhecer a permission. Os dois lados precisam concordar, e a regra que
+# decorre é curta: capability `x:default` ⇒ crate `tauri-plugin-x` aqui.
 tauri-plugin-http = "2"
+# `path` relativo e não versão: o shared não é publicado e nunca vai ser. É o
+# mesmo caminho para os 4 apps, porque todos são pastas na raiz do repo.
 pdv-shared = { path = "../standalone-shared" }
