@@ -87,4 +87,37 @@ describe("OrderDetailScreen", () => {
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(deleteItem).not.toHaveBeenCalled();
   });
+
+  // O endereço mora em `order.delivery`, que o backend embute na comanda. Sem
+  // ele o garçom não tem onde entregar e o cupom do entregador perde o
+  // endereço — a informação tem que aparecer logo na abertura, não depois de
+  // alguma recarga.
+  it("comanda de entrega mostra o endereço de entrega", () => {
+    setup({
+      order: {
+        ...order,
+        tableId: null,
+        tableNumber: null,
+        customerName: "Maria Silva",
+        channel: "web",
+        delivery: {
+          id: "d1",
+          status: "awaiting_courier",
+          address: "Rua das Flores, 123 - Centro, Sao Paulo",
+          notes: null,
+          courierId: null,
+          dispatchedAt: null,
+          deliveredAt: null,
+        },
+      },
+    });
+
+    expect(screen.getByText("Endereço de entrega")).toBeTruthy();
+    expect(screen.getByText("Rua das Flores, 123 - Centro, Sao Paulo")).toBeTruthy();
+  });
+
+  it("comanda de balcão não mostra bloco de entrega", () => {
+    setup();
+    expect(screen.queryByText("Endereço de entrega")).toBeNull();
+  });
 });

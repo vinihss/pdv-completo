@@ -218,6 +218,10 @@ describe("fluxo completo de entrega — assign → dispatch → deliver", () => 
     const pending = managerList.json.find((d: any) => d.id === deliveryId);
     expect(pending.status).toBe("awaiting_courier");
     expect(pending.courier).toBeNull();
+    // A tela de entregas mostra "quem pediu" e "quando caiu" no mesmo card.
+    expect(pending.customerName).toBe("Cliente Entrega");
+    expect(pending.createdAt).toBeTruthy();
+    expect(pending.deliveredAt).toBeNull();
 
     const assign = await api("patch", `/manager/deliveries/${deliveryId}/assign`, {
       token: manager,
@@ -239,9 +243,37 @@ describe("fluxo completo de entrega — assign → dispatch → deliver", () => 
     expect(deliver.status).toBe(200);
     expect(deliver.json.status).toBe("delivered");
 
+    const afterDeliver = await api("get", "/manager/deliveries", { token: manager });
+    const settled = afterDeliver.json.find((d: any) => d.id === deliveryId);
+    expect(settled.status).toBe("delivered");
+    expect(settled.deliveredAt).toBeTruthy();
+
     const order = await api("get", `/orders/${orderId}`, { token: waiter });
     expect(order.status).toBe(200);
     expect(order.json.status).toBe("closed");
+    // A comanda carrega o endereço — é o que a tela da comanda mostra.
+    expect(order.json.delivery).toMatchObject({
+      status: "delivered",
+      address: "Rua das Flores, 123 - Centro, Sao Paulo",
+    });
+  });
+
+  it("lista e detalhe devolvem a mesma entrega (o endereço aparece já no primeiro toque)", async () => {
+    await setStoreFlag("uses_delivery", true);
+
+    const { orderId } = await createDeliveryOrder();
+
+    const list = await api("get", "/orders?status=open", { token: waiter });
+    expect(list.status).toBe(200);
+    const listed = list.json.data.find((o: any) => o.id === orderId);
+    expect(listed.delivery).toMatchObject({
+      status: "awaiting_courier",
+      address: "Rua das Flores, 123 - Centro, Sao Paulo",
+    });
+
+    // Regressão do print: o mapper do daemon já lia customerPhone/delivery e a
+    // API não mandava nada dos dois.
+    expect(listed.customerPhone).toBe("11988887777");
   });
 
   it("entregador não mexe numa entrega que não é dele", async () => {

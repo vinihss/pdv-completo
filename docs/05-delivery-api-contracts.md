@@ -273,7 +273,7 @@ Não há resposta síncrona significativa pro Fastify além de `200 OK` — a re
 
 ```
 query: ?status=awaiting_courier,out_for_delivery[,delivered,failed,cancelled]   // default: as duas primeiras
-200 → [{ id, orderId, address, status, dispatchedAt, deliveredAt }]
+200 → [{ id, orderId, address, status, createdAt, dispatchedAt, deliveredAt }]
 ```
 
 Filtra automaticamente por `courier_id = <usuário autenticado>` — entregador nunca vê entregas de outro.
@@ -307,8 +307,13 @@ body: { reason: string }
 
 ```
 query: ?status=awaiting_courier,out_for_delivery,delivered,failed,cancelled
-200 → [{ id, orderId, address, status, courier: { id, name } | null, dispatchedAt, deliveredAt }]
+200 → [{ id, orderId, address, status, courier: { id, name } | null,
+         customerName: string | null, createdAt, dispatchedAt, deliveredAt }]
 ```
+
+Ordenada por `createdAt` **descendente** (o que caiu por último vem primeiro). A lista do entregador é o oposto — `createdAt` ascendente, porque a fila dele é a mais antiga primeiro.
+
+`customerName` vem do `customer` ligado à comanda (`order.customer_id`). Cai no `order.tab_label` quando o pedido entrou sem cliente vinculado, que é o caso do checkout self-service: ele grava `tabLabel: "Delivery - <nome>"` (`order-intake.usecase.ts`). O prefixo é exigido — sem ele o fallback devolveria qualquer rótulo solto como se fosse nome de gente.
 
 ### `PATCH /manager/deliveries/:id/assign`
 

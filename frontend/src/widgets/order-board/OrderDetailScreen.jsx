@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  Plus, Check, Trash2, Clock, AlertTriangle, Printer,
+  Plus, Check, Trash2, Clock, AlertTriangle, Printer, MapPin,
 } from "lucide-react";
 import { ConfirmModal, ScreenHeader } from "@/shared/components";
 import { updateItemStatus, deleteItem, closeOrder } from "@/entities/order";
@@ -123,6 +123,15 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
           }
         />
       </div>
+
+      {order.delivery && (
+        <div className="mx-5 mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2.5">
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-400">
+            <MapPin size={12} /> Endereço de entrega
+          </div>
+          <p className="text-sm text-stone-100 leading-snug mt-1">{order.delivery.address}</p>
+        </div>
+      )}
 
       <div className="px-5 pt-4 divide-y divide-stone-900">
         {order.items.length === 0 && (

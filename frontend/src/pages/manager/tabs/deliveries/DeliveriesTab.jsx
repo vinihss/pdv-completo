@@ -1,12 +1,15 @@
 import React, { useState } from "react";
-import { RefreshCcw, AlertTriangle, X } from "lucide-react";
+import { RefreshCcw, AlertTriangle, X, MapPin } from "lucide-react";
 import { assignCourier, DeliveryStatusBadge } from "@/entities/delivery";
 import { cancelOrder } from "@/entities/order";
 import { useDeliveries } from "@/entities/delivery";
+import { useOrderFocus } from "@/app/providers/order-focus";
+import { formatDateTime } from "@/shared/lib";
 import { inputClass } from "@/shared/components";
 
 export default function DeliveriesTab({ showToast }) {
   const { deliveries, couriers, loading, reload } = useDeliveries();
+  const { focusOrder } = useOrderFocus();
   const [assigning, setAssigning] = useState(null); // deliveryId em progresso
   const [openReasonFor, setOpenReasonFor] = useState(null); // deliveryId com o campo de motivo aberto
   const [submitting, setSubmitting] = useState(false);
@@ -64,19 +67,50 @@ export default function DeliveriesTab({ showToast }) {
 
       <div className="space-y-2.5">
         {deliveries.map((d) => (
-          <div key={d.id} className="bg-stone-900 border border-stone-800 rounded-2xl p-4">
+          <div
+            key={d.id}
+            role="button"
+            tabIndex={0}
+            // O card é um button para leitor de tela, então o nome acessível
+            // é a concatenação de tudo que está dentro — endereço, datas e o
+            // select de atribuir. Um rótulo curto e útil vale mais que isso.
+            aria-label={`Abrir comanda de ${d.customerName ?? "cliente sem nome"}`}
+            onClick={() => focusOrder(d.orderId)}
+            onKeyDown={(e) => {
+              // `e.target !== e.currentTarget` porque o card tem controles
+              // dentro (o <select> de atribuir): sem isso, Espaço no select
+              // fechava o dropdown e abria a comanda junto.
+              if (e.target !== e.currentTarget) return;
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                focusOrder(d.orderId);
+              }
+            }}
+            className="bg-stone-900 border border-stone-800 rounded-2xl p-4 cursor-pointer transition-colors hover:bg-stone-850 hover:border-stone-700 active:scale-[0.99]"
+          >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-xs text-stone-500">Pedido #{d.orderId.slice(0, 8)}</p>
-                <p className="text-sm font-medium mt-0.5 truncate">{d.address}</p>
+                <p className="text-sm font-semibold mt-0.5 truncate">{d.customerName ?? "— sem nome —"}</p>
+                <div className="flex items-start gap-1.5 mt-1">
+                  <MapPin size={12} className="mt-0.5 shrink-0 text-stone-500" />
+                  <p className="text-xs text-stone-400 leading-snug">{d.address}</p>
+                </div>
+                <p className="text-xs text-stone-500 mt-1.5">
+                  {formatDateTime(d.createdAt)}
+                  {d.deliveredAt && (
+                    <span className="text-emerald-400"> · Entregue {formatDateTime(d.deliveredAt)}</span>
+                  )}
+                </p>
               </div>
-              <DeliveryStatusBadge status={d.status} />
+              <DeliveryStatusBadge status={d.status} className="shrink-0" />
             </div>
 
             <div className="mt-3 flex items-center justify-between gap-3">
               {d.status === "awaiting_courier" && !d.courier ? (
                 <select
                   disabled={assigning === d.id}
+                  onClick={(e) => e.stopPropagation()}
                   onChange={(e) => handleAssign(d.id, e.target.value)}
                   defaultValue=""
                   className={inputClass + " max-w-[220px]"}
@@ -93,12 +127,11 @@ export default function DeliveriesTab({ showToast }) {
               <span className="text-xs text-stone-500 shrink-0">
                 {d.status === "awaiting_courier" && d.courier && "Aguardando saída"}
                 {d.status === "out_for_delivery" && d.dispatchedAt && `Saiu às ${new Date(d.dispatchedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`}
-                {d.status === "delivered" && d.deliveredAt && new Date(d.deliveredAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
               </span>
             </div>
 
             {d.status === "failed" && (
-              <div className="mt-2 pt-2 border-t border-stone-800">
+              <div className="mt-2 pt-2 border-t border-stone-800" onClick={(e) => e.stopPropagation()}>
                 <p className="text-xs text-red-400 mb-2">Motivo da falha: {d.notes}</p>
                 {justCancelled.has(d.id) ? (
                   <p className="text-xs text-stone-500">Pedido cancelado.</p>

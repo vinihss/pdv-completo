@@ -1,6 +1,6 @@
 import { eq, inArray, and, notInArray } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
-import { deliveries, users, orders, orderItems } from "../../infra/db/schema.js";
+import { deliveries, users, orders, orderItems, customers } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
 import { canTransitionDelivery, type DeliveryStatus } from "../../domain/customer-order-state.js";
 import { logAction } from "../../infra/audit-log.js";
@@ -20,6 +20,9 @@ function serialize(d: typeof deliveries.$inferSelect) {
     courierId: d.courierId,
     address: d.address,
     status: d.status,
+    // A lista é ordenada por isto, mas a coluna não saía na resposta — a tela
+    // de entregas ficava sem nenhuma noção de idade do pedido.
+    createdAt: d.createdAt,
     dispatchedAt: d.dispatchedAt,
     deliveredAt: d.deliveredAt,
     notes: d.notes,
@@ -31,6 +34,27 @@ async function getOwnedDelivery(deliveryId: string, courierId: string) {
   if (!delivery) throw Errors.notFound("Entrega");
   if (delivery.courierId !== courierId) throw Errors.forbiddenRole();
   return delivery;
+}
+
+// Nome de quem pediu. A fonte é o `customer` ligado à comanda; o `tabLabel` é
+// só a rede de segurança para o pedido que entrou sem cliente vinculado — o
+// checkout self-service grava `tabLabel: "Delivery - <nome>"`
+// (order-intake.usecase.ts). O prefixo é exigido de propósito: sem ele o
+// fallback devolveria qualquer rótulo solto como se fosse nome de gente.
+const DELIVERY_TAB_PREFIX = /^delivery\s*-\s*/i;
+
+function customerNameFor(
+  order: { customerId: string | null; tabLabel: string | null } | undefined,
+  nameByCustomerId: Map<string, string>
+): string | null {
+  if (!order) return null;
+  if (order.customerId) {
+    const name = nameByCustomerId.get(order.customerId);
+    if (name) return name;
+  }
+  if (order.tabLabel && DELIVERY_TAB_PREFIX.test(order.tabLabel))
+    return order.tabLabel.replace(DELIVERY_TAB_PREFIX, "");
+  return null;
 }
 
 // ---------- GET /courier/deliveries ----------
@@ -158,7 +182,10 @@ export async function failDeliveryUsecase(input: { deliveryId: string; courierId
 export async function listManagerDeliveriesUsecase(input: { statuses?: DeliveryStatus[] }) {
   const rows = await db.query.deliveries.findMany({
     where: input.statuses?.length ? inArray(deliveries.status, input.statuses) : undefined,
-    orderBy: (d, { asc }) => asc(d.createdAt),
+    // Do mais novo pro mais antigo: quem gerencia entrega precisa ver primeiro
+    // o que acabou de cair. (A lista do entregador continua em ASC de propósito
+    // — a fila dele é a mais antiga primeiro.)
+    orderBy: (d, { desc }) => desc(d.createdAt),
   });
 
   const courierIds = [...new Set(rows.map((d) => d.courierId).filter((id): id is string => !!id))];
@@ -167,9 +194,25 @@ export async function listManagerDeliveriesUsecase(input: { statuses?: DeliveryS
     : [];
   const courierById = new Map(couriers.map((c) => [c.id, c]));
 
+  // Nome do cliente, sem uma query por card: duas leituras em lote (comandas
+  // das entregas, depois os clientes dessas comandas) resolvem a lista toda.
+  const orderIds = [...new Set(rows.map((d) => d.orderId))];
+  const orderRows = orderIds.length
+    ? await db.query.orders.findMany({ where: inArray(orders.id, orderIds) })
+    : [];
+  const customerIds = [
+    ...new Set(orderRows.map((o) => o.customerId).filter((id): id is string => !!id)),
+  ];
+  const customerRows = customerIds.length
+    ? await db.query.customers.findMany({ where: inArray(customers.id, customerIds) })
+    : [];
+  const customerNameById = new Map(customerRows.map((c) => [c.id, c.name]));
+  const orderById = new Map(orderRows.map((o) => [o.id, o]));
+
   return rows.map((d) => ({
     ...serialize(d),
     courier: d.courierId ? { id: d.courierId, name: (courierById.get(d.courierId) as any)?.name ?? null } : null,
+    customerName: customerNameFor(orderById.get(d.orderId), customerNameById),
   }));
 }
 

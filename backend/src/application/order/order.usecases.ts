@@ -101,6 +101,7 @@ async function serializeOrder(orderId: string) {
     ? await db.query.customers.findFirst({ where: eq(customers.id, order.customerId) })
     : null;
   const payments = await db.query.orderPayments.findMany({ where: eq(orderPayments.orderId, orderId) });
+  const delivery = await db.query.deliveries.findFirst({ where: eq(deliveries.orderId, orderId) });
 
   return {
     id: order.id,
@@ -109,6 +110,11 @@ async function serializeOrder(orderId: string) {
     tableNumber: table?.number ?? null,
     customerId: order.customerId,
     customerName: customer?.name ?? null,
+    // O mapper de impressão do daemon (frontend entities/printer) já esperava
+    // estes dois campos e nunca os recebia: o cupom do entregador impresso pelo
+    // botão do app saía sem telefone e sem endereço. A impressão automática do
+    // backend já mandava (printer.usecases.ts).
+    customerPhone: customer?.phone ?? null,
     tabLabel: order.tabLabel,
     waiterId: order.waiterId,
     channel: order.channel,
@@ -120,6 +126,7 @@ async function serializeOrder(orderId: string) {
     paymentConfirmedBy: order.paymentConfirmedBy,
     openedAt: order.openedAt,
     closedAt: order.closedAt,
+    delivery: delivery ? serializeDelivery(delivery) : null,
     items: items.map(({ item, productName, productImagePath, productKitchenGroupId }) =>
       serializeItem(item, {
         name: productName,
@@ -141,6 +148,21 @@ function serializePayment(p: typeof orderPayments.$inferSelect) {
     confirmed: p.confirmed,
     confirmedAt: p.confirmedAt,
     confirmedBy: p.confirmedBy,
+  };
+}
+
+// Entrega da comanda (1:1, `delivery.order_id` é UNIQUE). Fica embutida em
+// vez de a tela da comanda cruzar com `GET /manager/deliveries` — que é
+// restrito ao gerente e não existe pro garçom, que é quem abre a comanda.
+function serializeDelivery(d: typeof deliveries.$inferSelect) {
+  return {
+    id: d.id,
+    status: d.status,
+    address: d.address,
+    notes: d.notes,
+    courierId: d.courierId,
+    dispatchedAt: d.dispatchedAt,
+    deliveredAt: d.deliveredAt,
   };
 }
 
@@ -972,6 +994,14 @@ export async function listOrdersUsecase(input: { status?: "open" | "closed"; lim
     where: inArray(orderPayments.orderId, orderIds),
   });
 
+  // Uma leitura em lote, não uma por comanda. A lista e o detalhe precisam
+  // devolver a mesma coisa: a tela da comanda abre a partir do objeto que está
+  // na lista, então se `delivery` viesse só do detalhe o endereço só apareceria
+  // depois da primeira recarga.
+  const allDeliveries = await db.query.deliveries.findMany({
+    where: inArray(deliveries.orderId, orderIds),
+  });
+
   const tableIds = [...new Set(rows.map((o) => o.tableId).filter(Boolean))] as string[];
   const customerIds = [...new Set(rows.map((o) => o.customerId).filter(Boolean))] as string[];
 
@@ -999,6 +1029,12 @@ export async function listOrdersUsecase(input: { status?: "open" | "closed"; lim
     paymentsByOrder.set(p.orderId, list);
   }
 
+  const deliveryByOrderId = new Map(allDeliveries.map((d) => [d.orderId, d]));
+  const deliveryOf = (orderId: string) => {
+    const d = deliveryByOrderId.get(orderId);
+    return d ? serializeDelivery(d) : null;
+  };
+
   const data = rows.map((order) => ({
     id: order.id,
     status: order.status,
@@ -1006,6 +1042,7 @@ export async function listOrdersUsecase(input: { status?: "open" | "closed"; lim
     tableNumber: order.tableId ? tableMap.get(order.tableId)?.number ?? null : null,
     customerId: order.customerId,
     customerName: order.customerId ? customerMap.get(order.customerId)?.name ?? null : null,
+    customerPhone: order.customerId ? customerMap.get(order.customerId)?.phone ?? null : null,
     tabLabel: order.tabLabel,
     waiterId: order.waiterId,
     channel: order.channel,
@@ -1017,6 +1054,7 @@ export async function listOrdersUsecase(input: { status?: "open" | "closed"; lim
     paymentConfirmedBy: order.paymentConfirmedBy,
     openedAt: order.openedAt,
     closedAt: order.closedAt,
+    delivery: deliveryOf(order.id),
     items: (itemsByOrder.get(order.id) ?? []).map(
       ({ item, productName, productImagePath, productKitchenGroupId }) =>
         serializeItem(item, {

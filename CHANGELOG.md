@@ -2,6 +2,17 @@
 
 Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 
+## [Não publicado]
+
+### Corrigido
+
+- **Impressão pelo botão do app perdia endereço e telefone no cupom do entregador.** O mapper do daemon (`entities/printer/lib/daemonOrder.js`) já lia `order.delivery` e `order.customerPhone`, e a API não mandava nenhum dos dois. Agora `GET /orders` e `GET /orders/:id` devolvem `delivery` e `customerPhone` — a impressão automática do backend já mandava, só a manual não.
+
+### Adicionado
+
+- **Card de entrega mostra quem pediu e quando.** A aba Entregas do gerente passou a exibir nome do cliente, endereço e a data em que o pedido caiu (e a de conclusão, quando houver). O clique no card abre a comanda. `GET /manager/deliveries` ganhou `customerName` e `createdAt` — a coluna existia e era usada só no `orderBy`, nunca saía na resposta — e passou a ordenar da mais nova pra mais antiga (a fila do entregador continua da mais antiga pra mais nova, de propósito).
+- **Endereço na tela da comanda.** Comanda de entrega mostra o endereço logo abaixo do cabeçalho, no primeiro toque. O bloco vem embutido em `order.delivery`; lista e detalhe devolvem o mesmo shape, senão o endereço só apareceria depois de alguma recarga.
+
 ## [1.0.0] - 2026-09-28
 
 ### Visão geral

@@ -500,6 +500,8 @@ GET    /orders?status=open&limit=&offset=  → lista de comandas (mapa/lista do 
 GET    /tables               → lista mesas com status
 ```
 
+**Nota de design (entrega):** a comanda embute a entrega em `delivery: { id, status, address, notes, courierId, dispatchedAt, deliveredAt } | null` (1:1 com `delivery.order_id`, que é `UNIQUE`). Fica embutida em vez de a tela cruzar com `GET /manager/deliveries` — aquele endpoint é restrito ao gerente e não existe pro garçom, que é quem abre a comanda. Lista e detalhe devolvem o mesmo shape, senão o endereço só apareceria depois da primeira recarga: a tela abre a comanda a partir do objeto que está na lista. Junto vai `customerPhone`, que o mapper de impressão do daemon (`entities/printer/lib/daemonOrder.js`) já lia e a API nunca mandava.
+
 ### 7.3 Configuração da loja
 
 ```
