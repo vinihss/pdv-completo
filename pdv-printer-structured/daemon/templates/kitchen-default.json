@@ -1,0 +1,16 @@
+{
+  "id": "kitchen-default",
+  "version": 1,
+  "destination": "kitchen",
+  "columns": 48,
+  "blocks": [
+    {"type":"text","value":"PEDIDO {{order.number}}","align":"center","bold":true,"size":"double"},
+    {"type":"text","value":"{{order.created_at}}","align":"center"},
+    {"type":"separator"},
+    {"type":"text","value":"{{order.type}}","bold":true},
+    {"type":"items"},
+    {"type":"notes"},
+    {"type":"feed","lines":3},
+    {"type":"cut"}
+  ]
+}

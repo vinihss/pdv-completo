@@ -1,0 +1,17 @@
+{
+  "id": "courier-default",
+  "version": 1,
+  "destination": "courier",
+  "columns": 48,
+  "blocks": [
+    {"type":"text","value":"ENTREGA - {{order.number}}","align":"center","bold":true,"size":"double"},
+    {"type":"separator"},
+    {"type":"customer"},
+    {"type":"delivery"},
+    {"type":"separator"},
+    {"type":"items"},
+    {"type":"payment"},
+    {"type":"feed","lines":3},
+    {"type":"cut"}
+  ]
+}
