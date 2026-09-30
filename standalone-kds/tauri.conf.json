@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../frontend/dist/kds",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "cd frontend && npm run dev",
-    "beforeBuildCommand": "cd frontend && npm run build:kds"
+    "beforeDevCommand": "cd ../frontend && npm run dev",
+    "beforeBuildCommand": "cd ../frontend && npm run build:kds"
   },
   "app": {
     "windows": [

@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Entregador: o core do Tauri e o http (é por ele que a tela de rota fala com a API). Sem `process` e sem `updater` — este app não registra os dois plugins. As permissões de sistema do mobile (localização, notificação) vivem no AndroidManifest.xml gerado pelo `tauri android init`, não aqui.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "http:default"
+  ]
+}

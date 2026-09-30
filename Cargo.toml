@@ -12,9 +12,8 @@ members = [
   "standalone-shared",
   "standalone-pdv",
   "standalone-kds",
-  # Fases B — descomentar conforme cada app ganhar o seu `Cargo.toml`:
-  # "standalone-garcon",
-  # "standalone-entregador",
+  "standalone-garcon",
+  "standalone-entregador",
 ]
 
 # O `exclude` NÃO é cosmético: `frontend/src-tauri` é um crate Rust válido e
