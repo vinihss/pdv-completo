@@ -34,3 +34,15 @@ tauri-plugin-process = "2"
 # loja offline, mas sem update). A chave pública em tauri.conf.json
 # valida o manifesto; a privada vive em TAURI_SIGNING_PRIVATE_KEY.
 tauri-plugin-updater = "2"
+
+# Impressão térmica direta (fase 1 do plano de impressão). `windows` já
+# entra no lock pelo Tauri; o que falta aqui é a feature de spooler
+# (`Win32_Graphics_Printing`), usada por `printing/spooler.rs` para
+# listar filas, escrever ESC/POS cru e ler o status do dispositivo.
+#
+# Só no Windows de propósito: no Linux/macOS (dev) o crate não compila, e
+# o código do spooler é `#[cfg(windows)]`. A sondagem de status por
+# DLE EOT (printing/status.rs) é rede pura e funciona em qualquer
+# plataforma — o dev consegue testar essa parte no Linux.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Graphics_Printing", "Win32_Foundation"] }
