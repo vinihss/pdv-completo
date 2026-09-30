@@ -6,6 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:all": "VITE_APP_PROFILE=all vite build",
+    "build:pdv": "VITE_APP_PROFILE=pdv vite build",
+    "build:kds": "VITE_APP_PROFILE=kds vite build",
+    "build:garcon": "VITE_APP_PROFILE=garcon vite build",
+    "build:entregador": "VITE_APP_PROFILE=entregador vite build",
     "lint": "oxlint",
     "test": "vitest run",
     "preview": "vite preview",

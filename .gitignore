@@ -31,3 +31,14 @@ deploy/updates/
 frontend/src-tauri/target/
 frontend/src-tauri/binaries/
 frontend/src-tauri/gen/
+
+# Apps standalone (workspace Cargo na raiz da repo). Mesmo caso do app desktop
+# antigo: `target/` do workspace chega a gigabytes e o sidecar é compilado, não
+# versionado. `gen/` é o projeto Android que o Tauri regenera.
+/target/
+standalone-*/target/
+standalone-*/binaries/
+standalone-*/gen/
+# Chave de assinatura local por app (build local sem chave de entrega)
+standalone-*/.local-signing.key
+standalone-*/.local-signing.key.pub

@@ -21,7 +21,10 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
-    include: ["src/**/*.test.{js,jsx}"],
+    // `vite/` entra porque é onde mora a config de build por profile (as 4
+    // entries), que o `npm run build` só exercita de raspão — o teste é o
+    // lugar de provar que o app padrão continua byte a byte igual.
+    include: ["src/**/*.test.{js,jsx}", "vite/**/*.test.js"],
     // Um jsdom por arquivo consumia ~12s e 7+ instâncias, e a suíte chegou a
     // reportar arquivos inteiros falhando sob pressão de memória da máquina
     // (2,5GB livres de 19,8GB, com ~7GB em chromium de outras apps), sem

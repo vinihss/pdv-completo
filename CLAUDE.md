@@ -52,3 +52,4 @@ Projeto: PDV Restaurante/Pub (backend Node.js + frontend React)
 - Guias para agentes: `docs/agent-backend.md`, `docs/agent-frontend.md`, `docs/agent-deploy.md`, `docs/agent-testing.md`
 - Índice de endpoints: `docs/agent-api-index.md`
 - Mapa de módulos: `docs/agent-backend-map.md`, `docs/agent-frontend-map.md`
+

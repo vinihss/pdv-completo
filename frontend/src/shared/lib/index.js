@@ -1,4 +1,5 @@
 export * from "./appConfig.js";
+export * from "./appProfile.js";
 export * from "./format.js";
 export * from "./money.js";
 export * from "./platform.js";
