@@ -1,3 +1,5 @@
+pub mod printing;
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -33,9 +35,15 @@ pub struct AppConfig {
   /// `http://127.0.0.1:3000`. Vazio = ainda não configurado.
   #[serde(default)]
   pub api_base: Option<String>,
-  /// Daemon de impressão local (HTTP em loopback).
+  /// Impressoras por destino. Mora aqui — e não no backend — porque a
+  /// impressora é fato da **máquina**: a mesma loja pode ter a cozinha numa
+  /// estação e o caixa em outra, e cada uma tem a sua fila e o seu IP.
+  ///
+  /// `default` no serde para que um `app.json` escrito antes da impressão
+  /// continue valendo: a loja não pode ficar sem app config por causa de um
+  /// campo novo.
   #[serde(default)]
-  pub daemon_url: Option<String>,
+  pub printers: printing::PrintersConfig,
 }
 
 fn machine_config_path() -> Option<PathBuf> {
@@ -114,7 +122,15 @@ pub fn run() {
     // e decide o que fazer com o resultado. Aqui só registramos o plugin — a
     // chave pública vem do tauri.conf.json e o manifesto é validado no Rust.
     .plugin(tauri_plugin_updater::Builder::new().build())
-    .invoke_handler(tauri::generate_handler![app_config, save_app_config, reset_app_config])
+    .invoke_handler(tauri::generate_handler![
+      app_config,
+      save_app_config,
+      reset_app_config,
+      printing::commands::printer_list,
+      printing::commands::printer_status,
+      printing::commands::printer_test,
+      printing::commands::print_ticket
+    ])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

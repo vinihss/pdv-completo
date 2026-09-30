@@ -45,4 +45,12 @@ tauri-plugin-updater = "2"
 # DLE EOT (printing/status.rs) é rede pura e funciona em qualquer
 # plataforma — o dev consegue testar essa parte no Linux.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Graphics_Printing", "Win32_Foundation"] }
+# `Win32_Graphics_Gdi` e `Win32_Security` não são usados diretamente: as
+# features é que habilitam os `impl Default` de `PRINTER_DEFAULTSW` e
+# `PRINTER_INFO_2W`, sem os quais o struct não é construível.
+windows = { version = "0.62", features = [
+  "Win32_Graphics_Printing",
+  "Win32_Graphics_Gdi",
+  "Win32_Security",
+  "Win32_Foundation",
+] }
