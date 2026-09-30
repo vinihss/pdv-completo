@@ -1,0 +1,6 @@
+daemon/config.json
+daemon/data/
+daemon/*.db
+daemon/pdv-printer-daemon
+daemon/pdv-printer-daemon.exe
+scripts/*.exe

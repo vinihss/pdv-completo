@@ -1,0 +1,26 @@
+# Workspace Cargo da família de apps standalone (PDV, KDS, Garçom, Entregador).
+#
+# Não existe pasta-pai: cada app é uma pasta na raiz do repo e cada uma é um
+# crate Tauri independente. O único código compartilhado é o `standalone-shared`
+# (crate lib `pdv_shared`), que carrega a config por instalação e o registro
+# comum de plugins. Os 4 apps ficam em `members` quando cada um tiver o seu
+# `Cargo.toml` (fases B) — sem isso, `cargo` aborta o build inteiro com
+# "failed to load manifest for workspace member".
+[workspace]
+resolver = "2"
+members = [
+  "standalone-shared",
+  "standalone-pdv",
+  "standalone-kds",
+  # Fases B — descomentar conforme cada app ganhar o seu `Cargo.toml`:
+  # "standalone-garcon",
+  # "standalone-entregador",
+]
+
+# O `exclude` NÃO é cosmético: `frontend/src-tauri` é um crate Rust válido e
+# continua no repo (app v1.0.x já em produção, em transição). Sem esta linha,
+# `cargo build` de dentro de `frontend/src-tauri` morre com "current package
+# believes it's in a workspace when it's not". O resto da lista é por higiene:
+# nada aqui é Rust, mas se um dia aparecer um `Cargo.toml` dentro, ele não entra
+# no workspace por accidento de glob.
+exclude = ["frontend", "printer", "backend", "deploy"]

@@ -1,0 +1,37 @@
+# Garçom — app mobile (Android/iOS) da família standalone (PDV, KDS, Garçom,
+# Entregador).
+#
+# Crate independente, pasta-irmã na raiz do repo. Não enxerga o app v1 em
+# `frontend/src-tauri`. O código comum vem do `pdv-shared` (crate `pdv_shared`).
+#
+# Sem `serde`/`serde_json` aqui (os commands de config são do shared).
+# Sem `tauri-plugin-updater`/`tauri-plugin-process`. Sem impressora — app do
+# garçom não imprime. O `tauri-plugin-http` é dependência direta apenas para
+# o ACL ler as permissions (capabilities citam `http:default`).
+#
+# **ATENÇÃO (mobile):** `tauri android init` e `tauri android build` não rodam
+# neste ambiente (sem Android SDK/NDK). O que falta para o build mobile está
+# detalhado no README deste crate.
+
+[package]
+name = "pdv-garcon"
+version = "0.1.0"
+description = "PDV Garçom — app mobile para lançamento de pedidos direto na mesa"
+edition = "2021"
+rust-version = "1.77.2"
+publish = false
+
+[lib]
+name = "pdv_garcon_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.12.0", features = [] }
+# Dep direta por ACL: o `capabilities/default.json` cita `http:default`.
+# Ver comentário em standalone-kds/Cargo.toml. Registro é feito por
+# `pdv-shared::Plugins`.
+tauri-plugin-http = "2"
+pdv-shared = { path = "../standalone-shared" }

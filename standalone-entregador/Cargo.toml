@@ -1,0 +1,83 @@
+# Entregador — o app de rota do entregador, app Tauri standalone da família
+# (PDV, KDS, Garçom, Entregador) e o PRIMEIRO mobile dos quatro.
+#
+# Crate independente, pasta-irmã na raiz do repo. Ele não enxerga o app v1 em
+# `frontend/src-tauri`, que continua em produção: nada aqui é importado de lá e
+# nada lá é importado daqui. O que é comum aos 4 apps vem do `pdv-shared`
+# (crate lib `pdv_shared`).
+#
+# A lista de dependências é curta de propósito:
+#
+#   - Sem `serde`/`serde_json`. O `AppConfig` e os 3 commands de config são do
+#     shared; este crate não desserializa nada, ele só registra o que já vem
+#     pronto.
+#   - Sem `tauri-plugin-updater`/`tauri-plugin-process`. A distribuição é por
+#     loja/APK: quem instala é a Play Store, não um `latest.json`, então o
+#     updater não teria onde buscar versão nova — e o `process` existe
+#     justamente para o `app.restart()` que vem logo depois que o updater
+#     instala (ver `plugins.rs` do shared, que explica por que os dois flags
+#     andam juntos). Copiar o bloco `plugins.updater` do app v1 aqui, como o
+#     `standalone-pdv` faz, traria de volta um caminho de update que não
+#     existe para este app.
+#   - Sem impressão. Sem `externalBin`, sem `installer-hooks.nsh`, sem módulo
+#     `printing`: quem imprime a etiqueta da rota é o caixa, na máquina dele.
+#   - Sem `[target.'cfg(windows)'.dependencies] windows`. Não há spooler nem
+#     nenhum código `#[cfg(windows)]` neste crate.
+#
+# O que NÃO cabe num `Cargo.toml` e está no `gen/android/` (gerado pelo
+# `tauri android init`, que ainda não rodou): as permissões de sistema do
+# celular — localização e notificação. Ver o README deste crate.
+
+[package]
+# O nome do pacote é o do binário (`pdv-entregador` no host) e é o que
+# diferencia esta instalação da do app v1, cujo pacote se chama `app`
+# (`app.exe`). Não pode ser o mesmo: o entregador e o caixa podem ficar
+# instalados na mesma máquina durante a transição, e dois artefatos de mesmo
+# nome é o tipo de conflito que só aparece na loja, nunca em dev.
+name = "pdv-entregador"
+# Igual ao `version` do tauri.conf.json. Os dois precisam bater porque o
+# instalador tira a versão do conf e o `cargo` usa a do manifesto; divergindo, o
+# binário e o about do app contam histórias diferentes. 0.1.0 porque este app
+# ainda não foi para campo; o app v1 é 1.0.11 e não se mexe nele.
+version = "0.1.0"
+description = "PDV Entregador — app de rota do entregador (Android/iOS)"
+edition = "2021"
+rust-version = "1.77.2"
+publish = false
+
+# Mesmo formato do `frontend/src-tauri`. E aqui o motivo é mais forte que no
+# desktop: em Android/iOS não existe binário próprio — o projeto Gradle
+# carrega esta `cdylib` e chama o `start_app` que o
+# `#[tauri::mobile_entry_point]` exporta. O `staticlib`/`rlib` ficam porque o
+# mesmo crate precisa continuar compilando no host, onde o `main.rs` chama
+# `run()` direto.
+[lib]
+name = "pdv_entregador_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.12.0", features = [] }
+# O `http` é a única exceção à regra "nenhum plugin aqui", e a exceção é do
+# ACL, não de estilo.
+#
+# O `capabilities/default.json` deste app precisa validar `http:default` (é
+# pelo plugin `http` que a tela de rota fala com a API), e o build script só
+# consegue ler os arquivos de permissão de um plugin se o plugin for
+# dependência DIRETA: ele os acha pelas variáveis `DEP_*`, que o Cargo só
+# entrega a quem depende direto (o `tauri-plugin-http` declara
+# `links = "tauri-plugin-http"`, e o metadata do build dele vira
+# `DEP_TAURI_PLUGIN_HTTP_PERMISSION_FILES_PATH`). Sendo transitive, via
+# `pdv-shared`, o build morre com
+# "Permission http:default not found, expected one of core:...".
+#
+# Repare que declarar aqui NÃO registra o plugin: quem registra é o
+# `Plugins` do shared, no `run()`. A dependência direta serve só para o ACL
+# conhecer a permission. A regra que decorre é curta: capability
+# `x:default` ⇒ crate `tauri-plugin-x` aqui.
+tauri-plugin-http = "2"
+# `path` relativo e não versão: o shared não é publicado e nunca vai ser. É o
+# mesmo caminho para os 4 apps, porque todos são pastas na raiz do repo.
+pdv-shared = { path = "../standalone-shared" }

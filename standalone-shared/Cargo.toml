@@ -1,0 +1,30 @@
+[package]
+name = "pdv-shared"
+version = "0.2.0"
+description = "Núcleo compartilhado dos apps standalone do PDV — config por instalação e plugins comuns"
+edition = "2021"
+rust-version = "1.77.2"
+publish = false
+
+[lib]
+name = "pdv_shared"
+path = "src/lib.rs"
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.12.0", features = [] }
+tauri-plugin-log = "2"
+# HTTP vai pelo Rust porque o app roda na origem `tauri.localhost`, e o backend
+# (CORS_ORIGIN com o domínio) não libera essa origem. O plugin ignora CORS; no
+# web continua sendo `fetch` normal.
+tauri-plugin-http = "2"
+# `relaunch()` depois que o updater instala a nova versão. Só desktop — os apps
+# mobile desligam via `Plugins` (ver `plugins.rs`).
+tauri-plugin-process = "2"
+# Update automático no boot. Sem este crate o `checkForUpdate()` do JS sempre
+# falha e o app abre na versão em disco (comportamento correto em loja offline,
+# mas sem update). A chave pública em tauri.conf.json valida o manifesto; a
+# privada vive em TAURI_SIGNING_PRIVATE_KEY.
+tauri-plugin-updater = "2"

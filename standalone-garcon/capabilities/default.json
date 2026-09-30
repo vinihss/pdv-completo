@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Garçom: core do Tauri + http. Sem updater/process. `$schema` aponta para desktop-schema até `tauri android init` gerar os schemas mobile.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "http:default"
+  ]
+}

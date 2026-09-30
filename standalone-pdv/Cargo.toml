@@ -1,0 +1,79 @@
+[package]
+# O nome do pacote é "pdv-caixa", e não "pdv", de propósito: `com.pdvapp.desktop`
+# (o app em produção, `frontend/src-tauri`) já se chama PDV e continua no repo.
+# Um crate chamado `pdv` aqui seria o primeiro passo de uma confusão que só
+# aparece no servidor de update, no menu do Windows e no `latest.json`.
+name = "pdv-caixa"
+version = "0.1.0"
+# Este `version` e o `version` do `tauri.conf.json` são conferidos um contra o
+# outro pelo build de entrega, e divergentes o instalador sai com uma versão e
+# o manifesto outra — o update "não existe" sem erro nenhum. 0.1.0 porque este
+# app ainda não foi para campo; o app em produção é 1.0.11 e não se mexe nele.
+description = "PDV Caixa — app nativo da frente de caixa (impressão térmica)"
+edition = "2021"
+rust-version = "1.77.2"
+publish = false
+
+[lib]
+# Igual ao `frontend/src-tauri`, e pelo mesmo motivo: os mesmos `crate-type`
+# servem o binário desktop (`main.rs`) e a biblioteca que o Tauri carrega em
+# Android/iOS, onde não existe executável próprio.
+name = "pdv_caixa_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+# Núcleo compartilhado da família: `AppConfig` (o `app.json` por instalação),
+# os 3 commands de config e o registro comum de plugins. Config e plugins são
+# o que é igual nos 4 apps; ciclo de vida, commands e tela são de cada um.
+pdv-shared = { path = "../standalone-shared" }
+
+# Os 3 plugins abaixo NÃO são registrados aqui — quem registra é
+# `pdv_shared::builder`. Eles são dependência direta mesmo assim, e por um
+# motivo que só aparece no build: o `tauri_build` monta a ACL varrendo os
+# `tauri-plugin-*` das dependências do crate, então uma permissão de plugin
+# que não é dep direta não existe e o `capabilities/default.json` morre com
+# "Permission http:default not found". Verificado nesta rodada, não é
+# especulação. `tauri-plugin-log` fica de fora de propósito: o shared o
+# registra, e nenhuma permissão `log:*` está no capability — se alguém
+# precisar dela, o crate entra aqui junto.
+#
+# HTTP vai pelo Rust porque o app roda na origem `tauri.localhost` e o backend
+# libera CORS só para o domínio configurado: um `fetch` no webview seria
+# bloqueado. O plugin ignora CORS — é por ele que o JS conversa com a API.
+tauri-plugin-http = "2"
+# `relaunch()` depois que o updater instala a nova versão.
+tauri-plugin-process = "2"
+# Update automático no boot. Sem este crate o `checkForUpdate()` do JS sempre
+# falha e o app abre na versão em disco (aceitável em loja offline, mas sem
+# update). A chave pública vem do tauri.conf.json e valida o manifesto; a
+# privada vive em TAURI_SIGNING_PRIVATE_KEY.
+tauri-plugin-updater = "2"
+
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+tauri = { version = "2.12.0", features = [] }
+
+# Impressão térmica direta (fase 1 do plano de impressão). `windows` já entra no
+# lock pelo Tauri; o que falta aqui é a feature de spooler
+# (`Win32_Graphics_Printing`), usada por `printing/spooler.rs` para listar
+# filas, escrever ESC/POS cru e ler o status do dispositivo.
+#
+# Só no Windows de propósito: no Linux/macOS (dev) o crate não compila, e o
+# código do spooler é `#[cfg(windows)]`. A sondagem de status por DLE EOT
+# (`printing/status.rs`) é rede pura e funciona em qualquer plataforma — o dev
+# consegue testar essa parte no Linux, e é assim que a suíte de compose do gate
+# roda.
+[target.'cfg(windows)'.dependencies]
+# `Win32_Graphics_Gdi` e `Win32_Security` não são usados diretamente: as
+# features é que habilitam os `impl Default` de `PRINTER_DEFAULTSW` e
+# `PRINTER_INFO_2W`, sem os quais o struct não é construível.
+windows = { version = "0.62", features = [
+  "Win32_Graphics_Printing",
+  "Win32_Graphics_Gdi",
+  "Win32_Security",
+  "Win32_Foundation",
+] }

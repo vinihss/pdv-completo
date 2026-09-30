@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissões do app da frente de caixa. As quatro são as mesmas do app v1 e nenhuma é do `printing`: imprimir é I/O feito no Rust, não permissão de webview.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "http:default",
+    "process:allow-restart",
+    "updater:default"
+  ]
+}

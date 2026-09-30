@@ -1,0 +1,51 @@
+{
+  "$schema": "../frontend/node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "PDV Garçom",
+  "version": "0.1.0",
+  "identifier": "com.pdvapp.garcon",
+  "build": {
+    "frontendDist": "../frontend/dist/garcon",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "cd frontend && npm run dev",
+    "beforeBuildCommand": "cd ../frontend && npm run build:garcon"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "PDV Garçom",
+        "width": 412,
+        "height": 892,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "displayLanguageSelector": false
+      },
+      "webviewInstallMode": {
+        "type": "offlineInstaller"
+      }
+    },
+    "android": {
+      "debugApplicationIdSuffix": ".debug"
+    }
+  }
+}

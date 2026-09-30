@@ -1,0 +1,13 @@
+PDV Printer Daemon — distribuição estruturada
+
+Conteúdo:
+- daemon Go com fila SQLite e API HTTP;
+- backend TCP;
+- backend Windows Print Spooler RAW;
+- backend Linux CUPS RAW;
+- polling web autenticado com deduplicação por evento externo;
+- templates ESC/POS e golden tests;
+- scripts de instalação;
+- documentação operacional.
+
+Configuração local, banco SQLite, tokens e binários não são incluídos.
