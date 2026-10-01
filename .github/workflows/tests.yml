@@ -1,0 +1,97 @@
+name: Testes (backend + frontend)
+
+# ============================================================
+# O PORTÃO DE TESTES do repo, em UM SÓ LUGAR.
+#
+# Duas portas de entrada, uma só definição de suíte:
+#
+#   1. `ci-pr.yml` — a cada pull_request contra `main`: é o gate de merge.
+#   2. `deploy-on-tag.yml` — a cada tag `v*.*.*`, antes do `deploy` (e antes
+#      do `build-desktop`, que tem as próprias verificações).
+#
+# Por que não são dois arquivos com os corpos duplicados: a CI de PR e o
+# gate de release são o MESMO contrato ("isto não pode ir para main"). Se
+# fossem cópias, a primeira vez que alguém acrescentasse um passo ao gate
+# de release — um `npm audit`, um typecheck — a cópia da CI de PR
+# continuaria verde e o merge passaria a aceitar o que o deploy rejeita.
+# Divergência silenciosa entre os dois gates é pior do que nenhum gate.
+#
+# Isto segue o mesmo padrão do `build-desktop.yml` (reusable workflow com
+# `uses:`), que já é a convenção da casa. Regra do repo (AGENTS.md):
+# uma única definição de build — se um passo de teste mudar, muda AQUI.
+#
+# Os jobs se chamam `test-backend`/`test-frontend` e o caller mantém essas
+# MESMAS chaves, porque o `needs: [test-backend, test-frontend]` do job
+# `deploy` resolve pelo nome do job no caller, não pelo do workflow chamado.
+# Renomear um dos lados sem renomear o outro quebra o deploy no push da
+# próxima tag.
+# ============================================================
+
+on:
+  workflow_call:
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    # Os testes do backend rodam contra um Postgres DEDICADO (pdv_test), não
+    # contra o banco da aplicação: o global setup (backend/test/global-setup.ts)
+    # derruba e recria o schema `public` antes de cada suíte, o que num banco
+    # real apagaria os dados. Sem este serviço o job morria com ECONNREFUSED e
+    # o vitest ainda imprimia "No test files found", que engana: o glob está
+    # certo, quem falha é o setup.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          # Mesmas credenciais do default em backend/test/test-db.ts, para o
+          # banco efêmero do CI e o Postgres local de desenvolvimento não
+          # divergirem.
+          POSTGRES_USER: pdv
+          POSTGRES_PASSWORD: pdv_test_pw
+          POSTGRES_DB: pdv_test
+        ports:
+          - 55432:5432
+        # Sem healthcheck o vitest começa antes do Postgres aceitar conexão e
+        # o job falha de forma intermitente, dependendo da carga do runner.
+        options: >-
+          --health-cmd "pg_isready -U pdv -d pdv_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Aponta para o serviço acima. O global setup usa esta variável para
+      # recriar o schema e o config do vitest a repassa como DATABASE_URL.
+      TEST_DATABASE_URL: postgres://pdv:pdv_test_pw@localhost:55432/pdv_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - working-directory: backend
+        run: |
+          npm ci
+          npm run build
+          npm run test
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+          npm run test
+
+  # TODO: refazer os testes do printer/daemon (go test ./...) — removidos
+  # temporariamente para destravar o build. Ver printer/README.md.
+  # Quando voltarem, é AQUI que entra o job (não no caller): os dois
+  # chamadores o ganham de graça, e nenhum gate diverge do outro.

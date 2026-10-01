@@ -1,0 +1,35 @@
+name: CI (pull request)
+
+# ============================================================
+# O GATE DE MERGE.
+#
+# Roda a cada pull_request contra `main` e nada mais: o que este arquivo
+# NÃO faz também é intencional.
+#
+# - Não dispara em push direto na `main`. Quem escreve na main é o merge do
+#   PR, e o PR já foi testado aqui; rodar de novo só duplicaria runner.
+# - Não roda em tag. O gate de release é o `deploy-on-tag.yml`, que chama
+#   a MESMA suíte (`tests.yml`) — mesmo contrato antes do merge e antes
+#   do deploy, uma definição só.
+# - Não substitui o `build-desktop.yml`. O instalador Windows não é
+#   gate de merge (é lento e muda por decisão de release), e ele tem as
+#   próprias verificações de frontend antes de compilar.
+#
+# Os jobs abaixo não têm `runs-on`/`steps`: chamam o workflow reutilizável.
+# O nome do check que o GitHub publica é o nome do job NESTE arquivo + o
+# nome do job no workflow chamado (ver `gh pr checks` — "test-backend /
+# test-backend"), não o nome do workflow (`Testes (backend + frontend)`).
+# É esse nome composto que o ruleset de branch protection deve exigir.
+# ============================================================
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test-backend:
+    uses: ./.github/workflows/tests.yml
+
+  test-frontend:
+    uses: ./.github/workflows/tests.yml
