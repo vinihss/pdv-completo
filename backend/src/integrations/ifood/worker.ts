@@ -41,6 +41,15 @@ export function startIfoodSync(): { stop: () => void } {
       // é o que impede duas instâncias de buscarem/ACKarem o mesmo evento.
       // Réplica sem o lock pula o ciclo em silêncio (nada de erro no log).
       await tryWithAdvisoryLock(LOCKS.ifoodWorker, () => pollOnce());
+    } catch (err) {
+      // Um erro de ciclo não pode derrubar o processo — é a regra 1.5, e o
+      // dispatcher e a maintenance já têm exatamente este `.catch()`. O iFood
+      // era o único dos três sem ele, e o advisory lock tornou o buraco mais
+      // largo: a aquisição do lock é `db.transaction`, então banco fora ou o
+      // `connectionTimeoutMillis` de 10s (infra/db/client.ts) rejeitam em TODO
+      // ciclo e escapavam por `void tick()` / `setInterval(tick, ...)` sem
+      // ninguém para pegar — unhandled rejection derruba o processo no Node 15+.
+      console.error("[ifood] erro no ciclo de polling:", err);
     } finally {
       running = false;
     }
@@ -88,10 +97,9 @@ async function pollOnce(): Promise<void> {
     await setIfoodState(ifoodStateKeys.lastPollError, "");
   } catch (err) {
     // Falha de rede/token não derruba o worker; guarda pro painel do gerente.
-    // Este catch também é o que mantém o ciclo do advisory lock saudável: a
-    // chamada de rede acontece de dentro do lock, e uma exceção estourando
-    // aqui rolabackaria a transação que segura o lock em vez de virar o
-    // `lastPollError` que o gerente vê no painel.
+    // O `running` volta ao `false` pelo `finally` do `tick`, e qualquer
+    // rejection de infraestrutura que escapar daqui (ver o `catch` do `tick`)
+    // é logado ali — este `catch` é só para erro de negócio da chamada.
     const msg = err instanceof Error ? err.message : String(err);
     await setIfoodState(ifoodStateKeys.lastPollError, msg);
     console.error("[ifood] poll falhou:", msg);
