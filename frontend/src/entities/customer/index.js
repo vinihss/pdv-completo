@@ -9,3 +9,4 @@ export {
   deleteCustomerAddress,
 } from "./api/customer.js";
 export { addPublicAddress, createPublicCustomer, lookupPublicCustomer } from "./api/public.js";
+export { saveProfileLocal, loadProfileLocal, clearProfileLocal } from "./model/profileStorage.js";

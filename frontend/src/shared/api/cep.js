@@ -5,7 +5,7 @@
 // terceiro. Também não cabe em `shared/lib`, que é o que não fala com a rede.
 //
 // A resposta é normalizada aqui para o vocabulário do formulário de endereço
-// (`street`/`neighborhood`/`city`/`complement`), para a tela não conhecer os
+// (`street`/`neighborhood`/`city`/`state`), para a tela não conhecer os
 // nomes do ViaCEP (`logradouro`, `localidade`, ...) e a normalização não ficar
 // duplicada em cada consumidor.
 //
@@ -49,11 +49,15 @@ export async function fetchAddressByCep(cep, { signal } = {}) {
   }
   if (data?.erro) throw fail("not_found", "CEP não encontrado");
 
+  // Só o que serve para identificar o endereço. O `complemento` do ViaCEP é
+  // deliberadamente descartado: ele vem como faixa ("de 101 a 150", "lado
+  // ímpar") e poluir o campo que a pessoa preenche à mão. Rua, bairro, cidade e
+  // UF são dados reais; complemento é observação de quem mora lá.
   return {
     cep: data.cep ?? "",
     street: data.logradouro ?? "",
     neighborhood: data.bairro ?? "",
     city: data.localidade ?? "",
-    complement: data.complemento ?? "",
+    state: data.uf ?? "",
   };
 }

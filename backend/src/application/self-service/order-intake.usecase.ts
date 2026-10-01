@@ -10,9 +10,26 @@ import { formatAddress, addCustomerAddressUsecase } from "./customer-address.use
 import { deriveCustomerStage, stageTimeline, CUSTOMER_STAGES } from "../../domain/customer-order-state.js";
 import { emitCustomerStageChangedTx } from "./customer-stage.js";
 import { round2 } from "../../domain/money.js";
+import { estimateDeliveryMinutes, estimateWindow } from "../../domain/delivery-eta.js";
+import { parseTiers, type DeliveryFeeTier } from "../delivery/delivery-pricing.usecase.js";
 import { parseVariations, missingRequiredGroups, unknownOptions } from "../../domain/variations.js";
 
 const DELIVERY_ROOM = "deliveries"; // painel do manager e listagem do entregador escutam aqui
+
+/**
+ * Valida a faixa escolhida contra a tabela real da loja.
+ *
+ * O cliente manda `maxKm` como número solto no corpo do pedido, então o valor
+ * é dado do cliente até que a tabela diga o contrário. Aceitar qualquer número
+ * deixaria a viagem estimada sem teto (minutos_per_km × 999999) ou, no outro
+ * extremo, sem piso — e a estimativa é o que o salão promete. unknown → null,
+ * que o cálculo trata como "só o piso de viagem".
+ */
+function resolveZoneKm(requested: number | null | undefined, tiers: DeliveryFeeTier[]): number | null {
+  if (requested === null || requested === undefined || !Number.isFinite(requested)) return null;
+  const match = tiers.find((t) => t.maxKm === requested);
+  return match ? match.maxKm : null;
+}
 
 type IntakeLine = {
   productId: string;
@@ -80,6 +97,15 @@ export async function createSelfServiceOrderUsecase(input: {
     notes?: string;
   }>;
   paymentMethodIntent: "cash" | "card" | "pix" | "other";
+  notes?: string;
+  /**
+   * `maxKm` da faixa de distância que o cliente marcou na tela de endereço.
+   * Entra só na estimativa (ver domain/delivery-eta.ts) — o FRETE continua
+   * vindo de `store_settings.delivery_fee` aqui, como no §04; trocar a taxa por
+   * faixa no checkout é outra conversa e mexeria no total que o cliente
+   * confirma. Ausente ou fora das faixas: o tempo de viagem usa só o piso.
+   */
+  deliveryZoneKm?: number | null;
 }) {
   if (!input.addressId && !input.newAddress) {
     throw Errors.validationFailed({ field: "addressId|newAddress", reason: "informe um endereço" });
@@ -124,6 +150,7 @@ export async function createSelfServiceOrderUsecase(input: {
     tabLabel: `Delivery - ${input.customerName}`,
     channel: input.channel,
     deliveryFee: settings.deliveryFee,
+    notes: input.notes,
   });
 
   const items = await addItemsUsecase({ orderId: order.id, userId: SYSTEM_USER_ID, items: input.items });
@@ -143,6 +170,19 @@ export async function createSelfServiceOrderUsecase(input: {
     confirmed: false,
   });
 
+  // 4.1 Previsão de entrega — calculada ANTES da transação da entrega porque
+  // `distance_km` e `estimated_minutes` são gravados no insert (domain/delivery-eta.ts).
+  // O que o cliente escolheu na tela é validado contra as faixas reais da loja:
+  // um `maxKm` forjado pelo cliente cortaria a viagem estimada pela metade e o
+  // balcão receberia uma promessa que não pode cumprir.
+  const tiers = parseTiers(settings.deliveryFeeTiers);
+  const zoneKm = resolveZoneKm(input.deliveryZoneKm, tiers);
+  const estimatedMinutes = estimateDeliveryMinutes({
+    maxKm: zoneKm,
+    prepMinutes: settings.deliveryPrepMinutes,
+    minutesPerKm: settings.minutesPerKm,
+  });
+
   // 5. Cria a entrega já no momento do pedido — não é preciso esperar a cozinha
   // pra o manager já poder planejar/atribuir entregador (correção sobre o
   // desenho original do §04, que sugeria criar isso só quando os itens
@@ -151,7 +191,13 @@ export async function createSelfServiceOrderUsecase(input: {
   const delivery = await db.transaction(async (tx) => {
     const [created] = await tx
       .insert(deliveries)
-      .values({ orderId: order.id, address: addressText, status: "awaiting_courier" })
+      .values({
+        orderId: order.id,
+        address: addressText,
+        status: "awaiting_courier",
+        distanceKm: zoneKm,
+        estimatedMinutes,
+      })
       .returning();
 
     await enqueueEvent(tx, DELIVERY_ROOM, "delivery.created", { deliveryId: created.id, orderId: order.id });
@@ -171,8 +217,54 @@ export async function createSelfServiceOrderUsecase(input: {
     deliveryId: delivery.id,
     total,
     deliveryFee: settings.deliveryFee,
-    // Estimativa fixa por enquanto — sem modelo de tempo de preparo por pedido delivery ainda.
-    estimatedMinutes: 45,
+    // Previsão real (preparo + viagem pela faixa escolhida). A tela abre ±20%
+    // em volta — a janela, não este ponto, é o que vai pro cliente.
+    estimatedMinutes,
+    estimatedWindow: estimateWindow(estimatedMinutes),
+  };
+}
+
+/**
+ * Bloco de previsão que a tela de acompanhamento usa, recalculado a cada poll.
+ *
+ * A estimativa gravada no pedido é uma foto do momento da criação e vale para a
+ * janela INTEIRA (preparo + viagem) enquanto o pedido está na cozinha. Quando o
+ * entregador sai (`dispatchedAt`), a cozinha já cumpriu a parte dela e o que
+ * sobra é o trajeto — a partir daí a previsão vira contagem a partir do
+ * horário real de saída, que é mais honesto do que somar minutos numa base
+ * antiga. É a diferença entre "38 min" ditado no pedido e "chega até 19:52"
+ * depois que o motoboy pegou a encomenda.
+ *
+ * `remainingMinutes` é null enquanto o pedido não saiu: sem `dispatched_at` não
+ * há base para contar, e devolver a estimativa inteira seria mentir sobre o que
+ * falta.
+ */
+function etaForStage(
+  delivery: typeof deliveries.$inferSelect | null | undefined,
+  stage: string,
+  prepMinutes: number,
+  minutesPerKm: number
+) {
+  const estimatedMinutes = delivery?.estimatedMinutes ?? estimateDeliveryMinutes({ maxKm: null, prepMinutes, minutesPerKm });
+  const eta = { estimatedMinutes, estimatedWindow: estimateWindow(estimatedMinutes) };
+
+  const dispatchedAt = delivery?.dispatchedAt;
+  if (stage !== "out_for_delivery" || !dispatchedAt) {
+    return { ...eta, remainingMinutes: null as number | null };
+  }
+
+  // Tempo só de viagem: o preparo já foi consumido até o despacho.
+  const travel = Math.max(0, estimatedMinutes - prepMinutes);
+  const at = Date.parse(dispatchedAt);
+  if (Number.isNaN(at)) return { ...eta, remainingMinutes: null as number | null };
+
+  const remainingMinutes = Math.max(0, Math.round((at + travel * 60_000 - Date.now()) / 60_000));
+  const window = estimateWindow(travel);
+  return {
+    ...eta,
+    remainingMinutes,
+    // Fim da janela de chegada, em ISO — a tela formata no fuso do cliente.
+    deliverBy: new Date(at + window.max * 60_000).toISOString(),
   };
 }
 
@@ -185,6 +277,7 @@ export async function createSelfServiceOrderUsecase(input: {
 export async function getSelfServiceOrderStatusUsecase(orderId: string) {
   const order = await getOrderUsecase(orderId);
   const delivery = await db.query.deliveries.findFirst({ where: eq(deliveries.orderId, orderId) });
+  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
 
   const stage = deriveCustomerStage(
     { status: order.status },
@@ -205,8 +298,7 @@ export async function getSelfServiceOrderStatusUsecase(orderId: string) {
     customerStage: { stage, label: meta.label, terminal: meta.terminal },
     timeline: stageTimeline(stage),
     total,
-    // Mesma estimativa da criação — sem modelo de tempo de preparo ainda.
-    estimatedMinutes: 45,
+    ...etaForStage(delivery, stage, settings?.deliveryPrepMinutes ?? 40, settings?.minutesPerKm ?? 2),
   };
 }
 
@@ -229,6 +321,7 @@ export async function getActiveSelfServiceOrderByPhoneUsecase(phone: string) {
 
   const items = await db.query.orderItems.findMany({ where: eq(orderItems.orderId, active.id) });
   const delivery = await db.query.deliveries.findFirst({ where: eq(deliveries.orderId, active.id) });
+  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
 
   const stage = deriveCustomerStage(
     { status: active.status },
@@ -246,7 +339,9 @@ export async function getActiveSelfServiceOrderByPhoneUsecase(phone: string) {
     orderId: active.id,
     customerStage: { stage, label: meta.label, terminal: meta.terminal },
     total,
-    estimatedMinutes: 45,
+    // Mesma janela do endpoint de status: quem chega pela retomada precisa ver
+    // a previsão que o cliente original recebeu, não um número diferente.
+    ...etaForStage(delivery, stage, settings?.deliveryPrepMinutes ?? 40, settings?.minutesPerKm ?? 2),
     openedAt: active.openedAt,
   };
 }
