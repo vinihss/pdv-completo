@@ -15,11 +15,40 @@ name: CI (pull request)
 #   gate de merge (é lento e muda por decisão de release), e ele tem as
 #   próprias verificações de frontend antes de compilar.
 #
-# Os jobs abaixo não têm `runs-on`/`steps`: chamam o workflow reutilizável.
-# O nome do check que o GitHub publica é o nome do job NESTE arquivo + o
-# nome do job no workflow chamado (ver `gh pr checks` — "test-backend /
-# test-backend"), não o nome do workflow (`Testes (backend + frontend)`).
-# É esse nome composto que o ruleset de branch protection deve exigir.
+# O job abaixo não tem `runs-on`/`steps`: chama o workflow reutilizável.
+#
+# ============================================================
+# UM JOB CHAMADOR, NÃO DOIS — LEIA ANTES DE "CORRIGIR"
+# ============================================================
+# A armadilha do `workflow_call` que custa runner dobrado: um job chamador
+# NÃO escolhe qual job do workflow chamado roda. Ele chama o workflow
+# INTEIRO, e o GitHub roda TODOS os jobs de dentro. O total de execuções
+# num run é `jobs do chamador × jobs do chamado`:
+#
+#     2 chamadores × 2 jobs do tests.yml  =  4 execuções  (backend 2×, frontend 2×)
+#     1 chamador   × 2 jobs do tests.yml  =  2 execuções  (backend 1×, frontend 1×)
+#
+# Foi assim que a primeira versão deste arquivo ficou: dois jobs chamadores
+# (`test-backend` e `test-frontend`), ambos apontando para o mesmo
+# `tests.yml` — e cada suíte rodou duas vezes, com o runner-minutes pelo
+# meio. Do ponto de vista do YAML parecia innocuous; o desperdício só
+# aparece em `gh pr checks`, que listava 4 checks num PR.
+#
+# NÃO "descompartilhe" em dois chamadores achando que está evitando
+# colisão de nome: os nomes dos checks são `job do chamador / job do
+# chamado`, então dois chamadores não colidem — eles só duplicam as
+# execuções. Um chamador é o que produz 2 checks, um por suíte.
+#
+# (A saída alternativa, um input booleano + `if:` no workflow chamado,
+# também funciona e deixa o número de chamadores igual ao de suítes —
+# mas cobra um input e uma condição para comprar nada. Não é o caminho.)
+#
+# CONSEQUÊNCIA PARA O RULESET: com um chamador, o nome do check é
+# `tests / test-backend` e `tests / test-frontend` (o job chamador chama
+# `tests`, e os jobs de dentro mantêm o nome). Antes eram
+# `test-backend / test-backend` e `test-frontend / test-frontend`. Se
+# houver ruleset exigindo check por nome, ele precisa do nome ATUAL —
+# confirme em `gh pr checks` antes de escrever a regra.
 # ============================================================
 
 on:
@@ -28,8 +57,5 @@ on:
       - main
 
 jobs:
-  test-backend:
-    uses: ./.github/workflows/tests.yml
-
-  test-frontend:
+  tests:
     uses: ./.github/workflows/tests.yml
