@@ -142,9 +142,12 @@ jobs:
             }
             if ($pkg -match '(?m)^[ \t]*version\s*\.\s*workspace\s*=\s*true') {
               # standalone-<app>/ -> raiz do repo -> Cargo.toml do workspace.
+              # [IO.Path] e nao `Split-Path -LiteralPath ... -Parent`: o pwsh
+              # recusa -LiteralPath junto com -Parent ("Parameter set cannot
+              # be resolved"), e -Path trataria [ ] da path como wildcard.
               $crateFile = (Resolve-Path -LiteralPath $crateCargo).Path
-              $crateDir = Split-Path -LiteralPath $crateFile -Parent
-              $rootDir = Split-Path -LiteralPath $crateDir -Parent
+              $crateDir = [IO.Path]::GetDirectoryName($crateFile)
+              $rootDir = [IO.Path]::GetDirectoryName($crateDir)
               $rootCargo = Join-Path -Path $rootDir -ChildPath 'Cargo.toml'
               $ws = [regex]::Match((Get-Content -LiteralPath $rootCargo -Raw), '(?ms)^\[workspace\.package\].*?(?=^\[|\z)').Value
               if ($ws -match '(?m)^[ \t]*version\s*=\s*"([^"]+)"') {
@@ -264,9 +267,12 @@ jobs:
             }
             if ($pkg -match '(?m)^[ \t]*version\s*\.\s*workspace\s*=\s*true') {
               # standalone-<app>/ -> raiz do repo -> Cargo.toml do workspace.
+              # [IO.Path] e nao `Split-Path -LiteralPath ... -Parent`: o pwsh
+              # recusa -LiteralPath junto com -Parent ("Parameter set cannot
+              # be resolved"), e -Path trataria [ ] da path como wildcard.
               $crateFile = (Resolve-Path -LiteralPath $crateCargo).Path
-              $crateDir = Split-Path -LiteralPath $crateFile -Parent
-              $rootDir = Split-Path -LiteralPath $crateDir -Parent
+              $crateDir = [IO.Path]::GetDirectoryName($crateFile)
+              $rootDir = [IO.Path]::GetDirectoryName($crateDir)
               $rootCargo = Join-Path -Path $rootDir -ChildPath 'Cargo.toml'
               $ws = [regex]::Match((Get-Content -LiteralPath $rootCargo -Raw), '(?ms)^\[workspace\.package\].*?(?=^\[|\z)').Value
               if ($ws -match '(?m)^[ \t]*version\s*=\s*"([^"]+)"') {
@@ -389,9 +395,12 @@ jobs:
             }
             if ($pkg -match '(?m)^[ \t]*version\s*\.\s*workspace\s*=\s*true') {
               # standalone-<app>/ -> raiz do repo -> Cargo.toml do workspace.
+              # [IO.Path] e nao `Split-Path -LiteralPath ... -Parent`: o pwsh
+              # recusa -LiteralPath junto com -Parent ("Parameter set cannot
+              # be resolved"), e -Path trataria [ ] da path como wildcard.
               $crateFile = (Resolve-Path -LiteralPath $crateCargo).Path
-              $crateDir = Split-Path -LiteralPath $crateFile -Parent
-              $rootDir = Split-Path -LiteralPath $crateDir -Parent
+              $crateDir = [IO.Path]::GetDirectoryName($crateFile)
+              $rootDir = [IO.Path]::GetDirectoryName($crateDir)
               $rootCargo = Join-Path -Path $rootDir -ChildPath 'Cargo.toml'
               $ws = [regex]::Match((Get-Content -LiteralPath $rootCargo -Raw), '(?ms)^\[workspace\.package\].*?(?=^\[|\z)').Value
               if ($ws -match '(?m)^[ \t]*version\s*=\s*"([^"]+)"') {
