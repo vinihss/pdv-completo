@@ -5,6 +5,7 @@ import { Errors } from "../../domain/errors.js";
 import { canTransitionDelivery, type DeliveryStatus } from "../../domain/customer-order-state.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
+import { createAlertTx, DELIVERY_ASSIGNED_ALERT_KIND, describeDeliveryAssignedAlert } from "../alert/alert.usecases.js";
 import { emitCustomerStageChangedTx } from "./customer-stage.js";
 import { closeOrderAfterDelivery } from "./manager-delivery-status.usecase.js";
 import { notifyDispatched, notifyDelivered, notifyFailed } from "../../integrations/whatsapp/whatsapp.notifier.js";
@@ -222,6 +223,27 @@ export async function assignCourierUsecase(input: { deliveryId: string; courierI
     // Atribuir não muda o status — continua awaiting_courier até o entregador
     // confirmar saída via dispatch (§05 "Endpoints do manager").
     await enqueueEvent(tx, DELIVERY_ROOM, "delivery.assigned", serialize(result));
+    // O `delivery.assigned` vai para o room `deliveries`, que é de TODOS os
+    // entregadores: ele serve para a tela recarregar, não para avisar. O aviso
+    // é o alerta, e ele é DIRECIONADO — só o entregador que acabou de receber
+    // a entrega ouve (audiência `user:<id>`, room `alerts:user:<id>`, ver
+    // alert.usecases.ts). Adicionar `courier` à audiência global faria o sino
+    // tocar para todos os entregadores a cada pedido, mesmo os que não são
+    // deles; e o `ORDER_ALERT_AUDIENCE` continua manager/cashier/kitchen.
+    const { title, body } = describeDeliveryAssignedAlert({
+      orderId: result.orderId,
+      address: result.address,
+    });
+    await createAlertTx(tx, {
+      kind: DELIVERY_ASSIGNED_ALERT_KIND,
+      title,
+      body,
+      orderId: result.orderId,
+      // O destinatário é o `courierId` validado lá em cima (papel `courier`),
+      // e não o que voltou no UPDATE — que o TS tipa como nulo por causa do
+      // `ON DELETE SET NULL` da coluna. São o mesmo id.
+      userIds: [input.courierId],
+    });
     await logAction(tx, input.managerId, "delivery_assigned", result.orderId, { courierId: input.courierId });
     return result;
   });

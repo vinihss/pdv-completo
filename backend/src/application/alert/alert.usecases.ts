@@ -8,12 +8,14 @@
 // o contador de uma tela desenhada pela casca não pode morar na página).
 //
 // Duas metades que precisam concordar:
-//   - REST   `GET /alerts` filtra por `audience_roles` (o papel que pergunta);
-//   - WS     `enqueueEvent` publica em `alerts` / `alerts:<role>`, e o
-//             `canJoinRoom` só autoriza o room do PRÓPRIO papel. Os dois lados
-//             usam a mesma lista `audience` — é o fan-out por papel que impede
-//             o alerta de vazar para quem não deveria ouvir (ex.: o garçom, que
-//             abriu a comanda e já está olhando para ela).
+//   - REST   `GET /alerts` filtra por audiência (o papel e/ou o usuário que
+//             perguntam);
+//   - WS     `enqueueEvent` publica em `alerts` / `alerts:<role>` /
+//             `alerts:user:<id>`, e o `canJoinRoom` só autoriza o room do
+//             PRÓPRIO papel e o do PRÓPRIO usuário. Os dois lados usam a mesma
+//             audiência — é o fan-out que impede o alerta de vazar para quem não
+//             deveria ouvir (ex.: o garçom, que abriu a comanda e já está olhando
+//             para ela).
 //
 // `read_at` é global, não por usuário: a pergunta é "alguém do salão já viu
 // isso?" e quem responde é a tela da comanda. Não gera linha de audit_log —
@@ -32,7 +34,41 @@ export function alertsRoomFor(role: string) {
   return `${ALERTS_ROOM}:${role}`;
 }
 
+/**
+ * Audiência INDIVIDUAL: alerta que é de uma pessoa só (o entregador X recebeu a
+ * entrega Y), e não de um papel. O token viaja no mesmo `audience_roles` (que é
+ * TEXT[]) com o prefixo `user:`, então é a MESMA coluna e o MESMO predicado
+ * que já filtram por papel — nenhum schema novo, nenhuma migration.
+ *
+ * A alternativa era um room `alerts:courier` + filtro no cliente, que foi
+ * descartada: o room por papel é compartilhado por todos os entregadores, então
+ * todo mundo ouviria o mesmo `alert.created` e a fila de "quem é meu" passaria
+ * a depender de o cliente filtrar — com o sino já tocando antes disso. E
+ * adicionar `courier` à audiência global (`ORDER_ALERT_AUDIENCE`) era
+ * exatamente o que não pode: tocaria o sino de TODOS os entregadores a cada
+ * pedido que caísse, mesmo os que não são dele.
+ *
+ * O room pessoal entra no handshake (ver realtime.routes.ts), então o cliente
+ * atual — que só assina `alerts` + `alerts:<papel>` e reage a qualquer
+ * `alert.created` — passa a receber o alerta direcionado sem mudar uma linha.
+ */
+export function alertUserToken(userId: string) {
+  return `user:${userId}`;
+}
+
+/** Room privado de um usuário — o par de `alertUserToken` no realtime. */
+export function alertsUserRoomFor(userId: string) {
+  return `${ALERTS_ROOM}:${alertUserToken(userId)}`;
+}
+
 export const ORDER_ALERT_KIND = "order_created";
+
+/**
+ * Kind do alerta direcionado da atribuição: "essa entrega agora é SUA".
+ * Distinto de `order_created` de propósito — é o que permite o sino (e o
+ * cliente) separar "pedido novo no salão" de "você recebeu trabalho".
+ */
+export const DELIVERY_ASSIGNED_ALERT_KIND = "delivery_assigned";
 
 /**
  * Quem ouve "chegou comanda". O gerente (acompanha tudo), o caixa (precisa
@@ -81,6 +117,27 @@ export function describeOrderAlert(input: {
   return { title: label ? `Nova comanda · ${label}` : "Nova comanda", body: channel };
 }
 
+/**
+ * Texto do alerta de atribuição. Função pura pelo mesmo motivo da outra: a
+ * frase é decidida uma vez, longe do React e do banco, e a suíte fixa o texto
+ * sem montar nada.
+ *
+ * O endereço (e não o nome do cliente) porque é o que o entregador precisa
+ * para sair, e porque ele já está no `delivery` — o nome exigiria o join da
+ * comanda e do cliente só para enfeitar um sino.
+ */
+export function describeDeliveryAssignedAlert(input: {
+  orderId: string;
+  address?: string | null;
+}): { title: string; body: string } {
+  const ref = input.orderId ? `#${input.orderId.slice(0, 8)}` : "pedido";
+  const address = input.address?.trim();
+  // O sino mostra o corpo em uma linha: endereço muito longo (rua + bairro +
+  // cidade + referência) é cortado, não quebrado em quatro linhas.
+  const curto = !address ? "" : address.length > 60 ? `${address.slice(0, 59).trimEnd()}…` : address;
+  return { title: "Entrega atribuída a você", body: curto ? `${ref} · ${curto}` : ref };
+}
+
 type AlertRow = typeof alerts.$inferSelect;
 
 function serialize(row: AlertRow, orderStatus?: string | null) {
@@ -105,6 +162,9 @@ function serialize(row: AlertRow, orderStatus?: string | null) {
  * (regra do repo: audit + outbox no mesmo commit). Chamar de fora de uma
  * transação deixaria o evento e a linha nasceriam por caminhos diferentes — o
  * sino tocaria para uma comanda que não chegou a existir.
+ *
+ * `audience` (papéis) e `userIds` (pessoas) se somam no mesmo `audience_roles`:
+ * quem está em qualquer um dos dois recebe. Os dois vazios = alerta público.
  */
 export async function createAlertTx(
   tx: Tx,
@@ -114,11 +174,14 @@ export async function createAlertTx(
     body?: string | null;
     orderId?: string | null;
     channel?: string | null;
-    /** vazio/ausente = alerta público (vai pro room `alerts`). */
+    /** vazio = só os `userIds` (ou o room público, se não houver nenhum). */
     audience?: readonly string[];
+    /** audiência individual — o token `user:<id>` entra em `audience_roles`. */
+    userIds?: readonly string[];
   }
 ) {
   const audience = input.audience ?? [];
+  const userIds = input.userIds ?? [];
   const [row] = await tx
     .insert(alerts)
     .values({
@@ -127,42 +190,50 @@ export async function createAlertTx(
       body: input.body ?? null,
       orderId: input.orderId ?? null,
       channel: input.channel ?? null,
-      audienceRoles: audience.length ? [...audience] : null,
+      audienceRoles: [...audience, ...userIds.map(alertUserToken)],
     })
     .returning();
 
-  // Um insert por room: um para cada papel que vai receber. Sem audiência,
-  // o room único `alerts` (que todo mundo logado assina) evita cinco linhas
-  // de outbox para um alerta que é de todo mundo.
-  const rooms = audience.length ? audience.map(alertsRoomFor) : [ALERTS_ROOM];
+  // Um insert por room: um para cada papel e um para cada pessoa da audiência.
+  // Sem papel e sem pessoa, o room único `alerts` (que todo mundo logado
+  // assina) evita cinco linhas de outbox para um alerta que é de todo mundo.
+  const rooms = [...audience.map(alertsRoomFor), ...userIds.map(alertsUserRoomFor)];
   const payload = serialize(row, "open");
-  for (const room of rooms) {
+  for (const room of rooms.length ? rooms : [ALERTS_ROOM]) {
     await enqueueEvent(tx, room, "alert.created", payload);
   }
   return row;
 }
 
 /**
- * Alertas visíveis para o papel: audience vazia (NULL) é para todos, senão o
- * papel precisa estar na lista. Mesmo predicado no REST e no `mark-read` — se
- * divergissem, o "marcar todas como lidas" do garçom limparia o contador do
- * gerente, que ele nem enxerga.
+ * Alertas visíveis para quem pergunta: audiência vazia (NULL) é para todos, senão
+ * o papel (ou o próprio usuário) precisa estar na lista. Mesmo predicado no REST
+ * e no `mark-read` — se divergissem, o "marcar todas como lidas" do garçom
+ * limparia o contador do gerente, que ele nem enxerga.
+ *
+ * `userId` é o que faz o alerta direcionado aparecer para o dono dele. Sem
+ * `userId` (um chamador que não conhece o usuário), a audiência pessoal fica
+ * invisível no REST — fail-closed: melhor o sino do destinatário não ser
+ * contarizado do que outro courier ler o endereço de uma entrega que não é dele.
  */
-function visibleTo(role: string) {
+function visibleTo(role: string, userId?: string | null) {
+  const tokens = userId ? [role, alertUserToken(userId)] : [role];
   return or(
     isNull(alerts.audienceRoles),
     sql`cardinality(${alerts.audienceRoles}) = 0`,
-    sql`${role} = ANY(${alerts.audienceRoles})`
+    ...tokens.map((token) => sql`${token} = ANY(${alerts.audienceRoles})`)
   );
 }
 
 // ---------- GET /alerts ----------
 export async function listAlertsUsecase(input: {
   role: string;
+  /** `sub` de quem pergunta — habilita a audiência individual (`user:<id>`). */
+  userId?: string | null;
   limit: number;
   unreadOnly?: boolean;
 }) {
-  const conditions = [visibleTo(input.role)];
+  const conditions = [visibleTo(input.role, input.userId)];
   if (input.unreadOnly) conditions.push(isNull(alerts.readAt));
 
   const rows = await db.query.alerts.findMany({
@@ -188,11 +259,11 @@ export async function listAlertsUsecase(input: {
       unread: sql<number>`count(*) filter (where ${alerts.readAt} is null)::int`,
     })
     .from(alerts)
-    .where(visibleTo(input.role) as any);
+    .where(visibleTo(input.role, input.userId) as any);
 
   return {
     data: rows.map((r) => serialize(r, statusByOrder.get(r.orderId ?? ""))),
-    // `total` e `unread` são do conjunto TODO que o papel enxerga, não da
+    // `total` e `unread` são do conjunto TODO que quem pergunta enxerga, não da
     // janela de `limit`: com 30 comandas esperando, o badge precisa dizer 30.
     total: counts?.total ?? 0,
     unread: counts?.unread ?? 0,
@@ -208,8 +279,12 @@ export async function listAlertsUsecase(input: {
  * Só o que o chamador enxerga é alterado (mesmo `visibleTo` da listagem), e
  * linhas já lidas não são reescritas — o `marked` é o que realmente mudou.
  */
-export async function markAlertsReadUsecase(input: { role: string; orderId?: string }) {
-  const conditions = [visibleTo(input.role), isNull(alerts.readAt)];
+export async function markAlertsReadUsecase(input: {
+  role: string;
+  userId?: string | null;
+  orderId?: string;
+}) {
+  const conditions = [visibleTo(input.role, input.userId), isNull(alerts.readAt)];
   if (input.orderId) conditions.push(eq(alerts.orderId, input.orderId));
 
   const marked = await db
