@@ -237,7 +237,7 @@ O mesmo `App.jsx` roda como PWA no navegador e como app Windows. A distinção e
 ### Versão JS×Rust
 
 - Precisa bater em major.minor, senão o `tauri build` aborta com "Found version mismatched Tauri packages" (o `cargo check` passa e engana)
-- **A CLI agora é a da raiz do repo**: conferir com `node_modules/.bin/tauri info` (cwd=`frontend/` para o v1) — `npx tauri info` de dentro de `frontend/` não é mais o caminho, a CLI saiu de `frontend/node_modules`
+- **A CLI agora é a da raiz do repo**: `node_modules/.bin/tauri info` (cwd=`frontend/` para o v1). A binária saiu de `frontend/node_modules`, mas o `npx tauri` ainda resolve de dentro de `frontend/` (o npm sobe até a raiz) — o caminho explícito, quando o `npx` resolver errado, é o da raiz
 - **O que tem que bater**: `frontend/package.json` (`@tauri-apps/*` de runtime, mais `@tauri-apps/api`/`plugin-*` usados no código) × os crates — `frontend/src-tauri` (app v1, `Cargo.lock` próprio) e a família `standalone-*` (workspace da raiz, `Cargo.lock` na raiz). Ajustar o lock certo (`cargo update -p tauri --precise <versão>` no diretório do crate) ou fixar o npm na mesma minor
 
 ### Update automático
