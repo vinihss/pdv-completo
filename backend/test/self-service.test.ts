@@ -8,6 +8,13 @@ import {
   isCustomerCancellable,
   CUSTOMER_CANCELLABLE_STAGES,
 } from "../src/domain/customer-order-state.js";
+import {
+  alertUserToken,
+  alertsUserRoomFor,
+  describeDeliveryAssignedAlert,
+  DELIVERY_ASSIGNED_ALERT_KIND,
+  ORDER_ALERT_AUDIENCE,
+} from "../src/application/alert/alert.usecases.js";
 
 const COURIER = "u-courier";
 const COURIER_FIXTURE = { id: COURIER, name: "Entregador Teste", role: "courier", pin_hash: "x" };
@@ -102,10 +109,10 @@ async function readyOrder(orderId: string) {
   return delivery.id;
 }
 
-async function assignCourier(deliveryId: string) {
+async function assignCourier(deliveryId: string, courierId: string = COURIER) {
   return api("patch", `/manager/deliveries/${deliveryId}/assign`, {
     token: manager,
-    body: { courierId: COURIER },
+    body: { courierId },
   });
 }
 
@@ -596,5 +603,230 @@ describe("CEP do endereço", () => {
     const detalhe = await api("get", `/customers/${lookup.json.customerId}`, { token: manager });
     expect(detalhe.status).toBe(200);
     expect(detalhe.json.addresses[0]).toMatchObject({ cep: "01310100" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Texto do alerta de atribuição (puro) — a mesma razão de `describeOrderAlert`
+// estar testado sem banco: a frase é decidida uma vez e a suíte a fixa.
+describe("texto do alerta de atribuição (puro)", () => {
+  it("ref do pedido + endereço no corpo", () => {
+    expect(
+      describeDeliveryAssignedAlert({ orderId: "abcdefgh-1234", address: "Rua A, 10 - Centro, Sao Paulo" })
+    ).toEqual({
+      title: "Entrega atribuída a você",
+      body: "#abcdefgh · Rua A, 10 - Centro, Sao Paulo",
+    });
+  });
+
+  it("endereço longo é cortado em uma linha, e sem endereço fica só a ref", () => {
+    const longo = "Rua das Acácias, 1234 - Jardim Botânico, Sao Paulo - referência: portão azul, ao lado da padaria";
+    const cortado = describeDeliveryAssignedAlert({ orderId: "abcdefgh-1234", address: longo });
+    expect(cortado.body.endsWith("…")).toBe(true);
+    expect(cortado.body.length).toBeLessThan(longo.length);
+
+    expect(describeDeliveryAssignedAlert({ orderId: "abcdefgh-1234" }).body).toBe("#abcdefgh");
+    expect(describeDeliveryAssignedAlert({ orderId: "abcdefgh-1234", address: "   " }).body).toBe("#abcdefgh");
+  });
+
+  it("a audiência global de comanda NÃO ganhou o entregador", () => {
+    // O sino do entregador é dirigido (audiência `user:<id>`), não por papel:
+    // se `courier` entrasse em ORDER_ALERT_AUDIENCE, todo entregador ouviria
+    // cada pedido que caísse, mesmo os que não são dele.
+    expect([...ORDER_ALERT_AUDIENCE]).not.toContain("courier");
+    expect(alertUserToken("u-1")).toBe("user:u-1");
+    expect(alertsUserRoomFor("u-1")).toBe("alerts:user:u-1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fila do entregador + alerta da atribuição. As duas metades do mesmo problema:
+// o entregador precisa CONTINUAR vendo a entrega depois de dar ruim nela (item
+// do default de status) e precisa SER AVISADO quando o gerente atribui uma
+// entrega a ele (e só a ele).
+describe("fila do entregador: a falha não some e a atribuição é avisada", () => {
+  const OUTRO_COURIER = "u-courier-outro";
+
+  beforeAll(async () => {
+    await seedFixture();
+    await enableDelivery();
+    await raw.exec(`
+      INSERT INTO "user" (id, name, role, pin_hash)
+        VALUES ('${OUTRO_COURIER}', 'Outro Entregador', 'courier', 'x')
+        ON CONFLICT (id) DO NOTHING;
+    `);
+  });
+  afterAll(async () => {
+    // Mesmo estado que o describe anterior deixa: o arquivo inteiro termina com
+    // delivery ligado (os arquivos seguintes montam o próprio cenário).
+    await raw.exec(`
+      UPDATE store_settings SET uses_delivery = true, kitchen_enabled = true, delivery_fee = 0 WHERE id = 'singleton';
+      DELETE FROM "user" WHERE id IN ('${COURIER}', '${OUTRO_COURIER}');
+    `);
+    await closeTestApp();
+  });
+  beforeEach(() => resetState());
+
+  // Pedido → entrega pronta → atribuída ao `courierId` indicado.
+  async function entregaProntaPara(courierId: string) {
+    const created = await createDeliveryOrder(nextPhone());
+    const orderId = created.json.orderId;
+    const deliveryId = await readyOrder(orderId);
+    const assign = await assignCourier(deliveryId, courierId);
+    expect(assign.status).toBe(200);
+    return { orderId, deliveryId };
+  }
+
+  // ---------- item 1: o default de status ----------
+
+  it("a entrega que o entregador marcou como falha continua na fila dele", async () => {
+    const { deliveryId } = await entregaProntaPara(COURIER);
+    await api("patch", `/courier/deliveries/${deliveryId}/dispatch`, { token: courierToken() });
+    const fail = await api("patch", `/courier/deliveries/${deliveryId}/fail`, {
+      token: courierToken(),
+      body: { reason: "cliente ausente" },
+    });
+    expect(fail.status).toBe(200);
+
+    // A regressão: sem `failed` no default, isto vinha [] e o entregador não
+    // via mais nem o que ele mesmo acabou de fazer.
+    const list = await api("get", "/courier/deliveries", { token: courierToken() });
+    expect(list.status).toBe(200);
+    expect(list.json).toHaveLength(1);
+    expect(list.json[0]).toMatchObject({
+      id: deliveryId,
+      status: "failed",
+      notes: "cliente ausente",
+    });
+  });
+
+  it("entregue não entra no default (histórico se pede explícito)", async () => {
+    const { deliveryId } = await entregaProntaPara(COURIER);
+    await api("patch", `/courier/deliveries/${deliveryId}/dispatch`, { token: courierToken() });
+    await api("patch", `/courier/deliveries/${deliveryId}/deliver`, { token: courierToken() });
+
+    const fila = await api("get", "/courier/deliveries", { token: courierToken() });
+    expect(fila.json).toEqual([]);
+
+    // O enum do zod aceita os cinco status — é o mesmo filtro, só explícito.
+    const historico = await api("get", "/courier/deliveries?status=delivered,cancelled", { token: courierToken() });
+    expect(historico.status).toBe(200);
+    expect(historico.json.map((d: any) => d.status)).toEqual(["delivered"]);
+  });
+
+  it("?status= explícito manda no default (failed sai quando não é pedido)", async () => {
+    const { deliveryId } = await entregaProntaPara(COURIER);
+    await api("patch", `/courier/deliveries/${deliveryId}/dispatch`, { token: courierToken() });
+    await api("patch", `/courier/deliveries/${deliveryId}/fail`, {
+      token: courierToken(),
+      body: { reason: "cliente ausente" },
+    });
+
+    const soAbertas = await api("get", "/courier/deliveries?status=awaiting_courier,out_for_delivery", {
+      token: courierToken(),
+    });
+    expect(soAbertas.status).toBe(200);
+    expect(soAbertas.json).toEqual([]);
+  });
+
+  it("o entregador nunca vê a entrega de outro (o corte é pela sessão)", async () => {
+    await entregaProntaPara(OUTRO_COURIER);
+    const meu = await api("get", "/courier/deliveries", { token: courierToken() });
+    expect(meu.json).toEqual([]);
+    const dele = await api("get", "/courier/deliveries", { token: tokenOf(OUTRO_COURIER, "courier") });
+    expect(dele.json).toHaveLength(1);
+  });
+
+  it("status fora do enum é rejeitado (a query continua validada)", async () => {
+    const res = await api("get", "/courier/deliveries?status=waiting", { token: courierToken() });
+    expect(res.status).toBe(400);
+    expect(res.json.error.code).toBe("validation_failed");
+  });
+
+  // ---------- item 3: o alerta direcionado da atribuição ----------
+
+  const alertDaAtribuicao = () =>
+    raw.get(`SELECT kind, title, body, order_id, audience_roles, read_at FROM alert WHERE kind = $1`, [
+      DELIVERY_ASSIGNED_ALERT_KIND,
+    ]) as Promise<{ kind: string; title: string; body: string; order_id: string; audience_roles: string[]; read_at: string | null } | null>;
+
+  const alertasDoUsuario = async (userId: string, token: string) => {
+    const res = await api("get", "/alerts", { token });
+    return res.json.data.filter((a: any) => a.kind === DELIVERY_ASSIGNED_ALERT_KIND);
+  };
+
+  it("atribuir grava o alerta com audiência do entregador e publica só no room privado dele", async () => {
+    const { orderId } = await entregaProntaPara(COURIER);
+
+    const alert = await alertDaAtribuicao();
+    expect(alert).toMatchObject({
+      kind: DELIVERY_ASSIGNED_ALERT_KIND,
+      title: "Entrega atribuída a você",
+      order_id: orderId,
+      // A audiência é a PESSOA, não o papel: `user:<id>` no mesmo array que
+      // guarda os papéis. Sem `courier` na lista.
+      audience_roles: [alertUserToken(COURIER)],
+    });
+    expect(alert!.body).toContain("#");
+    expect(alert!.read_at).toBeNull();
+
+    // O evento vai para `alerts:user:<id>`...
+    const privado = await raw.all(
+      `SELECT payload FROM outbox_event WHERE room = $1 AND event_type = 'alert.created'`,
+      [alertsUserRoomFor(COURIER)]
+    );
+    expect(privado).toHaveLength(1);
+    expect(JSON.parse((privado[0] as any).payload)).toMatchObject({
+      kind: DELIVERY_ASSIGNED_ALERT_KIND,
+      title: "Entrega atribuída a você",
+      orderId,
+    });
+
+    // ...e NÃO para o room do papel (que é de todos os entregadores), nem para
+    // o público, nem para o do gerente: nenhum sino toca por conta de um
+    // pedido que é de outra pessoa. O filtro é por `kind` porque o room
+    // `alerts:manager` já tem o `alert.created` do pedido público.
+    expect(
+      await raw.all(
+        `SELECT room FROM outbox_event
+          WHERE room = ANY(ARRAY['alerts:courier', 'alerts', 'alerts:manager'])
+            AND event_type = 'alert.created'
+            AND payload::jsonb->>'kind' = $1`,
+        [DELIVERY_ASSIGNED_ALERT_KIND]
+      )
+    ).toEqual([]);
+  });
+
+  it("só o entregador atribuído enxerga o alerta; o gerente que atribuiu não recebe", async () => {
+    await entregaProntaPara(COURIER);
+
+    const meu = await alertasDoUsuario(COURIER, courierToken());
+    expect(meu).toHaveLength(1);
+    expect(meu[0].title).toBe("Entrega atribuída a você");
+    // O sino do dono conta 1 — o badge não zera no primeiro reload.
+    const res = await api("get", "/alerts", { token: courierToken() });
+    expect(res.json.unread).toBe(1);
+    expect(res.json.total).toBe(1);
+
+    // O outro entregador: nada (nem a linha, nem o contador).
+    const outro = await api("get", "/alerts", { token: tokenOf(OUTRO_COURIER, "courier") });
+    expect(await alertasDoUsuario(OUTRO_COURIER, tokenOf(OUTRO_COURIER, "courier"))).toEqual([]);
+    expect(outro.json.data.every((a: any) => a.kind !== DELIVERY_ASSIGNED_ALERT_KIND)).toBe(true);
+    expect(outro.json.unread).toBe(0);
+
+    // O gerente fez a ação na própria tela: o alerta seria ruído para ele.
+    const gerente = await api("get", "/alerts", { token: manager });
+    expect(gerente.json.data.some((a: any) => a.kind === DELIVERY_ASSIGNED_ALERT_KIND)).toBe(false);
+  });
+
+  it("o sino do dono marca lido; o do outro não toca em nada", async () => {
+    await entregaProntaPara(COURIER);
+
+    const outro = await api("post", "/alerts/mark-read", { token: tokenOf(OUTRO_COURIER, "courier"), body: {} });
+    expect(outro.json.marked).toBe(0);
+
+    const meu = await api("post", "/alerts/mark-read", { token: courierToken(), body: {} });
+    expect(meu.json.marked).toBe(1);
+    expect((await api("get", "/alerts", { token: courierToken() })).json.unread).toBe(0);
   });
 });
