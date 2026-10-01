@@ -718,6 +718,8 @@ export async function registerPaymentUsecase(input: {
   userId: string;
   paymentMethod: "cash" | "card" | "pix" | "other";
   confirmed: boolean;
+  /** Só cash: quanto o cliente vai entregar. Ausente = valor exato. */
+  received?: number;
 }) {
   const settings = await getSettings();
   const enabled: string[] = JSON.parse(settings.enabledPaymentMethods);
@@ -730,7 +732,7 @@ export async function registerPaymentUsecase(input: {
   return await db.transaction(async (tx) => {
     const total = await computeOrderTotal(tx, order);
     const created = await upsertPaymentLines(tx, order, input.userId, [
-      { method: input.paymentMethod, amount: total, confirmed: input.confirmed },
+      { method: input.paymentMethod, amount: total, confirmed: input.confirmed, received: input.received },
     ]);
     await logAction(tx, input.userId, "payment_registered", input.orderId, {
       paymentMethod: input.paymentMethod,
