@@ -59,6 +59,11 @@
 	#     manual e o .sig para auditoria.
 	# O diretório é populado pelo CI (job build-desktop) via SSH — ver
 	# .github/workflows/deploy-on-tag.yml. Bind mount somente-leitura.
+	#
+	# ⚠️  NÃO mude o prefixo `/updates/desktop/` — é o endpoint que o app v1
+	# (frontend/src-tauri, em produção) tem hardcoded no
+	# `plugins.updater.endpoints`. Mudar quebra o auto-update de tudo que
+	# está instalado.
 	handle /updates/desktop/*/*/* {
 		rewrite * /latest.json
 		file_server {
@@ -66,6 +71,40 @@
 		}
 	}
 
+	# ---------- Auto-update da família standalone ----------
+	# Os apps novos (PDV Caixa, KDS Cozinha) são crates independentes com
+	# updater próprio. Cada um tem seu manifesto e seus artefatos em um
+	# diretório separado — se PDV e KDS publicassem no mesmo latest.json,
+	# um consumiria o update do outro (o updater do PDV baixaria o
+	# instalador do KDS e instalaria o app errado).
+	#
+	# O PDV pede o manifesto em
+	#   /updates/caixa/desktop/{{target}}/{{arch}}/{{current_version}}
+	# (ver `plugins.updater.endpoints` em standalone-pdv/tauri.conf.json).
+	# O KDS ainda não tem updater, mas o layout já é o mesmo para quando
+	# tiver — o custo de separar agora é zero, o de juntar depois é um
+	# update quebrado em produção.
+	#
+	# O rewrite é relativo ao root (/srv/pdv-updates), então
+	# /caixa/latest.json → deploy/updates/caixa/latest.json no host.
+	handle /updates/caixa/*/*/* {
+		rewrite * /caixa/latest.json
+		file_server {
+			root /srv/pdv-updates
+		}
+	}
+
+	handle /updates/kds/*/*/* {
+		rewrite * /kds/latest.json
+		file_server {
+			root /srv/pdv-updates
+		}
+	}
+
+	# Os artefatos de TODOS os apps (v1 e família) vivem sob
+	# /updates/files/<app>/windows-x86_64/. A regra abaixo já cobre os
+	# subdiretórios: strip_prefix /updates/files + root
+	# /srv/pdv-updates/files → deploy/updates/files/<app>/...
 	handle /updates/files/* {
 		# `file_server` junta o root com o caminho INTEIRO da URL, então sem
 		# tirar o prefixo ele procuraria /srv/pdv-updates/files/updates/files/...

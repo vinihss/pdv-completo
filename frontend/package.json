@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:pdv": "VITE_APP_PROFILE=pdv vite",
+    "dev:kds": "VITE_APP_PROFILE=kds vite",
+    "dev:garcon": "VITE_APP_PROFILE=garcon vite",
+    "dev:entregador": "VITE_APP_PROFILE=entregador vite",
     "build": "vite build",
     "build:all": "VITE_APP_PROFILE=all vite build",
     "build:pdv": "VITE_APP_PROFILE=pdv vite build",
