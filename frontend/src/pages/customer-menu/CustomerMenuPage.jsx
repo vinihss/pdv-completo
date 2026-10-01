@@ -6,6 +6,7 @@ import { getPublicCart, savePublicCart, clearPublicCart } from "@/entities/cart"
 import { lookupPublicCustomer } from "@/entities/customer";
 import { createPublicOrder, getPublicOrderStatus, getActivePublicOrder, cancelPublicOrder } from "@/entities/order";
 import { getPublicMenu } from "@/entities/product";
+import { fetchAddressByCep } from "@/shared/api/cep";
 import { usePublicRealtime } from "@/shared/hooks";
 import { Modal } from "@/shared/components";
 import { applyBrandPrimary, variationsText, formatBRL } from "@/shared/lib";
@@ -27,6 +28,11 @@ function maskPhone(raw) {
   if (d.length <= 2) return `(${d}`;
   if (d.length <= 7) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+}
+function maskCep(raw) {
+  const d = digitsOnly(raw).slice(0, 8);
+  if (d.length <= 5) return d;
+  return `${d.slice(0, 5)}-${d.slice(5)}`;
 }
 
 const PAYMENT_OPTIONS = [
@@ -94,7 +100,9 @@ export default function CustomerMenuPage() {
   const [phone, setPhone] = useState(() => maskPhone(prefilledPhone));
   const [customer, setCustomer] = useState(null); // { customerId, name, addresses } | null
   const [selectedAddressId, setSelectedAddressId] = useState(null);
-  const [newAddress, setNewAddress] = useState({ label: "", street: "", number: "", complement: "", neighborhood: "", city: "", reference: "" });
+  // `cep` alimenta a busca do ViaCEP e vai no payload — o backend persiste
+  // (migration 0005) e o devolve no lookup de endereços.
+  const [newAddress, setNewAddress] = useState({ label: "", cep: "", street: "", number: "", complement: "", neighborhood: "", city: "", reference: "" });
   const [payment, setPayment] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState(null);
@@ -418,7 +426,7 @@ export default function CustomerMenuPage() {
     setCheckoutStep("phone");
     setCustomer(null);
     setSelectedAddressId(null);
-    setNewAddress({ label: "", street: "", number: "", complement: "", neighborhood: "", city: "", reference: "" });
+    setNewAddress({ label: "", cep: "", street: "", number: "", complement: "", neighborhood: "", city: "", reference: "" });
     setPayment(null);
     setOrder(null);
     setStatusPoll(null);
@@ -446,7 +454,10 @@ export default function CustomerMenuPage() {
         newAddress: selectedAddressId
           ? undefined
           : {
+              // `cep` vai junto: o backend persiste (migration 0005) e devolve
+              // no lookup, então o endereço salvo do cliente já vem com ele.
               label: newAddress.label || undefined,
+              cep: newAddress.cep || undefined,
               street: newAddress.street,
               number: newAddress.number,
               complement: newAddress.complement || undefined,
@@ -728,6 +739,75 @@ function CheckoutScreen(props) {
   const { step, setStep, phone, onPhoneChange, onLookup, customer, selectedAddressId, setSelectedAddressId, newAddress, setNewAddress, payment, setPayment, items, subtotal, deliveryFee, paymentOptions, logoUrl, onBack, onSubmit, submitting, error } = props;
   const titles = { phone: "Identificação", address: "Endereço de entrega", "new-address": "Endereço de entrega", payment: "Pagamento", review: "Confirmar pedido" };
 
+  // ---------- busca de CEP (ViaCEP) ----------
+  // É conveniência, nunca bloqueio: o endereço continua digitável à mão e
+  // falha nenhuma aqui pode virar o erro global do checkout (`error`) nem
+  // desabilitar o "Continuar" — no máximo aparece uma dica ao lado do campo.
+  const [cepNotice, setCepNotice] = useState(null); // { kind: "loading" | "error", text }
+  const cepDigits = digitsOnly(newAddress.cep ?? "");
+  // Último CEP buscado com sucesso: redigitar o mesmo número (ou voltar da aba
+  // de outro campo) não pode gerar outra requisição.
+  const cepDoneRef = useRef("");
+  const cepTimerRef = useRef(null);
+  const cepAbortRef = useRef(null);
+
+  function onCepChange(value) {
+    // A mensagem anterior sai na hora: ela descreve o CEP que estava na tela,
+    // não o que o cliente acabou de digitar.
+    setCepNotice(null);
+    setNewAddress({ ...newAddress, cep: maskCep(value) });
+  }
+
+  // `useCallback` porque o efeito do debounce depende dela: sem isso o timer
+  // seria recriado a cada render do formulário.
+  const lookupCep = useCallback(async (digits) => {
+    // Corrigir o CEP no meio da busca cancela a resposta velha — ela pertence a
+    // um número que não está mais no campo.
+    cepAbortRef.current?.abort();
+    const controller = new AbortController();
+    cepAbortRef.current = controller;
+    setCepNotice({ kind: "loading", text: "Buscando CEP…" });
+    try {
+      const found = await fetchAddressByCep(digits, { signal: controller.signal });
+      // Preenche só o que está vazio: o que o cliente digitou é dele. Número,
+      // rótulo, referência e nome continuam manuais — e CEP de município sem
+      // logradouro ainda traz bairro e cidade.
+      setNewAddress((prev) => ({
+        ...prev,
+        street: prev.street || found.street,
+        neighborhood: prev.neighborhood || found.neighborhood,
+        city: prev.city || found.city,
+        complement: prev.complement || found.complement,
+      }));
+      cepDoneRef.current = digits;
+      setCepNotice(null);
+    } catch (e) {
+      if (controller.signal.aborted) return; // busca cancelada: a que vale é a nova
+      setCepNotice({
+        kind: "error",
+        text: e.code === "not_found" ? "CEP não encontrado. Confira o número." : "Não foi possível buscar o CEP. Tente novamente.",
+      });
+    }
+  }, [setNewAddress]);
+
+  // Dispara com o CEP completo. O `onBlur` é rede de segurança: colar um CEP já
+  // mascarado não passa pelas teclas.
+  useEffect(() => {
+    if (cepDigits.length !== 8 || cepDigits === cepDoneRef.current) return;
+    // Debounce: sem ele cada tecla digitada vira uma requisição ao ViaCEP.
+    const timer = setTimeout(() => lookupCep(cepDigits), 300);
+    cepTimerRef.current = timer;
+    return () => clearTimeout(timer);
+  }, [cepDigits, lookupCep]);
+
+  function flushCepSearch() {
+    if (cepTimerRef.current) clearTimeout(cepTimerRef.current);
+    if (cepDigits.length !== 8 || cepDigits === cepDoneRef.current) return;
+    lookupCep(cepDigits);
+  }
+
+  useEffect(() => () => cepAbortRef.current?.abort(), []);
+
   return (
     <>
       <TopBar
@@ -788,6 +868,23 @@ function CheckoutScreen(props) {
         {step === "new-address" && (
           <div className="space-y-3">
             <Field label="Rótulo (opcional)" value={newAddress.label} onChange={(v) => setNewAddress({ ...newAddress, label: v })} placeholder="Casa, Trabalho..." />
+            <div>
+              <Field
+                label="CEP"
+                value={newAddress.cep}
+                onChange={onCepChange}
+                onBlur={flushCepSearch}
+                placeholder="00000-000"
+                inputMode="numeric"
+                autoComplete="postal-code"
+                maxLength={9}
+              />
+              {cepNotice && (
+                <p className={`mt-1 text-[12px] ${cepNotice.kind === "loading" ? "text-stone-500" : "text-red-400"}`}>
+                  {cepNotice.text}
+                </p>
+              )}
+            </div>
             <div className="flex gap-3">
               <Field label="Rua" value={newAddress.street} onChange={(v) => setNewAddress({ ...newAddress, street: v })} className="flex-[2]" />
               <Field label="Número" value={newAddress.number} onChange={(v) => setNewAddress({ ...newAddress, number: v })} className="flex-1" />
@@ -1032,14 +1129,21 @@ function TopBar({ title, onBack, logoUrl }) {
     </div>
   );
 }
-function Field({ label, value, onChange, placeholder, className = "" }) {
+// Campos de input extras (`inputMode`, `autoComplete`, `maxLength`, `onBlur`)
+// são opcionais: os usos antigos do `Field` seguem igual, e o CEP é quem precisa
+// de teclado numérico e da colagem de CEP já mascarado do navegador.
+function Field({ label, value, onChange, placeholder, className = "", inputMode, autoComplete, maxLength, onBlur }) {
   return (
     <label className={`block ${className}`}>
       <span className="text-[12px] text-stone-500 mb-1 block">{label}</span>
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
         placeholder={placeholder}
+        inputMode={inputMode}
+        autoComplete={autoComplete}
+        maxLength={maxLength}
         className="w-full bg-stone-900 border border-stone-800 rounded-lg px-3.5 h-11 text-[14px] text-stone-100 outline-none focus:border-amber-500 placeholder:text-stone-500"
       />
     </label>

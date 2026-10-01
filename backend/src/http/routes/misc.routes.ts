@@ -229,6 +229,7 @@ const customerSchema = z.object({
 const customerUpdateSchema = customerSchema.partial().extend({ active: z.boolean().optional() });
 const addressCreateSchema = z.object({
   label: z.string().optional().nullable(),
+  cep: z.string().optional().nullable(),
   street: z.string().min(1),
   number: z.string().min(1),
   complement: z.string().optional().nullable(),

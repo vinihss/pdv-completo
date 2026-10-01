@@ -86,6 +86,7 @@ export async function getCustomerDetailUsecase(id: string) {
     addresses: addresses.map((a) => ({
       id: a.id,
       label: a.label ?? null,
+      cep: a.cep ?? null,
       street: a.street,
       number: a.number,
       complement: a.complement ?? null,

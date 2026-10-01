@@ -482,3 +482,119 @@ describe("self-service: stage público, cancelamento e continuação", () => {
     expect(JSON.parse(item.selected_variations)).toEqual({ "Ponto da carne": "Ao ponto" });
   });
 });
+
+// ---------------------------------------------------------------------------
+// CEP do endereço (migration 0005). A tela /pedido já o coleta e preenche via
+// ViaCEP; aqui é a persistência e a validação de formato.
+describe("CEP do endereço", () => {
+  // Endereço completo num telefone só, para as três rotas baterem no mesmo
+  // cliente e no mesmo endereço salvo.
+  const ordem = (phone: string, cep?: string) => ({
+    correlationId: crypto.randomUUID(),
+    channel: "web",
+    customerPhone: phone,
+    customerName: "Cliente Teste",
+    newAddress: { street: "Rua A", number: "10", neighborhood: "Centro", city: "Sao Paulo", ...(cep !== undefined ? { cep } : {}) },
+    items: [{ productId: FIXTURE.product, quantity: 1 }],
+    paymentMethodIntent: "cash",
+  });
+
+  const cepSalvo = async (phone: string) =>
+    (await raw.all(`SELECT cep FROM customer_address WHERE customer_id IN (SELECT id FROM customer WHERE phone = $1)`, [phone]) as { cep: string | null }[])
+      .map((r) => r.cep);
+
+  it("salva o CEP e devolve no lookup", async () => {
+    const phone = nextPhone();
+    const ip = nextIp();
+    const res = await api("post", "/public/orders", { ip, body: ordem(phone, "01310100") });
+    expect(res.status).toBe(201);
+    expect(await cepSalvo(phone)).toEqual(["01310100"]);
+
+    const lookup = await api("post", "/public/customers/lookup", { ip, body: { phone } });
+    expect(lookup.status).toBe(200);
+    expect(lookup.json.addresses[0]).toMatchObject({ cep: "01310100" });
+  });
+
+  it("normaliza a máscara: 01310-100 salva igual a 01310100", async () => {
+    const phone = nextPhone();
+    const res = await api("post", "/public/orders", { ip: nextIp(), body: ordem(phone, "01310-100") });
+    expect(res.status).toBe(201);
+    // Sem traço no banco — a máscara é apresentação da tela.
+    expect(await cepSalvo(phone)).toEqual(["01310100"]);
+  });
+
+  it("endereço sem CEP continua válido e grava null", async () => {
+    const phone = nextPhone();
+    const res = await api("post", "/public/orders", { ip: nextIp(), body: ordem(phone) });
+    expect(res.status).toBe(201);
+    expect(await cepSalvo(phone)).toEqual([null]);
+  });
+
+  it("CEP inválido dá 400 e não grava endereço", async () => {
+    for (const cep of ["123", "013101000", "0131010"]) {
+      const phone = nextPhone();
+      const res = await api("post", "/public/orders", { ip: nextIp(), body: ordem(phone, cep) });
+      expect(res.status, `CEP ${cep} deveria dar 400`).toBe(400);
+      expect(res.json.error).toMatchObject({ code: "validation_failed" });
+      // Nenhum endereço criado — a validação roda antes da transação.
+      expect(await cepSalvo(phone)).toEqual([]);
+    }
+  });
+
+  it("CEP sem nenhum dígito é tratado como não informado", async () => {
+    // Mesma convenção do normalizePhone: o que não sobra depois de tirar os
+    // não-dígitos é "não informado", não erro. "abc" no telefone também vira
+    // null lá — divergir entre os dois seria surpresa.
+    const phone = nextPhone();
+    const res = await api("post", "/public/orders", { ip: nextIp(), body: ordem(phone, "abcdefgh") });
+    expect(res.status).toBe(201);
+    expect(await cepSalvo(phone)).toEqual([null]);
+  });
+
+  it("CEP não entra no snapshot de delivery.address", async () => {
+    // Decisão: delivery.address é legível e vai para bobina de largura fixa
+    // (printer/daemon/main.go) e para a tela do entregador. O CEP fica
+    // estruturado na API, não empilhado no texto. Este teste trava isso — se
+    // alguém incluir o CEP no formatAddress, a bobina quebra.
+    const phone = nextPhone();
+    const res = await api("post", "/public/orders", { ip: nextIp(), body: ordem(phone, "01310100") });
+    expect(res.status).toBe(201);
+    const row = await raw.get(
+      `SELECT address FROM delivery WHERE order_id = $1`,
+      [res.json.orderId]
+    ) as { address: string };
+    expect(row.address).toBe("Rua A, 10 - Centro, Sao Paulo");
+    expect(row.address).not.toContain("CEP");
+    expect(row.address).not.toContain("01310100");
+  });
+
+  it("rota do balcão aceita CEP e valida igual à pública", async () => {
+    const phone = nextPhone();
+    await api("post", "/public/orders", { ip: nextIp(), body: ordem(phone, "01310100") });
+    const lookup = await api("post", "/public/customers/lookup", { ip: nextIp(), body: { phone } });
+    const customerId = lookup.json.customerId;
+
+    const criado = await api("post", `/customers/${customerId}/addresses`, {
+      token: manager,
+      body: { street: "Rua B", number: "20", neighborhood: "Centro", city: "Sao Paulo", cep: "05422-030" },
+    });
+    expect(criado.status).toBe(201);
+    expect(criado.json.cep).toBe("05422030");
+
+    const invalido = await api("post", `/customers/${customerId}/addresses`, {
+      token: manager,
+      body: { street: "Rua C", number: "30", neighborhood: "Centro", city: "Sao Paulo", cep: "123" },
+    });
+    expect(invalido.status).toBe(400);
+  });
+
+  it("ficha do cliente devolve o CEP do endereço", async () => {
+    const phone = nextPhone();
+    await api("post", "/public/orders", { ip: nextIp(), body: ordem(phone, "01310100") });
+    const lookup = await api("post", "/public/customers/lookup", { ip: nextIp(), body: { phone } });
+
+    const detalhe = await api("get", `/customers/${lookup.json.customerId}`, { token: manager });
+    expect(detalhe.status).toBe(200);
+    expect(detalhe.json.addresses[0]).toMatchObject({ cep: "01310100" });
+  });
+});

@@ -25,6 +25,11 @@ import { calcularEntregaUsecase } from "../../application/delivery/calcular-entr
 
 const addressFields = {
   label: z.string().optional(),
+  // Só o tipo aqui: o formato do CEP é validado no normalizeCep (usecase),
+  // junto com a rota do balcão. Regex no zod rejeitaria o CEP sem máscara
+  // aqui e a aceitaria em POST /customers/:id/addresses — dois jeitos de
+  // validar o mesmo dado.
+  cep: z.string().optional(),
   street: z.string().min(1),
   number: z.string().min(1),
   complement: z.string().optional(),

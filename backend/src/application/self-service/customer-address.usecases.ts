@@ -5,11 +5,31 @@ import { Errors } from "../../domain/errors.js";
 
 const MAX_ADDRESSES_PER_CUSTOMER = 3;
 
+/**
+ * CEP para os 8 dígitos crus, ou null quando não informado.
+ *
+ * Aceita com ou sem máscara ("01310-100" e "01310100" viram o mesmo valor):
+ * a tela mascara, o banco não. Vazio é null e não erro — o campo é
+ * conveniência de preenchimento, e quem digita o endereço à mão nunca
+ * preenche o CEP (ver a migration 0005).
+ *
+ * Só valida formato. Não consulta ViaCEP: o backend não pode depender de um
+ * terceiro em rede dentro de uma escrita, e o CEP não bloqueia nada. A busca
+ * fica no frontend (shared/api/cep.js), que trata CEP inexistente na UX.
+ */
+export function normalizeCep(cep: string | null | undefined): string | null {
+  const digits = (cep ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+  if (digits.length !== 8) throw Errors.validationFailed({ field: "cep" });
+  return digits;
+}
+
 function serializeAddress(a: typeof customerAddresses.$inferSelect) {
   return {
     id: a.id,
     customerId: a.customerId,
     label: a.label,
+    cep: a.cep,
     street: a.street,
     number: a.number,
     complement: a.complement,
@@ -24,6 +44,12 @@ function serializeAddress(a: typeof customerAddresses.$inferSelect) {
 /**
  * Texto único formatado pra exibição/impressão — usado como snapshot em
  * delivery.address. Nunca persistido de volta nos campos estruturados.
+ *
+ * O `cep` entra no tipo mas NÃO no texto: este snapshot é o que o entregador
+ * lê (frontend/src/pages/courier/CourierApp.jsx) e o que a bobina imprime em
+ * largura fixa (printer/daemon/main.go, seção "delivery"). Empilhar "CEP:
+ * 01310100" no fim da linha quebraria a bobina e poluiria a tela sem pedido
+ * de ninguém — o CEP fica estruturado na API para quem precisar dele.
  */
 export function formatAddress(a: {
   street: string;
@@ -32,6 +58,7 @@ export function formatAddress(a: {
   neighborhood: string;
   city: string;
   reference?: string | null;
+  cep?: string | null;
 }): string {
   const line1 = `${a.street}, ${a.number}${a.complement ? ` - ${a.complement}` : ""}`;
   const line2 = `${a.neighborhood}, ${a.city}`;
@@ -72,6 +99,7 @@ export async function createSelfServiceCustomerUsecase(input: { name: string; ph
 export async function addCustomerAddressUsecase(input: {
   customerId: string;
   label?: string | null;
+  cep?: string | null;
   street: string;
   number: string;
   complement?: string | null;
@@ -88,6 +116,10 @@ export async function addCustomerAddressUsecase(input: {
   });
   if (existing.length >= MAX_ADDRESSES_PER_CUSTOMER) throw Errors.addressLimitReached();
 
+  // Valida antes da transação: CEP inválido não pode consumir um dos 3 slots
+  // nem deixar o cliente com "endereço salvo" que não é.
+  const cep = normalizeCep(input.cep);
+
   // Primeiro endereço do cliente vira padrão automaticamente, mesmo sem pedir.
   const isDefault = input.isDefault ?? existing.length === 0;
 
@@ -103,6 +135,7 @@ export async function addCustomerAddressUsecase(input: {
       .values({
         customerId: input.customerId,
         label: input.label ?? null,
+        cep,
         street: input.street,
         number: input.number,
         complement: input.complement ?? null,

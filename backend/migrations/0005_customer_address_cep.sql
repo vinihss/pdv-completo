@@ -1,0 +1,26 @@
+-- CEP do endereço de entrega.
+--
+-- Entra agora porque a página pública (/pedido) passou a coletar o CEP e a
+-- preenchê-lo via ViaCEP (shared/api/cep.js no frontend) — antes disso o campo
+-- era preenchido pelo cliente e descartado em silêncio no checkout.
+--
+-- `cep` é NULLABLE de propósito, e não por esquecimento: os endereços já
+-- gravados não têm o dado, e o campo é conveniência de preenchimento, nunca
+-- requisito. Um NOT NULL quebraria todo endereço existente e transformaria a
+-- busca por CEP em bloqueio de cadastro — inclusive para quem digita o
+-- endereço à mão e nunca preencheu o CEP.
+--
+-- A aplicação grava os 8 dígitos crus, sem máscara ("01310100"). A máscara
+-- "00000-000" é só apresentação da tela: gravar com traço criaria dois
+-- valores diferentes para o mesmo CEP e quebraria qualquer comparação futura
+-- (busca por bairro, agrupamento, integração com transportadora).
+--
+-- O CEP NÃO entra no texto de `formatAddress` (snapshot de delivery.address),
+-- que é legível e impresso em bobina de largura fixa — ver o comentário na
+-- função. Ele fica disponível estruturado para a API.
+--
+-- IF NOT EXISTS: reexecutar a migration é seguro (o runner já pula arquivos
+-- registrados em _migrations, mas o DDL não pode estourar se a coluna tiver
+-- sido adicionada fora do runner). Alinhado com 0003_profile_fields.sql.
+
+ALTER TABLE customer_address ADD COLUMN IF NOT EXISTS cep TEXT;
