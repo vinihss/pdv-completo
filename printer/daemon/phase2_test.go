@@ -5,6 +5,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"testing"
 )
 
@@ -18,6 +19,11 @@ func TestWindowsSpoolerProfileUsesPrinterName(t *testing.T) {
 }
 
 func TestDiscoverPrintersReturnsNotImplementedOutsideWindows(t *testing.T) {
+	// No Linux a descoberta usa `lpstat` (CUPS): com CUPS instalado a rota
+	// responde 200, então a expectativa de 501 só vale em macOS/BSD.
+	if runtime.GOOS == "linux" {
+		t.Skip("no Linux a descoberta é feita via lpstat; ver transport_cups_test.go")
+	}
 	d := &Daemon{}
 	rec := httptest.NewRecorder()
 	d.discoverPrinters(rec, httptest.NewRequest(http.MethodGet, "/api/v1/printers/discover", nil))

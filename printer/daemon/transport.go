@@ -6,6 +6,28 @@ import (
 	"fmt"
 )
 
+// transientError marca uma falha de envio em que NENHUM byte do cupom chegou
+// à impressora (não abriu a conexão, a fila CUPS recusou o job, o spooler não
+// iniciou o documento). Só esse tipo de falha é repetido automaticamente:
+// uma falha no meio da escrita pode ter impresso metade do cupom, e repetir
+// duplicaria o papel. Vale para todos os transportes, não só TCP.
+type transientError struct{ err error }
+
+func (e *transientError) Error() string { return e.err.Error() }
+func (e *transientError) Unwrap() error { return e.err }
+
+func markTransient(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &transientError{err: err}
+}
+
+func isRetryablePrinterError(err error) bool {
+	var transient *transientError
+	return errors.As(err, &transient)
+}
+
 // PrinterTransport é o contrato entre o pipeline de impressão e a interface
 // física. A renderização produz ESC/POS; o transporte apenas envia/consulta.
 type PrinterTransport interface {

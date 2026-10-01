@@ -39,7 +39,7 @@ name = "pdv-entregador"
 # instalador tira a versão do conf e o `cargo` usa a do manifesto; divergindo, o
 # binário e o about do app contam histórias diferentes. 0.1.0 porque este app
 # ainda não foi para campo; o app v1 é 1.0.11 e não se mexe nele.
-version = "0.1.0"
+version.workspace = true
 description = "PDV Entregador — app de rota do entregador (Android/iOS)"
 edition = "2021"
 rust-version = "1.77.2"

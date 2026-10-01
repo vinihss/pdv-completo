@@ -29,7 +29,7 @@ name = "pdv-kds"
 # Igual ao `version` do tauri.conf.json. Os dois precisam bater porque o
 # instalador do Windows tira a versão do conf e o `cargo` usa a do manifesto;
 # divergindo, o binário e o about do app contam histórias diferentes.
-version = "0.1.0"
+version.workspace = true
 description = "KDS Cozinha — monitor de tela cheia da produção na cozinha"
 edition = "2021"
 rust-version = "1.77.2"

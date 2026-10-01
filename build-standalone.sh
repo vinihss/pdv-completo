@@ -75,18 +75,12 @@ if [ "$APP" = "pdv" ]; then
   bash "$ROOT/printer/scripts/build-sidecar.sh" --out-dir "$CRATE_DIR/binaries"
 fi
 
-# ---------- 2. Versões precisam bater ----------
-# A versão do instalador vem do tauri.conf.json; o Cargo.toml é a outra
-# fonte. Divergentes, o instalador sai com uma versão e o manifesto outra,
-# e o update "não existe" sem erro nenhum. Melhor falhar aqui.
-CONF_VERSION="$(node -e "console.log(require('$TAURI_CONF').version)")"
+# ---------- 2. Versão ----------
+# Os tauri.conf.json da família standalone NÃO declaram `version` — o Tauri lê
+# do Cargo.toml do crate automaticamente. A versão é herdada do workspace
+# (version.workspace = true), então basta conferir o Cargo.toml.
 PKG_VERSION="$(grep -m1 '^version = ' "$CARGO_TOML" | sed 's/^version = "\(.*\)"$/\1/')"
-if [ "$CONF_VERSION" != "$PKG_VERSION" ]; then
-  echo "ERRO: tauri.conf.json=$CONF_VERSION e Cargo.toml=$PKG_VERSION divergem em $CRATE_DIR." >&2
-  echo "      Actualize os dois antes de buildar (a tag do CI tambem exige isso)." >&2
-  exit 1
-fi
-echo "==> Versão: $CONF_VERSION"
+echo "==> Versão: $PKG_VERSION (do Cargo.toml)"
 
 # ---------- 3. Assinatura ----------
 # O empacotador do Tauri 2 assina o artefato de update SEMPRE que

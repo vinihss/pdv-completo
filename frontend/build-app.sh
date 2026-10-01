@@ -51,10 +51,13 @@ bash "$ROOT/printer/scripts/build-sidecar.sh"
 # A versão do instalador vem do tauri.conf.json; o package.json é a outra
 # fonte. Divergentes, o instalador sai com uma versão e o manifesto outra,
 # e o update "não existe" sem erro nenhum. Melhor falhar aqui.
-CONF_VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+# O tauri.conf.json do app v1 NÃO declara `version` — o Tauri lê do Cargo.toml
+# automaticamente. A versão é conferida contra o package.json (que o frontend
+# usa para o PWA/manifest).
 PKG_VERSION="$(node -p "require('./package.json').version")"
+CONF_VERSION="$(grep -m1 '^version = ' src-tauri/Cargo.toml | sed 's/^version = "\(.*\)"$/\1/')"
 if [ "$CONF_VERSION" != "$PKG_VERSION" ]; then
-  echo "ERRO: tauri.conf.json=$CONF_VERSION e package.json=$PKG_VERSION divergem." >&2
+  echo "ERRO: Cargo.toml=$CONF_VERSION e package.json=$PKG_VERSION divergem." >&2
   echo "      Actualize os dois antes de buildar (a tag do CI tambem exige isso)." >&2
   exit 1
 fi

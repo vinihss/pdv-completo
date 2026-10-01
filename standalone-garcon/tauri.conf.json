@@ -1,7 +1,6 @@
 {
   "$schema": "../frontend/node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "PDV Garçom",
-  "version": "0.1.0",
   "identifier": "com.pdvapp.garcon",
   "build": {
     "frontendDist": "../frontend/dist/garcon",

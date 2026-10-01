@@ -51,6 +51,15 @@ param(
     # config na mão.
     [string[]]$PrinterAddress = @(),
 
+    # Token da API local (Authorization: Bearer ...). Sem este parâmetro o
+    # script gera um aleatório e grava no config. Sem token, qualquer
+    # programa da máquina consegue mandar imprimir.
+    [string]$ApiToken = '',
+
+    # Não configura token (só para migrar uma loja cujo PDV ainda não envia
+    # o cabeçalho Authorization). Não recomendado.
+    [switch]$NoApiToken,
+
     # Imprime o que faria, sem executar nada. Para conferir o script
     # antes de mexer no serviço de uma máquina em produção.
     [switch]$DryRun
@@ -78,7 +87,7 @@ $ConfigDir = if ($DryRun -and -not $env:ProgramData) {
 $ConfigPath = Join-Path $ConfigDir 'config.json'
 
 $ScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
-$Root = Split-Path -Parent (Split-Path -Parent $ScriptDir)   # raiz do repositório
+$Root = Split-Path -Parent $ScriptDir   # raiz da distribuição estruturada
 
 function Write-Step($msg) { Write-Host "==> $msg" }
 function Write-Ok($msg) { Write-Host "    $msg" -ForegroundColor Green }
@@ -118,13 +127,13 @@ function Resolve-SourceBinary {
     # build-sidecar.sh usa.
     if (Get-Command go -ErrorAction SilentlyContinue) {
         Write-Step 'Nenhum .exe ao lado do script; compilando com Go (modo dev)'
-        Push-Location (Join-Path $Root 'printer/daemon')
+        Push-Location (Join-Path $Root 'daemon')
         try {
             go vet ./...
             go test ./...
         } finally { Pop-Location }
         $saida = Join-Path $ScriptDir $ExeName
-        Push-Location (Join-Path $Root 'printer/daemon')
+        Push-Location (Join-Path $Root 'daemon')
         try { go build -trimpath -ldflags '-s -w' -o $saida . } finally { Pop-Location }
         return $saida
     }
@@ -271,6 +280,19 @@ if (Test-Path $ConfigPath) {
         printers        = $printers
     }
 
+    # Token da API local: fornecido por -ApiToken ou gerado aqui (256 bits).
+    if (-not $NoApiToken) {
+        if (-not $ApiToken) {
+            $bytes = New-Object byte[] 32
+            $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+            $rng.GetBytes($bytes)
+            $rng.Dispose()
+            $ApiToken = ($bytes | ForEach-Object { $_.ToString('x2') }) -join ''
+        }
+        $cfg['api_token'] = $ApiToken
+        $tokenGerado = $true
+    }
+
     $json = ($cfg | ConvertTo-Json -Depth 6)
     # UTF-8 SEM BOM, deliberadamente: o Set-Content do PowerShell 5.1
     # grava BOM, e o json.Unmarshal do Go rejeita arquivo com BOM no
@@ -278,6 +300,12 @@ if (Test-Path $ConfigPath) {
     # mensagem útil.
     [System.IO.File]::WriteAllText($ConfigPath, "$json`n", (New-Object System.Text.UTF8Encoding($false)))
     Write-Ok $ConfigPath
+    if ($tokenGerado) {
+        Write-Warn2 'api_token gravado no config. O PDV precisa enviar:  Authorization: Bearer <api_token>'
+        Write-Warn2 "(o valor está em $ConfigPath, campo api_token; copie para a configuração do PDV)"
+    } else {
+        Write-Warn2 'instalado SEM api_token: qualquer programa desta máquina pode imprimir.'
+    }
 }
 
 # ------------------------------------------------------------------

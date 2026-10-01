@@ -5,9 +5,12 @@ Conteúdo:
 - backend TCP;
 - backend Windows Print Spooler RAW;
 - backend Linux CUPS RAW;
+- serviço nativo do Windows (svc), log em arquivo, shutdown gracioso;
+- conversão de code page (cp850/cp858/windows-1252) e sanitização do texto;
+- claim atômico de jobs e recuperação após queda;
 - polling web autenticado com deduplicação por evento externo;
 - templates ESC/POS e golden tests;
 - scripts de instalação;
 - documentação operacional.
 
-Configuração local, banco SQLite, tokens e binários não são incluídos.
+Configuração local, banco SQLite, tokens e binários não são incluídos (recompile o daemon).

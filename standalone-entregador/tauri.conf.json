@@ -1,7 +1,6 @@
 {
   "$schema": "../frontend/node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "PDV Entregador",
-  "version": "0.1.0",
   "identifier": "com.pdvapp.entregador",
   "build": {
     "frontendDist": "../frontend/dist/entregador",
