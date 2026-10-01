@@ -2,6 +2,22 @@
 
 Todos os endpoints do backend, agrupados por domínio. Para detalhes completos, ver `docs/01-backend-spec.md`.
 
+**Critério desta lista:** só entra aqui o que está registrado no código, em
+`backend/src/http/routes/*.ts` (mais `/health`, registrado em `http/server.ts`).
+Endpoint planejado ou apenas especificado **não entra aqui** — vai para
+`docs/14-usabilidade-e-processos.md` (§ *Endpoints documentados e ainda não
+implementados*). Se uma linha desta tabela não tiver rota no código, ela está
+errada: corrija o doc ou a rota, não deixe as duas coisas divergirem em
+silêncio.
+
+Para reconferir depois de mexer em rotas (o `-0777` é necessário: boa parte
+das rotas tem `app.post(` numa linha e o path na seguinte):
+
+```bash
+perl -0777 -ne 'while (/app\.(get|post|patch|put|delete)\s*\(\s*"([^"]*)"/g) {
+  print uc($1), " $2\n" }' backend/src/http/routes/*.ts | sort -u
+```
+
 ## Autenticação
 
 | Método | Path | Papel | Descrição |
@@ -14,13 +30,13 @@ Todos os endpoints do backend, agrupados por domínio. Para detalhes completos, 
 | Método | Path | Papel | Descrição |
 |---|---|---|---|
 | POST | `/orders` | waiter, manager | Abrir comanda (idempotente) |
-| GET | `/orders` | waiter, manager | Listar comandas |
-| GET | `/orders/:id` | waiter, manager | Detalhe da comanda |
+| GET | `/orders` | autenticado\* | Listar comandas (fonte também do KDS) |
+| GET | `/orders/:id` | autenticado\* | Detalhe da comanda |
 | POST | `/orders/:id/items` | waiter, manager | Lançar itens em lote (idempotente) |
-| PATCH | `/orders/:id/items/:itemId` | waiter, manager | Atualizar item (lock otimista) |
+| PATCH | `/orders/:id/items/:itemId` | autenticado\* | Atualizar item (lock otimista) |
 | DELETE | `/orders/:id/items/:itemId` | waiter, manager | Remover item |
-| PATCH | `/orders/:id/status` | waiter, manager | Mudar status (open/closed/cancelled) |
 | PATCH | `/orders/:id/close` | waiter, manager | Fechar comanda (idempotente) |
+| PATCH | `/orders/:id/cancel` | manager | Anular comanda sem venda (idempotente) |
 | PUT | `/orders/:id/payments` | waiter, manager | Registrar pagamento |
 | PATCH | `/orders/:id/payments/:paymentId` | waiter, manager | Confirmar pagamento |
 | DELETE | `/orders/:id/payments/:paymentId` | waiter, manager | Remover pagamento |
@@ -30,16 +46,14 @@ Todos os endpoints do backend, agrupados por domínio. Para detalhes completos, 
 
 | Método | Path | Papel | Descrição |
 |---|---|---|---|
-| GET | `/tables` | waiter, manager | Listar mesas |
-| POST | `/tables` | manager | Criar mesa |
-| PATCH | `/tables/:id` | manager | Atualizar mesa |
+| GET | `/tables` | autenticado\* | Listar mesas (com status free/occupied/closing) |
 
 ## Cozinha (Kitchen)
 
-| Método | Path | Papel | Descrição |
-|---|---|---|---|
-| GET | `/kitchen/orders` | kitchen, manager | Listar comandas para a cozinha |
-| PATCH | `/kitchen/orders/:id/items/:itemId/ready` | kitchen | Marcar item como pronto |
+A cozinha não tem rota própria: o KDS lê comandas por `GET /orders?status=open`,
+filtra por `kitchenGroupId` no cliente e marca item por `PATCH
+/orders/:id/items/:itemId` com `status: "ready"`. As três rotas já estão
+listadas nas seções **Comandas** e **Catálogo** — não são repetidas aqui.
 
 ## Fluxo de Caixa (Cash Flow)
 
@@ -64,6 +78,7 @@ Todos os endpoints do backend, agrupados por domínio. Para detalhes completos, 
 | PATCH | `/courier/deliveries/:id/fail` | courier | Marcar como falha |
 | GET | `/manager/deliveries` | manager | Listar todas as entregas |
 | PATCH | `/manager/deliveries/:id/assign` | manager | Atribuir entregador |
+| PATCH | `/manager/deliveries/:id/status` | manager | Mudar status da entrega |
 | GET | `/manager/couriers` | manager | Listar entregadores |
 
 ## Catálogo (Products & Categories)
@@ -77,11 +92,11 @@ Todos os endpoints do backend, agrupados por domínio. Para detalhes completos, 
 | PATCH | `/products/:id/activate` | manager | Ativar produto |
 | POST | `/products/:id/image` | manager | Upload de imagem |
 | DELETE | `/products/:id/image` | manager | Remover imagem |
-| GET | `/categories` | público | Listar categorias |
+| GET | `/categories` | autenticado\* | Listar categorias |
 | POST | `/categories` | manager | Criar categoria |
 | PATCH | `/categories/:id` | manager | Atualizar categoria |
 | DELETE | `/categories/:id` | manager | Remover categoria |
-| GET | `/kitchen-groups` | público | Listar grupos de produção |
+| GET | `/kitchen-groups` | autenticado\* | Listar grupos de produção |
 | POST | `/kitchen-groups` | manager | Criar grupo |
 | PATCH | `/kitchen-groups/:id` | manager | Atualizar grupo |
 | DELETE | `/kitchen-groups/:id` | manager | Remover grupo |
@@ -135,29 +150,35 @@ Todos os endpoints do backend, agrupados por domínio. Para detalhes completos, 
 | Método | Path | Papel | Descrição |
 |---|---|---|---|
 | GET | `/reports/sales` | manager | Relatório de vendas |
+| GET | `/reports/overview` | manager | Visão geral do período |
+| GET | `/reports/deliveries` | manager | Relatório de entregas |
 
 ## Alertas (Alerts)
 
 | Método | Path | Papel | Descrição |
 |---|---|---|---|
-| GET | `/alerts` | público* | Listar alertas (recorte por papel no usecase) |
-| POST | `/alerts/mark-read` | público* | Marcar como lido |
+| GET | `/alerts` | autenticado\* | Listar alertas (recorte por papel no usecase) |
+| POST | `/alerts/mark-read` | autenticado\* | Marcar como lido |
 
-\* Sem `requireRole` — o recorte por papel é feito no usecase.
+\* Exige token, mas **sem `requireRole`**: qualquer perfil autenticado entra e o
+recorte é feito no usecase (por `audience_roles` nos alertas, por regra própria
+em cada caso). "autenticado" ≠ "público": rota sem token nenhum é só a de
+`/auth/*`, `/public/*`, `/webhooks/*`, `/realtime/public` e `/health`.
 
 ## Impressão (Print)
 
 | Método | Path | Papel | Descrição |
 |---|---|---|---|
 | POST | `/orders/:id/print` | manager, waiter | Imprimir comanda |
-| GET | `/printers/status` | manager, waiter | Status da impressora |
-| GET | `/printers/health` | manager, waiter | Health da impressora |
+| GET | `/orders/:id/print-status` | manager, waiter | Jobs de impressão da comanda |
+| GET | `/printers/status` | manager | Status da impressora |
+| GET | `/printers/health` | manager | Health da impressora |
 
 ## Configurações (Store Settings)
 
 | Método | Path | Papel | Descrição |
 |---|---|---|---|
-| GET | `/store-settings` | público | Obter configurações |
+| GET | `/store-settings` | autenticado\* | Obter configurações |
 | PUT | `/store-settings` | manager | Atualizar configurações |
 | POST | `/store-settings/logo` | manager | Upload de logo |
 | DELETE | `/store-settings/logo` | manager | Remover logo |
@@ -174,9 +195,10 @@ Todos os endpoints do backend, agrupados por domínio. Para detalhes completos, 
 | Método | Path | Papel | Descrição |
 |---|---|---|---|
 | GET | `/whatsapp/status` | manager | Status da conexão |
-| POST | `/whatsapp/connect` | manager | Iniciar Embedded Signup |
-| POST | `/whatsapp/disconnect` | manager | Desconectar |
-| GET | `/whatsapp/history` | manager | Histórico de mensagens |
+| GET | `/whatsapp/config` | manager | App id e config id públicos (monta o `FB.login`) |
+| POST | `/whatsapp/embedded-signup/exchange` | manager | Fecha o Embedded Signup (troca o `code`; uso único) |
+| POST | `/whatsapp/disconnect` | manager | Desconectar (apaga o token) |
+| GET | `/whatsapp/messages` | manager | Histórico de mensagens com status da Meta |
 
 ## iFood
 
@@ -190,22 +212,31 @@ Todos os endpoints do backend, agrupados por domínio. Para detalhes completos, 
 | Método | Path | Papel | Descrição |
 |---|---|---|---|
 | GET | `/public/menu` | público | Cardápio público |
+| POST | `/public/customers/lookup` | público | Busca cliente por telefone |
+| POST | `/public/customers` | público | Criar cliente no checkout |
+| POST | `/public/customers/:id/addresses` | público | Adicionar endereço no checkout |
 | POST | `/public/orders` | público | Criar pedido (self-service) |
-| GET | `/public/orders/:id` | público | Detalhe do pedido |
-| POST | `/public/orders/:id/cancel` | público | Cancelar pedido |
+| POST | `/public/orders/active` | público | Pedido em andamento por telefone (retomada) |
+| POST | `/public/orders/:id/cancel` | público | Cancelar pedido (telefone precisa bater) |
 | GET | `/public/orders/:id/status` | público | Status do pedido |
+| GET | `/public/cart` | público | Ler carrinho rascunho por telefone |
+| PUT | `/public/cart` | público | Salvar carrinho rascunho |
+| DELETE | `/public/cart` | público | Limpar carrinho rascunho |
+| POST | `/calcular-entrega` | público | Calcular taxa e prazo de entrega |
 
 ## Webhooks
 
 | Método | Path | Papel | Descrição |
 |---|---|---|---|
 | POST | `/webhooks/whatsapp` | público | Webhook da Meta (assinatura verificada) |
+| GET | `/webhooks/whatsapp` | público | Verificação de assinatura do webhook |
 
 ## Realtime (WebSocket)
 
 | Método | Path | Papel | Descrição |
 |---|---|---|---|
 | WS | `/realtime` | token | Conexão WebSocket (token como subprotocol) |
+| WS | `/realtime/public` | público | Acompanhamento de pedido; sem JWT, `join` só em `order:<uuid>` |
 
 ## Health
 

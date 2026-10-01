@@ -115,6 +115,18 @@ O `Dockerfile` faz `npm ci` + `npm prune --omit=dev` no estágio `build` (com to
 - Erros: `payment_not_registered` / `payment_not_confirmed` / `invalid_payment_total`
 - Endpoints: `PUT /orders/:id/payments`, `PATCH/DELETE /orders/:id/payments/:paymentId`
 - `PATCH /orders/:id/payment` legado é adaptador de intenção única (self-service/delivery)
+- **Linha `confirmed` não pode ser apagada** por `PUT /orders/:id/payments` (nem pelo
+  legado): a gaveta não tem saldo próprio e deriva o esperado de `order_payment`
+  `cash AND confirmed` na janela da sessão, então apagar a linha faz o dinheiro sumir
+  da conferência sem sangra nem estorno. A guarda vale pra todos os métodos (o
+  relatório de vendas também soma `order_payment`) e roda **antes** da conferência
+  `soma == total` — a resposta honesta é `invalid_transition`, não "soma não confere".
+  Caminhos: confirmada que continua na lista com mesmo método e mesmo valor é
+  **preservada** (id/`confirmed_at`/`confirmed_by` intactos, só `received`/`change`
+  mudam → o PUT repete sem efeito colateral); confirmada que some da lista é
+  **recusada**; não confirmadas seguem reescrevíveis. O estorno é explícito
+  (`cancelOrderUsecase` gera a sangria, ou sangria no caixa) — nunca implícito.
+  `order.usecases.ts` → `planPaymentLines` (lê/valida) + `upsertPaymentLines` (escreve)
 
 ## Idempotência
 
