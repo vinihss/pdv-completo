@@ -1,0 +1,72 @@
+#!/bin/sh
+# pre-commit — freio local contra commit direto na `main`.
+#
+# POR QUE ISTO EXISTE
+# -------------------
+# A `main` é a linha de integração: tudo entra nela por Pull Request. O
+# histórico deste repo já registrou entregas que pulavam a revisão (PRs com
+# vários commits, squash feito na mão, commit de emergência direto no topo).
+# A proteção de verdade é o ruleset no GitHub; este hook é o FREIO: avisa
+# antes do erro, no instante em que o erro está sendo feito, e é o único
+# ponto de controle que existe mesmo com o GitHub fora do ar.
+#
+# POR QUE SÓ `main`
+# -----------------
+# Bloquear "qualquer branch proibida" parece mais forte, mas quebraria o
+# fluxo normal: rebase, cherry-pick sequencial, `git merge` de uma branch
+# durante um hotfix e os commits do próprio CI chegam como detached HEAD. Um
+# hook que nega o caso legítimo ensina a usar `--no-verify`, e aí ele não
+# protege mais nada. Prefiro um hook que só nega o caso inequívoco.
+#
+# ATIVAÇÃO
+# --------
+# Os hooks são versionados, mas o git não os executa sozinho: é preciso rodar
+# uma vez, depois de cada clone novo:
+#
+#     git config core.hooksPath .githooks
+#
+# O path é RELATIVO ao topo da working tree de propósito: um worktree ligado
+# (`git worktree add`) tem `.git` como arquivo apontando para o worktree
+# principal, mas tem a sua própria working tree — e um path relativo
+# funciona igual em todos eles, desde que o arquivo esteja checkado lá.
+#
+# ESCAPE
+# ------
+# `git commit --no-verify` contorna este hook de propósito. Ele é freio, não
+# tranca: a garantia de que a `main` não recebe commit direto é o ruleset no
+# servidor, não este arquivo.
+set -e
+
+branch="$(git symbolic-ref --quiet --short HEAD || true)"
+
+# Detached HEAD: rebase, cherry-pick, `git merge` e os commits do CI chegam
+# assim. Deixa passar — ver o bloco acima.
+[ -z "$branch" ] && exit 0
+
+if [ "$branch" = "main" ]; then
+	cat >&2 <<'EOF'
+✖ Commit bloqueado: a branch atual é `main`.
+
+A `main` só recebe trabalho por Pull Request (squash merge), para que toda
+mudança passe por revisão e deixe um único commit limpo no histórico.
+
+Como se trabalha (o fluxo normal deste repo):
+
+    ./scripts/dev-worktree.sh new <branch>   # cria ~/pdv-worktrees/<branch>
+    # ... editar, commitar ...
+    git push -u origin <branch>
+    gh pr create --fill                     # revisão -> squash merge na main
+
+Hotfix urgente: idem, em branch própria. Não é mais rápido fazer commit na
+main — é o caminho que existe para o urgente.
+
+Bypass consciente: git commit --no-verify
+  Use só quando souber exatamente o que está fazendo. O hook é freio de
+  acidente; a barreira real é o ruleset da `main` no GitHub, que não aceita
+  push direto.
+
+EOF
+	exit 1
+fi
+
+exit 0
