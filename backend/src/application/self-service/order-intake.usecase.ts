@@ -106,6 +106,7 @@ export async function createSelfServiceOrderUsecase(input: {
    * confirma. Ausente ou fora das faixas: o tempo de viagem usa só o piso.
    */
   deliveryZoneKm?: number | null;
+  cashReceived?: string;
 }) {
   if (!input.addressId && !input.newAddress) {
     throw Errors.validationFailed({ field: "addressId|newAddress", reason: "informe um endereço" });
@@ -163,11 +164,27 @@ export async function createSelfServiceOrderUsecase(input: {
   // store_settings.enabledPaymentMethods (mesma validação que o balcão já
   // usa) — se o gerente desabilitou "pix", por exemplo, o checkout falha
   // aqui com o erro correto em vez de criar um pedido que não vai fechar.
+  //
+  // Dinheiro: o cliente pode dizer quanto vai entregar na mão, para o entregador
+  // levar o troco certo. A conversão de "50,00" (o que a tela manda) para número
+  // acontece aqui; a validação contra o total fica em upsertPaymentLines
+  // (received < amount é erro). Vazio vira undefined — pagamento exato não
+  // precisa de `received`.
+  let cashReceivedNum: number | undefined;
+  if (input.paymentMethodIntent === "cash" && input.cashReceived?.trim()) {
+    const normalized = input.cashReceived.replace(/\./g, "").replace(",", ".");
+    const v = Number(normalized);
+    if (Number.isFinite(v) && v >= 0) {
+      cashReceivedNum = v;
+    }
+  }
+
   await registerPaymentUsecase({
     orderId: order.id,
     userId: SYSTEM_USER_ID,
     paymentMethod: input.paymentMethodIntent,
     confirmed: false,
+    received: cashReceivedNum,
   });
 
   // 4.1 Previsão de entrega — calculada ANTES da transação da entrega porque

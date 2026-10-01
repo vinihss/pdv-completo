@@ -1,4 +1,5 @@
-// Perfil do cliente do checkout público: telefone, nome e endereço.
+// Perfil do cliente do checkout público: telefone, nome, endereço e forma de
+// pagamento.
 //
 // Mesmo formato do rascunho do carrinho (entities/cart/model/cartStorage.js) —
 // envelope versionado com `savedAt`, TTL, tudo em try/catch. A diferença que
@@ -9,9 +10,13 @@
 //
 // TTL de 30 dias (o carrinho usa 24h). Endereço de entrega é dado pessoal: some
 // sozinho depois de um mês em vez de ficar no aparelho até o cliente limpar o
-// navegador. Nada aqui é segurança — é Convenience num aparelho que o cliente
+// navegador. Nada aqui é segurança — é conveniência num aparelho que o cliente
 // controla. Quem tem medo de dado pessoal no navegador também não deve salvar
 // carrinho, e o /pedido funciona sem isso.
+//
+// A forma de pagamento (`payment`) entra no mesmo envelope por uma razão
+// prática: é o que permite pular direto para "Confirmar pedido" quando o
+// cliente já pediu antes (ver `hasCompleteCheckoutData` na página).
 
 const STORAGE_KEY = "pdv:customer-profile";
 const TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -20,7 +25,7 @@ const TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const ADDRESS_KEYS = ["label", "cep", "street", "number", "complement", "neighborhood", "city", "state", "reference"];
 
 function emptyProfile() {
-  return { phone: "", name: "", address: null };
+  return { phone: "", name: "", address: null, payment: null };
 }
 
 /**
@@ -40,15 +45,25 @@ function sanitizeAddress(raw) {
   return out.street ? out : null;
 }
 
-export function saveProfileLocal({ phone, name, address }) {
+/**
+ * `payment` só é gravado quando é uma das opções conhecidas. É dado que volta
+ * para a tela como botão marcado, então um valor desconhecido (perfil editado à
+ * mão, versão antiga do app) ficaria como lixo que a tela não sabe desmarcar.
+ */
+function sanitizePayment(raw) {
+  return typeof raw === "string" && ["cash", "card", "pix"].includes(raw) ? raw : null;
+}
+
+export function saveProfileLocal({ phone, name, address, payment }) {
   try {
     const profile = {
       phone: typeof phone === "string" ? phone : "",
       name: typeof name === "string" ? name : "",
       address: sanitizeAddress(address),
+      payment: sanitizePayment(payment),
     };
     // Nada de útil ainda: não grava uma entrada vazia que só ocupa espaço.
-    if (!profile.phone && !profile.name && !profile.address) return;
+    if (!profile.phone && !profile.name && !profile.address && !profile.payment) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, ...profile, savedAt: Date.now() }));
   } catch {
     /* aba anônima / storage bloqueado: o checkout funciona, só não persiste */
@@ -69,6 +84,7 @@ export function loadProfileLocal() {
       phone: typeof data.phone === "string" ? data.phone : "",
       name: typeof data.name === "string" ? data.name : "",
       address: sanitizeAddress(data.address),
+      payment: sanitizePayment(data.payment),
     };
   } catch {
     return emptyProfile();

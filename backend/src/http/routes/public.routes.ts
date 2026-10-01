@@ -72,6 +72,12 @@ const createOrderSchema = z.object({
     .min(1),
   paymentMethodIntent: z.enum(["cash", "card", "pix", "other"]),
   notes: z.string().optional(),
+  // Quanto o cliente vai entregar na mão. Só faz sentido com `cash` — é o que
+  // o entregador precisa para levar o troco certo, e é validado contra o total
+  // do pedido em upsertPaymentLines (received < amount é rejeitado). Aceita
+  // string porque a tela manda o que o cliente digitou ("50,00"); a
+  // normalização para número fica na ponta de aplicação.
+  cashReceived: z.string().optional(),
 });
 
 const cancelOrderSchema = z.object({

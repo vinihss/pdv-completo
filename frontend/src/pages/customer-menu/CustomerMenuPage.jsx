@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ChevronLeft, MapPin, Check, AlertTriangle, X, PartyPopper } from "lucide-react";
+import { ChevronLeft, MapPin, Check, AlertTriangle, X, PartyPopper, Pencil, User, CreditCard } from "lucide-react";
 import { getStoreInfo } from "@/entities/store";
 import { getPublicCart, savePublicCart, clearPublicCart } from "@/entities/cart";
 import { lookupPublicCustomer, saveProfileLocal, loadProfileLocal } from "@/entities/customer";
@@ -138,6 +138,10 @@ export default function CustomerMenuPage() {
   // previsão de entrega (domain/delivery-eta.ts) — o frete em si continua
   // sendo a taxa fixa de store_settings, como no §04.
   const [deliveryZoneKm, setDeliveryZoneKm] = useState(null);
+  // Só aparece (e só é enviado) quando o pagamento é dinheiro. Guarda o que o
+  // cliente vai entregar na mão — não o troco: o entregador subtrai o total e
+  // o backend valida que o valor entregue cobre a compra.
+  const [cashReceived, setCashReceived] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState(null);
   const [order, setOrder] = useState(null); // resultado de createPublicOrder | { orderId } na retomada
@@ -155,6 +159,12 @@ export default function CustomerMenuPage() {
   customerRef.current = customer;
   const newAddressRef = useRef(newAddress);
   newAddressRef.current = newAddress;
+  // Nome e pagamento também entram no save debounced do perfil — refs para
+  // ler o valor corrente de dentro do timer, que roda fora do render.
+  const nameRef = useRef(newAddress.customerName ?? "");
+  nameRef.current = newAddress.customerName ?? customer?.name ?? "";
+  const paymentRef = useRef(payment);
+  paymentRef.current = payment;
 
   useEffect(() => {
     getStoreInfo()
@@ -210,6 +220,10 @@ export default function CustomerMenuPage() {
   const paymentOptions = PAYMENT_OPTIONS.filter(
     (o) => !storeInfo?.enabledPaymentMethods || storeInfo.enabledPaymentMethods.includes(o.value)
   );
+  // O que a tela de confirmação mostra (e oferece editar). O nome editado tem
+  // precedência sobre o cadastro — é o mesmo valor que vai no payload.
+  const reviewName = newAddress.customerName?.trim() || customer?.name || "";
+  const reviewPaymentLabel = paymentOptions.find((o) => o.value === payment)?.label ?? "";
 
   // ---------- carrinho server-side ----------
 
@@ -427,9 +441,33 @@ export default function CustomerMenuPage() {
     flushCartSave(cart);
     if (viaWhatsApp && prefilledPhone) {
       await runLookup(prefilledPhone);
+      return;
+    }
+    // Cliente recorrente: o perfil já tem telefone, endereço e forma de
+    // pagamento, então as três telas de coleta viram ritual. Pula direto para
+    // a revisão — onde nome, endereço e pagamento aparecem editáveis, e é
+    // exatamente aí que o cliente quer conferir antes de confirmar.
+    //
+    // O `?phone=` do link do bot tem prioridade: é a identidade do rascunho do
+    // servidor, e um cliente que veio pelo WhatsApp precisa do lookup para o
+    // endereço salvo aparecer.
+    const cached = loadProfileLocal();
+    if (!prefilledPhone && hasCompleteCheckoutData(cached, addressForReview())) {
+      setCustomer(null);
+      setSelectedAddressId(null);
+      setPayment(cached.payment);
+      setCheckoutStep("review");
     } else {
       setCheckoutStep("phone");
     }
+  }
+
+  /** Endereço que o pedido usaria agora — o salvo selecionado ou o digitado. */
+  function addressForReview() {
+    if (selectedAddressId && customer?.addresses) {
+      return customer.addresses.find((a) => a.id === selectedAddressId) ?? null;
+    }
+    return newAddress;
   }
 
   function onPhoneChange(value) {
@@ -441,14 +479,20 @@ export default function CustomerMenuPage() {
     if (digitsOnly(masked)) scheduleCartSave(cart);
   }
 
-  // Telefone, nome e endereço no cache local: quem fecha a aba no meio do
-  // checkout volta com tudo preenchido, e quem terminar o pedido e voltar pra
-  // pedir de novo não digita nada. Best-effort, mesmo espírito do rascunho.
+  // Telefone, nome, endereço e forma de pagamento no cache local: quem fecha a
+  // aba no meio do checkout volta com tudo preenchido, e quem terminar o pedido
+  // e voltar pra pedir de novo não digita nada. Best-effort, mesmo espírito do
+  // rascunho.
   const profileTimer = useRef(null);
   const scheduleProfileSave = useCallback((address) => {
     if (profileTimer.current) clearTimeout(profileTimer.current);
     profileTimer.current = setTimeout(() => {
-      saveProfileLocal({ phone: phoneRef.current, name: customerRef.current?.name ?? "", address: address ?? newAddressRef.current });
+      saveProfileLocal({
+        phone: phoneRef.current,
+        name: nameRef.current,
+        address: address ?? newAddressRef.current,
+        payment: paymentRef.current,
+      });
     }, 600);
   }, []);
 
@@ -486,9 +530,14 @@ export default function CustomerMenuPage() {
     // Endereço e telefone voltam do perfil, não do vazio: "pedir de novo" é o
     // caminho mais comum depois de confirmar, e recomeçar do zero seria punir o
     // cliente por ter feito o que a tela manda.
-    setNewAddress(loadProfileLocal().address ?? EMPTY_ADDRESS);
-    setPhone(maskPhone(prefilledPhone) || maskPhone(loadProfileLocal().phone));
-    setPayment(null);
+    const cached = loadProfileLocal();
+    setNewAddress(cached.address ?? EMPTY_ADDRESS);
+    setPhone(maskPhone(prefilledPhone) || maskPhone(cached.phone));
+    // A forma de pagamento também sobrevive ao pedido: é uma escolha estável do
+    // cliente, não uma decisão do pedido. Zera só se o gerente desabilitou o
+    // método no meanwhile (paymentOptions não tem mais a opção).
+    setPayment(paymentOptions.some((o) => o.value === cached.payment) ? cached.payment : null);
+    setCashReceived("");
     setOrderNotes("");
     setOrder(null);
     setStatusPoll(null);
@@ -511,7 +560,10 @@ export default function CustomerMenuPage() {
       const created = await createPublicOrder({
         channel: viaWhatsApp ? "whatsapp" : "web",
         customerPhone: digitsOnly(phone),
-        customerName: customer?.name ?? newAddress.customerName ?? "Cliente",
+        // O nome editado na tela de pagamento vale sobre o que está salvo no
+        // cadastro: o cliente pode querer "João" e ter cadastrado "Joao
+        // Ricardo da Silva". Sem edição, o do cadastro.
+        customerName: newAddress.customerName?.trim() || customer?.name || "Cliente",
         addressId: selectedAddressId ?? undefined,
         newAddress: selectedAddressId
           ? undefined
@@ -525,11 +577,16 @@ export default function CustomerMenuPage() {
               complement: newAddress.complement || undefined,
               neighborhood: newAddress.neighborhood,
               city: newAddress.city,
+              state: newAddress.state || undefined,
               reference: newAddress.reference || undefined,
               isDefault: true,
             },
         items: cartItems.map(toServerLine),
         paymentMethodIntent: payment,
+        // Só dinheiro tem troco, e só quando o cliente diz que vai entregar
+        // menos que o total (ou uma nota específica). O backend valida contra
+        // o total do pedido.
+        ...(payment === "cash" && cashReceived.trim() ? { cashReceived: cashReceived.trim() } : {}),
         // Só vai quando tem texto: o schema rejeita string vazia, e observação
         // em branco no banco é ruído na comanda e na bobina.
         ...(orderNotes.trim() ? { notes: orderNotes.trim() } : {}),
@@ -548,6 +605,7 @@ export default function CustomerMenuPage() {
         address: selectedAddressId
           ? customer?.addresses.find((a) => a.id === selectedAddressId)
           : newAddress,
+        payment,
       });
       const p = digitsOnly(phone);
       if (p) clearPublicCart(p).catch(() => {});
@@ -722,6 +780,11 @@ export default function CustomerMenuPage() {
             logoUrl={storeInfo?.logoUrl}
             orderNotes={orderNotes}
             setOrderNotes={setOrderNotes}
+            cashReceived={cashReceived}
+            setCashReceived={setCashReceived}
+            addressForReview={addressForReview}
+            reviewName={reviewName}
+            reviewPaymentLabel={reviewPaymentLabel}
             deliveryZoneKm={deliveryZoneKm}
             setDeliveryZoneKm={setDeliveryZoneKm}
             deliveryZones={deliveryZones}
@@ -895,10 +958,62 @@ function ZoneSelector({ zones, value, onChange }) {
   );
 }
 
+/**
+ * Uma linha clicável do resumo da revisão (nome/endereço/pagamento).
+ * Sem isto, corrigir um dado só no pedido de delivery exigiria voltar três
+ * telas — e o cliente recorrente cai direto na revisão justamente quando já
+ * confia no fluxo e só quer bater o olho.
+ */
+function EditRow({ icon, label, value, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left flex items-start gap-2.5 rounded-lg px-2 py-2 -mx-2 hover:bg-stone-800/60 transition-colors"
+    >
+      <span className="mt-0.5 shrink-0 text-amber-400">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[10px] font-bold uppercase tracking-wide text-stone-500">{label}</span>
+        <span className="block text-[13.5px] text-stone-100 leading-snug break-words">{value || "—"}</span>
+      </span>
+      <Pencil size={14} className="mt-0.5 shrink-0 text-stone-500" />
+    </button>
+  );
+}
+
+/**
+ * Troco a partir do que o cliente disse que vai entregar.
+ *
+ * Só é exibido quando o valor cobre a compra: abaixo do total o campo é um erro
+ * de digitação, e a diferença deixaria de ser troco para virar dívida. O backend
+ * valida de novo (upsertPaymentLines rejeita `received < amount`) — aqui é para
+ * o cliente ver o número antes de confirmar, não para ser a única rede.
+ */
+function cashChangeLabel(receivedRaw, total) {
+  const received = Number(String(receivedRaw ?? "").replace(",", ".").replace(/[^\d.]/g, ""));
+  if (!Number.isFinite(received) || received <= 0) return "";
+  const change = Math.round((received - total) * 100) / 100;
+  return change > 0 ? formatBRL(change) : "";
+}
+
+/**
+ * Tem dados suficientes para pular direto para a confirmação? Telefone (para o
+ * backend reconhecer o cliente e reaproveitar o rascunho), endereço completo (a
+ * revisão mostra o endereço, e o pedido não fecha sem rua/número/bairro/cidade) e
+ * forma de pagamento válida (o botão de confirmar não avança sem ela).
+ */
+function hasCompleteCheckoutData(profile, address) {
+  if (!profile) return false;
+  if (!digitsOnly(profile.phone ?? "")) return false;
+  if (!["cash", "card", "pix"].includes(profile.payment)) return false;
+  if (!address) return false;
+  return Boolean(address.street && address.number && address.neighborhood && address.city);
+}
+
 // ---------------------------------------------------------------------------
 function CheckoutScreen(props) {
-  const { step, setStep, phone, onPhoneChange, onLookup, customer, selectedAddressId, setSelectedAddressId, newAddress, setNewAddress, payment, setPayment, items, subtotal, deliveryFee, paymentOptions, logoUrl, onBack, onSubmit, submitting, error, orderNotes, setOrderNotes, deliveryZoneKm, setDeliveryZoneKm, deliveryZones, onAddressChange } = props;
-  const titles = { phone: "Identificação", address: "Endereço de entrega", "new-address": "Endereço de entrega", payment: "Pagamento", review: "Confirmar pedido" };
+  const { step, setStep, phone, onPhoneChange, onLookup, customer, selectedAddressId, setSelectedAddressId, newAddress, setNewAddress, payment, setPayment, items, subtotal, deliveryFee, paymentOptions, logoUrl, onBack, onSubmit, submitting, error, orderNotes, setOrderNotes, deliveryZoneKm, setDeliveryZoneKm, deliveryZones, onAddressChange, cashReceived, setCashReceived, addressForReview, reviewName, reviewPaymentLabel } = props;
+  const titles = { phone: "Identificação", address: "Endereço de entrega", "new-address": "Endereço de entrega", payment: "Pagamento e nome", review: "Confirmar pedido" };
 
   // ---------- busca de CEP (ViaCEP) ----------
   // É conveniência, nunca bloqueio: o endereço continua digitável à mão e
@@ -1094,17 +1209,50 @@ function CheckoutScreen(props) {
         )}
 
         {step === "payment" && (
-          <div className="space-y-2.5">
+          <div className="space-y-3">
             {paymentOptions.map((opt) => (
               <button
                 key={opt.value}
-                onClick={() => setPayment(opt.value)}
+                onClick={() => {
+                  setPayment(opt.value);
+                  if (opt.value !== "cash") setCashReceived("");
+                }}
                 className={`w-full text-left rounded-lg border p-3.5 flex items-center justify-between ${payment === opt.value ? "border-amber-500 bg-amber-500/10" : "border-stone-800 bg-stone-900"}`}
               >
                 <span className="text-[14px] font-medium text-stone-50">{opt.label}</span>
                 {payment === opt.value && <Check size={17} className="text-amber-400" />}
               </button>
             ))}
+
+            {payment === "cash" && (
+              <div className="rounded-lg border border-stone-800 bg-stone-900 p-3.5">
+                <Field
+                  label="Vai entregar quanto? (R$)"
+                  value={cashReceived}
+                  onChange={setCashReceived}
+                  placeholder="Ex.: 50,00"
+                  inputMode="decimal"
+                />
+                <p className="text-[12px] text-stone-500 mt-1.5">
+                  Opcional. Deixe vazio se vai pagar o valor exato — aí o entregador não precisa levar troco.
+                </p>
+                {cashChangeLabel(cashReceived, subtotal + deliveryFee) && (
+                  <p className="text-[13px] text-amber-400 font-semibold mt-2">
+                    Troco: {cashChangeLabel(cashReceived, subtotal + deliveryFee)}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <Field
+              label="Seu nome"
+              value={newAddress.customerName ?? customer?.name ?? ""}
+              onChange={(v) => onNewAddressChange({ ...newAddress, customerName: v })}
+              placeholder="Como podemos te chamar?"
+            />
+            <p className="text-[12px] text-stone-600 -mt-1">
+              É o nome que fica na comanda e o que o entregador chama você.
+            </p>
           </div>
         )}
 
@@ -1132,15 +1280,42 @@ function CheckoutScreen(props) {
                 <span className="text-stone-50">Total</span><span className="text-amber-400">{formatBRL(subtotal + deliveryFee)}</span>
               </div>
             </div>
-            <div className="rounded-lg bg-stone-900 border border-stone-800 p-4 mb-4 space-y-1.5">
-              <div className="flex items-start gap-2 text-[13.5px] text-stone-300">
-                <MapPin size={15} className="mt-0.5 shrink-0 text-amber-400" />
-                <span>{selectedAddressId ? formatAddress(customer.addresses.find((a) => a.id === selectedAddressId)) : formatAddress(newAddress)}</span>
+            {/* Resumo editável. É a tela que o cliente recorrente cai direto
+                (startCheckout pula as três etapas quando o perfil tem tudo), então
+                precisa mostrar e permitir corrigir cada dado sem voltar: tocar
+                em qualquer linha leva à etapa correspondente. */}
+            <div className="rounded-lg bg-stone-900 border border-stone-800 p-4 mb-4">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-stone-500 mb-2">
+                Confira e toque para alterar
+              </p>
+              <div className="space-y-0.5">
+                <EditRow
+                  icon={<User size={15} />}
+                  label="Nome"
+                  value={reviewName}
+                  onClick={() => setStep("payment")}
+                />
+                <EditRow
+                  icon={<MapPin size={15} />}
+                  label="Endereço"
+                  value={formatAddress(addressForReview())}
+                  onClick={() => setStep("new-address")}
+                />
+                <EditRow
+                  icon={<CreditCard size={15} />}
+                  label="Pagamento"
+                  value={reviewPaymentLabel}
+                  onClick={() => setStep("payment")}
+                />
               </div>
-              <p className="text-[13.5px] text-stone-500 pl-5.5 ml-0.5">Pagamento: {paymentOptions.find((o) => o.value === payment)?.label}</p>
-              <p className="text-[13.5px] text-stone-500 pl-5.5 ml-0.5">
+              <p className="text-[13.5px] text-stone-500 mt-2 pt-2 border-t border-stone-800">
                 Previsão de entrega: {zoneLabel(deliveryZoneKm, deliveryZones)}
               </p>
+              {payment === "cash" && cashChangeLabel(cashReceived, subtotal + deliveryFee) && (
+                <p className="text-[13.5px] text-amber-400 font-semibold mt-1">
+                  Troco: {cashChangeLabel(cashReceived, subtotal + deliveryFee)}
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-[12.5px] font-semibold text-stone-300 mb-1.5">
