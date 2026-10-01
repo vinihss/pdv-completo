@@ -24,6 +24,7 @@ npm run test
 | `test/maintenance.test.ts` | Outbox corrompido não derruba, cleanup |
 | `test/outbox-dispatcher.test.ts` | Ciclo do dispatcher: publica, teto de 50, ordem `created_at`/`seq`, payload corrompido, dono único por advisory lock |
 | `test/order-flow.test.ts` | Validação de mesa, eventos outbox de fechamento/cancelamento/pagamento/delete |
+| `test/payment-lines.test.ts` | Linha de pagamento `confirmed` não some em reenvio do `PUT` (preserva/recusa/reescreve não confirmada) + regressão do P0 do caixa, no `PUT` e no legado |
 | `test/pix-key.test.ts` | Canonicalização de chave Pix (6 testes) |
 | `test/printer.test.ts` | Impressão: 404 vs 503, auto-print, resetState |
 | `test/profiles.test.ts` | Perfis caixa/entregador: filtro de login, acesso por papel, fluxo completo |

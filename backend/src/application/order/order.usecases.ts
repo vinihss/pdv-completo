@@ -552,15 +552,145 @@ async function requireOpenDrawerForCash(tx: Tx, method: string, confirmed: boole
   }
 }
 
-// Aplica as linhas de pagamento: apaga as anteriores e insere as novas, na
-// mesma transação da escrita (padrão do repo). `orders.payment_method` continua
-// como denormalizado de exibição — método único → ele; mais de um → null
-// (o client consome `payments[]` pra exibir o detalhe).
-async function upsertPaymentLines(tx: Tx, order: typeof orders.$inferSelect, userId: string, lines: PaymentLineInput[]) {
-  await tx.delete(orderPayments).where(eq(orderPayments.orderId, order.id));
+// Rótulo em PT-BR das formas de pagamento, só para a mensagem de recusa (no
+// payload o backend continua falando "cash"/"card"/"pix"/"other").
+const PAYMENT_LABEL: Record<PaymentLineInput["method"], string> = {
+  cash: "Dinheiro",
+  card: "Cartão",
+  pix: "Pix",
+  other: "Outro",
+};
 
-  const created: ReturnType<typeof serializePayment>[] = [];
-  for (const line of lines) {
+// Aplica as linhas de pagamento na mesma transação da escrita (padrão do repo),
+// a partir do plano já validado por `planPaymentLines`.
+//
+// Uma linha JÁ CONFIRMADA é dinheiro que já se mexeu, e o PUT não pode mais
+// simplesmente "apagar tudo e reinserir":
+//
+//   - a gaveta não tem saldo próprio. `GET /cash-drawer/*` conta
+//     `order_payment` com `method='cash' AND confirmed` na janela da sessão
+//     (cash-flow.usecases.ts → cashPaymentsBetween) — apagar a linha tira o
+//     dinheiro do relatório *retroativamente*, sem sangra, sem movimento de
+//     estorno e sem rastro em auditoria, já que o dinheiro foi pro bolso do
+//     garçom;
+//   - o relatório de vendas soma toda linha de `order_payment` por forma
+//     (report.usecases.ts), então cartão/pix confirmados também não podem
+//     sumir em silêncio — por isso a guarda vale pra todos os métodos, e não
+//     só pra `cash`;
+//   - `DELETE /orders/:id/payments/:paymentId` já recusava linha confirmada
+//     (invalidTransition). Seria incoerente (e pior) o PUT em lote conseguir
+//     apagar o que o DELETE nega.
+//
+// Então o PUT deixou de ser destrutivo e passou a ter 3 casos, nesta ordem:
+//
+//   1. PRESERVA a linha confirmada que continua na lista com mesmo método e
+//      mesmo valor (só `received`/`change` podem mudar). Mantém id,
+//      `confirmed_at` e `confirmed_by` — a identidade do dinheiro que a gaveta
+//      reconcilia. É o que torna o PUT repetível sem efeito colateral.
+//   2. RECUSA a linha confirmada que some da lista. O estorno é explícito e
+//      registrado (cancelamento da comanda, que gera a sangria, ou sangria no
+//      caixa) — nunca implícito num reenvio.
+//   3. Linhas não confirmadas continuam sendo reescritas livremente: não há
+//      dinheiro envolvido.
+//
+// `orders.payment_method` continua como denormalizado de exibição — método
+// único → ele; mais de um → null (o client consome `payments[]` pra exibir o
+// detalhe).
+//
+// Fases separadas de propósito: `planPaymentLines` só LÊ e valida, e
+// `upsertPaymentLines` só ESCREVE. O chamador roda a fase de leitura ANTES da
+// conferência `soma == total`: se o request deixou de fora uma linha
+// confirmada, a resposta honesta é "isso exige estorno", e não "a soma não
+// confere" — que mandaria o usuário corrigir um número que está certo.
+type PaymentPlan = {
+  /** Linhas confirmadas mantidas: a linha da nova lista que casa com cada uma. */
+  preserved: Array<{ row: typeof orderPayments.$inferSelect; line: PaymentLineInput }>;
+  /** Índices de `lines` que casaram com uma confirmada (não reinserir). */
+  matched: Set<number>;
+  /** Ids que saem da tabela — só as não confirmadas que sobraram. */
+  dropIds: string[];
+};
+
+/**
+ * Lê as linhas de pagamento atuais e decide o que acontece com cada uma.
+ * Recusa (invalid_transition) qualquer linha já CONFIRMADA que a nova lista
+ * deixou de fora. Não escreve nada.
+ */
+async function planPaymentLines(tx: Tx, order: typeof orders.$inferSelect, lines: PaymentLineInput[]): Promise<PaymentPlan> {
+  // Leitura ANTES do delete, na mesma transação: a guarda precisa enxergar as
+  // linhas confirmadas que o request deixou de fora.
+  const existing = await tx.select().from(orderPayments).where(eq(orderPayments.orderId, order.id));
+
+  // Casa 1:1 cada confirmada existente com uma linha da nova lista (mesmo
+  // método + mesmo valor). `matched` impede que uma linha da nova lista
+  // "adote" duas confirmadas — no dinheiro seria o caminho pra preservar uma e
+  // deixar a outra sem par (e, portanto, recusada).
+  const matched = new Set<number>();
+  const preserved: PaymentPlan["preserved"] = [];
+  for (const current of existing) {
+    if (!current.confirmed) continue; // não confirmada é reescrita à vontade
+    const idx = lines.findIndex(
+      (l, i) => !matched.has(i) && l.method === current.method && moneyEq(l.amount, current.amount)
+    );
+    if (idx === -1) {
+      throw Errors.invalidTransition(
+        `Pagamento já confirmado (${PAYMENT_LABEL[current.method]} de R$ ${current.amount.toFixed(2)}) não pode sair da lista: o estorno precisa ser explícito. Reenvie mantendo a linha ou estorne pelo fluxo de caixa.`
+      );
+    }
+    matched.add(idx);
+    preserved.push({ row: current, line: lines[idx] });
+  }
+
+  const keptIds = new Set(preserved.map((p) => p.row.id));
+  return { preserved, matched, dropIds: existing.filter((p) => !keptIds.has(p.id)).map((p) => p.id) };
+}
+
+async function upsertPaymentLines(
+  tx: Tx,
+  order: typeof orders.$inferSelect,
+  userId: string,
+  lines: PaymentLineInput[],
+  plan: PaymentPlan
+) {
+  const { preserved, matched } = plan;
+
+  // A fase de leitura já recusou qualquer linha confirmada fora da lista, e a
+  // transação aborta por `throw` — então aqui o delete só alcança as não
+  // confirmadas que sobraram, e nunca uma linha preservada.
+  if (plan.dropIds.length > 0) {
+    await tx.delete(orderPayments).where(inArray(orderPayments.id, plan.dropIds));
+  }
+
+  const rows: (typeof orderPayments.$inferSelect)[] = [];
+
+  for (const { row, line } of preserved) {
+    // A linha preservada fica CONFIRMADA mesmo que o request mande
+    // `confirmed: false`: o dinheiro já está na gaveta, e desconfirmar aqui
+    // seria a mesma sangra do caso 2 por outro nome. Só o troco pode mudar.
+    // `requireOpenDrawerForCash` também não roda: a guarda foi cumprida na
+    // confirmação original e aqui não entra dinheiro novo — cobrá-la de novo
+    // quebraria justamente a repetição segura que o caso 1 promete.
+    const isCash = line.method === "cash";
+    const received = isCash ? (line.received != null ? line.received : line.amount) : null;
+    if (isCash && received != null && received < line.amount) {
+      throw Errors.validationFailed({ field: "received", reason: "dinheiro recebido menor que o valor a pagar" });
+    }
+    const change = isCash && received != null ? round2(received - line.amount) : null;
+    if ((received == null) === (row.received == null) && moneyEq(received ?? 0, row.received ?? 0) && moneyEq(change ?? 0, row.change ?? 0)) {
+      rows.push(row); // nada mudou: não reescreve (preserva created_at)
+      continue;
+    }
+    const [updated] = await tx
+      .update(orderPayments)
+      .set({ received, change })
+      .where(eq(orderPayments.id, row.id))
+      .returning();
+    rows.push(updated);
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    if (matched.has(i)) continue; // já preservada acima
+    const line = lines[i];
     await requireOpenDrawerForCash(tx, line.method, Boolean(line.confirmed));
     const isCash = line.method === "cash";
     const confirmed = Boolean(line.confirmed);
@@ -583,21 +713,34 @@ async function upsertPaymentLines(tx: Tx, order: typeof orders.$inferSelect, use
         createdBy: userId,
       })
       .returning();
-    created.push(serializePayment(row));
+    rows.push(row);
   }
 
-  const methods = [...new Set(lines.map((l) => l.method))];
-  const allConfirmed = created.length > 0 && created.every((p) => p.confirmed);
+  const methods = [...new Set(rows.map((r) => r.method))];
+  const allConfirmed = rows.length > 0 && rows.every((r) => r.confirmed);
   await tx
     .update(orders)
     .set({
       paymentMethod: methods.length === 1 ? methods[0] : null,
-      paymentConfirmedAt: allConfirmed ? new Date().toISOString() : null,
-      paymentConfirmedBy: allConfirmed ? userId : null,
+      // Um PUT que só reenvia as mesmas linhas não pode regrampar "quando a
+      // comanda foi quitada" — o que a gaveta e os relatórios reconciliam é o
+      // `confirmed_at` da linha de pagamento, não este denormalizado.
+      paymentConfirmedAt: allConfirmed ? order.paymentConfirmedAt ?? new Date().toISOString() : null,
+      paymentConfirmedBy: allConfirmed ? order.paymentConfirmedBy ?? userId : null,
     })
     .where(eq(orders.id, order.id));
 
-  return created;
+  return {
+    // `payments` é o estado final da comanda (preservadas + novas) — é o que
+    // viaja nos enqueueEvent, então o cash-drawer e a cozinha recebem sempre o
+    // conjunto coerente, e não só o que o request mandou.
+    payments: rows.map(serializePayment),
+    // Auditoria: distingue o que foi reaproveitado do que é novo, senão o log
+    // diria "created" para um pagamento que já estava confirmado na gaveta.
+    // `rows` são as preservadas + as inseridas agora; o que sobrou é inserção.
+    reused: preserved.map((p) => p.row.id),
+    created: rows.filter((r) => !preserved.some((p) => p.row.id === r.id)).map((r) => r.id),
+  };
 }
 
 export async function setOrderPaymentsUsecase(input: {
@@ -621,23 +764,28 @@ export async function setOrderPaymentsUsecase(input: {
   }
 
   await db.transaction(async (tx) => {
+    // Guarda de remoção ANTES da conferência da soma (ver planPaymentLines):
+    // linha confirmada fora da lista é "exige estorno", não "soma errada".
+    const plan = await planPaymentLines(tx, order, input.payments);
     const total = await computeOrderTotal(tx, order);
     const sum = round2(input.payments.reduce((acc, p) => acc + p.amount, 0));
     if (!moneyEq(sum, total)) throw Errors.invalidPaymentTotal();
 
-    const created = await upsertPaymentLines(tx, order, input.userId, input.payments);
-    await logAction(tx, input.userId, "payment_registered", input.orderId, { payments: created });
+    const { payments, reused, created } = await upsertPaymentLines(tx, order, input.userId, input.payments, plan);
+    // `reused` separa o pagamento que a gaveta já conta do que é novo: um PUT
+    // que reenvia as mesmas linhas não pode aparecer no log como tudo novo.
+    await logAction(tx, input.userId, "payment_registered", input.orderId, { payments, reused, created });
     await enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.payment_changed", {
       orderId: input.orderId,
-      payments: created,
+      payments,
     });
     await enqueueEvent(tx, "cash-drawer", "order.payment_changed", {
       orderId: input.orderId,
-      payments: created,
+      payments,
     });
     await enqueueEvent(tx, "kitchen-display", "order.payment_changed", {
       orderId: input.orderId,
-      payments: created,
+      payments,
     });
   });
 
@@ -731,26 +879,38 @@ export async function registerPaymentUsecase(input: {
 
   return await db.transaction(async (tx) => {
     const total = await computeOrderTotal(tx, order);
-    const created = await upsertPaymentLines(tx, order, input.userId, [
+    // Intenção única de 100% do total — a mesma linha que entra por
+    // planPaymentLines/upsertPaymentLines, com a mesma guarda de linha
+    // confirmada (ver o comentário de upsertPaymentLines).
+    const lines: PaymentLineInput[] = [
       { method: input.paymentMethod, amount: total, confirmed: input.confirmed, received: input.received },
-    ]);
+    ];
+    const { payments, reused, created } = await upsertPaymentLines(
+      tx,
+      order,
+      input.userId,
+      lines,
+      await planPaymentLines(tx, order, lines)
+    );
     await logAction(tx, input.userId, "payment_registered", input.orderId, {
       paymentMethod: input.paymentMethod,
       confirmed: input.confirmed,
+      reused,
+      created,
     });
     await enqueueEvent(tx, `table:${order.tableId ?? order.id}`, "order.payment_changed", {
       orderId: input.orderId,
-      payments: created,
+      payments,
     });
     await enqueueEvent(tx, "cash-drawer", "order.payment_changed", {
       orderId: input.orderId,
-      payments: created,
+      payments,
     });
     await enqueueEvent(tx, "kitchen-display", "order.payment_changed", {
       orderId: input.orderId,
-      payments: created,
+      payments,
     });
-    return created[0];
+    return payments[0];
   });
 }
 

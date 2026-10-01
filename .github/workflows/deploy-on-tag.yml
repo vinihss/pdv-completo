@@ -81,8 +81,14 @@ jobs:
 
           # A linha da tag. O `--match` abaixo usa a MESMA chave: é isto que
           # impede a auditoria de comparar uma tag de app contra uma tag de
-          # backend (os globs são disjuntos — `v*.*.*` NÃO casa `app-v1.4.2`,
+          # backend (os globs são disjuntos — `v1.0.*` NÃO casa `app-v1.4.2`,
           # porque o padrão exige `v` no primeiro caractere).
+          #
+          # `MATCH` da linha backend é `v1.0.*`, e não `v*.*.*`: a família do
+          # app usou `v1.4.x` até a separação de prefixo (#27), e o glob largo
+          # casava essas tags de app como se fossem de backend. Com `v*.*.*` a
+          # auditoria da linha backend mediu `v1.4.1..HEAD` (PREV=v1.4.1) e
+          # reprovou por mudança de app que eralegitima.
           if [[ "$TAG" == app-v* ]]; then
             IS_APP=true
             IS_BACKEND=false
@@ -90,7 +96,7 @@ jobs:
           else
             IS_APP=false
             IS_BACKEND=true
-            MATCH='v*.*.*'
+            MATCH='v1.0.*'
           fi
 
           # Tag anterior DA MESMA LINHA, e só entre ancestrais: `HEAD^` como
@@ -141,8 +147,36 @@ jobs:
               APP_CHANGED=true
             fi
 
-            if [[ "$IS_BACKEND" == true && "$APP_CHANGED" == true ]]; then
-              ERRO="tag de backend, mas mudou o app. A tag '$TAG' diz que a release é do backend, e o diff $PREV..$TAG mostra $(printf '%s\n' "$RELEVANTES" | wc -l) arquivo(s) do escopo do instalador Windows: $(printf '%s\n' "$RELEVANTES" | head -10 | tr '\n' ' ')|| ou a tag devia ser 'app-$TAG', ou esses arquivos entraram por engano."
+            # Frontend numa tag de backend NÃO é erro: o deploy backend também
+            # publica o web. `switch.sh` roda `docker compose build backend
+            # frontend` e o switch promove `PDV_FRONTEND_UPSTREAM` junto com
+            # `PDV_BACKEND_UPSTREAM` (switch.sh:186-187) — o container `frontend`
+            # é o nginx que serve o app em produção. Mudar `frontend/` é o
+            # caminho normal de toda release, e tratá-lo como "tag errada"
+            # travava a linha backend desde a v1.0.15, quando a última tag de
+            # backend foi publicada.
+            #
+            # Mudança que só o instalador Windows consome (os crates, `printer/`,
+            # `Cargo.toml`/`Cargo.lock`, o próprio `build-desktop.yml`) NÃO é erro
+            # numa tag de backend. As duas linhas são independentes: a separação de
+            # prefixo (#27) existe para o push de `app-` não disparar deploy de
+            # backend — o incidente foi `git push origin v1.4.1` publicar backend.
+            # O inverso (backend mudando enquanto o app também mudou) é a situação
+            # NORMAL de um time que trabalha nas duas frentes, e tratar isso como
+            # erro travava a linha backend: entre a v1.0.15 e esta tag entravam
+            # as PRs #20/#21, que mexiam em `Cargo.lock` e `build-desktop.yml`
+            # justamente para consertar o build do instalador. Exigir a `app-` antes
+            # da `v-` era um deadlock — a auditoria da linha backend sempre
+            # compara com a tag backend anterior, então publicar a `app-` primeiro
+            # não muda nada e o `v1.0.15` continuava no meio.
+            #
+            # Fica como AVISO, com o caminho de saída explícito: quem quiser o
+            # instalador publicado publica a tag `app-` na MESMA tag de backend.
+            INSTALADOR_RE='^(standalone-pdv/|standalone-kds/|printer/)|^Cargo\.toml$|^Cargo\.lock$|^build-standalone\.sh$|^\.github/workflows/build-desktop\.yml$'
+            SO_INSTALADOR="$(printf '%s\n' "$DIFF" | grep -E "$INSTALADOR_RE" || true)"
+
+            if [[ "$IS_BACKEND" == true && -n "$SO_INSTALADOR" ]]; then
+              AVISO="tag de backend '$TAG' e o diff $PREV..$TAG também toca $(printf '%s\n' "$SO_INSTALADOR" | wc -l) arquivo(s) de escopo do instalador Windows: $(printf '%s\n' "$SO_INSTALADOR" | head -10 | tr '\n' ' ')|| O deploy segue (backend e web). O instalador NÃO sai com esta tag — se ele também precisa ir, publique 'app-<versão>' na MESMA tag de backend."
             fi
 
             if [[ "$IS_APP" == true && "$APP_CHANGED" == false ]]; then
