@@ -58,6 +58,7 @@ async function seed() {
     kitchenEnabled: true,
     usesDelivery: true,
     ifoodIntegrationEnabled: false,
+    whatsappIntegrationEnabled: false,
     inventoryEnabled: true, // demo com controle de estoque ligado
     enabledPaymentMethods: JSON.stringify(["cash", "card", "pix", "other"]),
     kitchenPrepWarnMin: 3,

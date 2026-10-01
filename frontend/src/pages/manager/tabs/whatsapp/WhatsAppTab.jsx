@@ -19,6 +19,10 @@ import { ConfirmModal } from "@/shared/components";
  * onde o gerente escolhe a conta da empresa e autoriza o WhatsApp Business.
  * Tudo que é segredo (app_secret) fica no backend — ver `entities/whatsapp/lib/
  * embeddedSignup.js` para quem faz o quê nos três passos.
+ *
+ * `embedded`: o painel já não é mais uma tela do menu — ele mora dentro de
+ * Configurações atrás do toggle "Integração WhatsApp". Nesse modo perde o
+ * padding/margem de tela cheia para caber no fluxo da página de configurações.
  */
 
 const STATUS_LABEL = {
@@ -37,7 +41,7 @@ const STATUS_CLASS = {
 
 const KIND_LABEL = { notification: "Notificação", bot_reply: "Resposta do bot" };
 
-export default function WhatsAppTab({ showToast }) {
+export default function WhatsAppTab({ showToast, embedded = false }) {
   const { session } = useAuth();
   const [status, setStatus] = useState(null);
   const [config, setConfig] = useState(null);
@@ -112,7 +116,7 @@ export default function WhatsAppTab({ showToast }) {
 
   if (loading) {
     return (
-      <div className="p-5 max-w-2xl mx-auto py-12 text-center text-stone-500">
+      <div className={`${embedded ? "" : "p-5 max-w-2xl mx-auto"} py-12 text-center text-stone-500`}>
         Carregando…
       </div>
     );
@@ -123,7 +127,7 @@ export default function WhatsAppTab({ showToast }) {
   const expired = Boolean(conn?.tokenExpired);
 
   return (
-    <div className="p-5 max-w-2xl mx-auto space-y-4">
+    <div className={`${embedded ? "" : "p-5 max-w-2xl mx-auto"} space-y-4`}>
       {/* Falta de configuração do servidor: não adianta tentar conectar. */}
       {status && !status.canConnect && (
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-300 space-y-2">

@@ -33,8 +33,14 @@ export default function AppMenu() {
       menuSectionsFor(session?.user?.role, {
         inventoryEnabled: storeSettings?.inventoryEnabled ?? false,
         purchaseEnabled: storeSettings?.purchaseEnabled ?? false,
+        ifoodIntegrationEnabled: storeSettings?.ifoodIntegrationEnabled ?? false,
       }),
-    [session?.user?.role, storeSettings?.inventoryEnabled, storeSettings?.purchaseEnabled]
+    [
+      session?.user?.role,
+      storeSettings?.inventoryEnabled,
+      storeSettings?.purchaseEnabled,
+      storeSettings?.ifoodIntegrationEnabled,
+    ]
   );
 
   const variant = hasExpandableSections(sections) ? "full" : "rail";

@@ -80,6 +80,19 @@ describe("AppMenu", () => {
     expect(outra.getByText("Compras")).toBeTruthy();
   });
 
+  it("iFood só entra no menu com a integração ligada; WhatsApp não é item de menu", () => {
+    const sem = setup("manager", {});
+    expect(asideOf(sem.container).queryByText("iFood")).toBeNull();
+    expect(asideOf(sem.container).queryByText("WhatsApp")).toBeNull();
+    cleanup();
+
+    const com = setup("manager", { ifoodIntegrationEnabled: true });
+    const aside = asideOf(com.container);
+    // Operação já vem aberta: a tela inicial é Comandas.
+    expect(aside.getByText("iFood")).toBeTruthy();
+    expect(aside.queryByText("WhatsApp")).toBeNull();
+  });
+
   it("abrir outra seção mostra os itens dela sem fechar a primeira", () => {
     const { container } = setup("manager", {});
     const aside = asideOf(container);

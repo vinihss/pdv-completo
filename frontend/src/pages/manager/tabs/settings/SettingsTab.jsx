@@ -6,6 +6,7 @@ import { useAuth } from "@/app/providers/auth";
 import { applyBrandPrimary, DEFAULT_PRIMARY_COLOR, isDesktop } from "@/shared/lib";
 import { Section, Field, ToggleRow, inputClass } from "@/shared/components";
 import AppSection from "./AppSection.jsx";
+import WhatsAppTab from "../whatsapp/WhatsAppTab.jsx";
 
 // O que o BR Code vai realmente conter. Sem isso o gerente salva "51991432485"
 // como telefone e só descobre o problema quando o cliente tenta pagar: o app do
@@ -156,6 +157,15 @@ export default function SettingsTab({ showToast }) {
         <ToggleRow label="Cozinha habilitada" checked={form.kitchenEnabled} onChange={(v) => set({ kitchenEnabled: v })} />
         <ToggleRow label="Integração iFood" checked={form.ifoodIntegrationEnabled} onChange={(v) => set({ ifoodIntegrationEnabled: v })} />
         <ToggleRow
+          label="Integração WhatsApp"
+          checked={form.whatsappIntegrationEnabled ?? false}
+          onChange={(v) => set({ whatsappIntegrationEnabled: v })}
+        />
+        <p className="text-stone-600 text-xs">
+          Com a integração ligada, o painel de conexão do WhatsApp Business e o histórico de mensagens aparecem logo abaixo, nesta tela.
+          Desligar esconde o painel sem desconectar a conta.
+        </p>
+        <ToggleRow
           label="Controle de estoque"
           checked={form.inventoryEnabled}
           onChange={(v) => set({ inventoryEnabled: v })}
@@ -170,6 +180,16 @@ export default function SettingsTab({ showToast }) {
           Estoque do gerente permite compras e ajustes. Desligar não apaga o histórico de movimentos.
         </p>
       </Section>
+
+      {/* O painel do WhatsApp tem cards próprios, então fica fora do `Section`
+          (senão vira card dentro de card) e entra no modo embutido, sem o
+          padding de tela cheia que ele usa quando era aba do gerente. */}
+      {form.whatsappIntegrationEnabled && (
+        <div className="space-y-4">
+          <div className="text-stone-500 text-xs font-bold tracking-widest uppercase">Integração WhatsApp</div>
+          <WhatsAppTab showToast={showToast} embedded />
+        </div>
+      )}
 
       <Section title="Impressão térmica">
         <ToggleRow

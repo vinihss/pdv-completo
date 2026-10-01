@@ -440,6 +440,8 @@ export const storeSettings = pgTable("store_settings", {
   kitchenEnabled: boolean("kitchen_enabled").notNull().default(true),
   usesDelivery: boolean("uses_delivery").notNull().default(true),
   ifoodIntegrationEnabled: boolean("ifood_integration_enabled").notNull().default(false),
+  // Integração WhatsApp (0007): master switch do painel em Configurações.
+  whatsappIntegrationEnabled: boolean("whatsapp_integration_enabled").notNull().default(false),
   inventoryEnabled: boolean("inventory_enabled").notNull().default(false), // estoque (0016)
   purchaseEnabled: boolean("purchase_enabled").notNull().default(false), // compras + custo médio (0017)
   // Impressão térmica (daemon local, 0003): master switch + auto-print.

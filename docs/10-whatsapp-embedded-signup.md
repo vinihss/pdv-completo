@@ -84,13 +84,17 @@ e o campo *Verify token* é o mesmo `WHATSAPP_VERIFY_TOKEN`.
 
 ## 5. O que o gerente faz
 
-1. Menu → **WhatsApp**.
-2. Se o servidor não estiver configurado, a aba lista as variáveis que
+1. Configurações → **Modo de operação** → ligar **Integração WhatsApp**
+   (`store_settings.whatsapp_integration_enabled`, default `false`). O painel
+   do WhatsApp passa a aparecer logo abaixo, na mesma tela de Configurações —
+   deixou de ser item do menu esquerdo. Desligar o toggle esconde o painel sem
+   desconectar a conta.
+2. Se o servidor não estiver configurado, o painel lista as variáveis que
    faltam — não adianta clicar em "Conectar".
 3. **Conectar WhatsApp** abre o popup da Meta. Logar na conta da empresa e
    autorizar. É um popup da Meta, não um formulário: não dá para contornar.
-4. O PDV troca o code, registra o número e assina os webhooks. A aba passa a
-   mostrar número, nome na Meta e empresa.
+4. O PDV troca o code, registra o número e assina os webhooks. O painel passa
+   a mostrar número, nome na Meta e empresa.
 5. **Desconectar** apaga o token. while ele existir, qualquer chamada futura
    da Meta com ele continua válida — por isso desconectar é revogar de fato.
 
