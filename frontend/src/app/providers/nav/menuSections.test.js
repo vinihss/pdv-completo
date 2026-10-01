@@ -4,16 +4,19 @@ import { menuSectionsFor, hasExpandableSections, firstItemId } from "./menuSecti
 const labels = (sections) => sections.flatMap((s) => s.items.map((i) => `${s.label}/${i.label}`));
 
 describe("menuSectionsFor", () => {
-  it("gerente: 4 seções, 13 itens com estoque e compras ligados", () => {
-    const sections = menuSectionsFor("manager", { inventoryEnabled: true, purchaseEnabled: true });
+  it("gerente: 4 seções, 12 itens com estoque, compras e iFood ligados", () => {
+    const sections = menuSectionsFor("manager", {
+      inventoryEnabled: true,
+      purchaseEnabled: true,
+      ifoodIntegrationEnabled: true,
+    });
     expect(sections.map((s) => s.label)).toEqual(["Operação", "Catálogo", "Gestão", "Sistema"]);
-    expect(sections.flatMap((s) => s.items)).toHaveLength(13);
+    expect(sections.flatMap((s) => s.items)).toHaveLength(12);
   });
 
-  it("gerente: os toggles de estoque e compras entram no catálogo", () => {
+  it("gerente: os toggles de estoque e compras entram no catálogo, o de iFood na operação", () => {
     expect(labels(menuSectionsFor("manager"))).toEqual([
-      "Operação/Comandas", "Operação/Caixa", "Operação/Clientes", "Operação/Entregas", "Operação/iFood",
-      "Operação/WhatsApp",
+      "Operação/Comandas", "Operação/Caixa", "Operação/Clientes", "Operação/Entregas",
       "Catálogo/Cadastros",
       "Gestão/Equipe", "Gestão/Relatórios", "Gestão/Auditoria",
       "Sistema/Configurações",
@@ -22,13 +25,33 @@ describe("menuSectionsFor", () => {
     expect(comEstoque).toContain("Catálogo/Estoque");
     const comCompras = labels(menuSectionsFor("manager", { purchaseEnabled: true }));
     expect(comCompras).toContain("Catálogo/Compras");
+    const comIfood = labels(menuSectionsFor("manager", { ifoodIntegrationEnabled: true }));
+    expect(comIfood).toContain("Operação/iFood");
+  });
+
+  it("iFood some do menu quando a integração está desligada", () => {
+    expect(labels(menuSectionsFor("manager", { ifoodIntegrationEnabled: false }))).not.toContain("Operação/iFood");
+  });
+
+  it("WhatsApp não é item de menu: o painel mora em Configurações", () => {
+    const ids = menuSectionsFor("manager", {
+      inventoryEnabled: true,
+      purchaseEnabled: true,
+      ifoodIntegrationEnabled: true,
+    }).flatMap((s) => s.items.map((i) => i.id));
+    expect(ids).not.toContain("whatsapp");
+    expect(labels(menuSectionsFor("manager", { ifoodIntegrationEnabled: true }))).not.toContain("Operação/WhatsApp");
   });
 
   it("mantém os ids que a página do gerente já usa", () => {
-    const ids = menuSectionsFor("manager", { inventoryEnabled: true, purchaseEnabled: true })
+    const ids = menuSectionsFor("manager", {
+      inventoryEnabled: true,
+      purchaseEnabled: true,
+      ifoodIntegrationEnabled: true,
+    })
       .flatMap((s) => s.items)
       .map((i) => i.id);
-    expect(ids).toEqual(["orders", "cash", "customers", "deliveries", "ifood", "whatsapp", "catalog", "stock", "compras", "users", "reports", "audit", "settings"]);
+    expect(ids).toEqual(["orders", "cash", "customers", "deliveries", "ifood", "catalog", "stock", "compras", "users", "reports", "audit", "settings"]);
   });
 
   it("perfis de tela única: uma seção com um item", () => {

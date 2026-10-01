@@ -19,7 +19,7 @@ Mapa de telas, componentes e entities para agentes encontrarem código rapidamen
 | Aba | Arquivo | Entities |
 |---|---|---|
 | Comandas | `pages/manager/ManagerApp.jsx` (default) | `order`, `product`, `category`, `table` |
-| Configurações | `pages/manager/tabs/settings/SettingsTab.jsx` | `store`, `printer` |
+| Configurações | `pages/manager/tabs/settings/SettingsTab.jsx` | `store`, `printer`, `whatsapp` (painel embutido) |
 | Dinheiro | `pages/manager/tabs/cash/CashTab.jsx` | `cash` |
 | Clientes | `pages/manager/tabs/customers/CustomersTab.jsx` | `customer` |
 | Entregar | `pages/manager/tabs/deliveries/DeliveriesTab.jsx` | `delivery` |
@@ -29,8 +29,8 @@ Mapa de telas, componentes e entities para agentes encontrarem código rapidamen
 | Catálogo | `pages/manager/tabs/catalog/CatalogTab.jsx` | `product`, `category` |
 | Auditoria | `pages/manager/tabs/audit/AuditTab.jsx` | `audit` |
 | Equipe | `pages/manager/tabs/users/UsersTab.jsx` | `user` |
-| WhatsApp | `pages/manager/tabs/whatsapp/WhatsAppTab.jsx` | `whatsapp` |
-| iFood | `pages/manager/tabs/ifood/IfoodTab.jsx` | `ifood` |
+| WhatsApp | `pages/manager/tabs/whatsapp/WhatsAppTab.jsx` — não é aba de menu: o `SettingsTab` o renderiza embutido, só com `store_settings.whatsapp_integration_enabled` ligado | `whatsapp` |
+| iFood | `pages/manager/tabs/ifood/IfoodTab.jsx` — some do menu quando `store_settings.ifood_integration_enabled` está desligado | `ifood` |
 
 ## Widgets
 

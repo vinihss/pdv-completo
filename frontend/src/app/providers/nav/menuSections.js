@@ -1,5 +1,5 @@
 import {
-  BarChart3, Boxes, ChefHat, History, MessageCircle, Package, Receipt, Settings, ShoppingCart, Store, Truck, Users, UtensilsCrossed, Wallet,
+  BarChart3, Boxes, ChefHat, History, Package, Receipt, Settings, ShoppingCart, Store, Truck, Users, UtensilsCrossed, Wallet,
 } from "lucide-react";
 
 /**
@@ -11,7 +11,7 @@ import {
  * O `id` dos itens é o mesmo id das abas do gerente, para a troca de tela não
  * virar tradução.
  */
-const MANAGER = ({ inventoryEnabled, purchaseEnabled }) => [
+const MANAGER = ({ inventoryEnabled, purchaseEnabled, ifoodIntegrationEnabled }) => [
   {
     id: "operacao",
     label: "Operação",
@@ -21,8 +21,10 @@ const MANAGER = ({ inventoryEnabled, purchaseEnabled }) => [
       { id: "cash", label: "Caixa", icon: Wallet },
       { id: "customers", label: "Clientes", icon: Users },
       { id: "deliveries", label: "Entregas", icon: Truck },
-      { id: "ifood", label: "iFood", icon: Store },
-      { id: "whatsapp", label: "WhatsApp", icon: MessageCircle },
+      // iFood só quando a integração está ligada em Configurações.
+      ...(ifoodIntegrationEnabled ? [{ id: "ifood", label: "iFood", icon: Store }] : []),
+      // O WhatsApp não é mais item de menu: o painel mora dentro de
+      // Configurações (SettingsTab), atrás do toggle "Integração WhatsApp".
     ],
   },
   {
@@ -84,8 +86,11 @@ const CASHIER = [
 ];
 
 /** Seções do menu do papel, já filtradas pelos feature-toggles. */
-export function menuSectionsFor(role, { inventoryEnabled = false, purchaseEnabled = false } = {}) {
-  if (role === "manager") return MANAGER({ inventoryEnabled, purchaseEnabled });
+export function menuSectionsFor(
+  role,
+  { inventoryEnabled = false, purchaseEnabled = false, ifoodIntegrationEnabled = false } = {}
+) {
+  if (role === "manager") return MANAGER({ inventoryEnabled, purchaseEnabled, ifoodIntegrationEnabled });
   if (role === "cashier") return CASHIER;
   return singleScreen(role in SINGLE_SCREEN ? role : "waiter");
 }
