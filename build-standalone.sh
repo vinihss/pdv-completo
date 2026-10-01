@@ -77,9 +77,101 @@ fi
 
 # ---------- 1. Versão ----------
 # Os tauri.conf.json da família standalone NÃO declaram `version` — o Tauri lê
-# do Cargo.toml do crate automaticamente. A versão é herdada do workspace
-# (version.workspace = true), então basta conferir o Cargo.toml.
-PKG_VERSION="$(grep -m1 '^version = ' "$CARGO_TOML" | sed 's/^version = "\(.*\)"$/\1/')"
+# do Cargo.toml do crate automaticamente. A versão do crate, porém, aparece de
+# duas formas possíveis e o script precisa resolver as duas:
+#
+#   a) `version = "x.y.z"` literal em [package] — usada direto;
+#   b) `version.workspace = true` (o caso dos 4 crates standalone) — a versão
+#      NÃO está no manifesto do crate: ela mora em [workspace.package] do
+#      Cargo.toml da RAIZ do repo e só pode ser lida de lá.
+#
+# O casamento é por seção TOML, nunca por "primeira linha que casar": um
+# `version` de [dependencies] (ou de outra seção) não vale, e no root só
+# [workspace.package] conta. Caso nenhuma das duas formas resolva, o script
+# aborta com erro: versão vazia viraria "suba a tag v" na mensagem final do
+# --release e um instalador publicado com a versão errada.
+
+toml_value() {
+  # Imprime o valor bruto da chave $3 dentro da seção $2 do arquivo $1.
+  # Comentários são ignorados e a chave é comparada por igualdade EXATA, então
+  # `version` não casa `version.workspace` (nem o contrário) e a seção vizinha
+  # nunca contamina o resultado.
+  awk -v want_sec="$2" -v want_key="$3" '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*\[/ {
+      sec = $0
+      sub(/^[[:space:]]*\[/, "", sec)
+      sub(/\].*$/, "", sec)
+      cur = sec
+      next
+    }
+    {
+      eq = index($0, "=")
+      if (!eq) next
+      key = substr($0, 1, eq - 1)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+      if (cur != want_sec || key != want_key) next
+      val = substr($0, eq + 1)
+      sub(/^[[:space:]]+/, "", val)
+      sub(/[[:space:]]+$/, "", val)
+      print val
+      exit
+    }
+  ' "$1"
+}
+
+resolve_pkg_version() {
+  # resolve_pkg_version <Cargo.toml do crate> <Cargo.toml da raiz do repo>
+  # → imprime a versão; falha (return != 0, mensagem em stderr) se não resolver.
+  local crate_toml="$1" root_toml="$2" v
+
+  # (a) literal em [package]
+  v="$(toml_value "$crate_toml" package version)"
+  if [ -n "$v" ]; then
+    case "$v" in
+      \"[0-9]*\")
+        v="${v#\"}"
+        v="${v%\"}"
+        printf '%s\n' "$v"
+        return 0
+        ;;
+      *)
+        echo "ERRO: \`version\` de [package] em $crate_toml não é literal \"x.y.z\": $v" >&2
+        return 1
+        ;;
+    esac
+  fi
+
+  # (b) herança do workspace → a versão mora no Cargo.toml da raiz
+  v="$(toml_value "$crate_toml" package version.workspace)"
+  if [ "$v" = "true" ]; then
+    if [ ! -f "$root_toml" ]; then
+      echo "ERRO: $crate_toml usa version.workspace = true, mas $root_toml não existe." >&2
+      return 1
+    fi
+    v="$(toml_value "$root_toml" workspace.package version)"
+    case "$v" in
+      \"[0-9]*\")
+        v="${v#\"}"
+        v="${v%\"}"
+        printf '%s\n' "$v"
+        return 0
+        ;;
+      *)
+        echo "ERRO: $crate_toml herda a versão do workspace, mas [workspace.package] de $root_toml não tem um version = \"x.y.z\" válido (achado: ${v:-<nada>})." >&2
+        return 1
+        ;;
+    esac
+  fi
+
+  echo "ERRO: [package] de $crate_toml não declara version = \"x.y.z\" nem version.workspace = true; não há como resolver a versão." >&2
+  return 1
+}
+
+PKG_VERSION="$(resolve_pkg_version "$CARGO_TOML" "$ROOT/Cargo.toml")" || {
+  echo "ERRO: não foi possível resolver a versão a partir de $CARGO_TOML (motivo acima)." >&2
+  exit 1
+}
 echo "==> Versão: $PKG_VERSION (do Cargo.toml)"
 
 # ---------- 2. Assinatura ----------
