@@ -191,7 +191,18 @@ cmd_rm() {
 	[ $# -eq 1 ] || { usage >&2; die "informe o nome da branch"; }
 	branch="$1"
 	repo="$(main_repo)"
-	target="$BASE_DIR/$branch"
+	# Onde a worktree DESTA branch está. Não assume `$BASE_DIR/$branch`: a
+	# convenção vale para o que o `new` cria, mas um worktree já existente pode
+	# estar em outro caminho — `ci-pr-workflow` apontava para `ci/pr-tests`, e o
+	# `rm` procurava `~/pdv-worktrees/ci/pr-tests`, não achava, e o `branch -D`
+	# seguinte falhava com "cannot delete branch ... used by worktree at ...".
+	# Quem responde é o git, que registra a association branch -> worktree.
+	target="$(git -C "$repo" worktree list --porcelain |
+		awk -v b="refs/heads/$branch" '
+			/^worktree /  { path = substr($0, 10) }
+			$0 == "branch " b { print path; exit }
+		')"
+	[ -n "$target" ] || target="$BASE_DIR/$branch"
 
 	# A branch precisa existir localmente para o passo de merge ser avaliável.
 	if ! git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
