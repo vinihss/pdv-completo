@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import useEscapeLayer from "@/shared/hooks/useEscapeLayer.js";
 import useBodyScrollLock from "@/shared/hooks/useBodyScrollLock.js";
