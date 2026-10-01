@@ -220,6 +220,15 @@ ensure_updates_dir() {
   fi
   [ -e "$UPDATES_DIR/files/windows-x86_64" ] ||
     mkdir -p "$UPDATES_DIR/files/windows-x86_64"
+  # Família standalone: um diretório por app. O Caddy espera latest.json em
+  # deploy/updates/<app>/ e os artefatos em
+  # deploy/updates/files/<app>/windows-x86_64/ (ver Caddyfile). Sem esses
+  # diretórios, o scp do job build-desktop falha no primeiro deploy da família.
+  for app in caixa kds; do
+    [ -e "$UPDATES_DIR/$app" ] || mkdir -p "$UPDATES_DIR/$app"
+    [ -e "$UPDATES_DIR/files/$app/windows-x86_64" ] ||
+      mkdir -p "$UPDATES_DIR/files/$app/windows-x86_64"
+  done
 }
 
 # Recarrega o proxy. A config é montada DENTRO do container do Caddy a

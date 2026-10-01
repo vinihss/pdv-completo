@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../frontend/dist/entregador",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "cd frontend && npm run dev",
-    "beforeBuildCommand": "cd frontend && npm run build:entregador"
+    "beforeDevCommand": "cd ../frontend && npm run dev:entregador",
+    "beforeBuildCommand": "cd ../frontend && npm run build:entregador"
   },
   "app": {
     "windows": [
