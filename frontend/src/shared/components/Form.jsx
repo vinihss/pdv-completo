@@ -1,38 +1,13 @@
 import React, { useId } from "react";
-import { ChevronDown } from "lucide-react";
 
 export const inputClass =
   "w-full bg-stone-800 border border-stone-700 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-amber-500/50";
 
-// `onToggle` opcional transforma o cabeçalho em botão de colapso (accordion
-// de seções — ex.: categorias do catálogo). Sem ele, a seção é estática.
-// `subtitle` é a linha de apoio abaixo do título: números que ancoram o que
-// está dentro (o total do período, no gráfico de vendas).
-export function Section({ title, subtitle, children, collapsed, onToggle }) {
-  const header = (
-    <div className="text-stone-500 text-xs font-bold tracking-widest uppercase mb-3 flex items-baseline gap-2 flex-wrap">
-      {title}
-      {subtitle && <span className="text-stone-600 font-medium tracking-normal normal-case">{subtitle}</span>}
-      {onToggle && (
-        <ChevronDown size={13} className={`transition-transform shrink-0 ${collapsed ? "-rotate-90" : ""}`} />
-      )}
-    </div>
-  );
+export function Section({ title, children }) {
   return (
     <div>
-      {onToggle ? (
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={!collapsed}
-          className="w-full text-left hover:text-stone-400 transition-colors"
-        >
-          {header}
-        </button>
-      ) : (
-        header
-      )}
-      {!collapsed && <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 space-y-4">{children}</div>}
+      <div className="text-stone-500 text-xs font-bold tracking-widest uppercase mb-3">{title}</div>
+      <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 space-y-4">{children}</div>
     </div>
   );
 }

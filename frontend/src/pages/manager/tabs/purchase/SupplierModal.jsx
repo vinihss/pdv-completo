@@ -31,12 +31,12 @@ export default function SupplierModal({ onClose, onSaved, showToast }) {
       title="Novo fornecedor"
       onClose={onClose}
       footer={
-        <button type="submit" form="form-fornecedor" disabled={saving} className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl">
+        <button type="submit" disabled={saving} className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl">
           {saving ? "Salvando…" : "Salvar"}
         </button>
       }
     >
-      <form id="form-fornecedor" noValidate onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="p-5 space-y-3">
+      <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="p-5 space-y-3">
         <Field label="Nome" required><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Distribuidora Bebidas" className={inputClass} /></Field>
         <Field label="Telefone (opcional)"><input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(11) 99999-0000" className={inputClass} /></Field>
         <Field label="CNPJ / CPF (opcional)"><input value={taxId} onChange={(e) => setTaxId(maskCnpjCpf(e.target.value))} inputMode="numeric" className={inputClass} /></Field>
