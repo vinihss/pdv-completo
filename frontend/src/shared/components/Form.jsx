@@ -6,12 +6,15 @@ export const inputClass =
 
 // `onToggle` opcional transforma o cabeçalho em botão de colapso (accordion
 // de seções — ex.: categorias do catálogo). Sem ele, a seção é estática.
-export function Section({ title, children, collapsed, onToggle }) {
+// `subtitle` é a linha de apoio abaixo do título: números que ancoram o que
+// está dentro (o total do período, no gráfico de vendas).
+export function Section({ title, subtitle, children, collapsed, onToggle }) {
   const header = (
-    <div className="text-stone-500 text-xs font-bold tracking-widest uppercase mb-3 flex items-center gap-1.5">
+    <div className="text-stone-500 text-xs font-bold tracking-widest uppercase mb-3 flex items-baseline gap-2 flex-wrap">
       {title}
+      {subtitle && <span className="text-stone-600 font-medium tracking-normal normal-case">{subtitle}</span>}
       {onToggle && (
-        <ChevronDown size={13} className={`transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+        <ChevronDown size={13} className={`transition-transform shrink-0 ${collapsed ? "-rotate-90" : ""}`} />
       )}
     </div>
   );

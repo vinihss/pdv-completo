@@ -37,6 +37,8 @@
  *   POST   /customers/:id/addresses/:addressId/default — marcar padrão (manager, cashier)
  *   DELETE /customers/:id/addresses/:addressId — remover endereço (manager, cashier)
  *   GET    /reports/sales          — relatório de vendas (manager)
+ *   GET    /reports/overview       — visão geral: vendas por período (manager)
+ *   GET    /reports/deliveries     — relatório de entregas (manager)
  *   GET    /stock                   — listar estoque (manager)
  *   GET    /stock/movements         — listar movimentos (manager)
  *   POST   /stock/:productId/movements — movimento manual (manager)
@@ -96,6 +98,8 @@ import {
 } from "../../application/customer.usecases.js";
 import { addCustomerAddressUsecase, setDefaultCustomerAddressUsecase, deleteCustomerAddressUsecase } from "../../application/self-service/customer-address.usecases.js";
 import { salesReportUsecase } from "../../application/report.usecases.js";
+import { overviewReportUsecase } from "../../application/report-overview.usecases.js";
+import { deliveriesReportUsecase } from "../../application/report-deliveries.usecases.js";
 import { listAuditLogUsecase } from "../../application/audit-log.usecases.js";
 import {
   listStockUsecase,
@@ -475,6 +479,30 @@ export async function miscRoutes(app: FastifyInstance) {
       limit: Math.min(Number(q.limit ?? 50), 200),
       offset: Number(q.offset ?? 0),
     });
+  });
+
+  // Visão geral: a mesma regra de venda de /reports/sales (comandas fechadas,
+  // total pelos itens no snapshot + taxa), só que agrupada por período para o
+  // gráfico. Ver `report-overview.usecases.ts` para por que os dois números
+  // precisam bater.
+  app.get("/reports/overview", { preHandler: requireRole("manager") }, async (req) => {
+    const q = req.query as { from?: string; to?: string; groupBy?: string; tz?: string };
+    return overviewReportUsecase({
+      from: q.from,
+      to: q.to,
+      groupBy:
+        q.groupBy === "hour" || q.groupBy === "week" || q.groupBy === "month" || q.groupBy === "day"
+          ? (q.groupBy as "hour" | "day" | "week" | "month")
+          : "day",
+      tz: q.tz,
+    });
+  });
+
+  // Relatório de entregas: volume, no-prazo e tempo médio, sobre as mesmas
+  // comandas fechadas do relatório de vendas (ver report-deliveries.usecases.ts).
+  app.get("/reports/deliveries", { preHandler: requireRole("manager") }, async (req) => {
+    const q = req.query as { from?: string; to?: string; tz?: string };
+    return deliveriesReportUsecase({ from: q.from, to: q.to, tz: q.tz });
   });
 
   // ---------- Stock (inventário) ----------

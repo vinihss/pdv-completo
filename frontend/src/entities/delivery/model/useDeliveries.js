@@ -4,6 +4,26 @@ import { useRealtime } from "@/shared/hooks";
 import { listCouriers, listDeliveries, listMyDeliveries } from "../api/delivery.js";
 
 /**
+ * Status que não são "a fazer": entregue (já foi) e cancelado (deixou de
+ * ser pedido). Nenhuma das duas pertence à lista de trabalho — nem do
+ * entregador nem do balcão — e as duas somem da tela por padrão.
+ */
+const RESOLVED_STATUSES = new Set(["delivered", "cancelled"]);
+
+/**
+ * A entrega ainda pede ação?
+ *
+ * Filtro no cliente, e não na query: a lista já é curta (as entregas do dia) e
+ * o realtime recarrega tudo de qualquer evento, então filtrar na hora da
+ * renderização evita o caso chato de "marquei como entregue, a tela não
+ * mudou, dei F5". No servidor o filtro só importaria para uma operação muito
+ * maior do que a de um restaurante.
+ */
+export function isOpenDelivery(delivery) {
+  return !RESOLVED_STATUSES.has(delivery?.status);
+}
+
+/**
  * Fonte única das entregas. O mesmo agregado (entrega) é visto por dois
  * papéis, então o hook é o mesmo — muda só o escopo do backend:
  *

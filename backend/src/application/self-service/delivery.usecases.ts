@@ -1,12 +1,12 @@
-import { eq, inArray, and, notInArray } from "drizzle-orm";
+import { eq, inArray, and } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
-import { deliveries, users, orders, orderItems, customers } from "../../infra/db/schema.js";
+import { deliveries, users, orders, customers } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
 import { canTransitionDelivery, type DeliveryStatus } from "../../domain/customer-order-state.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
 import { emitCustomerStageChangedTx } from "./customer-stage.js";
-import { registerPaymentUsecase, closeOrderUsecase } from "../order/order.usecases.js";
+import { closeOrderAfterDelivery } from "./manager-delivery-status.usecase.js";
 import { notifyDispatched, notifyDelivered, notifyFailed } from "../../integrations/whatsapp/whatsapp.notifier.js";
 import { printCourierOrder } from "../../integrations/printer/printer.usecases.js";
 import { getSettings } from "../order/order.usecases.js";
@@ -130,25 +130,14 @@ export async function deliverDeliveryUsecase(input: { deliveryId: string; courie
     return result;
   });
 
-  // Fecha o pedido de verdade — sem isso ele fica preso em "open" pra
-  // sempre, porque order_item nunca chega a "delivered" numa entrega (não
-  // há garçom servindo mesa) e closeOrderUsecase exige isso + paymentMethod
-  // registrado. Cada chamada abaixo é atômica por conta própria (mesmo
-  // padrão de composição sequencial já usado em createSelfServiceOrderUsecase),
-  // não há uma transação única amarrando os três passos.
-  await db
-    .update(orderItems)
-    .set({ status: "delivered" })
-    .where(and(eq(orderItems.orderId, updated.orderId), notInArray(orderItems.status, ["delivered", "cancelled"])));
-
-  const order = await db.query.orders.findFirst({ where: eq(orders.id, updated.orderId) });
-  if (order?.paymentMethod) {
-    // confirmed:true — o entregador recebeu o pagamento (dinheiro/pix) nesse
-    // momento, diferente do registro inicial em createSelfServiceOrderUsecase
-    // (confirmed:false lá, que era só a intenção declarada no checkout).
-    await registerPaymentUsecase({ orderId: updated.orderId, userId: input.courierId, paymentMethod: order.paymentMethod, confirmed: true });
-    await closeOrderUsecase({ orderId: updated.orderId, userId: input.courierId });
-  }
+  // Fecha o pedido de verdade — sem isso ele fica preso em "open" pra sempre,
+  // porque order_item nunca chega a "delivered" numa entrega (não há garçom
+  // servindo mesa) e closeOrderUsecase exige isso + paymentMethod registrado.
+  //
+  // Compartilhado com `setDeliveryStatusUsecase` (gerente marcando entregue
+  // pelo balcão): os dois precisam do mesmo efeito, e duas cópias divergem
+  // no primeiro conserto de uma delas. O comentário de lá explica o porquê.
+  await closeOrderAfterDelivery(updated.orderId, input.courierId);
 
   notifyDelivered(updated.orderId).catch((err) => console.error("falha ao notificar entrega concluída pro cliente:", err));
 

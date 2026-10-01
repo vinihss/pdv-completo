@@ -1,3 +1,17 @@
-export { assignCourier, deliverDelivery, dispatchDelivery, failDelivery, listCouriers, listDeliveries, listMyDeliveries } from "./api/delivery.js";
-export { default as DeliveryStatusBadge } from "./ui/DeliveryStatusBadge.jsx";
-export { useDeliveries } from "./model/useDeliveries.js";
+export {
+  assignCourier,
+  deliverDelivery,
+  dispatchDelivery,
+  failDelivery,
+  listCouriers,
+  listDeliveries,
+  listMyDeliveries,
+  setDeliveryStatus,
+} from "./api/delivery.js";
+export {
+  default as DeliveryStatusBadge,
+  allowedTransitions,
+  statusNeedsReason,
+  DELIVERY_TRANSITIONS,
+} from "./ui/DeliveryStatusBadge.jsx";
+export { useDeliveries, isOpenDelivery } from "./model/useDeliveries.js";

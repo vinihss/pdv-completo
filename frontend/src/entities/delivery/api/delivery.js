@@ -14,7 +14,18 @@ export function assignCourier(deliveryId, courierId) {
   return request("PATCH", `/manager/deliveries/${deliveryId}/assign`, { courierId });
 }
 
+// Correção de status pelo balcão. `reason` é obrigatório na prática quando o
+// destino é `cancelled`/`failed` — a tela pede antes de chamar, porque o motivo
+// é o texto que o cliente recebe na notificação.
+export function setDeliveryStatus(deliveryId, status, reason) {
+  return request("PATCH", `/manager/deliveries/${deliveryId}/status`, {
+    status,
+    ...(reason ? { reason } : {}),
+  });
+}
+
 // ---------- Entregas do entregador (perfil courier) ----------
+
 export function listMyDeliveries() {
   return request("GET", "/courier/deliveries");
 }

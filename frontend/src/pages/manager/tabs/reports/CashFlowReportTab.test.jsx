@@ -1,6 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 
+// A tela de Fluxo de caixa deixou de ser o rodapé do relatório de pedidos: os
+// quatro relatórios são telas independentes, e o teste precisa cobrir a que o
+// caixa virou — inclusive a sessão ABERTA, que é onde a soma de "esperado"
+// estoura (foi a regressão A que mantivemos coberta).
 vi.mock("@/entities/reports", async (importOriginal) => ({
   ...(await importOriginal()),
   salesReport: vi.fn(),
@@ -12,22 +16,7 @@ vi.mock("@/entities/cash", async (importOriginal) => ({
 
 import { salesReport } from "@/entities/reports";
 import { getCashDrawerSummary } from "@/entities/cash";
-import ReportsTab from "./ReportsTab.jsx";
-
-const reportFixture = {
-  summary: {
-    totalRevenue: 38,
-    orderCount: 2,
-    avgTicket: 19,
-    changeTotal: 1,
-    byPaymentMethod: { cash: 38 },
-  },
-  total: 2,
-  data: [
-    { orderId: "o-1", label: "Mesa 1", closedAt: "2026-09-24T21:00:00.000Z", paymentMethod: "Dinheiro", total: 19 },
-    { orderId: "o-2", label: "Mesa 2", closedAt: "2026-09-24T21:30:00.000Z", paymentMethod: "Dinheiro", total: 19 },
-  ],
-};
+import CashFlowReportTab from "./CashFlowReportTab.jsx";
 
 function cashFixture(openSession) {
   const sessions = [];
@@ -68,16 +57,16 @@ function cashFixture(openSession) {
   };
 }
 
-describe("ReportsTab", () => {
+describe("CashFlowReportTab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    salesReport.mockResolvedValue(reportFixture);
+    salesReport.mockResolvedValue({ summary: {}, total: 0, data: [] });
   });
 
   it("renderiza com uma sessão aberta no período sem quebrar (regressão A)", async () => {
     getCashDrawerSummary.mockResolvedValue(cashFixture(true));
 
-    render(<ReportsTab showToast={vi.fn()} />);
+    render(<CashFlowReportTab showToast={vi.fn()} />);
 
     await waitFor(() => {
       expect(screen.getByText("em aberto")).toBeDefined();
@@ -94,11 +83,22 @@ describe("ReportsTab", () => {
   it("renderiza só sessões fechadas sem aviso de em aberto", async () => {
     getCashDrawerSummary.mockResolvedValue(cashFixture(false));
 
-    render(<ReportsTab showToast={vi.fn()} />);
+    render(<CashFlowReportTab showToast={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Fluxo de caixa \(1\)/)).toBeDefined();
+      expect(screen.getByText(/Sessões \(1\)/)).toBeDefined();
       expect(screen.queryByText(/em aberto/)).toBeNull();
     });
+  });
+
+  it("não chama o relatório de vendas — as telas são independentes", async () => {
+    getCashDrawerSummary.mockResolvedValue(cashFixture(false));
+
+    render(<CashFlowReportTab showToast={vi.fn()} />);
+
+    await waitFor(() => expect(getCashDrawerSummary).toHaveBeenCalled());
+    // Antes do submenu, a única tela de relatórios buscava vendas E caixa; o
+    // gerente agora abre cada uma separadamente.
+    expect(salesReport).not.toHaveBeenCalled();
   });
 });

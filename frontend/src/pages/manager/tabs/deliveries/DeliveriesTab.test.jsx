@@ -73,7 +73,8 @@ describe("DeliveriesTab — card de entrega", () => {
     expect(screen.getByText("Maria Silva")).toBeTruthy();
     expect(screen.getByText(ENTREGA.address)).toBeTruthy();
     // `^` ancora no começo do <p>, que é onde mora a data de criação.
-    expect(screen.getByText(/^29\/09 14:30/)).toBeTruthy();
+    expect(screen.getByTestId("delivery-datetime").textContent).toContain("29/09");
+    expect(screen.getByTestId("delivery-datetime").textContent).toContain("14:30");
   });
 
   it("sem cliente resolvido, mostra o endereço em vez de esconder o card", () => {
@@ -86,8 +87,14 @@ describe("DeliveriesTab — card de entrega", () => {
   it("entrega concluída mostra também quando foi entregue", () => {
     setup({ ...ENTREGA, status: "delivered", courier: ENTREGADOR, deliveredAt: ENTREGUE_EM });
 
-    expect(screen.getByText(/^29\/09 14:30/)).toBeTruthy();
-    expect(screen.getByText(/Entregue 29\/09 15:05/)).toBeTruthy();
+    const toggle = screen.getByLabelText(/Mostrar entregues e canceladas/);
+    fireEvent.click(toggle);
+
+    const dt = screen.getByTestId("delivery-datetime");
+    expect(dt.textContent).toContain("29/09");
+    expect(dt.textContent).toContain("14:30");
+    expect(dt.textContent).toContain("Entregue");
+    expect(dt.textContent).toContain("15:05");
   });
 
   it("clicar no card abre a comanda da entrega", () => {
@@ -103,7 +110,7 @@ describe("DeliveriesTab — card de entrega", () => {
 
     // Espaço no <select> é o teclado do dropdown: se vazasse para o card,
     // atribuir entregador também abriria a comanda.
-    fireEvent.keyDown(screen.getByRole("combobox"), { key: " " });
+    fireEvent.keyDown(screen.getByLabelText(/Atribuir entregador/), { key: " " });
     expect(mocks.focusOrder).not.toHaveBeenCalled();
 
     // O card é o alvo do teclado (role=button, tabIndex=0): o evento sai
@@ -115,7 +122,7 @@ describe("DeliveriesTab — card de entrega", () => {
   it("atribuir entregador não dispara a abertura da comanda", () => {
     setup();
 
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: ENTREGADOR.id } });
+    fireEvent.change(screen.getByLabelText(/Atribuir entregador/), { target: { value: ENTREGADOR.id } });
 
     expect(mocks.assignCourier).toHaveBeenCalledWith(ENTREGA.id, ENTREGADOR.id);
     expect(mocks.focusOrder).not.toHaveBeenCalled();

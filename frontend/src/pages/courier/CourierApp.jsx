@@ -1,6 +1,13 @@
 import React, { useState } from "react";
 import { MapPin, Check, AlertTriangle, X, Package } from "lucide-react";
-import { dispatchDelivery, deliverDelivery, failDelivery, DeliveryStatusBadge, useDeliveries } from "@/entities/delivery";
+import {
+  dispatchDelivery,
+  deliverDelivery,
+  failDelivery,
+  DeliveryStatusBadge,
+  isOpenDelivery,
+  useDeliveries,
+} from "@/entities/delivery";
 import { useToast, Toast } from "@/shared/components";
 
 /**
@@ -59,7 +66,12 @@ export default function CourierApp() {
     }
   }
 
-  const pending = deliveries.filter((d) => d.status === "awaiting_courier").length;
+  // A lista do entregador é fila de trabalho: entregue e cancelado já não são
+  // tarefa, e não há toggle para o histórico — quem precisa do histórico é o
+  // gerente, na tela de Entregas. O filtro é do cliente (isOpenDelivery) e o
+  // backend ainda devolve tudo, para o realtime recarregar sem estado local.
+  const open = deliveries.filter(isOpenDelivery);
+  const pending = open.filter((d) => d.status === "awaiting_courier").length;
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-50">
@@ -68,21 +80,21 @@ export default function CourierApp() {
         <div className="px-5 py-4 border-b border-stone-800">
           <h1 className="text-lg font-bold">Minhas entregas</h1>
           <p className="text-xs text-stone-500 mt-0.5">
-            {deliveries.length === 0 ? "Nenhuma pendente" : `${deliveries.length} ${deliveries.length === 1 ? "pendente" : "pendentes"}`}
+            {open.length === 0 ? "Nenhuma pendente" : `${open.length} ${open.length === 1 ? "pendente" : "pendentes"}`}
           </p>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-          {loading && deliveries.length === 0 && <p className="text-stone-600 text-sm text-center py-10">Carregando…</p>}
+          {loading && open.length === 0 && <p className="text-stone-600 text-sm text-center py-10">Carregando…</p>}
 
-          {!loading && deliveries.length === 0 && (
+          {!loading && open.length === 0 && (
             <div className="text-center py-16">
               <Package size={32} className="mx-auto text-stone-700 mb-3" />
               <p className="text-sm text-stone-500">Nenhuma entrega pendente no momento.</p>
             </div>
           )}
 
-          {deliveries.map((d) => (
+          {open.map((d) => (
             <div key={d.id} className="bg-stone-900 border border-stone-800 rounded-2xl p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">

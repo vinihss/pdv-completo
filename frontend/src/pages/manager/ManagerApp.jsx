@@ -5,7 +5,10 @@ import { CashDrawerTab } from "@/widgets/cash-drawer";
 import DeliveriesTab from "./tabs/deliveries/DeliveriesTab.jsx";
 import CatalogTab from "./tabs/catalog/CatalogTab.jsx";
 import UsersTab from "./tabs/users/UsersTab.jsx";
-import ReportsTab from "./tabs/reports/ReportsTab.jsx";
+import OverviewTab from "./tabs/reports/OverviewTab.jsx";
+import OrdersReportTab from "./tabs/reports/OrdersReportTab.jsx";
+import DeliveriesReportTab from "./tabs/reports/DeliveriesReportTab.jsx";
+import CashFlowReportTab from "./tabs/reports/CashFlowReportTab.jsx";
 import AuditTab from "./tabs/audit/AuditTab.jsx";
 import IfoodTab from "./tabs/ifood/IfoodTab.jsx";
 import SettingsTab from "./tabs/settings/SettingsTab.jsx";
@@ -37,7 +40,15 @@ export default function ManagerApp() {
     stock: <StockTab showToast={showToast} purchaseEnabled={purchaseEnabled} />,
     compras: <PurchaseTab showToast={showToast} />,
     users: <UsersTab showToast={showToast} />,
-    reports: <ReportsTab showToast={showToast} />,
+    // Os quatro relatórios são telas independentes (ids `reports.*` do
+    // submenu), não abas de uma tela só. `reports` sem sufixo é o id do GRUPO
+    // no menu — não navega para lugar nenhum, e fica aqui só para que uma
+    // sessão salva com o id antigo (antes do submenu) não caia em branco.
+    reports: <OverviewTab showToast={showToast} />,
+    "reports.overview": <OverviewTab showToast={showToast} />,
+    "reports.orders": <OrdersReportTab showToast={showToast} />,
+    "reports.deliveries": <DeliveriesReportTab showToast={showToast} />,
+    "reports.cashflow": <CashFlowReportTab showToast={showToast} />,
     ifood: <IfoodTab showToast={showToast} />,
     audit: <AuditTab />,
     // Sem tela "whatsapp": o painel do WhatsApp mora em Configurações

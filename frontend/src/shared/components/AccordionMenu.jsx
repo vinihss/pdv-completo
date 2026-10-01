@@ -1,5 +1,5 @@
 import React from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 function Badge({ value }) {
   return (
@@ -10,17 +10,20 @@ function Badge({ value }) {
 }
 
 /** Item do menu em linha (variante completa): ícone, rótulo e badge. */
-function MenuItem({ item, active, onSelect }) {
+function MenuItem({ item, active, onSelect, nested = false }) {
   return (
     <button
       type="button"
       onClick={() => onSelect(item.id)}
       aria-current={active ? "page" : undefined}
       className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors ${
-        active ? "bg-amber-500 text-stone-950 font-semibold" : "text-stone-400 hover:text-stone-100 hover:bg-stone-800/60"
-      }`}
+        // O submenu recua um nível para o olho achar o pai — sem isso os
+        // filhos ficam alinhados com "Gestão"/"Auditoria" e o usuário perde a
+        // noção de que pertencem a "Relatórios".
+        nested ? "pl-7" : ""
+      } ${active ? "bg-amber-500 text-stone-950 font-semibold" : "text-stone-400 hover:text-stone-100 hover:bg-stone-800/60"}`}
     >
-      <item.icon size={15} className="shrink-0" />
+      <item.icon size={nested ? 14 : 15} className="shrink-0" />
       <span className="truncate text-left">{item.label}</span>
       {!active && item.badge > 0 && <Badge value={item.badge} />}
     </button>
@@ -46,8 +49,9 @@ function RailItem({ item, active, onSelect }) {
 }
 
 /**
- * Menu em acordeão: seções expansíveis com itens dentro. Três formas de
- * seção de menu, todas no mesmo componente:
+ * Menu em acordeão: seções expansíveis com itens dentro, e itens que podem ter
+ * um submenu próprio (terceiro nível). Três formas de seção de menu, todas no
+ * mesmo componente:
  *
  * - seção com mais de um item → cabeçalho clicável (expande/colapsa) + lista;
  * - seção com um item só → o cabeçalho É o item (nada de aninhar "Comandas >
@@ -57,8 +61,13 @@ function RailItem({ item, active, onSelect }) {
  *
  * Burro de propósito: recebe as seções já montadas e não sabe o que é
  * comanda, estoque ou gerente — quem monta é `widgets/app-menu`.
+ *
+ * O submenu (`item.children`) é um grupo, não uma tela: o clique no pai
+ * EXPANDE, e o `aria-expanded` diz isso. Só os filhos navegam. O pai fica
+ * visualmente ativo quando algum filho é a tela atual — é o que dá a
+ * sensação de "onde eu estou" ao olhar a coluna.
  */
-export default function AccordionMenu({ sections, activeId, onSelect, variant = "full", expanded, onToggleSection, footer }) {
+export default function AccordionMenu({ sections, activeId, onSelect, variant = "full", expanded, onToggleSection, expandedItems = new Set(), onToggleItem, footer }) {
   if (variant === "rail") {
     const items = sections.flatMap((s) => s.items);
     return (
@@ -107,7 +116,14 @@ export default function AccordionMenu({ sections, activeId, onSelect, variant = 
             {isOpen && (
               <div id={`menu-section-${section.id}`} role="group" aria-label={section.label} className="fade-up flex flex-col gap-0.5 pt-0.5">
                 {section.items.map((item) => (
-                  <MenuItem key={item.id} item={item} active={item.id === activeId} onSelect={onSelect} />
+                  <ItemWithSubmenu
+                    key={item.id}
+                    item={item}
+                    activeId={activeId}
+                    onSelect={onSelect}
+                    expandedItems={expandedItems}
+                    onToggleItem={onToggleItem}
+                  />
                 ))}
               </div>
             )}
@@ -116,5 +132,44 @@ export default function AccordionMenu({ sections, activeId, onSelect, variant = 
       })}
       {footer}
     </nav>
+  );
+}
+
+/** Item comum ou, se tiver `children`, um cabeçalho que abre a lista abaixo. */
+function ItemWithSubmenu({ item, activeId, onSelect, expandedItems, onToggleItem }) {
+  if (!item.children?.length) {
+    return <MenuItem item={item} active={item.id === activeId} onSelect={onSelect} />;
+  }
+
+  const open = expandedItems.has(item.id);
+  // Um filho ativo conta como pai ativo — o item é apenas o guarda-chuva da
+  // seção "Gestão", mas o usuário precisa saber em qual relatório está.
+  const activeChild = item.children.some((c) => c.id === activeId);
+  const ChildIcon = open ? ChevronDown : ChevronRight;
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => onToggleItem(item.id)}
+        aria-expanded={open}
+        aria-controls={`menu-sub-${item.id}`}
+        aria-current={activeChild ? "true" : undefined}
+        className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors ${
+          activeChild ? "bg-stone-800/60 text-stone-100 font-semibold" : "text-stone-400 hover:text-stone-100 hover:bg-stone-800/60"
+        }`}
+      >
+        <item.icon size={15} className="shrink-0" />
+        <span className="truncate text-left">{item.label}</span>
+        <ChildIcon size={14} className="ml-auto shrink-0 text-stone-500" />
+      </button>
+      {open && (
+        <div id={`menu-sub-${item.id}`} role="group" aria-label={item.label} className="flex flex-col gap-0.5">
+          {item.children.map((child) => (
+            <MenuItem key={child.id} item={child} active={child.id === activeId} onSelect={onSelect} nested />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

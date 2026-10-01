@@ -105,13 +105,47 @@ describe("AppMenu", () => {
   it("escolher um item troca a tela e guarda a escolha", () => {
     const { container } = setup("manager", {});
     fireEvent.click(asideOf(container).getByRole("button", { name: /Gestão/ }));
-    fireEvent.click(asideOf(container).getByText("Relatórios"));
-    expect(sessionStorage.getItem("pdv:nav:manager")).toBe("reports");
+    fireEvent.click(asideOf(container).getByText("Auditoria"));
+    expect(sessionStorage.getItem("pdv:nav:manager")).toBe("audit");
     cleanup();
 
     // Recarregar abre direto na seção da tela guardada.
     const outra = setup("manager", {});
     expect(asideOf(outra.container).getByRole("button", { name: /Gestão/ }).getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("Relatórios é um grupo: o clique abre o submenu, e só o filho navega", () => {
+    const { container } = setup("manager", {});
+    const aside = asideOf(container);
+    fireEvent.click(aside.getByRole("button", { name: /Gestão/ }));
+
+    const pai = aside.getByRole("button", { name: /Relatórios/ });
+    expect(pai.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(pai);
+    // Abrir o grupo não pode escolher tela nenhuma — não há relatório "Relatórios".
+    expect(sessionStorage.getItem("pdv:nav:manager")).toBe("orders");
+
+    // "Entregas" também é item da seção Operação, então a busca fica dentro do
+    // grupo do submenu — senão o teste passa a depender de qual nome duplicado na tela.
+    const sub = within(aside.getByRole("group", { name: "Relatórios" }));
+    for (const label of ["Visão geral", "Pedidos", "Entregas", "Fluxo de caixa"]) {
+      expect(sub.getByText(label)).toBeTruthy();
+    }
+
+    fireEvent.click(sub.getByText("Pedidos"));
+    expect(sessionStorage.getItem("pdv:nav:manager")).toBe("reports.orders");
+  });
+
+  it("tela guardada de submenu abre Gestão E o submenu de Relatórios", () => {
+    sessionStorage.setItem("pdv:nav:manager", "reports.deliveries");
+    const { container } = setup("manager", {});
+    const aside = asideOf(container);
+    expect(aside.getByRole("button", { name: /Gestão/ }).getAttribute("aria-expanded")).toBe("true");
+    expect(aside.getByRole("button", { name: /Relatórios/ }).getAttribute("aria-expanded")).toBe("true");
+    // O filho ativo marca o item; o pai fica destacado para o usuário saber
+    // em qual grupo ele está.
+    const sub = within(aside.getByRole("group", { name: "Relatórios" }));
+    expect(sub.getByText("Entregas").closest("button").getAttribute("aria-current")).toBe("page");
   });
 
   it("tela guardada que não existe mais cai no primeiro item", () => {
