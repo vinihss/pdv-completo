@@ -21,7 +21,7 @@ Todos os endpoints do backend, agrupados por domínio. Para detalhes completos, 
 | DELETE | `/orders/:id/items/:itemId` | waiter, manager | Remover item |
 | PATCH | `/orders/:id/status` | waiter, manager | Mudar status (open/closed/cancelled) |
 | PATCH | `/orders/:id/close` | waiter, manager | Fechar comanda (idempotente) |
-| PUT | `/orders/:id/payments` | waiter, manager | Registrar pagamento |
+| PUT | `/orders/:id/payments` | waiter, manager | Registrar pagamento (linha já confirmada é preservada; remover é recusado) |
 | PATCH | `/orders/:id/payments/:paymentId` | waiter, manager | Confirmar pagamento |
 | DELETE | `/orders/:id/payments/:paymentId` | waiter, manager | Remover pagamento |
 | PATCH | `/orders/:id/payment` | waiter, manager | Legado: pagamento de intenção única |
