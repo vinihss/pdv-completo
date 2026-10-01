@@ -35,6 +35,8 @@ printer/   Daemon Go para impressão térmica (ESC/POS)
 | `docs/11-desktop-instalador.md` | App Windows (Tauri): instalador, boot/update, daemon |
 | `docs/11-pix-pendencias.md` | BR Code do Pix: por que o QR era recusado (GUI minúscula, txid, teto de 99 bytes) e o que ficou pendente |
 | `docs/12-n-plus-one-list-orders.md` | Roadmap: eliminar N+1 em `listOrders` |
+| `docs/13-deploy-workflow-melhoras.md` | Melhoras no workflow de deploy (versão, artefatos, publicação) |
+| `docs/14-usabilidade-e-processos.md` | Backlog priorizado: fluxo de pedido, gestão e caixa (8 bugs de confiabilidade + 40 propostas em 8 camadas, roadmap P0-P5) |
 
 ### Guias para agentes
 
