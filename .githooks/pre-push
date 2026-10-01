@@ -1,0 +1,88 @@
+#!/bin/sh
+# pre-push — freio local contra push direto na `main` do origin.
+#
+# POR QUE ISTO EXISTE
+# -------------------
+# Complementa o `pre-commit`: o commit na `main` já é barrado, mas dá para
+# escrever direto nela com `git commit-tree` + `git push`, ou commitar na
+# `main` com `--no-verify` e mandar. Aqui a defesa é sobre a REF DE DESTINO,
+# não sobre a branch onde você está — que é o que interessa para o remoto.
+# Cobre também o force-push, que reescreveria histórico já publicado.
+#
+# PROTOCOLO DO GIT
+# ----------------
+# O git passa as refs por stdin, uma linha por ref, no formato:
+#
+#     <local ref> <local sha> <remote ref> <remote sha>
+#
+# O que decide é o TERCEIRO campo (`<remote ref>`) — para onde o objeto vai.
+# Nos cinco casos que interessam:
+#
+#     refs/heads/main ... refs/heads/main   -> BLOQUEIA (commit direto)
+#     refs/heads/x   ... refs/heads/main   -> BLOQUEIA (empurrado na main)
+#     refs/heads/main ... refs/heads/main   -> BLOQUEIA (force-push / reescrita)
+#     refs/heads/x   ... refs/heads/x     -> passa
+#     refs/tags/v1.0.17 ... refs/tags/... -> passa  (REGRA INEGOCIÁVEL)
+#
+# POR QUE TAG NUNCA É BLOQUEADA
+# -----------------------------
+# O deploy deste repo NÃO é disparado por push na `main`. O gatilho é a tag:
+# `.github/workflows/deploy-on-tag.yml` roda em `push: tags: v*.*.*`. Ou seja,
+# a publicação acontece por `git push origin v1.0.17`, vindo de qualquer
+# branch. Bloquear `refs/tags/*` aqui quebraria o gate de deploy — e é
+# exatamente por isso que a comparação abaixo é feita contra a string exata
+# `refs/heads/main`, e não por um padrão que casasse com "main" em qualquer
+# posição (o que pegaria `refs/tags/main` e `refs/heads/maintenance`).
+#
+# ATIVAÇÃO
+# --------
+#     git config core.hooksPath .githooks
+#
+# Bypass: `git push --no-verify`. Freio, não tranca — a barreira real é o
+# ruleset da `main` no GitHub.
+set -e
+
+# Ref de destino proibida. String exata, sem curinga: `refs/tags/main` e
+# `refs/heads/maintenance` são legais e precisam continuar passando.
+BLOCKED_REF="refs/heads/main"
+
+blocked_line=""
+# shellcheck disable=SC2034  # os 4 campos são lidos por posição: o formato da
+# linha é fixo, então `local_sha`/`remote_sha` são consumidos sem serem usados.
+while read -r local_ref local_sha remote_ref remote_sha; do
+	[ -z "$remote_ref" ] && continue
+	if [ "$remote_ref" = "$BLOCKED_REF" ]; then
+		blocked_line="${blocked_line}${remote_ref} <- ${local_ref}
+"
+	fi
+done
+
+if [ -n "$blocked_line" ]; then
+	cat >&2 <<EOF
+✖ Push bloqueado: o destino inclui a branch \`main\`.
+
+Ref de destino recusada:
+${blocked_line}
+Isso cobre tanto commit direto na \`main\` quanto force-push/reescrita de
+histórico já publicado.
+
+Como publicar o trabalho:
+
+    git push -u origin <branch>
+    gh pr create --fill     # revisão -> squash merge na main
+
+Tag de versão NÃO é bloqueada e continua sendo o gatilho de deploy
+(.github/workflows/deploy-on-tag.yml, \`push: tags: v*.*.*\`). Então
+\`./bump-version.sh <versão>\` + \`git push origin v<versão>\` funciona de
+qualquer branch, como sempre.
+
+Bypass consciente: git push --no-verify
+  Use só quando souber exatamente o que está fazendo. O hook é freio de
+  acidente; a barreira real é o ruleset da \`main\` no GitHub, que não aceita
+  push direto.
+
+EOF
+	exit 1
+fi
+
+exit 0
