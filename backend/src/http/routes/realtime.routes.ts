@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { verifyTokenRaw, type AuthUser } from "../middlewares/auth.middleware.js";
 import { wsGateway } from "../../infra/realtime/ws-gateway.js";
+import { alertsUserRoomFor } from "../../application/alert/alert.usecases.js";
 
 // 2.3 — autorização dos rooms dinâmicos (mensagem `join`). Os rooms iniciais
 // de cada perfil já são definidos no connect; aqui só se garante que um client
@@ -10,13 +11,21 @@ function canJoinRoom(user: AuthUser, room: string): boolean {
   const { sub, role } = user;
   if (room === `waiter:${sub}`) return true;
   // Central de alertas: o room público (`alerts`, alerta sem restrição de
-  // público) e o room do PRÓPRIO papel. Autorizar o próprio e não "o room de
-  // qualquer papel" é o que impede o garçom de assinar `alerts:manager` e
-  // ouvir a comanda que ele não deveria — é o mesmo recorte que o
-  // `audience_roles` faz no REST (alert.usecases.ts).
+  // público), o room do PRÓPRIO papel e o room do PRÓPRIO usuário (alerta
+  // direcionado — a audiência individual, ex.: "entrega atribuída a você", ver
+  // alert.usecases.ts). Autorizar o próprio e não "o room de qualquer coisa" é
+  // o que impede o garçom de assinar `alerts:manager` e ouvir a comanda que ele
+  // não deveria — é o mesmo recorte que o `audience_roles` faz no REST
+  // (alert.usecases.ts).
   if (room === "alerts" || room === `alerts:${role}`) return true;
+  if (room === alertsUserRoomFor(sub)) return true;
   switch (role) {
     case "waiter":
+      // O garçom ainda pode assinar `deliveries` — é um vazamento de endereço de
+      // cliente que ele JÁ CONHECE (ele abriu a comanda), então não é
+      // prioritário. Fica assim de propósito: mexer aqui é PR separado, porque
+      // tira o refresh de entrega do balcão do garçom e precisa checar quem
+      // depende disso.
       return room === "kitchen-display" || room === "deliveries";
     case "manager":
       // `whatsapp` = status de entrega/leitura das mensagens enviadas,
@@ -67,10 +76,26 @@ export async function realtimeRoutes(app: FastifyInstance) {
     if (authUser.role === "cashier" || authUser.role === "manager") initialRooms.push("cash-drawer");
     // Gerente acompanha o estoque ao vivo (movimentos e alertas de estoque baixo).
     if (authUser.role === "manager") initialRooms.push("inventory");
+    // `deliveries` no handshake, e não só no `join` do client: entre o login e
+    // o `join` (ida e volta do WS, ~1 RTT) o evento era perdido de vez — e o
+    // evento que cai exatamente nessa janela é o `delivery.assigned`, que é o
+    // que o entregador PRECISA (a atribuição é o que cria a fila dele). O
+    // dispatcher do outbox marca a publicação como feita mesmo sem assinante
+    // (pollOutboxOnce), então não há redelivery: sem isto, o som e a
+    // atualização da tela dele dependiam de o `join` ganhar a corrida.
+    //
+    // Gerente e entregador: são os dois que precisam da sala. O garçom segue
+    // só pelo `join` (ver canJoinRoom) — mudar isso é PR separado.
+    if (authUser.role === "manager" || authUser.role === "courier") initialRooms.push("deliveries");
     // O sino da casca (todos os perfis) — o client também pede esses dois via
     // `join`, mas vir aqui evita a ida-e-volta e garante o alerta no primeiro
     // evento depois do login, sem depender do hook montado.
-    initialRooms.push("alerts", `alerts:${authUser.role}`);
+    //
+    // O room pessoal entra pelo mesmo motivo e pelo mesmo caminho: é ele que
+    // entrega o alerta direcionado (audiência `user:<id>`, ex.: a entrega
+    // atribuída ao entregador X) sem o client precisar inventar um room novo —
+    // o `AlertsProvider` reage a qualquer `alert.created` que chegue nele.
+    initialRooms.push("alerts", `alerts:${authUser.role}`, alertsUserRoomFor(authUser.sub));
 
     const conn = wsGateway.addConnection(socket as any, initialRooms);
 

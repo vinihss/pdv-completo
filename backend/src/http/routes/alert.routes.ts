@@ -25,6 +25,13 @@ export async function alertRoutes(app: FastifyInstance) {
     const parsed = z.coerce.number().int().min(1).max(MAX_LIMIT).optional().parse(q.limit);
     return listAlertsUsecase({
       role: req.authUser!.role,
+      // O `sub` entra porque a audiência do alerta não é só por papel: existe o
+      // alerta DIRECIONADO (`user:<id>` em `audience_roles`, ex.: a entrega
+      // atribuída a este entregador), que só o dono pode enxergar. Sem esta
+      // linha o sino do destinatário tocava com o evento do WebSocket e o
+      // contador zerava no primeiro reload. Mesma janela de papel, agora com a
+      // pessoa: filtro no usecase, não `requireRole` na rota.
+      userId: req.authUser!.sub,
       limit: parsed ?? DEFAULT_LIMIT,
       unreadOnly: q.unread_only === "true" || q.unread_only === "1",
     });
@@ -34,6 +41,6 @@ export async function alertRoutes(app: FastifyInstance) {
   // "marcar todas como lidas" do sino.
   app.post("/alerts/mark-read", async (req) => {
     const body = markReadSchema.parse(req.body ?? {});
-    return markAlertsReadUsecase({ role: req.authUser!.role, orderId: body.orderId });
+    return markAlertsReadUsecase({ role: req.authUser!.role, userId: req.authUser!.sub, orderId: body.orderId });
   });
 }

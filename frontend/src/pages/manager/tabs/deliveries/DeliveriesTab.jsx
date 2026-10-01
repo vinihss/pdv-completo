@@ -11,8 +11,69 @@ import {
 import { cancelOrder } from "@/entities/order";
 import { useDeliveries } from "@/entities/delivery";
 import { useOrderFocus } from "@/app/providers/order-focus";
-import { formatDateTime } from "@/shared/lib";
-import { inputClass } from "@/shared/components";
+import { formatDateTime, minutesSince } from "@/shared/lib";
+import { ConfirmModal, inputClass } from "@/shared/components";
+
+// Rótulo do pedido no card. O `orderId` é um uuid e o card só mostra os 8
+// primeiros caracteres. A guarda existe porque o `orderId` é o elo com a
+// comanda: `.slice()` direto derrubava o card inteiro quando ele faltava, e um
+// card quebrado é pior que um card sem número.
+function pedidoLabel(orderId) {
+  return orderId ? `Pedido #${String(orderId).slice(0, 8)}` : "Pedido sem número";
+}
+
+// "parada há 23 min": quanto tempo a entrega está esperando ação. O cálculo cru
+// (minutos desde o timestamp) é genérico e já vive em `shared/lib/format.js`
+// (`minutesSince`); o TEXTO é vocabulário de entrega e mora aqui de propósito —
+// `__tests__/fsd-boundaries.test.js` proíbe nome de domínio em `shared/*`, então
+// um formatador genérico lá dentro passaria no teste e vazar o conceito.
+function tempoParado(createdAt, now = Date.now()) {
+  const min = minutesSince(createdAt, now);
+  if (min < 1) return "parada há menos de 1 min";
+  if (min < 60) return `parada há ${Math.floor(min)} min`;
+  const horas = Math.floor(min / 60);
+  if (horas < 24) {
+    const resto = Math.floor(min % 60);
+    return resto > 0 ? `parada há ${horas} h ${resto} min` : `parada há ${horas} h`;
+  }
+  const dias = Math.floor(horas / 24);
+  return dias === 1 ? "parada há 1 dia" : `parada há ${dias} dias`;
+}
+
+// Ordem de trabalho da fila do balcão.
+//
+// O backend entrega `createdAt` DESCENDENTE — o que caiu por último vem
+// primeiro (`docs/05-delivery-api-contracts.md:314`). Isso é o contrato
+// documentado (e é o certo para o histórico e para a lista do entregador, que é
+// o oposto), mas na tela do gerente vira o problema inverso: a entrega mais
+// antiga e mais urgente cai no FIM da lista, fora da dobra do olho. Daí o resort
+// ser CLIENT-SIDE: arrumar no servidor mudaria um contrato API por causa de uma
+// tela, e as duas leituras são legítimas para consumidores diferentes.
+// Custo: uma cópia da lista por render, sobre as entregas do dia.
+const FILA_RANK = { awaiting_courier: 0, out_for_delivery: 1 };
+const HISTORICO_RANK = 2;
+
+function criadoEmMs(delivery) {
+  const t = Date.parse(delivery?.createdAt ?? "");
+  // Sem `createdAt` a entrega vira a mais antiga da fila: idade desconhecida é
+  // o pior cenário para o gerente, então ela sobe.
+  return Number.isNaN(t) ? 0 : t;
+}
+
+function ordenarPorUrgencia(lista) {
+  return [...lista].sort((a, b) => {
+    const ra = FILA_RANK[a?.status] ?? HISTORICO_RANK;
+    const rb = FILA_RANK[b?.status] ?? HISTORICO_RANK;
+    // Fila antes de histórico: quem ainda espera atendimento sobe.
+    if (ra !== rb) return ra - rb;
+    // No histórico a ordem do backend é a informativa ("o que caiu por
+    // último"), e `sort` é estável — devolver empate já a preserva.
+    if (ra === HISTORICO_RANK) return 0;
+    // Dentro da fila, a mais antiga primeiro: é a que está esperando há mais
+    // tempo e a que o gerente tem que resolver antes.
+    return criadoEmMs(a) - criadoEmMs(b);
+  });
+}
 
 export default function DeliveriesTab({ showToast }) {
   const { deliveries, couriers, loading, reload } = useDeliveries();
@@ -31,12 +92,15 @@ export default function DeliveriesTab({ showToast }) {
   // deixaria o campo apontando para a entrega errada.
   const [changingStatus, setChangingStatus] = useState(null);
   const [reasonFor, setReasonFor] = useState(null); // { id, status }
+  // Entrega esperando a confirmação final do cancelamento (o objeto inteiro, e
+  // não o id, porque o `ConfirmModal` precisa do `customerName` na mensagem).
+  const [confirmCancelFor, setConfirmCancelFor] = useState(null);
   // O backend não devolve o status do pedido nessa lista (só o da entrega,
   // que fica "failed" pra sempre mesmo depois de cancelado) — rastreia
   // localmente pra não deixar cancelar de novo por engano na mesma sessão.
   const [justCancelled, setJustCancelled] = useState(() => new Set());
 
-  const visible = showResolved ? deliveries : deliveries.filter(isOpenDelivery);
+  const visible = ordenarPorUrgencia(showResolved ? deliveries : deliveries.filter(isOpenDelivery));
 
   async function handleAssign(deliveryId, courierId) {
     if (!courierId) return;
@@ -68,13 +132,14 @@ export default function DeliveriesTab({ showToast }) {
   }
 
   async function handleCancel(delivery) {
-    if (!cancelReason.trim()) return;
+    if (!cancelReason.trim() || submitting) return;
     setSubmitting(true);
     try {
       await cancelOrder(delivery.orderId, cancelReason.trim());
       showToast("Pedido cancelado.", "success");
       setJustCancelled((s) => new Set(s).add(delivery.id));
       setOpenReasonFor(null);
+      setConfirmCancelFor(null);
       setCancelReason("");
     } catch (e) {
       showToast(e.message, "error");
@@ -87,7 +152,12 @@ export default function DeliveriesTab({ showToast }) {
   // precisa descrever as 3 que estão na tela, não só as pendentes.
   const awaitingCount = visible.filter((d) => d.status === "awaiting_courier").length;
   const outCount = visible.filter((d) => d.status === "out_for_delivery").length;
-  const resolvedCount = deliveries.length - visible.length;
+  // Este conta sobre `deliveries`, NÃO sobre `visible`: com o histórico ligado
+  // `visible === deliveries` e a subtração virava 0, então o checkbox se
+  // anunciava como "Mostrar entregues e canceladas (0)" bem com as entregues
+  // abertas na tela. O número tem de descrever o que está ESCONDIDO, não a
+  // diferença entre duas listas que já são iguais.
+  const resolvedCount = deliveries.filter((d) => !isOpenDelivery(d)).length;
 
   return (
     <div className="p-4 max-w-2xl mx-auto space-y-4">
@@ -144,11 +214,14 @@ export default function DeliveriesTab({ showToast }) {
                 focusOrder(d.orderId);
               }
             }}
-            className="bg-stone-900 border border-stone-800 rounded-2xl p-4 cursor-pointer transition-colors hover:bg-stone-850 hover:border-stone-700 active:scale-[0.99]"
+            // `hover:bg-stone-800`, e não 850: a escala `stone` do Tailwind 4 é
+            // numérica e para no 950 — não existe 850, e sem a classe no
+            // `index.css` o hover do card simplesmente não acontecia.
+            className="bg-stone-900 border border-stone-800 rounded-2xl p-4 cursor-pointer transition-colors hover:bg-stone-800 hover:border-stone-700 active:scale-[0.99]"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-xs text-stone-500">Pedido #{d.orderId.slice(0, 8)}</p>
+                <p className="text-xs text-stone-500">{pedidoLabel(d.orderId)}</p>
                 <p className="text-sm font-semibold mt-0.5 truncate">{d.customerName ?? "— sem nome —"}</p>
                 <div className="flex items-start gap-1.5 mt-1">
                   <MapPin size={12} className="mt-0.5 shrink-0 text-stone-500" />
@@ -156,6 +229,15 @@ export default function DeliveriesTab({ showToast }) {
                 </div>
                 <p className="text-xs text-stone-500 mt-1.5" data-testid="delivery-datetime">
                   {formatDateTime(d.createdAt)}
+                  {/* "Parada há X" só faz sentido enquanto a entrega espera
+                      ação — entregue e cancelado não estão parados, estão
+                      encerrados (os dois saem da fila com `isOpenDelivery`). */}
+                  {isOpenDelivery(d) && (
+                    <span className="text-stone-400" data-testid="delivery-elapsed">
+                      {" · "}
+                      {tempoParado(d.createdAt)}
+                    </span>
+                  )}
                   {d.deliveredAt && (
                     <span className="text-emerald-400"> · Entregue {formatDateTime(d.deliveredAt)}</span>
                   )}
@@ -280,11 +362,15 @@ export default function DeliveriesTab({ showToast }) {
                       className={inputClass + " flex-1"}
                     />
                     <button
-                      onClick={() => handleCancel(d)}
+                      // Este botão só ARMA a confirmação: cancelar pedido é
+                      // irreversível e o cliente é avisado por WhatsApp, então
+                      // o clique precisa de um segundo ponto de decisão. Com o
+                      // motivo já digitado, era um clique de distância do erro.
+                      onClick={() => setConfirmCancelFor(d)}
                       disabled={!cancelReason.trim() || submitting}
                       className="bg-red-600 text-white px-3 rounded-lg text-xs font-semibold disabled:opacity-40"
                     >
-                      Confirmar
+                      Revisar cancelamento
                     </button>
                     <button
                       onClick={() => { setOpenReasonFor(null); setCancelReason(""); }}
@@ -311,6 +397,22 @@ export default function DeliveriesTab({ showToast }) {
         <div className="flex items-center gap-2 text-amber-400 text-sm bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2.5">
           <AlertTriangle size={14} /> Nenhum entregador cadastrado — crie um usuário com papel "courier" em Equipe.
         </div>
+      )}
+
+      {/* Confirmação do cancelamento. O dono da sobreposição é o `ConfirmModal`
+          (docs/agent-frontend.md §ConfirmModal) — nada de overlay ad-hoc. E
+          fica FORA do card de propósito: renderizado dentro dele, o clique do
+          backdrop borbulharia para o `onClick` do card e abriria a comanda em
+          vez de confirmar o cancelamento. */}
+      {confirmCancelFor && (
+        <ConfirmModal
+          title="Cancelar pedido?"
+          message={`O pedido de ${confirmCancelFor.customerName ?? "cliente sem nome"} será cancelado e o cliente avisado: "${cancelReason.trim()}". Não dá para desfazer.`}
+          confirmLabel={submitting ? "Cancelando…" : "Sim, cancelar pedido"}
+          destructive
+          onCancel={() => setConfirmCancelFor(null)}
+          onConfirm={() => handleCancel(confirmCancelFor)}
+        />
       )}
     </div>
   );

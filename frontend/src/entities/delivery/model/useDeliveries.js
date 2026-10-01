@@ -36,12 +36,19 @@ export function isOpenDelivery(delivery) {
  * Mesmo padrão de useOrders: busca via REST no mount e recarrega tudo em
  * qualquer evento da room "deliveries" (mais simples que aplicar patch por
  * tipo de evento, e o volume de entregas simultâneas não justifica otimizar).
+ *
+ * `error` saiu junto com o `catch`: sem ele, uma falha de rede virava
+ * "Nenhuma entrega pendente no momento" — indistinguível de "não tem
+ * entrega nenhuma", que é a leitura errada e a que mais custa (o entregador
+ * conclui que está livre para encerrar o expediente). A assinatura segue
+ * retrocompatível (`{ deliveries, couriers, loading, reload }` + `error`).
  */
-export function useDeliveries(scope = "manager") {
+export function useDeliveries(scope = "manager", { pollMs = 0 } = {}) {
   const { session } = useAuth();
   const [deliveries, setDeliveries] = useState([]);
   const [couriers, setCouriers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const isCourier = scope === "courier";
 
@@ -55,6 +62,12 @@ export function useDeliveries(scope = "manager") {
         setDeliveries(deliveriesRes);
         setCouriers(couriersRes);
       }
+      // Sucesso limpa o erro: a tela "voltou" e o aviso some sozinho.
+      setError(null);
+    } catch (err) {
+      const failure = err instanceof Error ? err : new Error(String(err));
+      setError(failure);
+      console.error("falha ao carregar entregas:", failure);
     } finally {
       setLoading(false);
     }
@@ -64,8 +77,36 @@ export function useDeliveries(scope = "manager") {
     reload();
   }, [reload]);
 
+  // O WS não tem buffer de eventos perdidos (docs/05 §realtime: "o cliente
+  // trata o WS como otimização, o polling é o garantidor de consistência" — o
+  // dispatcher do outbox marca a publicação como feita mesmo sem assinante).
+  // Voltar o foco da aba é o momento em que se descobre que o evento se foi:
+  // é o mesmo substituto barato do AlertsProvider, mesmo padrão.
+  useEffect(() => {
+    if (!session || typeof document === "undefined") return;
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") reload();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [session, reload]);
+
+  // Polling de backup, DESLIGADO por padrão (`pollMs = 0`). A tela tem realtime
+  // e o recarregamento no foco da aba; um GET a cada 4s em cada tablet do
+  // salão é tráfego que ninguém pediu. Quem quiser a garantia de consistência
+  // sem depender do foco da aba (uma tela de delivery que fica o dia inteiro
+  // aberta no fundo, sem o usuário tocar) passa `{ pollMs: 4000 }`. O timer é
+  // sempre limpo no unmount — nada de GET zumbindo em tela fechada.
+  useEffect(() => {
+    if (!pollMs || pollMs <= 0) return;
+    const timer = setInterval(() => {
+      reload();
+    }, pollMs);
+    return () => clearInterval(timer);
+  }, [pollMs, reload]);
+
   const rooms = session ? ["deliveries"] : [];
   useRealtime(session?.token, rooms, reload, reload);
 
-  return { deliveries, couriers, loading, reload };
+  return { deliveries, couriers, loading, error, reload };
 }
