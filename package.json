@@ -1,0 +1,11 @@
+{
+  "name": "pdv-standalone",
+  "private": true,
+  "description": "CLI do Tauri para a família de apps standalone (pdv, kds, garcon, entregador). Os crates Rust vivem em standalone-*/ e o workspace Cargo na raiz; este package.json existe só para congelar a versão da CLI fora de frontend/node_modules.",
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.5"
+  },
+  "scripts": {
+    "tauri": "tauri"
+  }
+}

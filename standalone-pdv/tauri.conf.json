@@ -1,5 +1,5 @@
 {
-  "$schema": "../frontend/node_modules/@tauri-apps/cli/config.schema.json",
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "PDV Caixa",
   "identifier": "com.pdvapp.caixa",
   "build": {
@@ -27,9 +27,6 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
-    "externalBin": [
-      "binaries/pdv-printer-daemon"
-    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

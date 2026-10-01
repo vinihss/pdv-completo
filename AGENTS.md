@@ -11,6 +11,8 @@ PDV (ponto de venda) para restaurante/pub: abrir comanda → lançar itens → (
 ```
 backend/    API REST + WebSocket (Node.js + TypeScript + Fastify + Drizzle + PostgreSQL)
 frontend/   App React (Vite) — login, garçom, cozinha, gerente — instalável como PWA
+            (também é o bundle servido pelos apps standalone)
+frontend/src-tauri/  App desktop v1 (Tauri) — desacoplado do web app, em manutenção
 deploy/     Deploy em nuvem: Dockerfiles, Caddy (HTTPS automático), docker-compose
 docs/       Specs originais + guias para agentes
 printer/   Daemon Go para impressão térmica (ESC/POS)
@@ -98,12 +100,23 @@ O Vite já proxeia `/api` e `/realtime` para `localhost:3000` (`vite.config.js`)
 
 ### App desktop (Tauri)
 
+O app v1 (`frontend/src-tauri/`, `com.pdvapp.desktop`, em produção) está
+**desacoplado do frontend**: `frontend/` é só a aplicação web (e o bundle que os
+apps standalone servem). Os scripts `desktop:*` saíram do `frontend/package.json`
+(as deps de runtime `@tauri-apps/*` seguem lá) e a CLI `@tauri-apps/cli` mora
+agora na **raiz do repo** (`node_modules/.bin/tauri`, `package.json` da raiz).
+
 ```bash
+# a partir de frontend/
 cd frontend
-npm run desktop:build                      # build local (sidecar + instalador)
-bash build-app.sh --release                # build de entrega: exige chave de assinatura
-npx tauri dev                              # roda o app no desktop
+bash src-tauri/build-app.sh            # build local (instalador; sem sidecar — printer reestruturado)
+bash src-tauri/build-app.sh --release  # build de entrega: exige chave de assinatura
+../node_modules/.bin/tauri dev         # roda o app no desktop (CLI da raiz, cwd = frontend)
 ```
+
+O script resolve os caminhos pela própria localização, então também vale
+`bash frontend/src-tauri/build-app.sh` a partir da raiz do repo. Não existe mais
+`npm run desktop:build` / `npm run desktop:dev`.
 
 ## Perfis de acesso
 
@@ -113,8 +126,8 @@ O mesmo código cobre 5 perfis, cada um com sua superfície no login e seus pap�
 
 Duas armadilhas que já custaram tempo (detalhe em `docs/11-desktop-instalador.md` §8.1-8.2):
 
-- **AppImage não empacota no Arch** — o `strip` do `linuxdeploy` não conhece a seção `.relr.dyn` das libs do Arch e o build morre with "failed to run linuxdeploy". The `.deb` sai normal; para o AppImage use `bash build-app.sh --appimage-docker` (empacota num `debian:bookworm-slim`).
-- **Build local sempre pede chave de assinatura** — o Tauri 2 assina o artefato de update sempre que `plugins.updater.pubkey` está no conf, e nenhuma flag de `-c` desliga. Sem isso o build local terminava com erro *depois* de gerar o instalador. O script agora gera uma chave descartável em `src-tauri/.local-signing.key` (fora do git): o instalador sai, o `.sig` existe, e nenhum app real atualiza por ele — entrega continua exigindo `--release` com a chave de verdade.
+- **AppImage não empacota no Arch** — o `strip` do `linuxdeploy` não conhece a seção `.relr.dyn` das libs do Arch e o build morre with "failed to run linuxdeploy". The `.deb` sai normal; para o AppImage use `bash frontend/src-tauri/build-app.sh --appimage-docker` (empacota num `debian:bookworm-slim`).
+- **Build local sempre pede chave de assinatura** — o Tauri 2 assina o artefato de update sempre que `plugins.updater.pubkey` está no conf, e nenhuma flag de `-c` desliga. Sem isso o build local terminava com erro *depois* de gerar o instalador. O script agora gera uma chave descartável em `frontend/src-tauri/.local-signing.key` (fora do git): o instalador sai, o `.sig` existe, e nenhum app real atualiza por ele — entrega continua exigindo `--release` com a chave de verdade.
 
 O app Windows é o alvo: instalador único, config por loja em `%ProgramData%\PDV\app.json` e daemon de impressão instalado como serviço junto. **A lista do que ainda não foi provado (chave da assinatura fora do repo, secrets do deploy ausentes, `installer-hooks.nsh` nunca compilado) está em `docs/11-desktop-instalador.md` §9 — leia antes de chamar algo de "pronto".**
 
@@ -143,8 +156,9 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
 | `npm run test` | frontend | vitest (jsdom + Testing Library; 34 suítes) |
+| `bash src-tauri/build-app.sh` | frontend | build do app desktop v1 (Tauri); `--release` = entrega (chave de assinatura), `--appimage-docker` = AppImage |
+| `node_modules/.bin/tauri <cmd>` | raiz | CLI do Tauri (na raiz do repo, não em `frontend/node_modules`; rodar com cwd=`frontend/` para o app v1) |
 | `go test ./...` | `printer/daemon` | suíte do daemon |
-| `bash printer/scripts/build-sidecar.sh` | raiz | gera o sidecar do daemon em `frontend/src-tauri/binaries/` |
 | `./switch.sh` | deploy | deploy sem downtime (instância nova + `caddy reload`); `--status`, `--rollback`, `--install`, `--no-build` |
 | `./probe-availability.sh --url <url> --seconds N` | deploy | mede o gap de downtime real (sai != 0 se houve falha) |
 

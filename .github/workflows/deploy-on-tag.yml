@@ -81,7 +81,7 @@ jobs:
     # contra o Cargo.toml do crate), não a tag — a tag é do app v1/backend,
     # e cada app da família tem sua própria versão. O app v1
     # (frontend/src-tauri, em produção) tem o seu próprio script de build:
-    # `frontend/build-app.sh`.
+    # `frontend/src-tauri/build-app.sh`.
     uses: ./.github/workflows/build-desktop.yml
     # `contents: write` precisa estar AQUI, não só no workflow chamado: em
     # `workflow_call` o token é a interseção das permissões de quem chama com

@@ -49,10 +49,11 @@ permissão `log:*` está no capability.
 ## Build
 
 ```bash
-# 1. sidecar do daemon (o build.rs aborta sem o binário do target atual)
-./build-sidecar.sh
+# O sidecar do daemon de impressão SAIU do build: o printer foi reestruturado
+# e `printer/scripts/build-sidecar.sh` não existe mais. O `externalBin` foi
+# removido do tauri.conf.json, então não há passo de Go/sidecar.
 
-# 2. crate — `tauri build` roda o `beforeBuildCommand` do tauri.conf.json
+# crate — `tauri build` roda o `beforeBuildCommand` do tauri.conf.json
 #    (`cd ../frontend && npm run build:pdv`), então o frontend não precisa ser
 #    compilado separado
 cargo check          # ou: cargo tauri build
@@ -70,14 +71,11 @@ cargo tauri dev                                      # terminal 2
 
 ## Versão
 
-`0.1.0`, **igual** no `Cargo.toml` e no `tauri.conf.json` — o build de entrega
-confere os dois e falha se divergirem (divergente, o instalador sai com uma
-versão e o `latest.json` outra, e o update "não existe" sem erro nenhum).
-
-Atenção para quem escrever o script de build: a conferência é
-`standalone-pdv/Cargo.toml` × `standalone-pdv/tauri.conf.json`. **Não** compare
-com `frontend/package.json` — hoje ele está em `1.0.2` e é o versionamento do
-bundle web, não dos 4 apps.
+`0.1.0`, **herdada do workspace**: o `Cargo.toml` deste crate tem
+`version.workspace = true` e o `tauri.conf.json` **não declara** `version` (o
+Tauri lê do `Cargo.toml` do crate). Bump em família inteira:
+`./bump-version.sh <x.y.z>` na raiz — que atualiza o `Cargo.toml` da raiz e o
+`frontend/package.json`.
 
 ## Update
 
@@ -101,8 +99,11 @@ mesmo binário, nada muda em campo. Detalhes no próprio `.nsh`.
 
 ## Pendências conhecidas
 
-- `printer/scripts/build-sidecar.sh` escreve só em
-  `frontend/src-tauri/binaries/`; o wrapper `./build-sidecar.sh` contorna.
+- O `externalBin` do daemon de impressão está **removido** (printer
+  reestruturado, `build-sidecar.sh` não existe mais): o instalador não
+  embute o daemon e o `installer-hooks.nsh` pula o registro do serviço com
+  aviso — e antes disso ele para/apaga o serviço existente. Retomar junto
+  com o novo printer.
 - O `Cargo.toml` da raiz precisa listar `standalone-pdv` em `members` (a raiz é
   do orquestrador).
 - A rota `/updates/caixa/*` ainda não existe no Caddy.

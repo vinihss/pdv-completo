@@ -22,11 +22,7 @@ let desktopFetch = null;
 function fetchImpl(input, init) {
   if (!isDesktop()) return fetch(input, init);
   if (!desktopFetch) {
-    desktopFetch = import("@tauri-apps/plugin-http")
-      .then((mod) => mod.fetch)
-      // Sem o plugin registrado (build sem o Rust), ainda funciona se o
-      // backend liberar a origem da webview.
-      .catch(() => (...args) => fetch(...args));
+    desktopFetch = import(/* @vite-ignore */ "@tauri-apps/plugin-http").then((mod) => mod.fetch).catch(() => (...args) => fetch(...args));
   }
   return desktopFetch.then((f) => f(input, init));
 }

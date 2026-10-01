@@ -202,22 +202,43 @@ Modais com footer irmão do form (`ProductModal`, `SupplierModal`, `MovementModa
 
 O mesmo `App.jsx` roda como PWA no navegador e como app Windows. A distinção está toda em `src/shared/lib/platform.js` (`isDesktop()`, `isTauri()`) e `src/shared/lib/appConfig.js` (`apiBase()`, `wsEndpoint()`).
 
+> **STATUS — Tauri desacoplado do frontend.** `frontend/` é só a aplicação web
+> (e o bundle que os apps standalone servem). O app v1 (`frontend/src-tauri/`,
+> `com.pdvapp.desktop`, em produção) continua no repo, porém em modo de
+> manutenção e como **diretório desacoplado**:
+>
+> - **CLI do Tauri na raiz do repo** — `node_modules/.bin/tauri`
+>   (`@tauri-apps/cli` no `package.json` da raiz). Nada disso se instala mais em
+>   `frontend/node_modules`; para o v1, rode a CLI com cwd = `frontend/`
+>   (ex.: `cd frontend && ../node_modules/.bin/tauri dev`).
+> - **Build do v1 é manual**: `bash frontend/src-tauri/build-app.sh`
+>   (aceita `--release`, `--bundles <tipo>`, `--appimage-docker`; detalhe em
+>   `docs/11-desktop-instalador.md` §8). Os scripts `desktop:*` saíram do
+>   `frontend/package.json` — as deps de **runtime** `@tauri-apps/*` seguem lá,
+>   só a CLI saiu.
+> - **Não há mais crate dentro do app web**: o `frontend/` (Vite) não compila
+>   Rust nenhum; o crate do v1 é o de `frontend/src-tauri/`, com `Cargo.lock`
+>   próprio (fora do workspace da raiz). O version mismatch que importa é
+>   `frontend/package.json` × esses crates — ver "Versão JS×Rust" abaixo.
+
 ### Boot gate
 
 - **Obrigatório no desktop**: `src/app/boot/` verifica update e conectividade antes de abrir (`BootGate` → `bootSequence.js`, estado puro testável)
 - Regra que não muda: **falha de update não bloqueia, API fora do ar bloqueia**
 - A ordem depende de `mode`: `cloud` faz health check antes do update, `local` faz update antes
 
-### Sidecar
+### Sidecar (SAIU do build)
 
-- **Obrigatório antes de `cargo check`**: o `tauri.conf.json` declara `externalBin: ["binaries/pdv-printer-daemon"]` e o `build.rs` do Tauri aborta se o binário da plataforma atual não existir
-- Rodar `../../printer/scripts/build-sidecar.sh` (cross-compila, gera Windows + Linux + macOS; só o `.exe` entra no instalador)
-- O diretório `binaries/` é gitignored — 11 MB não vão para o repositório
+- **Removido junto com a reestruturação do printer**: `printer/scripts/build-sidecar.sh` não existe mais e o `externalBin` saiu dos `tauri.conf.json` (app v1 e `standalone-pdv`)
+- Consequência boa: `cargo check` roda sem gerar sidecar nenhum — o `build.rs` do Tauri só aborta se houver `externalBin` apontando para binário inexistente
+- O diretório `binaries/` continua gitignored (binários antigos de 11 MB não vão para o repositório)
+- Retomar o embutimento do daemon quando o novo printer for integrado (re-adicionar `externalBin` + passo de build junto)
 
 ### Versão JS×Rust
 
 - Precisa bater em major.minor, senão o `tauri build` aborta com "Found version mismatched Tauri packages" (o `cargo check` passa e engana)
-- Ao mexer em `@tauri-apps/*`, conferir com `npx tauri info` e ajustar o crate no `Cargo.lock` (`cargo update -p tauri --precise <versão>`) ou fixar o npm na mesma minor
+- **A CLI agora é a da raiz do repo**: conferir com `node_modules/.bin/tauri info` (cwd=`frontend/` para o v1) — `npx tauri info` de dentro de `frontend/` não é mais o caminho, a CLI saiu de `frontend/node_modules`
+- **O que tem que bater**: `frontend/package.json` (`@tauri-apps/*` de runtime, mais `@tauri-apps/api`/`plugin-*` usados no código) × os crates — `frontend/src-tauri` (app v1, `Cargo.lock` próprio) e a família `standalone-*` (workspace da raiz, `Cargo.lock` na raiz). Ajustar o lock certo (`cargo update -p tauri --precise <versão>` no diretório do crate) ou fixar o npm na mesma minor
 
 ### Update automático
 
@@ -228,11 +249,11 @@ O mesmo `App.jsx` roda como PWA no navegador e como app Windows. A distinção e
 - Ambos são secrets — **nunca no repo**
 - `requireSignedVersion: true` amarra a versão à assinatura
 - Falha de update não bloqueia o boot, o manifesto é validado em Ed25519 no Rust
-- Publicar versão = `version` no `tauri.conf.json`/`package.json` igual à tag; o CI falha se divergir
+- Publicar versão = `version` em `frontend/src-tauri/Cargo.toml` **e** em `frontend/package.json` igual à tag (o `tauri.conf.json` do v1 não declara mais `version` — o Tauri lê do `Cargo.toml`); o `build-app.sh` falha se os dois divergirem e a conferência tag×versão do v1 é manual
 
 ### Validação
 
 - `cargo fmt --check` **não é gate** aqui (o crate usa indentação de 2 espaços do template do Tauri)
 - O que vale: `cargo check --message-format short` e `go test ./...` em `printer/daemon/`
-- Windows é o alvo de build do instalador; Linux/macOS servem para `cargo check`/`tauri dev`
+- Windows é o alvo de build do instalador; Linux/macOS servem para `cargo check`/`tauri dev` (CLI da raiz, cwd=`frontend/`)
 - O que depende de Windows (NSIS, serviço, assinatura) **não** foi rodado numa máquina real ainda — não marcar como validado sem abrir o `.exe` num Windows limpo

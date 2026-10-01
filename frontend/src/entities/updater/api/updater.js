@@ -44,7 +44,7 @@ export async function checkForUpdate(timeoutMs = UPDATE_CHECK_TIMEOUT_MS) {
 
   let check;
   try {
-    ({ check } = await import("@tauri-apps/plugin-updater"));
+    ({ check } = await import(/* @vite-ignore */ "@tauri-apps/plugin-updater"));
   } catch {
     return { available: false, reason: "plugin do updater indisponível" };
   }
@@ -106,7 +106,7 @@ export async function installUpdate(update, onProgress) {
  */
 export async function relaunch() {
   try {
-    const mod = await import("@tauri-apps/plugin-process");
+    const mod = await import(/* @vite-ignore */ "@tauri-apps/plugin-process");
     await mod.relaunch();
     return true;
   } catch {

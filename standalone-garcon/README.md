@@ -94,8 +94,3 @@ tela do sistema.
 
 - O `Cargo.toml` da raiz precisa listar `standalone-garcon` em `members` (a raiz é
   do orquestrador).
-- O `.gitignore` da raiz tem `standalone-*/binaries/`, que esconde o
-  `binaries/README.md` deste crate (o `binaries/.gitignore` interno não
-  consegue reexcluir o diretório). Ou a regra da raiz vira
-  `standalone-*/binaries/*` com exceção, ou a doc do sidecar fica só na raiz
-  deste README.
