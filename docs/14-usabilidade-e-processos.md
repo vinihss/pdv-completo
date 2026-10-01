@@ -66,13 +66,41 @@ correção pequena e separada, na ordem da dependência.
 3. **Estorno some do faturamento** — vendas lê `status='closed'`; cancelado vira `'cancelled'`.
 4. **Cancelamento pelo cliente pode falhar com 409 de gaveta** — `cancel-order.usecase.ts:50`.
 5. **Salas mortas** — 14 emissões em `table:{id}` sem assinante; `waiter:{id}` assinado sem emissão.
-6. **`PUT /orders/:id/payments` + confirm + remove não são idempotentes** (`order.routes.ts:167-194`) — os três endpoints mais usados do caixa.
-7. **`PATCH /orders/:id/status` documentado e inexistente**; `POST /tables` e `PATCH /tables/:id` também (`docs/agent-api-index.md` e o cabeçalho de `order.routes.ts:1-84` enganam quem implementa contra eles).
+6. **`PUT /orders/:id/payments` + confirm + remove não são idempotentes** (`order.routes.ts:165-192`) — os três endpoints mais usados do caixa.
+7. **Endpoints documentados e inexistentes** — `PATCH /orders/:id/status`, `POST /tables` e `PATCH /tables/:id` não existem no backend. **A documentação já foi corrigida**: saíram de `docs/agent-api-index.md` e do cabeçalho de `order.routes.ts`. O que resta é a decisão de produto da seção *Endpoints documentados e ainda não implementados* (abaixo): implementar as rotas ou aceitar que não existem. Enquanto isso, quem precisar da capacidade usa o que existe — `PATCH /orders/:id/close` e `PATCH /orders/:id/cancel` no lugar de "mudar status"; `/tables` é só leitura.
 8. **`CHANGELOG.md` diz que o N+1 de `listOrders` está pendente e o código já está resolvido** (`order.usecases.ts:971-1081` faz batch) — `docs/12-n-plus-one-list-orders.md` está defasado.
 
 Os itens 6 e 7 são os mais traps de todos: são bugs de *documentação contra
 código* que não se manifestam como erro em produção, e sim como trabalho
 desperdiçado de quem implementa contra o índice de API.
+
+### Endpoints documentados e ainda não implementados
+
+O `docs/agent-api-index.md` prometeu estes endpoints e nenhuma rota no backend
+os atende. Eles foram **removidos do índice** — um endpoint que não existe não
+fica listado como se existisse, nem com nota. O registro fica aqui, porque
+alguém vai precisar criá-los e não deve redescobrir a lacuna do zero.
+
+| Endpoint | O que faria | O que existe hoje no lugar |
+|---|---|---|
+| `PATCH /orders/:id/status` | Trocar o status da comanda (`open`/`closed`/`cancelled`) por uma rota genérica | `PATCH /orders/:id/close` (waiter, manager) e `PATCH /orders/:id/cancel` (manager, só sem venda). Cobrem os dois estados terminais, mas não há rota única de transição. |
+| `POST /tables` | Criar mesa | Nada. `/tables` é só leitura (`listTablesUsecase`) e as mesas vêm do seed/migration. |
+| `PATCH /tables/:id` | Editar mesa (identificação, status, ocupação) | Nada. Sem rota de escrita, uma mesa criada fora do seed não tem como entrar no sistema por API. |
+
+O índice tinha outras linhas que não correspondiam a rota nenhuma, mas que
+**não** indicam functionality faltando — eram nomes errados para o que já
+existe. Também foram corrigidas: `GET /kitchen/orders` e `PATCH
+/kitchen/orders/:id/items/:itemId/ready` (a cozinha não tem rota própria — o KDS
+usa `GET /orders?status=open` e `PATCH /orders/:id/items/:itemId` com
+`status: "ready"`), `GET /public/orders/:id` (existem `/public/orders/:id/status`
+e `POST /public/orders/active`), `POST /whatsapp/connect` (existe `POST
+/whatsapp/embedded-signup/exchange`) e `GET /whatsapp/history` (existe `GET
+/whatsapp/messages`). Quem for implementar contra a API deve conferir a rota
+no código, não pelo nome antigo.
+
+A implementação de qualquer linha desta tabela é decisão de produto e vai em
+PR próprio, com rota, validação, `audit_log` e suíte — não junto com ajuste de
+documentação.
 
 ---
 
@@ -209,7 +237,7 @@ Regra prática: nenhuma tela nova antes de P0 e P1.
 
 | Fase | Conteúdo | Por que nesta ordem |
 |---|---|---|
-| P0 — Correção | Os 8 bugs do Tier 0 | Barreira de confiabilidade. Nada acima é seguro sem isso. |
+| P0 — Correção | Os 8 bugs do Tier 0 (o 7 já teve a documentação corrigida; falta a decisão de produto sobre as rotas) | Barreira de confiabilidade. Nada acima é seguro sem isso. |
 | P1 — Fundação | A1 (tempos) + D3 (business_date) + B1 (repetir) + E5 (push de etapa) + D8 (Pix) | Itens pequenos, cada um destrava um painel. Entrega valor antes de qualquer tela nova. |
 | P2 — Dinheiro | D1 (settlement) + D2 (DRE) + A4 (estorno) + D4 (contagem por cédula) | O financeiro hoje mente sobre marketplace. Maior risco do projeto. |
 | P3 — Operação | C1 (expedidor) + C2 (canal no KDS) + C5 (mapa de mesas) + A2/A3 (dividir/juntar/transferir) | Remove o gargalo físico do garçom. |
