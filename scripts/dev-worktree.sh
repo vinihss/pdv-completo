@@ -114,6 +114,79 @@ cmd_list() {
 	printf '\n%s\n' "base: $BASE_DIR/<branch> (convenção deste repo)"
 }
 
+# A branch está na main?
+#
+# `git merge-base --is-ancestor` sozinho NÃO serve aqui, porque este repo mergeia
+# por SQUASH: o squash cria um commit novo, então os commits da branch nunca viram
+# ancestrais da main e o teste responde "não" para branch cujo PR já foi mergeado.
+# Aconteceu com ci/pr-tests (PR #23), ci/instalador-so-quando-app-muda (#27),
+# fix/modal-e-form-attribute (#25) e fix/outbox-lock-owner (#28): todas com PR
+# MERGED, todas recusadas pelo `rm` como "NÃO está mergeada". O aviso estava certo
+# no mecanismo e errado no resultado — a trava segurava trabalho já publicado na
+# main, e o caminho de recuperação (`branch -D`) era o único jeito de limpar.
+#
+# Três sinais, do mais forte pro mais fraco; qualquer um basta:
+#
+#   1. ancestry direto — para commit que entrou como está (merge normal,
+#      fast-forward, branch apontada para um commit já na main). Barato e sem
+#      rede, então vai primeiro.
+#   2. PR MERGED com esta head — cobre o squash. O `gh` é a fonte da verdade: é
+#      onde o merge foi registrado.
+#   3. patch-id presente na main — cobre o squash sem depender do `gh` (PR
+#      fechado sem merge, `gh` fora do ar). Compara a DIFF, não o sha, então o
+#      empacotamento em um commit só não importa. Só roda se a branch tiver
+#      commits à frente da main: sem essa guarda ele casaria o diff de qualquer
+#      commit já presente na main e devolveria "sim" sem provar nada.
+#
+# Sai "sim" ou "nao". Nunca "não" só porque o `gh` faltou ou a rede caiu: o (3)
+# cobre esse caso sem rede.
+branch_merged_in_main() {
+	_repo="$1"
+	_branch="$2"
+
+	if git -C "$_repo" merge-base --is-ancestor "$_branch" "$REMOTE_REF" 2>/dev/null; then
+		printf 'sim\n'
+		return 0
+	fi
+
+	if command -v gh >/dev/null 2>&1; then
+		_origin="$(git -C "$_repo" config --get remote.origin.url 2>/dev/null || true)"
+		if [ -n "$_origin" ]; then
+			_prs="$(gh pr list --repo "$_origin" --state merged \
+				--head "$_branch" --json number --limit 1 2>/dev/null || true)"
+			case "$_prs" in
+			*'number'*)
+				printf 'sim\n'
+				return 0
+				;;
+			esac
+		fi
+	fi
+
+	# Só há algo a procurar se a branch tiver commits que a main não tem.
+	# Sem esta guarda o (3) dá "sim" para qualquer branch apontada para um
+	# commit que já está na main (merge direto, rebase) — e o teste
+	# real: feat/pagarme-multitenant tinha 0 commits à frente e casava com
+	# um commit da main, o que não prova nada sobre o trabalho da branch.
+	_ahead="$(git -C "$_repo" rev-list --count "$REMOTE_REF..$_branch" 2>/dev/null || printf '0')"
+	[ "${_ahead:-0}" -gt 0 ] 2>/dev/null || { printf 'nao\n'; return 0; }
+
+	_branch_head="$(git -C "$_repo" rev-parse "$_branch" 2>/dev/null || true)"
+	[ -n "$_branch_head" ] || { printf 'nao\n'; return 0; }
+	_pid="$(git -C "$_repo" show "$_branch_head" 2>/dev/null | git patch-id --stable | cut -d' ' -f1)"
+	[ -n "$_pid" ] || { printf 'nao\n'; return 0; }
+	if git -C "$_repo" log "$REMOTE_REF" --format=%H 2>/dev/null |
+		while read -r _m; do
+			_mpid="$(git -C "$_repo" show "$_m" 2>/dev/null | git patch-id --stable | cut -d' ' -f1)"
+			[ "$_mpid" = "$_pid" ] && { printf 'sim\n'; exit 0; }
+		done | grep -q '^sim$'; then
+		printf 'sim\n'
+		return 0
+	fi
+
+	printf 'nao\n'
+}
+
 cmd_rm() {
 	[ $# -eq 1 ] || { usage >&2; die "informe o nome da branch"; }
 	branch="$1"
@@ -131,14 +204,7 @@ cmd_rm() {
 		die "branch '$branch' não existe localmente"
 	fi
 
-	# Trava de segurança: só apaga branch já contida na main. `git branch -d`
-	# faria essa checagem sozinho, mas avaliamos aqui para poder explicar e
-	# para decidir entre "remove worktree e preserva branch" e "recusa tudo".
-	if git -C "$repo" merge-base --is-ancestor "$branch" "$REMOTE_REF"; then
-		merged="sim"
-	else
-		merged="nao"
-	fi
+	merged="$(branch_merged_in_main "$repo" "$branch")"
 
 	if [ -d "$target" ] && [ -f "$target/.git" ]; then
 		git -C "$repo" worktree remove --force "$target"
@@ -146,7 +212,10 @@ cmd_rm() {
 	fi
 
 	if [ "$merged" = "sim" ]; then
-		git -C "$repo" branch -d "$branch"
+		# `-D` e não `-d`: `branch -d` refaz a checagem de ancestry por baixo e
+		# recusaria justamente a branch squash-mergeada que acabamos de confirmar.
+		# A decisão já foi tomada acima; `-D` só executa.
+		git -C "$repo" branch -D "$branch"
 		printf 'branch apagada: %s (já estava mergeada na %s)\n' "$branch" "$REMOTE_REF"
 	else
 		printf '\n%s\n' "branch PRESERVADA: $branch"
