@@ -186,13 +186,15 @@ jobs:
         run: npm run lint && npm run test
 
       # O beforeBuildCommand do tauri.conf.json compila o frontend com o
-      # profile do app (`npm run build:pdv`, `build:kds`). O Tauri 2
-      # executa esse comando com CWD = frontend_dir (derivado do
-      # frontendDist do conf). Para os confs da família standalone,
-      # frontendDist é ../frontend/dist/<profile>, então frontend_dir =
-      # caminho absoluto para frontend/. O `cd ../frontend` dos confs é,
-      # portanto, correto: de frontend/, `cd ../frontend` → frontend/
-      # (no-op). Nenhum override é necessário.
+      # profile do app (`npm run build:pdv`, `build:kds`) e os confs mandam
+      # `cd ../frontend && ...`. Esse `cd` só funciona se o CWD do hook for
+      # <repo>/frontend — e o CWD NÃO vem do frontendDist (o comentário antigo
+      # dizia isso e estava errado): a CLI usa TAURI_FRONTEND_PATH se existir;
+      # senão parte do cwd de invocação e desce (depth 3) atrás de um
+      # package.json; não achando, cai no PAI do crate = RAIZ do repo. O crate
+      # não tem package.json, então SEM o env o hook rodava na raiz,
+      # `cd ../frontend` apontava para fora do repo e o build morria com
+      # "The system cannot find the path specified" (v1.0.15 e v1.0.16).
       #
       # A CLI do Tauri mora em node_modules/.bin na RAIZ do repo — os crates
       # não têm node_modules próprio, e `npx tauri` de dentro do crate não
@@ -202,6 +204,10 @@ jobs:
         working-directory: ${{ env.CRATE_DIR }}
         shell: pwsh
         env:
+          # Fixa o frontend_dir da CLI: sem isto o beforeBuildCommand roda na
+          # raiz do repo e o `cd ../frontend` dos confs falha. Mesmo valor
+          # exportado por build-standalone.sh no build local.
+          TAURI_FRONTEND_PATH: ${{ github.workspace }}/frontend
           # A chave publica esta no tauri.conf.json (plugins.updater.pubkey);
           # a privada so existe aqui. Sem TAURI_SIGNING_PRIVATE_KEY o build
           # falha em vez de gerar artefato que o app rejeita.
