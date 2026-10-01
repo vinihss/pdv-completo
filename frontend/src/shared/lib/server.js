@@ -11,7 +11,8 @@
 
 const STORAGE_KEY = "pdv:server";
 
-// Padrão do build desktop (ver `desktop:build` / build-app.sh). Vazio no build
+// Padrão do build desktop (ver `src-tauri/build-app.sh`, fora dos npm scripts).
+// Vazio no build
 // web, para não amarrar a URL de ninguém no bundle do navegador.
 const BUILD_DEFAULT = (import.meta.env?.VITE_DEFAULT_SERVER ?? "").trim().replace(/\/+$/, "");
 

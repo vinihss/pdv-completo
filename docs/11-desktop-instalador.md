@@ -9,6 +9,36 @@ Este documento cobre: o que é um instalador e por que ele precisa de um
 cada loja, como o daemon de impressão entra junto, e o que ainda não está
 pronto.
 
+> **STATUS (set/2026) — app v1 em modo de manutenção, desacoplado do frontend.**
+> Este é o doc do app v1 (`com.pdvapp.desktop`), que continua no repo e em
+> produção. O que mudou em relação ao texto abaixo é o **arranjo do repo**, não
+> o app:
+>
+> - `frontend/` é só a aplicação web (e o bundle que os apps standalone servem);
+>   o app desktop v1 vive em `frontend/src-tauri/` como **diretório desacoplado**.
+> - **Build manual**: `bash frontend/src-tauri/build-app.sh` (funciona de
+>   qualquer diretório — o script resolve os caminhos pela própria localização).
+>   Os scripts `desktop:*` saíram do `frontend/package.json`.
+> - **CLI do Tauri na raiz do repo**: `node_modules/.bin/tauri`
+>   (`@tauri-apps/cli` no `package.json` da raiz); nada disso se instala mais em
+>   `frontend/node_modules`. Para o v1, rode a CLI com cwd = `frontend/`.
+> - **A versão do v1 vem do `frontend/src-tauri/Cargo.toml`** (+ conferida contra
+>   `frontend/package.json` pelo `build-app.sh`): o `tauri.conf.json` do v1 não
+>   declara mais `version`. Onde o texto abaixo cita "version no
+>   `tauri.conf.json`", leia o `Cargo.toml` do crate.
+> - **O `build-desktop.yml` deixou de buildar o v1**: hoje ele é o caminho
+>   canônico dos instaladores da família `standalone-*` (matriz `pdv`/`kds`).
+>   Parágrafos que descrevem "o CI gerando o instalador do v1" são de antes
+>   dessa separação — o v1 agora é só este script manual.
+> - **Sidecar**: `printer/scripts/build-sidecar.sh` não existe mais e o
+>   `externalBin` saiu do `tauri.conf.json` do v1 (ver
+>   `docs/agent-frontend.md` §Sidecar). §4/§5 descrevem o instalador com o
+>   daemon embutido — que é o que volta quando o novo printer for embutido de
+>   novo; o `installer-hooks.nsh` continua no lugar, esperando o binário.
+>
+> Caminhos como `src-tauri/...`, `entities/...`, `src/lib.rs` usados neste doc
+> são relativos a `frontend/` e `frontend/src/`.
+
 ## Decisões que sustentam o resto
 
 | Decisão | Motivo |
@@ -252,31 +282,38 @@ Quatro decisões que valem explicadas:
   `tauri build` grava a versão sozinho; o custo é que releases assinados
   antes dessa versão do CLI deixam de ser aceitos (não há nenhum publicado
   ainda).
-- **O `current_version` da tag é conferido contra o `tauri.conf.json` no CI.**
+- **A tag tem que bater com a versão publicada** (era o `current_version`
+  conferido contra o `tauri.conf.json` no CI).
   Sem isso, uma tag `v0.3.0` com `version: 0.2.0` no conf publicaria um
   manifesto que nenhum app reconhece — e o update pareceria simplesmente não
-  existir, sem erro em lugar nenhum.
+  existir, sem erro em lugar nenhum. *(Desde o desacoplamento: o conf do v1 não
+  declara mais `version` — ela vem do `frontend/src-tauri/Cargo.toml` —, o CI
+  passou a buildar a família `standalone-*` e a conferência tag×versão do v1 é
+  manual, no `build-app.sh`; ver nota de status no topo.)*
 
 ### 6.1 Publicar uma versão
 
 ```bash
-# 1. version em frontend/src-tauri/tauri.conf.json e frontend/package.json
-#    tem que ser a mesma da tag.
+# 1. version em frontend/src-tauri/Cargo.toml e frontend/package.json
+#    tem que ser a mesma da tag (o tauri.conf.json do v1 não declara
+#    `version` mais; o build-app.sh falha se os dois divergirem).
 git tag v0.3.0 && git push --tags
 ```
 
-O job `build-desktop` roda em `windows-latest`: gera o sidecar, compila o
-instalador NSIS assinado, monta o `latest.json`, publica por SSH em
-`deploy/updates/` no servidor e anexa o instalador na release do GitHub. O job
-`deploy` só roda depois dele (`needs:`), então o manifesto nunca chega antes
-do backend no ar.
+O job `build-desktop` roda em `windows-latest`: compila o instalador NSIS
+assinado, monta o `latest.json`, publica por SSH em `deploy/updates/` no
+servidor e anexa o instalador na release do GitHub. O job `deploy` só roda
+depois dele (`needs:`), então o manifesto nunca chega antes do backend no ar.
+**Hoje esse job cobre a família `standalone-*`; o instalador do v1 sai do
+`frontend/src-tauri/build-app.sh`** (ver nota de status no topo).
 
 ### 6.1.1 Gerar o instalador sem tag (só o instalador)
 
 O job acima não tem steps próprios: ele chama
 **`.github/workflows/build-desktop.yml`**, que é a definição única do
-instalador. Esse workflow também aceita `workflow_dispatch`, então dá para
-produzir o instalador a qualquer momento pela aba **Actions** →
+instalador (hoje, o da família `standalone-*` — o do v1 é o `build-app.sh`;
+ver nota de status no topo). Esse workflow também aceita `workflow_dispatch`,
+então dá para produzir o instalador a qualquer momento pela aba **Actions** →
 **Instalador Windows (Tauri)** → **Run workflow**:
 
 | Input | Efeito |
@@ -287,8 +324,9 @@ produzir o instalador a qualquer momento pela aba **Actions** →
 
 Três coisas que valem saber antes de usar essa porta:
 
-- **A release é nomeada pela versão do `tauri.conf.json`** do commit
-  escolhido, não pela branch. O run avisa quando a ref não é tag.
+- **A release é nomeada pela versão publicada** do commit escolhido (o conf
+  não declara mais `version` — ela vem do `Cargo.toml` do crate construído),
+  não pela branch. O run avisa quando a ref não é tag.
 - **A release aponta para o commit que assinou o artefato** (`--target
   ${{ github.sha }}`): sem isso ela nasceria no topo da branch padrão, com o
   mesmo nome de versão mas outro código.
@@ -342,14 +380,19 @@ O que já dá para testar em Linux/macOS:
 cd frontend
 npx vitest run src/app/boot src/shared/lib    # boot e config
 cd ../printer/daemon && go test ./...         # daemon
+```
 
-# build local (gera o sidecar e o instalador do sistema atual)
-bash build-app.sh
+O build do v1 é manual e sai de qualquer diretório (o script se localiza pelo
+próprio caminho em `frontend/src-tauri/`):
+
+```bash
+# build local (instalador do sistema atual; sem sidecar — printer reestruturado)
+bash frontend/src-tauri/build-app.sh
 
 # caminho de assinatura de ponta a ponta (gera artefato + .sig)
 TAURI_SIGNING_PRIVATE_KEY="$(cat /caminho/seguro/pdv-updater.key)" \
 TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat /caminho/seguro/senha)" \
-  bash build-app.sh --release --bundles deb
+  bash frontend/src-tauri/build-app.sh --release --bundles deb
 ```
 
 O instalador de Windows (NSIS) só sai no Windows; no Linux/macOS use
@@ -366,8 +409,8 @@ novo). O `.deb` sai normal na mesma máquina — só o AppImage é afetado.
 Quando for o caso:
 
 ```bash
-bash build-app.sh --bundles deb        # .deb nativo, funciona no Arch
-bash build-app.sh --appimage-docker    # AppImage num debian:bookworm-slim
+bash frontend/src-tauri/build-app.sh --bundles deb        # .deb nativo, funciona no Arch
+bash frontend/src-tauri/build-app.sh --appimage-docker    # AppImage num debian:bookworm-slim
 ```
 
 A segunda forma empacota num container (imagem `frontend/docker/Dockerfile.desktop`,
@@ -383,8 +426,9 @@ config que desligue isso (`-c` com `pubkey: ""` continua pedindo chave;
 Sem `TAURI_SIGNING_PRIVATE_KEY`, o build local terminava com erro **depois**
 de gerar o instalador.
 
-Por isso o `build-app.sh` sem `--release` gera uma chave descartável em
-`frontend/src-tauri/.local-signing.key` (ignorada pelo git) e avisa: um
+Por isso o `frontend/src-tauri/build-app.sh` sem `--release` gera uma chave
+descartável em `frontend/src-tauri/.local-signing.key` (ignorada pelo git) e
+avisa: um
 instalador assinado com ela **não** é aceito pelo updater de um app real,
 porque a pubkey do conf é outra. Serve para o script sair com status 0 e
 para o `.sig` existir, o que é o que o CI valida. Entrega é sempre com a
@@ -413,7 +457,7 @@ um sintoma que dá para reproduzir ou um arquivo que não existe.
 |---|---|---|---|
 | 1 | **Guardar a chave e a senha fora do repo.** Hoje estão em `/tmp/opencode/pdv-updater.key` e `.password`, que é temporário. | Sem a privada, nenhuma versão é assinável; sem a senha, o CLI cai num prompt e o build falha. | Copiar os dois arquivos para local durável (gerenciador de senhas + backup offline). Depois, considerar revogar: trocar a chave é gerar par novo, atualizar `plugins.updater.pubkey` e republicar o manifesto. |
 | 2 | **Os secrets de servidor ainda não existem no repositório.** Os dois `TAURI_SIGNING_*` já foram cadastrados (28/09); `gh secret list` não mostra nenhum `HOSTINGER_*` nem `UPDATE_BASE_URL`. | `deploy/README.md` §Secrets | Cadastrar `HOSTINGER_HOST`, `HOSTINGER_USER`, `HOSTINGER_SSH_KEY`, `HOSTINGER_APP_PATH` (+ `HOSTINGER_PORT`, `HOSTINGER_KNOWN_HOSTS` opcionais) e `UPDATE_BASE_URL`. Sem isso o instalador quebra no `scp` e o `deploy` no `ssh-action`. **Ate la, o disparo manual com `publicar_no_servidor` desmarcado ainda produz o instalador assinado na release** — da para preparar a validacao em Windows. |
-| 3 | **A primeira tag ainda nao existe.** `tauri.conf.json` e `package.json` estao em `1.0.2` (iguais entre si, que e o que o job exige). | O job `build-desktop` falha se a tag divergir do conf — de proposito. | `git tag v1.0.2 && git push origin v1.0.2`, ou gerar so o instalador pelo disparo manual do `build-desktop.yml`. |
+| 3 | **A primeira tag ainda nao existe.** `frontend/src-tauri/Cargo.toml` e `frontend/package.json` estao em `1.0.2` (iguais entre si, que e o que o `build-app.sh` exige). | O build do v1 falha se o Cargo.toml e o package.json divergirem — de proposito (a conferencia tag x conf no CI nao cobre mais o v1, ver nota de status). | `git tag v1.0.2 && git push origin v1.0.2`, ou gerar so o instalador com `bash frontend/src-tauri/build-app.sh`. |
 | 4 | **Rodar a primeira tag de verdade.** O caminho do manifesto foi provado com Caddy local e diretório falso, nunca contra o VPS. | `deploy/Caddyfile` + volume `./updates` | Apos a primeira publicacao: `curl https://app.umamisushiarte.com.br/updates/desktop/windows/x86_64/0.0.0` tem que devolver o `latest.json` (a versao do URL e ignorada pelo `rewrite` — 0.0.0 so para nao nascer de um app real). |
 
 Detalhe do item 4 que só aparece em produção: `deploy/updates/` fica **untracked**

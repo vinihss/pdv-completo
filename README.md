@@ -10,6 +10,8 @@ das specs em `docs/`. Ver `docs/00-overview.md` pra contexto do produto.
 ```
 backend/    API REST + WebSocket (Node.js + TypeScript + Fastify + Drizzle + PostgreSQL)
 frontend/   App React (Vite) — login, garçom, cozinha, gerente — instalável como PWA
+            (também é o bundle servido pelos apps standalone)
+frontend/src-tauri/  App desktop v1 (Tauri) — desacoplado do web app, em manutenção
 printer/    Daemon Go para impressão térmica (ESC/POS)
 deploy/     Deploy em nuvem: Dockerfiles, Caddy (HTTPS automático), docker-compose
 docs/       Specs originais (backend, frontend, critérios de aceite)
@@ -272,7 +274,7 @@ impressoras), ver **`printer/README.md`**.
 | `deploy/backup.sh` | deploy | Backup do banco (pg_dump) |
 | `deploy/backup-fetch.sh` | deploy | Download do backup |
 | `deploy/probe-availability.sh` | deploy | Mede downtime real |
-| `printer/scripts/build-sidecar.sh` | printer | Gera sidecar do daemon para o app desktop |
+| `frontend/src-tauri/build-app.sh` | `frontend/` | Build do app desktop v1 (Tauri): `--release` para entrega, `--appimage-docker` para AppImage |
 | `printer/scripts/install-linux.sh` | printer | Instala daemon como serviço Linux |
 | `printer/scripts/install-windows.ps1` | printer | Instala daemon como serviço Windows |
 

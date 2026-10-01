@@ -36,7 +36,7 @@ name: Instalador Windows (Tauri)
 #   que é o que dá o download por URL própria e o auto-update.
 #
 # O app v1 (frontend/src-tauri, em produção) tem o seu próprio script
-# de build: `frontend/build-app.sh`. Este workflow não o substitui.
+# de build: `frontend/src-tauri/build-app.sh`. Este workflow não o substitui.
 # ============================================================
 
 on:
@@ -95,12 +95,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-          cache-dependency-path: printer/daemon/go.sum
-
+          # Dois lockfiles, por motivos diferentes: a CLI do Tauri
+          # (@tauri-apps/cli) agora mora na RAIZ do repo (cache e `npm ci`
+          # da raiz abaixo), e o lint/testes + beforeBuildCommand ainda usam
+          # frontend/node_modules (frontend/package-lock.json).
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
       # A versão publicada é a do Cargo.toml do crate (os tauri.conf.json da
       # família standalone NÃO declaram `version` — o Tauri lê do Cargo.toml
       # automaticamente). A versão é herdada do workspace
@@ -109,7 +110,7 @@ jobs:
       # A tag NÃO é conferida contra a versão dos standalone: a tag é do
       # app v1/backend (o que o deploy-on-tag publica), e cada crate da
       # família tem sua própria versão. A conferência tag-vs-conf do app v1
-      # continua sendo manual, no `frontend/build-app.sh`.
+      # continua sendo manual, no `frontend/src-tauri/build-app.sh`.
       - name: Conferir versão do crate
         working-directory: ${{ env.CRATE_DIR }}
         shell: pwsh
@@ -122,13 +123,18 @@ jobs:
           $cargoVersion = $Matches[1]
           Write-Host "Versao: $cargoVersion (do Cargo.toml)"
 
-      # O sidecar só existe no PDV (externalBin no tauri.conf.json). O
-      # build.rs ABORTA se o binário da plataforma atual não existir — sem
-      # o sidecar, nem `cargo check` roda. Os outros apps pulam este passo.
-      - name: Gerar sidecar do daemon
-        if: matrix.app == 'pdv'
-        shell: bash
-        run: bash printer/scripts/build-sidecar.sh --out-dir standalone-pdv/binaries
+      # O sidecar do daemon de impressão (printer/) SAIU do build: o printer
+      # foi reestruturado e `printer/scripts/build-sidecar.sh` não existe mais.
+      # Os tauri.conf.json da família não declaram `externalBin`, então nada
+      # aqui depende do Go. Retomar quando o novo printer for embutido.
+
+      # Duas instalações, propósitos distintos: a RAIZ traz a CLI do Tauri
+      # (@tauri-apps/cli, usada no passo de build via ../node_modules/.bin)
+      # e frontend/ traz o app em si — o beforeBuildCommand usa o vite de
+      # frontend/node_modules. Nenhuma substitui a outra.
+      - name: Instalar dependencias (raiz, CLI Tauri)
+        working-directory: .
+        run: npm ci
 
       - name: Instalar dependencias
         working-directory: frontend
@@ -149,9 +155,10 @@ jobs:
       # portanto, correto: de frontend/, `cd ../frontend` → frontend/
       # (no-op). Nenhum override é necessário.
       #
-      # A CLI do Tauri mora em frontend/node_modules/.bin — os crates não
-      # têm node_modules próprio, e `npx tauri` de dentro do crate não acha
-      # o binário (sobe diretórios procurando node_modules e não encontra).
+      # A CLI do Tauri mora em node_modules/.bin na RAIZ do repo — os crates
+      # não têm node_modules próprio, e `npx tauri` de dentro do crate não
+      # acha o binário. Do crate (standalone-<app>/), o caminho relativo é
+      # ../node_modules/.bin (instalado pelo `npm ci` da raiz acima).
       - name: Build do instalador (assinado)
         working-directory: ${{ env.CRATE_DIR }}
         shell: pwsh
@@ -162,7 +169,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          $tauri = "../frontend/node_modules/.bin/tauri.cmd"
+          $tauri = "../node_modules/.bin/tauri.cmd"
           & $tauri build --bundles nsis
 
       # O manifesto é montado por app, com a URL apontando para o diretório

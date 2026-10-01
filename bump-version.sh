@@ -7,6 +7,9 @@
 #   1. Cargo.toml (raiz)     — [workspace.package] version
 #   2. frontend/package.json — version
 #
+# O `package.json` da RAIZ (casa da CLI do Tauri, @tauri-apps/cli) NÃO entra
+# nesta lista: ele não tem `version` e não é buildado — só congela a CLI.
+#
 # Os 4 apps standalone NÃO precisam de edição: eles herdam via
 # `version.workspace = true` e o tauri.conf.json não declara `version`
 # (o Tauri lê do Cargo.toml do crate automaticamente).

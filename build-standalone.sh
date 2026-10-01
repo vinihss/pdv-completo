@@ -13,11 +13,11 @@
 # raiz, a busca por tauri.conf.json desce 3 níveis e acha
 # frontend/src-tauri, buildando o app v1 em silêncio.
 #
-# O sidecar do daemon de impressão só existe no PDV (externalBin).
-# Os outros apps pulam esse passo.
+# O sidecar do daemon de impressão SAIU do build: `externalBin` saiu dos
+# confs e o script de sidecar não existe mais (printer reestruturado).
 #
 # O app v1 (frontend/src-tauri, em produção) tem o seu próprio
-# script: frontend/build-app.sh. Este arquivo não o substitui.
+# script: frontend/src-tauri/build-app.sh. Este arquivo não o substitui.
 # ============================================================
 set -euo pipefail
 
@@ -51,38 +51,38 @@ for f in "$TAURI_CONF" "$CARGO_TOML"; do
   [ -f "$f" ] || { echo "ERRO: $f não existe. --app válidos: pdv|kds|garcon|entregador." >&2; exit 1; }
 done
 
-# A CLI do Tauri mora em frontend/node_modules (o $schema do conf aponta
-# para lá). Os crates não têm node_modules próprio, então o caminho é
-# explícito — `npx tauri` de dentro do crate não acha o binário.
-TAURI_CLI="$ROOT/frontend/node_modules/.bin/tauri"
+# A CLI do Tauri mora em node_modules/ na RAIZ do repo (o package.json da raiz
+# congela a versão e o $schema dos confs aponta para lá). Os crates não têm
+# node_modules próprio, então o caminho é explícito — `npx tauri` de dentro do
+# crate não acha o binário.
+TAURI_CLI="$ROOT/node_modules/.bin/tauri"
 
 # ---------- 0. Tools ----------
 command -v node >/dev/null || { echo "Node 20+ é necessário." >&2; exit 1; }
-command -v go   >/dev/null || { echo "Go 1.22+ é necessário (daemon de impressão)." >&2; exit 1; }
 
+# 0a. CLI do Tauri na raiz: package.json + package-lock.json do repo.
+if [ ! -x "$TAURI_CLI" ]; then
+  echo "==> CLI do Tauri ausente na raiz, instalando dependências"
+  (cd "$ROOT" && npm ci)
+fi
+[ -x "$TAURI_CLI" ] || { echo "ERRO: $TAURI_CLI não existe mesmo após npm ci." >&2; exit 1; }
+
+# 0b. Dependências do frontend: o beforeBuildCommand dos confs roda
+# `npm run build:<perfil>` em frontend/ (Vite), então este node_modules continua
+# obrigatório mesmo com a CLI na raiz.
 if [ ! -d "$ROOT/frontend/node_modules" ]; then
   echo "==> node_modules do frontend ausente, instalando dependências"
   (cd "$ROOT/frontend" && npm ci)
 fi
 
-# ---------- 1. Sidecar do daemon (só PDV) ----------
-# O `tauri.conf.json` do PDV declara `externalBin: ["binaries/pdv-printer-daemon"]`
-# e o `build.rs` ABORTA se o binário da plataforma atual não existir. Sem o
-# sidecar gerado, nem `cargo check` roda. Os outros apps não têm externalBin
-# e pulam este passo.
-if [ "$APP" = "pdv" ]; then
-  echo "==> Gerando o sidecar do daemon de impressão (standalone-pdv/binaries/)"
-  bash "$ROOT/printer/scripts/build-sidecar.sh" --out-dir "$CRATE_DIR/binaries"
-fi
-
-# ---------- 2. Versão ----------
+# ---------- 1. Versão ----------
 # Os tauri.conf.json da família standalone NÃO declaram `version` — o Tauri lê
 # do Cargo.toml do crate automaticamente. A versão é herdada do workspace
 # (version.workspace = true), então basta conferir o Cargo.toml.
 PKG_VERSION="$(grep -m1 '^version = ' "$CARGO_TOML" | sed 's/^version = "\(.*\)"$/\1/')"
 echo "==> Versão: $PKG_VERSION (do Cargo.toml)"
 
-# ---------- 3. Assinatura ----------
+# ---------- 2. Assinatura ----------
 # O empacotador do Tauri 2 assina o artefato de update SEMPRE que
 # `plugins.updater.pubkey` está no tauri.conf.json — e não há flag de config
 # que desligue isso. Sem TAURI_SIGNING_PRIVATE_KEY o build local TERMINA
@@ -120,7 +120,7 @@ else
   fi
 fi
 
-# ---------- 4. Build ----------
+# ---------- 3. Build ----------
 # O `tauri build` roda o `beforeBuildCommand` do conf antes (que compila o
 # frontend), então o frontend não precisa ser compilado separado.
 #
@@ -145,7 +145,7 @@ find "$BUNDLE_DIR" -maxdepth 2 \( -name '*.exe*' -o -name '*.deb' -o -name '*.Ap
   | sed 's|^|    |'
 echo
 if [ "$RELEASE" -eq 1 ]; then
-  echo "Para publicar: suba a tag v$CONF_VERSION (o CI assina e publica), ou dispare"
+  echo "Para publicar: suba a tag v$PKG_VERSION (o CI assina e publica), ou dispare"
   echo "o workflow 'Instalador Windows (Tauri)' na aba Actions para gerar so o instalador."
 else
   echo "Isto NÃO é build de entrega. Para publicar, use --release e a tag."

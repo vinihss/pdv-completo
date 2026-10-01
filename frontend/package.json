@@ -17,9 +17,7 @@
     "build:entregador": "VITE_APP_PROFILE=entregador vite build",
     "lint": "oxlint",
     "test": "vitest run",
-    "preview": "vite preview",
-    "desktop:build": "bash build-app.sh",
-    "desktop:dev": "tauri dev"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -35,7 +33,6 @@
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.11.5",
     "@testing-library/react": "^16.3.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

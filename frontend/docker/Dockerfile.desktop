@@ -6,7 +6,7 @@
 # Num Debian com glibc 2.36 e binutils 2.40 o empacotamento sai limpo.
 #
 # Build da imagem:  docker build -t pdv-desktop-build -f docker/Dockerfile.desktop .
-# Usado por build-app.sh (--appimage-docker) e dá para usar direto:
+# Usado por src-tauri/build-app.sh (--appimage-docker) e dá para usar direto:
 #   docker run --rm -v "$PWD":/app -w /app \
 #     -e VITE_DEFAULT_SERVER=https://app.exemplo.com \
 #     pdv-desktop-build npx tauri build --bundles appimage

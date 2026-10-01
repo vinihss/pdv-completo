@@ -45,7 +45,15 @@ HTML — não se deduz da URL, que no desktop é `tauri://localhost`).
 | `npm run preview` | Preview do build de produção |
 | `npm run lint` | oxlint |
 | `npm run test` | vitest (jsdom + Testing Library) |
-| `npm run desktop:build` | Build do app desktop (Tauri) |
+
+O build do app desktop (Tauri) **saiu dos npm scripts** (`desktop:build`/`desktop:dev`
+foram removidos, junto com a devDependency `@tauri-apps/cli` — a CLI agora mora na
+raiz do repositório). Build manual do app v1:
+
+```bash
+bash src-tauri/build-app.sh                  # build local (dev/teste), rode em frontend/
+bash src-tauri/build-app.sh --release        # build de entrega (exige chave de assinatura)
+```
 
 Cuidado com o nome: **`build:all` é o app único**, não "os 4". O `all` é o
 profile padrão e significa que as 4 entradas saem lado a lado em `dist/`. Para

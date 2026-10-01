@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
 # ============================================================
 # Build do app desktop (Tauri) em um comando.
+# (Este script mora em `frontend/src-tauri/` — o build desktop ficou fora
+# dos npm scripts do frontend.)
 #
-#   bash build-app.sh                  # build local (dev/teste)
-#   bash build-app.sh --release        # build de entrega: exige chave
-#   bash build-app.sh --bundles nsis   # só um tipo de instalador
-#   bash build-app.sh --appimage-docker  # AppImage via container Debian
+#   bash frontend/src-tauri/build-app.sh                  # build local (dev/teste)
+#   bash frontend/src-tauri/build-app.sh --release        # build de entrega: exige chave
+#   bash frontend/src-tauri/build-app.sh --bundles nsis   # só um tipo de instalador
+#   bash frontend/src-tauri/build-app.sh --appimage-docker  # AppImage via container Debian
 #
-# O passo que ninguém pode esquecer é o sidecar: o `tauri.conf.json`
-# declara `externalBin: ["binaries/pdv-printer-daemon"]` e o `build.rs`
-# ABORTA se o binário da plataforma atual não existir. Sem o sidecar gerado,
-# nem `cargo check` roda. Por isso ele é o primeiro passo aqui, e não uma
-# instrução solta no README.
+# O passo do sidecar do daemon de impressão SAIU deste build: o printer foi
+# reestruturado e `printer/scripts/build-sidecar.sh` não existe mais. O
+# `externalBin` foi removido do tauri.conf.json, então o build não depende
+# do Go nem do printer. Retomar quando o novo printer for embutido.
 # ============================================================
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Repo root: este arquivo está em `frontend/src-tauri/`, então sobe 2 níveis.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FRONTEND="$ROOT/frontend"
 
 RELEASE=0
@@ -26,7 +28,7 @@ while [ $# -gt 0 ]; do
     --release) RELEASE=1; shift ;;
     --bundles) BUNDLES="--bundles ${2:?--bundles precisa do tipo}"; shift 2 ;;
     --appimage-docker) APPIMAGE_DOCKER=1; shift ;;
-    -h|--help) sed -n '3,9p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '3,11p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "Opção desconhecida: $1" >&2; exit 1 ;;
   esac
 done
@@ -35,19 +37,13 @@ cd "$FRONTEND"
 
 # ---------- 0. Tools ----------
 command -v node >/dev/null || { echo "Node 20+ é necessário." >&2; exit 1; }
-command -v go   >/dev/null || { echo "Go 1.22+ é necessário (daemon de impressão)." >&2; exit 1; }
 
 if [ ! -d node_modules ]; then
   echo "==> node_modules ausente, instalando dependências"
   npm ci
 fi
 
-# ---------- 1. Sidecar do daemon ----------
-# Cross-compila (Windows/Linux/macOS) e roda `go test` antes.
-echo "==> Gerando o sidecar do daemon de impressão"
-bash "$ROOT/printer/scripts/build-sidecar.sh"
-
-# ---------- 2. Versões precisam bater ----------
+# ---------- 1. Versões precisam bater ----------
 # A versão do instalador vem do tauri.conf.json; o package.json é a outra
 # fonte. Divergentes, o instalador sai com uma versão e o manifesto outra,
 # e o update "não existe" sem erro nenhum. Melhor falhar aqui.
@@ -63,7 +59,7 @@ if [ "$CONF_VERSION" != "$PKG_VERSION" ]; then
 fi
 echo "==> Versão: $CONF_VERSION"
 
-# ---------- 3. Assinatura ----------
+# ---------- 2. Assinatura ----------
 # O empacotador do Tauri 2 assina o artefato de update SEMPRE que
 # `plugins.updater.pubkey` está no tauri.conf.json — e não há flag de config
 # que desligue isso (testado: `-c '{"plugins":{"updater":{"pubkey":""}}}'`
@@ -104,7 +100,7 @@ else
   fi
 fi
 
-# ---------- 4. Build ----------
+# ---------- 3. Build ----------
 # O `tauri build` roda `npm run build` antes (beforeBuildCommand), então o
 # frontend não precisa ser compilado separado.
 #
