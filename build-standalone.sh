@@ -145,7 +145,7 @@ find "$BUNDLE_DIR" -maxdepth 2 \( -name '*.exe*' -o -name '*.deb' -o -name '*.Ap
   | sed 's|^|    |'
 echo
 if [ "$RELEASE" -eq 1 ]; then
-  echo "Para publicar: suba a tag v$CONF_VERSION (o CI assina e publica), ou dispare"
+  echo "Para publicar: suba a tag v$PKG_VERSION (o CI assina e publica), ou dispare"
   echo "o workflow 'Instalador Windows (Tauri)' na aba Actions para gerar so o instalador."
 else
   echo "Isto NÃO é build de entrega. Para publicar, use --release e a tag."
