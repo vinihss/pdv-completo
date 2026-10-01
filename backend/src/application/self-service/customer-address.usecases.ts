@@ -35,6 +35,7 @@ function serializeAddress(a: typeof customerAddresses.$inferSelect) {
     complement: a.complement,
     neighborhood: a.neighborhood,
     city: a.city,
+    state: a.state ?? null,
     reference: a.reference,
     isDefault: a.isDefault,
     createdAt: a.createdAt,
@@ -57,11 +58,12 @@ export function formatAddress(a: {
   complement?: string | null;
   neighborhood: string;
   city: string;
+  state?: string | null;
   reference?: string | null;
   cep?: string | null;
 }): string {
   const line1 = `${a.street}, ${a.number}${a.complement ? ` - ${a.complement}` : ""}`;
-  const line2 = `${a.neighborhood}, ${a.city}`;
+  const line2 = `${a.neighborhood}, ${a.city}${a.state ? ` - ${a.state}` : ""}`;
   const line3 = a.reference ? ` (${a.reference})` : "";
   return `${line1} - ${line2}${line3}`;
 }
@@ -105,6 +107,7 @@ export async function addCustomerAddressUsecase(input: {
   complement?: string | null;
   neighborhood: string;
   city: string;
+  state?: string | null;
   reference?: string | null;
   isDefault?: boolean;
 }) {
@@ -141,6 +144,7 @@ export async function addCustomerAddressUsecase(input: {
         complement: input.complement ?? null,
         neighborhood: input.neighborhood,
         city: input.city,
+        state: input.state ?? null,
         reference: input.reference ?? null,
         isDefault,
       })

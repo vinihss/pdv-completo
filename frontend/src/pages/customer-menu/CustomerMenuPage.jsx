@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ChevronLeft, MapPin, Check, AlertTriangle, X, PartyPopper } from "lucide-react";
 import { getStoreInfo } from "@/entities/store";
 import { getPublicCart, savePublicCart, clearPublicCart } from "@/entities/cart";
-import { lookupPublicCustomer } from "@/entities/customer";
+import { lookupPublicCustomer, saveProfileLocal, loadProfileLocal } from "@/entities/customer";
 import { createPublicOrder, getPublicOrderStatus, getActivePublicOrder, cancelPublicOrder } from "@/entities/order";
 import { getPublicMenu } from "@/entities/product";
 import { fetchAddressByCep } from "@/shared/api/cep";
@@ -17,7 +17,10 @@ import CartLine from "./components/CartLine.jsx";
 import { assetUrl } from "@/shared/lib/server";
 
 function formatAddress(a) {
-  return `${a.street}, ${a.number}${a.complement ? ` - ${a.complement}` : ""} · ${a.neighborhood}, ${a.city}`;
+  if (!a) return "";
+  // Mesma ordem do formatAddress do backend (customer-address.usecases.ts), para
+  // o cliente ler na revisão exatamente o que o entregador vai ler na comanda.
+  return `${a.street}, ${a.number}${a.complement ? ` - ${a.complement}` : ""} · ${a.neighborhood}, ${a.city}${a.state ? ` - ${a.state}` : ""}`;
 }
 function digitsOnly(v) {
   return (v ?? "").replace(/\D/g, "").slice(0, 11);
@@ -34,6 +37,26 @@ function maskCep(raw) {
   if (d.length <= 5) return d;
   return `${d.slice(0, 5)}-${d.slice(5)}`;
 }
+function maskState(raw) {
+  return (raw ?? "")
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "")
+    .slice(0, 2);
+}
+
+// Uma única definição do endereço vazio. Antes existiam duas (o useState e o
+// resetOrder) e elas já divergiram uma vez — o reset não tinha `cep`.
+const EMPTY_ADDRESS = {
+  label: "",
+  cep: "",
+  street: "",
+  number: "",
+  complement: "",
+  neighborhood: "",
+  city: "",
+  state: "",
+  reference: "",
+};
 
 const PAYMENT_OPTIONS = [
   { value: "cash", label: "Dinheiro" },
@@ -97,13 +120,24 @@ export default function CustomerMenuPage() {
   const [pendingLineKey, setPendingLineKey] = useState(null);
 
   const [checkoutStep, setCheckoutStep] = useState("phone");
-  const [phone, setPhone] = useState(() => maskPhone(prefilledPhone));
+  // O telefone vem do `?phone=` do link do bot; na web direta sai do cache de
+  // perfil (entities/customer/model/profileStorage.js) — cliente que já pediu
+  // uma vez não digita o número de novo.
+  const [phone, setPhone] = useState(() => maskPhone(prefilledPhone) || maskPhone(loadProfileLocal().phone));
   const [customer, setCustomer] = useState(null); // { customerId, name, addresses } | null
   const [selectedAddressId, setSelectedAddressId] = useState(null);
   // `cep` alimenta a busca do ViaCEP e vai no payload — o backend persiste
-  // (migration 0005) e o devolve no lookup de endereços.
-  const [newAddress, setNewAddress] = useState({ label: "", cep: "", street: "", number: "", complement: "", neighborhood: "", city: "", reference: "" });
+  // (migration 0005) e o devolve no lookup de endereços. `state` (UF) entrou
+  // junto da migration 0006, pelo mesmo caminho.
+  const [newAddress, setNewAddress] = useState(() => loadProfileLocal().address ?? EMPTY_ADDRESS);
   const [payment, setPayment] = useState(null);
+  // Observação do pedido inteiro (a KitchenDisplay mostra na comanda, a bobina
+  // imprime). Distinta das observações por item, que já existem no carrinho.
+  const [orderNotes, setOrderNotes] = useState("");
+  // `maxKm` da faixa de distância escolhida na tela de endereço. Só alimenta a
+  // previsão de entrega (domain/delivery-eta.ts) — o frete em si continua
+  // sendo a taxa fixa de store_settings, como no §04.
+  const [deliveryZoneKm, setDeliveryZoneKm] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState(null);
   const [order, setOrder] = useState(null); // resultado de createPublicOrder | { orderId } na retomada
@@ -115,6 +149,12 @@ export default function CustomerMenuPage() {
   // criados antes da digitação (debounce de 800ms).
   const phoneRef = useRef(phone);
   phoneRef.current = phone;
+  // Mesma técnica para o nome e o endereço: o save do perfil é debounced e
+  // roda fora do ciclo de render, então precisa ler o valor corrente.
+  const customerRef = useRef(customer);
+  customerRef.current = customer;
+  const newAddressRef = useRef(newAddress);
+  newAddressRef.current = newAddress;
 
   useEffect(() => {
     getStoreInfo()
@@ -127,7 +167,10 @@ export default function CustomerMenuPage() {
     getPublicMenu()
       .then((m) => {
         setMenu(m);
-        hydrateCartFromServer(m, digitsOnly(prefilledPhone));
+        // Telefone do link do bot tem prioridade, mas o rascunho do servidor é
+        // chaveado por telefone: sem ele, quem já pediu uma vez e volta pelo
+        // link simples perde os itens que tinha deixado no rascunho.
+        hydrateCartFromServer(m, digitsOnly(prefilledPhone) || digitsOnly(phoneRef.current));
         hydrateCartFromLocal(m);
       })
       .catch((e) => setMenuError(e.message));
@@ -163,6 +206,7 @@ export default function CustomerMenuPage() {
   const subtotal = cartItems.reduce((s, i) => s + i.price * i.quantity, 0);
   const itemCount = cartItems.reduce((s, i) => s + i.quantity, 0);
   const deliveryFee = storeInfo?.deliveryFee ?? 0;
+  const deliveryZones = useMemo(() => buildDeliveryZones(storeInfo), [storeInfo]);
   const paymentOptions = PAYMENT_OPTIONS.filter(
     (o) => !storeInfo?.enabledPaymentMethods || storeInfo.enabledPaymentMethods.includes(o.value)
   );
@@ -397,6 +441,19 @@ export default function CustomerMenuPage() {
     if (digitsOnly(masked)) scheduleCartSave(cart);
   }
 
+  // Telefone, nome e endereço no cache local: quem fecha a aba no meio do
+  // checkout volta com tudo preenchido, e quem terminar o pedido e voltar pra
+  // pedir de novo não digita nada. Best-effort, mesmo espírito do rascunho.
+  const profileTimer = useRef(null);
+  const scheduleProfileSave = useCallback((address) => {
+    if (profileTimer.current) clearTimeout(profileTimer.current);
+    profileTimer.current = setTimeout(() => {
+      saveProfileLocal({ phone: phoneRef.current, name: customerRef.current?.name ?? "", address: address ?? newAddressRef.current });
+    }, 600);
+  }, []);
+
+  useEffect(() => () => { if (profileTimer.current) clearTimeout(profileTimer.current); }, []);
+
   async function runLookup(phoneToLookup) {
     const lookup = digitsOnly(phoneToLookup);
     if (!lookup) return;
@@ -426,8 +483,13 @@ export default function CustomerMenuPage() {
     setCheckoutStep("phone");
     setCustomer(null);
     setSelectedAddressId(null);
-    setNewAddress({ label: "", cep: "", street: "", number: "", complement: "", neighborhood: "", city: "", reference: "" });
+    // Endereço e telefone voltam do perfil, não do vazio: "pedir de novo" é o
+    // caminho mais comum depois de confirmar, e recomeçar do zero seria punir o
+    // cliente por ter feito o que a tela manda.
+    setNewAddress(loadProfileLocal().address ?? EMPTY_ADDRESS);
+    setPhone(maskPhone(prefilledPhone) || maskPhone(loadProfileLocal().phone));
     setPayment(null);
+    setOrderNotes("");
     setOrder(null);
     setStatusPoll(null);
     setCheckoutError(null);
@@ -468,11 +530,25 @@ export default function CustomerMenuPage() {
             },
         items: cartItems.map(toServerLine),
         paymentMethodIntent: payment,
+        // Só vai quando tem texto: o schema rejeita string vazia, e observação
+        // em branco no banco é ruído na comanda e na bobina.
+        ...(orderNotes.trim() ? { notes: orderNotes.trim() } : {}),
+        ...(deliveryZoneKm !== null ? { deliveryZoneKm } : {}),
       });
       setOrder(created);
       setScreen("confirmation");
       // Pedido criado: o rascunho cumpriu o papel, some do servidor e do cache local.
+      // O PERFIL (telefone + endereço) fica de propósito — o mesmo cliente
+      // voltando pra pedir outra coisa não deveria redigitar nada. É
+      // clearCartLocal/clearPublicCart que limpam, não clearProfileLocal.
       clearCartLocal();
+      saveProfileLocal({
+        phone: digitsOnly(phone),
+        name: customer?.name ?? newAddress.customerName ?? "",
+        address: selectedAddressId
+          ? customer?.addresses.find((a) => a.id === selectedAddressId)
+          : newAddress,
+      });
       const p = digitsOnly(phone);
       if (p) clearPublicCart(p).catch(() => {});
     } catch (e) {
@@ -644,6 +720,12 @@ export default function CustomerMenuPage() {
             deliveryFee={deliveryFee}
             paymentOptions={paymentOptions}
             logoUrl={storeInfo?.logoUrl}
+            orderNotes={orderNotes}
+            setOrderNotes={setOrderNotes}
+            deliveryZoneKm={deliveryZoneKm}
+            setDeliveryZoneKm={setDeliveryZoneKm}
+            deliveryZones={deliveryZones}
+            onAddressChange={(next) => scheduleProfileSave(next)}
             onBack={() => setScreen("cart")}
             onSubmit={submitOrder}
             submitting={submitting}
@@ -735,8 +817,87 @@ function CartScreen({ items, subtotal, logoUrl, addToCartLine, removeFromCartLin
 }
 
 // ---------------------------------------------------------------------------
+// Previsão de entrega (texto) e seletor de faixa de distância.
+
+/**
+ * "Previsão de entrega: 40 a 50 min" enquanto o pedido está na cozinha, e
+ * "Previsão de entrega: até 19:52" depois que saiu para entrega — momento em que
+ * a janela deixa de ser estimativa e passa a ser contagem do horário real de
+ * despacho (vem em `deliverBy`, já em ISO do servidor).
+ *
+ *hora cheia não sai: se o backend não mandou janela (pedido antigo, ou o GET de
+ * status respondeu antes do novo campo existir), o texto some em vez de virar
+ * "undefined min".
+ */
+function etaLine(window, deliverBy) {
+  if (deliverBy) {
+    const at = new Date(deliverBy);
+    if (!Number.isNaN(at.getTime())) {
+      return `Previsão de entrega: até ${at.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+    }
+  }
+  if (window?.min && window?.max) {
+    const range = window.min === window.max ? `${window.min} min` : `${window.min} a ${window.max} min`;
+    return `Previsão de entrega: ${range}`;
+  }
+  return "";
+}
+
+/**
+ * Faixas de distância vindas da tabela de frete da loja (`/store-info` expõe
+ * `deliveryFeeTiers`). É a mesma lista que decide o preço e o raio, então o
+ * cliente vê as faixas que o balcão realmente usa — e é dela que sai a previsão
+ * de entrega (domain/delivery-eta.ts).
+ */
+function buildDeliveryZones(storeInfo) {
+  const tiers = Array.isArray(storeInfo?.deliveryFeeTiers) ? storeInfo.deliveryFeeTiers : [];
+  const prep = storeInfo?.deliveryPrepMinutes ?? 40;
+  const perKm = storeInfo?.minutesPerKm ?? 2;
+  return tiers
+    .filter((t) => Number.isFinite(t?.maxKm) && t.maxKm > 0)
+    .map((t, i, arr) => ({
+      maxKm: t.maxKm,
+      label: i === 0 ? `Até ${t.maxKm} km` : `${arr[i - 1].maxKm} a ${t.maxKm} km`,
+      minutes: Math.max(5, Math.ceil(t.maxKm * perKm)),
+    }))
+    .map((z) => ({ ...z, estimate: `≈ ${z.minutes + prep} min` }));
+}
+
+function zoneLabel(zoneKm, zones) {
+  const zone = zones.find((z) => z.maxKm === zoneKm);
+  return zone ? `${zone.label} · ${zone.estimate}` : "a definir";
+}
+
+function ZoneSelector({ zones, value, onChange }) {
+  if (!zones || zones.length === 0) return null;
+  return (
+    <div className="pt-1">
+      <div className="text-[12.5px] font-semibold text-stone-300 mb-1.5">
+        Distância aproximada <span className="text-stone-500 font-normal">(opcional)</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {zones.map((z) => (
+          <button
+            key={z.maxKm}
+            type="button"
+            onClick={() => onChange(value === z.maxKm ? null : z.maxKm)}
+            className={`rounded-lg border px-3 py-2.5 text-left ${value === z.maxKm ? "border-amber-500 bg-amber-500/10" : "border-stone-800 bg-stone-900"}`}
+          >
+            <span className="block text-[13px] font-medium text-stone-100">{z.label}</span>
+            <span className="block text-[11.5px] text-stone-500">{z.estimate}</span>
+          </button>
+        ))}
+      </div>
+      <p className="text-[11.5px] text-stone-600 mt-1.5">
+        Usamos essa informação para estimar a hora de entrega. O frete não muda em relação ao que está acima.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 function CheckoutScreen(props) {
-  const { step, setStep, phone, onPhoneChange, onLookup, customer, selectedAddressId, setSelectedAddressId, newAddress, setNewAddress, payment, setPayment, items, subtotal, deliveryFee, paymentOptions, logoUrl, onBack, onSubmit, submitting, error } = props;
+  const { step, setStep, phone, onPhoneChange, onLookup, customer, selectedAddressId, setSelectedAddressId, newAddress, setNewAddress, payment, setPayment, items, subtotal, deliveryFee, paymentOptions, logoUrl, onBack, onSubmit, submitting, error, orderNotes, setOrderNotes, deliveryZoneKm, setDeliveryZoneKm, deliveryZones, onAddressChange } = props;
   const titles = { phone: "Identificação", address: "Endereço de entrega", "new-address": "Endereço de entrega", payment: "Pagamento", review: "Confirmar pedido" };
 
   // ---------- busca de CEP (ViaCEP) ----------
@@ -744,6 +905,20 @@ function CheckoutScreen(props) {
   // falha nenhuma aqui pode virar o erro global do checkout (`error`) nem
   // desabilitar o "Continuar" — no máximo aparece uma dica ao lado do campo.
   const [cepNotice, setCepNotice] = useState(null); // { kind: "loading" | "error", text }
+  // Toda edição de endereço passa por aqui: além de atualizar o estado, agenda
+  // a gravação do perfil local (debounced). Sem isso o cache só conheceria o
+  // endereço de quem chegou até o fim e fechou o pedido.
+  //
+  // A indireção por ref é porque `lookupCep` é um `useCallback` com deps
+  // `[setNewAddress]` — puxar `onAddressChange` para as deps faria o timer do
+  // debounce do CEP ser recriado a cada tecla digitada no endereço.
+  const onAddressChangeRef = useRef(onAddressChange);
+  onAddressChangeRef.current = onAddressChange;
+  function onNewAddressChange(next) {
+    setNewAddress(next);
+    onAddressChangeRef.current?.(next);
+  }
+
   const cepDigits = digitsOnly(newAddress.cep ?? "");
   // Último CEP buscado com sucesso: redigitar o mesmo número (ou voltar da aba
   // de outro campo) não pode gerar outra requisição.
@@ -755,7 +930,7 @@ function CheckoutScreen(props) {
     // A mensagem anterior sai na hora: ela descreve o CEP que estava na tela,
     // não o que o cliente acabou de digitar.
     setCepNotice(null);
-    setNewAddress({ ...newAddress, cep: maskCep(value) });
+    onNewAddressChange({ ...newAddress, cep: maskCep(value) });
   }
 
   // `useCallback` porque o efeito do debounce depende dela: sem isso o timer
@@ -769,16 +944,22 @@ function CheckoutScreen(props) {
     setCepNotice({ kind: "loading", text: "Buscando CEP…" });
     try {
       const found = await fetchAddressByCep(digits, { signal: controller.signal });
-      // Preenche só o que está vazio: o que o cliente digitou é dele. Número,
-      // rótulo, referência e nome continuam manuais — e CEP de município sem
-      // logradouro ainda traz bairro e cidade.
-      setNewAddress((prev) => ({
-        ...prev,
-        street: prev.street || found.street,
-        neighborhood: prev.neighborhood || found.neighborhood,
-        city: prev.city || found.city,
-        complement: prev.complement || found.complement,
-      }));
+      // Preenche só o que está vazio: o que o cliente digitou é dele. Rua,
+      // bairro, cidade e UF vêm do CEP; número, complemento, referência e nome
+      // continuam manuais — e CEP de município sem logradouro ainda traz bairro
+      // e cidade. O `complement` do ViaCEP é descartado na origem (shared/api/cep.js):
+      // ele vem como faixa ("de 101 a 150") e overwrite o que a pessoa escreveu.
+      setNewAddress((prev) => {
+        const next = {
+          ...prev,
+          street: prev.street || found.street,
+          neighborhood: prev.neighborhood || found.neighborhood,
+          city: prev.city || found.city,
+          state: prev.state || found.state,
+        };
+        onAddressChangeRef.current?.(next);
+        return next;
+      });
       cepDoneRef.current = digits;
       setCepNotice(null);
     } catch (e) {
@@ -862,12 +1043,13 @@ function CheckoutScreen(props) {
             <button onClick={() => { setSelectedAddressId(null); setStep("new-address"); }} className="w-full text-left rounded-lg border border-dashed border-stone-700 p-3.5 text-[13.5px] text-stone-400">
               + Usar um novo endereço
             </button>
+            <ZoneSelector zones={deliveryZones} value={deliveryZoneKm} onChange={setDeliveryZoneKm} />
           </div>
         )}
 
         {step === "new-address" && (
           <div className="space-y-3">
-            <Field label="Rótulo (opcional)" value={newAddress.label} onChange={(v) => setNewAddress({ ...newAddress, label: v })} placeholder="Casa, Trabalho..." />
+            <Field label="Rótulo (opcional)" value={newAddress.label} onChange={(v) => onNewAddressChange({ ...newAddress, label: v })} placeholder="Casa, Trabalho..." />
             <div>
               <Field
                 label="CEP"
@@ -886,16 +1068,28 @@ function CheckoutScreen(props) {
               )}
             </div>
             <div className="flex gap-3">
-              <Field label="Rua" value={newAddress.street} onChange={(v) => setNewAddress({ ...newAddress, street: v })} className="flex-[2]" />
-              <Field label="Número" value={newAddress.number} onChange={(v) => setNewAddress({ ...newAddress, number: v })} className="flex-1" />
+              <Field label="Rua" value={newAddress.street} onChange={(v) => onNewAddressChange({ ...newAddress, street: v })} className="flex-[2]" />
+              <Field label="Número" value={newAddress.number} onChange={(v) => onNewAddressChange({ ...newAddress, number: v })} className="flex-1" />
             </div>
-            <Field label="Complemento (opcional)" value={newAddress.complement} onChange={(v) => setNewAddress({ ...newAddress, complement: v })} />
-            <Field label="Bairro" value={newAddress.neighborhood} onChange={(v) => setNewAddress({ ...newAddress, neighborhood: v })} />
-            <Field label="Cidade" value={newAddress.city} onChange={(v) => setNewAddress({ ...newAddress, city: v })} />
-            <Field label="Ponto de referência (opcional)" value={newAddress.reference} onChange={(v) => setNewAddress({ ...newAddress, reference: v })} />
+            <Field label="Complemento (opcional)" value={newAddress.complement} onChange={(v) => onNewAddressChange({ ...newAddress, complement: v })} />
+            <Field label="Bairro" value={newAddress.neighborhood} onChange={(v) => onNewAddressChange({ ...newAddress, neighborhood: v })} />
+            <div className="flex gap-3">
+              <Field label="Cidade" value={newAddress.city} onChange={(v) => onNewAddressChange({ ...newAddress, city: v })} className="flex-[3]" />
+              <Field
+                label="Estado"
+                value={newAddress.state}
+                onChange={(v) => onNewAddressChange({ ...newAddress, state: maskState(v) })}
+                placeholder="UF"
+                maxLength={2}
+                autoComplete="address-level1"
+                className="flex-[1]"
+              />
+            </div>
+            <Field label="Ponto de referência (opcional)" value={newAddress.reference} onChange={(v) => onNewAddressChange({ ...newAddress, reference: v })} />
             {!customer && (
-              <Field label="Seu nome" value={newAddress.customerName ?? ""} onChange={(v) => setNewAddress({ ...newAddress, customerName: v })} />
+              <Field label="Seu nome" value={newAddress.customerName ?? ""} onChange={(v) => onNewAddressChange({ ...newAddress, customerName: v })} />
             )}
+            <ZoneSelector zones={deliveryZones} value={deliveryZoneKm} onChange={setDeliveryZoneKm} />
           </div>
         )}
 
@@ -944,6 +1138,26 @@ function CheckoutScreen(props) {
                 <span>{selectedAddressId ? formatAddress(customer.addresses.find((a) => a.id === selectedAddressId)) : formatAddress(newAddress)}</span>
               </div>
               <p className="text-[13.5px] text-stone-500 pl-5.5 ml-0.5">Pagamento: {paymentOptions.find((o) => o.value === payment)?.label}</p>
+              <p className="text-[13.5px] text-stone-500 pl-5.5 ml-0.5">
+                Previsão de entrega: {zoneLabel(deliveryZoneKm, deliveryZones)}
+              </p>
+            </div>
+            <div>
+              <label className="block text-[12.5px] font-semibold text-stone-300 mb-1.5">
+                Observação <span className="text-stone-500 font-normal">(opcional)</span>
+              </label>
+              <textarea
+                value={orderNotes}
+                onChange={(e) => setOrderNotes(e.target.value)}
+                rows={3}
+                maxLength={300}
+                placeholder="Ex.: interfonar no 3º andar, portão azul…"
+                className="w-full bg-stone-950 border border-stone-800 rounded-lg px-3 py-2 text-[13.5px] text-stone-100 outline-none focus:border-amber-500 placeholder:text-stone-600"
+              />
+              <p className="text-[11.5px] text-stone-600 mt-1">
+                Vai junto do pedido inteiro: a cozinha e o entregador recebem esta observação. Para mudar um item
+                específico, use a observação do próprio item no carrinho.
+              </p>
             </div>
           </div>
         )}
@@ -991,7 +1205,11 @@ function ConfirmationScreen({ order, status, phone, onCancel, onReset, submittin
   const failed = stage === "failed";
   const cancelled = stage === "cancelled";
   const total = status?.total ?? order?.total;
-  const estimatedMinutes = status?.estimatedMinutes ?? order?.estimatedMinutes;
+  // A previsão em texto muda conforme o stage: antes de sair para entrega é uma
+  // janela (preparo + viagem, ±20% — o backend devolve os dois lados prontos);
+  // depois do despacho vira "chega até HH:MM", contada a partir do horário real
+  // em que o motoboy pegou o pedido. Ver `etaForStage` no backend.
+  const eta = etaLine(status?.estimatedWindow ?? order?.estimatedWindow, status?.deliverBy);
   const timeline = status?.timeline?.length
     ? status.timeline
     : FALLBACK_STEPS.map((s, i) => ({ ...s, done: i === 0, current: i === 0 }));
@@ -1012,7 +1230,7 @@ function ConfirmationScreen({ order, status, phone, onCancel, onReset, submittin
         </div>
         <h1 className="text-xl font-extrabold text-stone-50">{title}</h1>
         {!failed && !cancelled && (
-          <p className="text-[13.5px] text-stone-500 mt-1">Tempo estimado: {estimatedMinutes} min · Total {formatBRL(total)}</p>
+          <p className="text-[13.5px] text-stone-500 mt-1">{eta} · Total {formatBRL(total)}</p>
         )}
       </div>
 

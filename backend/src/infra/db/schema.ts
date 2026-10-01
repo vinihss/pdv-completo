@@ -183,6 +183,7 @@ export const orders = pgTable(
     externalRef: text("external_ref"), // order id externo: iFood quando channel === "ifood"
     deliveryFee: real("delivery_fee"), // snapshot da taxa cobrada, só para channel != "balcao"
     cancelReason: text("cancel_reason"),
+    notes: text("notes"),
     ifoodPayments: text("ifood_payments"), // métodos de pagamento do iFood (JSON)
   },
   (t) => [
@@ -453,6 +454,8 @@ export const storeSettings = pgTable("store_settings", {
   restaurantLong: real("restaurant_long"),
   freeDeliveryMin: real("free_delivery_min").notNull().default(0),
   deliveryFeeTiers: text("delivery_fee_tiers").notNull().default("[]"),
+  deliveryPrepMinutes: integer("delivery_prep_minutes").notNull().default(40),
+  minutesPerKm: integer("minutes_per_km").notNull().default(2),
 });
 
 // ---------- infraestrutura ----------
@@ -551,6 +554,7 @@ export const customerAddresses = pgTable(
     complement: text("complement"),
     neighborhood: text("neighborhood").notNull(),
     city: text("city").notNull(),
+    state: text("state"),
     reference: text("reference"),
     latitude: real("latitude"),
     longitude: real("longitude"),

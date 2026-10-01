@@ -29,6 +29,7 @@ interface PdvOrderRow {
   channel: string;
   deliveryFee: number | null;
   openedAt: string;
+  notes: string | null;
 }
 
 async function fetchOrderData(orderId: string): Promise<PdvOrderRow | null> {
@@ -47,6 +48,7 @@ async function fetchOrderData(orderId: string): Promise<PdvOrderRow | null> {
     channel: order.channel,
     deliveryFee: order.deliveryFee,
     openedAt: order.openedAt,
+    notes: order.notes,
   };
 }
 

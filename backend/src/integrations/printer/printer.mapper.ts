@@ -23,6 +23,8 @@ export interface PdvOrder {
   channel: string;
   deliveryFee: number | null;
   openedAt: string;
+  /** Observação do pedido inteiro (checkout público). Ver `DaemonOrder.notes`. */
+  notes: string | null;
   items: PdvOrderItem[];
   payments: Array<{ method: string; amount: number; change: number | null }>;
 }
@@ -82,7 +84,7 @@ export function toDaemonOrder(
     number,
     created_at: order.openedAt,
     type: channelToType(order.channel),
-    notes: "",
+    notes: order.notes ?? "",
     items,
     total_cents: totalCents,
   };

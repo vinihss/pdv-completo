@@ -136,6 +136,8 @@ const storeSettingsSchema = z.object({
   restaurantLong: z.number().min(-180).max(180).optional().nullable(),
   freeDeliveryMin: z.number().min(0).optional(),
   deliveryFeeTiers: z.array(z.object({ maxKm: z.number().positive(), fee: z.number().min(0) })).optional(),
+  deliveryPrepMinutes: z.number().int().positive().optional(),
+  minutesPerKm: z.number().min(0).optional(),
 });
 
 const variationGroupSchema = z.object({

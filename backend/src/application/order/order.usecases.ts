@@ -121,6 +121,7 @@ async function serializeOrder(orderId: string) {
     externalRef: order.externalRef,
     deliveryFee: order.deliveryFee,
     cancelReason: order.cancelReason,
+    notes: order.notes ?? null,
     paymentMethod: order.paymentMethod,
     paymentConfirmedAt: order.paymentConfirmedAt,
     paymentConfirmedBy: order.paymentConfirmedBy,
@@ -187,6 +188,7 @@ export async function openOrderUsecase(input: {
   channel?: "balcao" | "whatsapp" | "web" | "ifood"; // default "balcao" — self-service (§04) e iFood usam
   deliveryFee?: number; // snapshot da taxa no momento do pedido, só para channel != "balcao"
   externalRef?: string; // order id do iFood quando channel === "ifood" (único — índice em 0009)
+  notes?: string;
 }) {
   if (!input.tableId && !input.customerId && !input.tabLabel) {
     throw Errors.identificationRequired();
@@ -230,6 +232,7 @@ export async function openOrderUsecase(input: {
         channel: input.channel ?? "balcao",
         deliveryFee: input.deliveryFee ?? null,
         externalRef: input.externalRef ?? null,
+        notes: input.notes ?? null,
       })
       .returning();
 
@@ -1049,6 +1052,7 @@ export async function listOrdersUsecase(input: { status?: "open" | "closed"; lim
     externalRef: order.externalRef,
     deliveryFee: order.deliveryFee,
     cancelReason: order.cancelReason,
+    notes: order.notes ?? null,
     paymentMethod: order.paymentMethod,
     paymentConfirmedAt: order.paymentConfirmedAt,
     paymentConfirmedBy: order.paymentConfirmedBy,
