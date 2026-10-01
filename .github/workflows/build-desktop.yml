@@ -146,10 +146,16 @@ jobs:
 
       # O beforeBuildCommand do tauri.conf.json compila o frontend com o
       # profile do app (`npm run build:pdv`, `build:kds`). O Tauri 2
-      # executa esse comando com CWD = RAIZ DO WORKSPACE, não do crate —
-      # os confs do PDV e do KDS usam `cd ../frontend`, que falha da raiz.
-      # O `-c` sobrescreve o comando com o caminho corrigido, sem tocar
-      # no tauri.conf.json do crate (ver build-standalone.sh).
+      # executa esse comando com CWD = frontend_dir (derivado do
+      # frontendDist do conf). Para os confs da família standalone,
+      # frontendDist é ../frontend/dist/<profile>, então frontend_dir =
+      # caminho absoluto para frontend/. O `cd ../frontend` dos confs é,
+      # portanto, correto: de frontend/, `cd ../frontend` → frontend/
+      # (no-op). Nenhum override é necessário.
+      #
+      # A CLI do Tauri mora em frontend/node_modules/.bin — os crates não
+      # têm node_modules próprio, e `npx tauri` de dentro do crate não acha
+      # o binário (sobe diretórios procurando node_modules e não encontra).
       - name: Build do instalador (assinado)
         working-directory: ${{ env.CRATE_DIR }}
         shell: pwsh
@@ -160,19 +166,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          $conf = Get-Content tauri.conf.json | ConvertFrom-Json
-          $beforeBuild = $conf.build.beforeBuildCommand
-          $override = $null
-          if ($beforeBuild -and $beforeBuild -match 'cd \.\./frontend') {
-            $fixed = $beforeBuild -replace 'cd \.\./frontend', 'cd frontend'
-            Write-Host "beforeBuildCommand corrigido (Tauri roda da raiz do workspace): $fixed"
-            $override = @{ build = @{ beforeBuildCommand = $fixed } } | ConvertTo-Json -Compress
-          }
-          if ($override) {
-            npx tauri build --bundles nsis -c $override
-          } else {
-            npx tauri build --bundles nsis
-          }
+          $tauri = "../frontend/node_modules/.bin/tauri.cmd"
+          & $tauri build --bundles nsis
 
       # O manifesto é montado por app, com a URL apontando para o diretório
       # do app. Se PDV e KDS publicassem no mesmo latest.json, o updater

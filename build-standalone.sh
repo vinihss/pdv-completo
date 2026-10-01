@@ -130,28 +130,14 @@ fi
 # O `tauri build` roda o `beforeBuildCommand` do conf antes (que compila o
 # frontend), então o frontend não precisa ser compilado separado.
 #
-# O CWD é o crate: é onde o tauri.conf.json mora. MAS o Tauri 2 executa o
-# beforeBuildCommand com CWD = RAIZ DO WORKSPACE (onde está o Cargo.toml do
-# workspace), não o crate. Os confs do PDV e do KDS usam `cd ../frontend` —
-# que funciona de dentro do crate, mas falha da raiz (`../frontend` sai do
-# repo). O script corrige o caminho e passa o comando via `-c` (que faz
-# merge com o conf), sem tocar no tauri.conf.json do crate.
-BEFORE_BUILD="$(node -e "console.log(require('$TAURI_CONF').build?.beforeBuildCommand || '')")"
-CONFIG_OVERRIDE=""
-if [ -n "$BEFORE_BUILD" ]; then
-  FIXED_CMD="${BEFORE_BUILD//cd ..\/frontend/cd frontend}"
-  if [ "$FIXED_CMD" != "$BEFORE_BUILD" ]; then
-    echo "==> beforeBuildCommand corrigido: o Tauri o executa da raiz do workspace,"
-    echo "    não do crate. '$BEFORE_BUILD' → '$FIXED_CMD'"
-  fi
-  # O -c recebe um JSON; o node escapa o comando com aspas e barras.
-  CONFIG_OVERRIDE="$(node -e "console.log(JSON.stringify({build:{beforeBuildCommand:process.argv[1]}}))" "$FIXED_CMD")"
-fi
-
+# O Tauri 2 executa o beforeBuildCommand com CWD = frontend_dir (derivado do
+# frontendDist do conf). Para os confs da família standalone, frontendDist é
+# ../frontend/dist/<profile>, então frontend_dir = caminho absoluto para
+# frontend/. O `cd ../frontend` dos confs é, portanto, correto: de frontend/,
+# `cd ../frontend` → frontend/ (no-op). Nenhum override é necessário.
 echo "==> tauri build ${BUNDLES:-todos os alvos} (em $CRATE_DIR)"
 cd "$CRATE_DIR"
 TAURI_ARGS=()
-[ -n "$CONFIG_OVERRIDE" ] && TAURI_ARGS+=(-c "$CONFIG_OVERRIDE")
 [ -n "$BUNDLES" ] && TAURI_ARGS+=($BUNDLES)
 if [ ${#TAURI_ARGS[@]} -eq 0 ]; then
   "$TAURI_CLI" build

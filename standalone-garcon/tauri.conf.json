@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../frontend/dist/garcon",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "cd frontend && npm run dev",
+    "beforeDevCommand": "cd ../frontend && npm run dev:garcon",
     "beforeBuildCommand": "cd ../frontend && npm run build:garcon"
   },
   "app": {

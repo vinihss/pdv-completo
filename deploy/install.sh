@@ -68,6 +68,11 @@ log "Estabelecimento: $MERCHANT_NAME"
 # dono certo, é o que evita o "permission denied" no primeiro deploy.
 log "Preparando deploy/updates (instalador do app Windows)..."
 mkdir -p updates/files/windows-x86_64 || err "Não consegui criar deploy/updates"
+# Família standalone: um diretório por app (ver Caddyfile e o job publish do
+# build-desktop.yml). O app v1 (produção) continua no layout antigo.
+for app in caixa kds; do
+  mkdir -p "updates/$app" "updates/files/$app/windows-x86_64" || err "Não consegui criar deploy/updates"
+done
 [ -w updates ] || err "deploy/updates sem permissão de escrita. Se o Docker o criou como root: sudo chown \"\$(id -u):\$(id -g)\" updates"
 
 # ---------- 3. Subir containers ----------
