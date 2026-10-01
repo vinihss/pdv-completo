@@ -33,11 +33,16 @@ const importsOf = (f) =>
   [...readFileSync(f, "utf8").matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
 const layerOf = (f) => rel(f).split("/")[0];
 
-// 1. shared/api só pode conter infraestrutura (o núcleo HTTP).
+// 1. shared/api só pode conter infraestrutura — nunca API de domínio (as 14 que
+//    moravam ali viraram entities na Fase 2). A lista abaixo é a allowlist de
+//    infra: `http.js` (núcleo do PDV) e `cep.js` (ViaCEP, serviço público de
+//    terceiro — não é do PDV, por isso não passa por `http.js`). Arquivo de
+//    teste não é módulo e não entra na conta.
 describe("shared/api contém apenas infraestrutura", () => {
   const files = existsSync(join(SRC, "shared/api")) ? readdirSync(join(SRC, "shared/api")) : [];
-  it("só http.js", () => {
-    expect(files).toEqual(["http.js"]);
+  const INFRA_ALLOWED = ["cep.js", "http.js"];
+  it("só módulos de infraestrutura", () => {
+    expect(files.filter((f) => !/\.test\.js$/.test(f)).sort()).toEqual(INFRA_ALLOWED);
   });
 });
 

@@ -543,6 +543,9 @@ export const customerAddresses = pgTable(
       .notNull()
       .references(() => customers.id, { onDelete: "cascade" }),
     label: text("label"),
+    // CEP é opcional e nullable: entrou depois (0005) e os endereços já
+    // gravados não têm o dado. Guardado com os 8 dígitos crus, sem máscara.
+    cep: text("cep"),
     street: text("street").notNull(),
     number: text("number").notNull(),
     complement: text("complement"),

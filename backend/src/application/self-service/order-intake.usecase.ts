@@ -64,6 +64,7 @@ export async function createSelfServiceOrderUsecase(input: {
   addressId?: string;
   newAddress?: {
     label?: string;
+    cep?: string;
     street: string;
     number: string;
     complement?: string;

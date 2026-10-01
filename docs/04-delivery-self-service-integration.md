@@ -46,6 +46,7 @@ customer_address
   id            text, PK
   customer_id   text, FK -> customers
   label         text, nullable      // "Casa", "Trabalho"
+  cep           text, nullable      // 8 dígitos crus, sem máscara (migration 0005)
   street        text                 // rua/avenida
   number        text                 // texto, não integer — aceita "S/N"
   complement    text, nullable       // apto, bloco, etc.
@@ -59,6 +60,11 @@ customer_address
 Regras (aplicadas em usecase, dentro de transação):
 - Máximo 3 endereços por cliente — tentativa de adicionar um 4º é rejeitada.
 - No máximo 1 marcado como `is_default` por vez — marcar um novo como padrão desmarca o anterior.
+- `cep` é opcional e nullable (migration 0005): quem digita o endereço à mão nunca
+  preenche o CEP, e os endereços anteriores à coluna não o têm. Aceita com ou sem
+  máscara e grava só os 8 dígitos — a máscara é apresentação da tela. Válido exige
+  exatamente 8 dígitos; sem nenhum dígito é tratado como não informado. Não é
+  consultado contra serviço externo no backend (a busca por CEP é do frontend).
 
 No checkout (bot ou página), a busca por telefone identifica o cliente e mostra os endereços salvos para escolha, ou permite adicionar um novo (se houver vaga) ou cadastrar do zero se for cliente novo.
 
