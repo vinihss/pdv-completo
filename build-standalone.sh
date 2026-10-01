@@ -216,11 +216,18 @@ fi
 # O `tauri build` roda o `beforeBuildCommand` do conf antes (que compila o
 # frontend), então o frontend não precisa ser compilado separado.
 #
-# O Tauri 2 executa o beforeBuildCommand com CWD = frontend_dir (derivado do
-# frontendDist do conf). Para os confs da família standalone, frontendDist é
-# ../frontend/dist/<profile>, então frontend_dir = caminho absoluto para
-# frontend/. O `cd ../frontend` dos confs é, portanto, correto: de frontend/,
-# `cd ../frontend` → frontend/ (no-op). Nenhum override é necessário.
+# O CWD do beforeBuildCommand NÃO vem do frontendDist — vem da resolução de
+# `frontend_dir` da CLI, nesta ordem: (1) TAURI_FRONTEND_PATH, se definida;
+# (2) o cwd de onde a CLI foi chamada, se tiver package.json ali ou embaixo
+# (depth 3); (3) senão, o PAI do crate. O crate não tem package.json e o
+# package.json está ACIMA dele, então sem o export o hook rodaria na RAIZ do
+# repo e `cd ../frontend` dos confs apontaria para fora do repo, morrendo com
+# "The system cannot find the path specified" (foi exatamente o que quebrou o
+# build-desktop do CI nas tags v1.0.15/v1.0.16). Fixado aqui, o cwd vira
+# <repo>/frontend e `cd ../frontend` vira no-op — que é o que os confs e este
+# script sempre assumiram. O CI faz o mesmo em build-desktop.yml.
+export TAURI_FRONTEND_PATH="$ROOT/frontend"
+
 echo "==> tauri build ${BUNDLES:-todos os alvos} (em $CRATE_DIR)"
 cd "$CRATE_DIR"
 TAURI_ARGS=()
