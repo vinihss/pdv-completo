@@ -217,8 +217,9 @@ O repositório possui o workflow **`.github/workflows/deploy-on-tag.yml`** com:
 - validações antes do deploy:
   - backend: `npm ci`, `npm run build`, `npm run test`;
   - frontend: `npm ci`, `npm run lint`, `npm run build`, `npm run test`;
-- job **Windows** (`build-desktop`): gera o instalador do app desktop
-  assinado, monta o manifesto do auto-update e publica os artefatos — ver
+- job **Windows** (`build-desktop`): gera os instaladores da família
+  standalone (PDV Caixa + KDS Cozinha) assinados, monta o manifesto do
+  auto-update de cada app e publica os artefatos — ver
   [Auto-update do app desktop](#auto-update-do-app-desktop);
 - deploy remoto por SSH com backup prévio e health check;
 - deploy **sem downtime** com `deploy/switch.sh` (instância nova ao lado da
@@ -227,24 +228,29 @@ O repositório possui o workflow **`.github/workflows/deploy-on-tag.yml`** com:
   uploads). Ver [Deploy sem downtime](#deploy-sem-downtime-switch-azulverde).
 
 O `deploy` só roda depois de `build-desktop`: o manifesto do update nunca
-chega ao servidor antes do backend no ar. Se a tag não bater com a
-`version` do `frontend/src-tauri/tauri.conf.json`, o job Windows falha de
-propósito — um descasamento ali publicaria um manifesto que nenhum app
-reconhece, e o update pareceria só não existir.
+chega ao servidor antes do backend no ar. A versão publicada é a do
+`tauri.conf.json` de **cada crate** da família (conferida contra o
+`Cargo.toml` do crate), não a tag — a tag é do app v1/backend, e cada
+app da família tem sua própria versão.
 
 ### O instalador é o `build-desktop.yml` (também dá para rodar sozinho)
 
 O job Windows acima **não tem steps próprios**: ele chama
-**`.github/workflows/build-desktop.yml`**, que é a definição única do
-instalador. Esse mesmo arquivo tem `workflow_dispatch`, então dá para gerar
-só o instalador quando quiser, sem tag e sem deploy do backend:
+**`.github/workflows/build-desktop.yml`**, que é a definição única dos
+instaladores da família standalone. O workflow builda os dois apps
+desktop (PDV Caixa + KDS Cozinha) em uma matriz; os mobile (Garçom,
+Entregador) não buildam no runner Windows — o alvo deles é Android/iOS,
+e o build de mobile exige toolchain que não está no runner.
+
+O mesmo arquivo tem `workflow_dispatch`, então dá para gerar só o
+instalador quando quiser, sem tag e sem deploy do backend:
 
 1. aba **Actions** → **Instalador Windows (Tauri)** → **Run workflow**;
 2. escolha a branch/commit (o `.exe` sempre sai daquele código);
 3. `publicar_no_servidor`:
    - **marcado** — assina, cria/atualiza a release e publica o
-     `latest.json` + instalador em `deploy/updates/`. É o que faz o
-     auto-update funcionar; use como padrão;
+     `latest.json` + instalador de cada app em `deploy/updates/<app>/`.
+     É o que faz o auto-update funcionar; use como padrão;
    - **desmarcado** — gera e anexa na release do GitHub, mas **não serve
      o manifesto**: o app instalado não vai encontrar essa versão. Serve
      para conferir que o build do runner Windows continua funcionando sem
@@ -253,9 +259,9 @@ só o instalador quando quiser, sem tag e sem deploy do backend:
 
 Dois avisos sobre essa porta:
 
-- A release é nomeada pela **versão do `tauri.conf.json`** do commit
-  escolhido, não pela branch. O run avisa quando veio de branch, e a
-  release aponta para o commit exato que assinou o artefato (`--target`).
+- A release é nomeada pela **tag** (entrada por tag) ou pela **versão do
+  PDV** (disparo manual). O run avisa quando veio de branch, e a release
+  aponta para o commit exato que assinou o artefato (`--target`).
 - Rodar duas vezes a mesma versão no modo padrão **sobrescreve** o
   manifesto servido. Só faça isso de novo quando quiser que o app instalado
   passe a ver aquela versão.
@@ -263,6 +269,11 @@ Dois avisos sobre essa porta:
 O `.github/workflows/desktop-windows.yml` é **legado**: gera `.msi`/`.exe`
 em release rascunho, sem assinatura e sem publicar o manifesto. Não é o
 caminho de publicação.
+
+O app v1 (`frontend/src-tauri`, em produção) tem o seu próprio script de
+build: **`frontend/build-app.sh`**. Ele confere a versão do
+`tauri.conf.json` contra o `package.json`, resolve a assinatura (chave de
+entrega vs chave local descartável) e gera o instalador.
 
 ### Como usar
 
@@ -286,12 +297,23 @@ Configure em **Settings → Secrets and variables → Actions**:
 
 ### Auto-update do app desktop
 
-O app Windows (Tauri) pergunta por update no boot. Duas rotas no Caddy:
+Os apps Windows (Tauri) perguntam por update no boot. Rotas no Caddy:
 
 | Rota | O que serve |
 |---|---|
-| `/updates/desktop/<target>/<arch>/<versão-atual>` | sempre o mesmo `latest.json` (manifesto da versão mais recente) |
-| `/updates/files/windows-x86_64/...` | o instalador `.exe`, o `.exe.zip` e o `.sig` |
+| `/updates/desktop/<target>/<arch>/<versão-atual>` | app v1 (produção): sempre o mesmo `latest.json` |
+| `/updates/caixa/<target>/<arch>/<versão-atual>` | PDV Caixa: sempre o mesmo `latest.json` |
+| `/updates/kds/<target>/<arch>/<versão-atual>` | KDS Cozinha: idem (quando tiver updater) |
+| `/updates/files/<app>/windows-x86_64/...` | os artefatos (installer `.exe`, `.exe.zip`, `.sig`) de cada app |
+
+Cada app tem seu manifesto e seus artefatos em um diretório separado — se
+PDV e KDS publicassem no mesmo `latest.json`, um consumiria o update do
+outro (o updater do PDV baixaria o instalador do KDS).
+
+> ⚠️ **Não mude o prefixo `/updates/desktop/`** — é o endpoint que o app v1
+> (`frontend/src-tauri`, em produção) tem hardcoded no
+> `plugins.updater.endpoints`. Mudar quebra o auto-update de tudo que está
+> instalado.
 
 Os arquivos vivem em `deploy/updates/` no servidor (bind mount somente-leitura
 em `/srv/pdv-updates`) e são publicados pelo job `build-desktop` via SSH. O
@@ -359,14 +381,23 @@ sudo chown -R "$USER":"$USER" /opt/pdv-completo
 git clone https://github.com/vinihss/pdv-completo.git /opt/pdv-completo
 cd /opt/pdv-completo
 
-# Diretório de artefatos do app Windows (instalador + latest.json). Precisa
+# Diretório de artefatos dos apps Windows (instalador + latest.json). Precisa
 # existir COM O DONO CERTO antes do primeiro `docker compose up`: o compose
 # monta ./updates no Caddy, e bind mount de diretório inexistente faz o
 # Docker criá-lo como root — aí o scp do job build-desktop (que roda com o
 # usuário do CI, não com root) falha com "permission denied" e o instalador
 # nunca chega ao servidor. O switch.sh e o install.sh já criam e checam isso;
 # o comando abaixo é para um clone manual.
-mkdir -p deploy/updates/files/windows-x86_64
+#
+# Um diretório por app: o Caddy espera latest.json em deploy/updates/<app>/ e
+# os artefatos em deploy/updates/files/<app>/windows-x86_64/ (ver Caddyfile).
+# O app v1 (produção) continua no layout antigo: latest.json na raiz e
+# artefatos em files/windows-x86_64/.
+mkdir -p deploy/updates/files/windows-x86_64   # app v1 (produção)
+mkdir -p deploy/updates/caixa                  # PDV Caixa
+mkdir -p deploy/updates/files/caixa/windows-x86_64
+mkdir -p deploy/updates/kds                    # KDS Cozinha
+mkdir -p deploy/updates/files/kds/windows-x86_64
 chown -R "$USER":"$USER" deploy/updates
 ```
 

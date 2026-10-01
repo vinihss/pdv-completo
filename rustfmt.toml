@@ -1,0 +1,5 @@
+# Formato único para os crates Rust da família standalone (e o que mais
+# aparecer na raiz). Sem este arquivo, `cargo fmt` aplica o default do
+# rustfmt (4 espaços) e reformata tudo que já está no estilo do repo.
+tab_spaces = 2
+max_width = 100

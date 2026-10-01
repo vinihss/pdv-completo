@@ -1,7 +1,7 @@
 name: Instalador Windows (Tauri)
 
 # ============================================================
-# O CAMINHO CANÔNICO do instalador do app Windows.
+# O CAMINHO CANÔNICO dos instaladores da família standalone.
 #
 # Duas portas de entrada, uma só definição de build:
 #
@@ -17,15 +17,26 @@ name: Instalador Windows (Tauri)
 # assina, o outro não; um publica no servidor, o outro não) e quem for
 # publicar a próxima versão acaba escolhendo o caminho errado.
 #
+# A matriz `app: [pdv, kds]` cobre os dois apps DESKTOP da família. Os
+# mobile (garcon, entregador) não buildam aqui: o runner Windows gera
+# instaladores NSIS, e o alvo deles é Android/iOS — o build de mobile
+# exige toolchain que não está no runner. Quando precisar, o build é
+# local com `build-standalone.sh --app garcon`.
+#
 # O que este workflow garante:
 # - assina o artefato com a chave Ed25519 do secret; sem o secret o
 #   `tauri build` falha em vez de gerar um instalador que o app instalado
 #   rejeita;
 # - roda lint e testes do frontend antes de compilar;
-# - monta o `latest.json` no formato que o `tauri-plugin-updater` entende
-#   (sem BOM, assinatura por plataforma);
-# - publica manifesto e `.exe` em `deploy/updates/` no servidor, que é o
-#   que dá o download por URL própria e o auto-update.
+# - monta o `latest.json` de CADA app no formato que o
+#   `tauri-plugin-updater` entende (sem BOM, assinatura por plataforma),
+#   apontando para o endpoint do app — se PDV e KDS publicassem no
+#   mesmo manifesto, um consumiria o update do outro;
+# - publica manifesto e `.exe` em `deploy/updates/<app>/` no servidor,
+#   que é o que dá o download por URL própria e o auto-update.
+#
+# O app v1 (frontend/src-tauri, em produção) tem o seu próprio script
+# de build: `frontend/build-app.sh`. Este workflow não o substitui.
 # ============================================================
 
 on:
@@ -69,8 +80,15 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    strategy:
+      matrix:
+        app: [pdv, kds]
+    name: build (${{ matrix.app }})
     permissions:
       contents: write
+    env:
+      APP: ${{ matrix.app }}
+      CRATE_DIR: standalone-${{ matrix.app }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -83,49 +101,38 @@ jobs:
           go-version: '1.23'
           cache-dependency-path: printer/daemon/go.sum
 
-      # A release é sempre chamada pela versão que o conf diz, porque é ela
-      # que vai para o latest.json. Na entrada por tag as duas têm que ser a
-      # mesma: tag `v1.0.2` com `version: 0.2.0` no conf publicaria um
-      # manifesto que nenhum app reconhece, e o update pareceria
-      # simplesmente não existir, sem erro em lugar nenhum.
+      # A versão publicada é a do tauri.conf.json do crate, conferida contra
+      # o Cargo.toml do mesmo crate. Divergentes, o instalador sai com uma
+      # versão e o manifesto outra — o update "não existe" sem erro nenhum.
       #
-      # A entrada é detectada pelo formato da ref, e não por
-      # `github.event_name`: num workflow called o contexto `github` é o do
-      # CHAMADOR, então quem chega aqui por push de tag vê event_name=push,
-      # nunca workflow_call. Era assim que esta conferência — que existe
-      # justamente para pegar tag e conf divergentes — nunca rodou, e
-      # RELEASE_TAG ficava vazio para o `gh release create` lá embaixo.
-      - name: Conferir versão e definir a tag da release
-        working-directory: frontend
+      # A tag NÃO é conferida contra a versão dos standalone: a tag é do
+      # app v1/backend (o que o deploy-on-tag publica), e cada crate da
+      # família tem sua própria versão. A conferência tag-vs-conf do app v1
+      # continua sendo manual, no `frontend/build-app.sh`.
+      - name: Conferir versão do crate
+        working-directory: ${{ env.CRATE_DIR }}
         shell: pwsh
         run: |
-          $conf = Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json
-          $ref = '${{ github.ref_name }}'
-
-          if ($ref -like 'v*') {
-            # Entrada por tag (o caminho de sempre, via deploy-on-tag.yml).
-            $versao = $ref.TrimStart('v')
-            if ($conf.version -ne $versao) {
-              Write-Error "Tag $versao nao bate com tauri.conf.json version=$($conf.version). O updater publica a versao do conf, entao um desvio aqui gera manifesto errado."
-              exit 1
-            }
-            Write-Host "Versao confere: $versao"
-            $tag = $ref
-          } else {
-            # Disparo manual a partir de uma branch: quem manda na versao
-            # publicada e o conf, e a release aponta para o commit deste run
-            # (--target), que e o que assinou o artefato.
-            Write-Host "Disparo manual a partir de $ref, nao de tag."
-            Write-Host "ATENCAO: a release v$($conf.version) vai apontar para o commit deste run (--target), e e ele que assinou o artefato."
-            $tag = "v$($conf.version)"
+          $conf = Get-Content tauri.conf.json | ConvertFrom-Json
+          $cargo = Get-Content Cargo.toml -Raw
+          if ($cargo -notmatch '(?m)^version = "([^"]+)"') {
+            Write-Error "Cargo.toml não tem [package].version"
+            exit 1
           }
+          $cargoVersion = $Matches[1]
+          if ($conf.version -ne $cargoVersion) {
+            Write-Error "tauri.conf.json=$($conf.version) e Cargo.toml=$cargoVersion divergem. O instalador sai com uma versão e o manifesto outra."
+            exit 1
+          }
+          Write-Host "Versao confere: $($conf.version)"
 
-          "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "RELEASE_TAG=$tag"
-
+      # O sidecar só existe no PDV (externalBin no tauri.conf.json). O
+      # build.rs ABORTA se o binário da plataforma atual não existir — sem
+      # o sidecar, nem `cargo check` roda. Os outros apps pulam este passo.
       - name: Gerar sidecar do daemon
+        if: matrix.app == 'pdv'
         shell: bash
-        run: bash printer/scripts/build-sidecar.sh
+        run: bash printer/scripts/build-sidecar.sh --out-dir standalone-pdv/binaries
 
       - name: Instalar dependencias
         working-directory: frontend
@@ -137,50 +144,80 @@ jobs:
         # pior do que um run vermelho, porque o cliente só descobre no caixa.
         run: npm run lint && npm run test
 
-      - name: Build do frontend
-        working-directory: frontend
-        run: npm run build
-
+      # O beforeBuildCommand do tauri.conf.json compila o frontend com o
+      # profile do app (`npm run build:pdv`, `build:kds`). O Tauri 2
+      # executa esse comando com CWD = RAIZ DO WORKSPACE, não do crate —
+      # os confs do PDV e do KDS usam `cd ../frontend`, que falha da raiz.
+      # O `-c` sobrescreve o comando com o caminho corrigido, sem tocar
+      # no tauri.conf.json do crate (ver build-standalone.sh).
       - name: Build do instalador (assinado)
-        working-directory: frontend
+        working-directory: ${{ env.CRATE_DIR }}
+        shell: pwsh
         env:
           # A chave publica esta no tauri.conf.json (plugins.updater.pubkey);
           # a privada so existe aqui. Sem TAURI_SIGNING_PRIVATE_KEY o build
           # falha em vez de gerar artefato que o app rejeita.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx tauri build --bundles nsis
+        run: |
+          $conf = Get-Content tauri.conf.json | ConvertFrom-Json
+          $beforeBuild = $conf.build.beforeBuildCommand
+          $override = $null
+          if ($beforeBuild -and $beforeBuild -match 'cd \.\./frontend') {
+            $fixed = $beforeBuild -replace 'cd \.\./frontend', 'cd frontend'
+            Write-Host "beforeBuildCommand corrigido (Tauri roda da raiz do workspace): $fixed"
+            $override = @{ build = @{ beforeBuildCommand = $fixed } } | ConvertTo-Json -Compress
+          }
+          if ($override) {
+            npx tauri build --bundles nsis -c $override
+          } else {
+            npx tauri build --bundles nsis
+          }
 
+      # O manifesto é montado por app, com a URL apontando para o diretório
+      # do app. Se PDV e KDS publicassem no mesmo latest.json, o updater
+      # do PDV baixaria o instalador do KDS.
       - name: Montar manifesto latest.json
-        working-directory: frontend
+        working-directory: ${{ env.CRATE_DIR }}
         shell: pwsh
         run: |
-          $dir = 'src-tauri/target/release/bundle/nsis'
+          $dir = 'target/release/bundle/nsis'
           # Descoberta pelo .sig, nao por extensao do artefato.
           #
-          # Com createUpdaterArtifacts=true (modo v2, o que o conf usa) o
-          # Tauri nao gera NENHUM zip no Windows: o updater reusa o proprio
+          # Com createUpdaterArtifacts=true (modo v2, o que o conf do PDV usa)
+          # o Tauri nao gera NENHUM zip no Windows: o updater reusa o proprio
           # instalador, e a assinatura sai como <artefato>.sig. O .nsis.zip
           # so existe em createUpdaterArtifacts="v1Compatible". Exigir .zip
           # aqui foi o que travou o primeiro build de verdade.
           #
-          # A assinatura e a ancora confiavel: por definicao e o artefato + .sig,
-          # entao derivar por ela funciona nos dois modos e em qualquer Tauri
-          # futuro, sem hardcodar extensao. Um glob rigido no artefato
-          # publicaria manifesto apontando para arquivo inexistente — o
-          # sintoma seria "update simplesmente nao acontece", sem erro.
-          $sig = Get-ChildItem "$dir/*.sig" | Select-Object -First 1
-          if (-not $sig) { Write-Error "Nenhum .sig em $dir (build do instalador nao rodou?)"; exit 1 }
-          # So o ultimo segmento some: "X.exe.sig" -> "X.exe", "X.nsis.zip.sig" -> "X.nsis.zip".
-          $artefato = [IO.Path]::GetFileNameWithoutExtension($sig.Name)
-          $sigFull = $sig.FullName
+          # O KDS nao tem updater (sem plugins.updater no conf), entao nao
+          # gera .sig — o artefato é o .exe direto. O manifesto do KDS é
+          # inócuo hoje, mas o layout já é o mesmo para quando tiver.
+          $sig = Get-ChildItem "$dir/*.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($sig) {
+            # So o ultimo segmento some: "X.exe.sig" -> "X.exe", "X.nsis.zip.sig" -> "X.nsis.zip".
+            $artefato = [IO.Path]::GetFileNameWithoutExtension($sig.Name)
+          } else {
+            $exe = Get-ChildItem "$dir/*.exe" | Select-Object -First 1
+            if (-not $exe) { Write-Error "Nenhum .exe em $dir (build do instalador nao rodou?)"; exit 1 }
+            $artefato = $exe.Name
+          }
+          $sigFull = if ($sig) { $sig.FullName } else { $null }
 
           $base = '${{ secrets.UPDATE_BASE_URL }}'
           if (-not $base) { $base = 'https://app.umamisushiarte.com.br' }
           $base = $base.TrimEnd('/')
-          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $version = (Get-Content tauri.conf.json | ConvertFrom-Json).version
           $nota = '${{ inputs.nota }}'
-          if (-not $nota) { $nota = "PDV $version" }
+          if (-not $nota) { $nota = "${{ matrix.app }} $version" }
+
+          # A URL do artefato é separada por app: /updates/files/<app>/windows-x86_64/.
+          # O Caddyfile serve esse caminho (ver deploy/Caddyfile).
+          $url = "$base/updates/files/${{ matrix.app }}/windows-x86_64/$artefato"
+
+          # A assinatura vem do .sig; sem updater (KDS), fica vazia.
+          $signature = ''
+          if ($sigFull) { $signature = (Get-Content $sigFull -Raw).Trim() }
 
           # Chave da plataforma = {{target}}-{{arch}} do endpoint dinamico.
           # O alvo e Windows x64; um dia sair arm64 vira outra chave aqui.
@@ -190,8 +227,8 @@ jobs:
             pub_date  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
             platforms = @{
               'windows-x86_64' = @{
-                signature = (Get-Content $sigFull -Raw).Trim()
-                url       = "$base/updates/files/windows-x86_64/$artefato"
+                signature = $signature
+                url       = $url
               }
             }
           }
@@ -199,61 +236,9 @@ jobs:
           # manifesto (falha de parse em silencio, update nao acontece).
           $out = Join-Path $dir 'latest.json'
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $out -Encoding utf8NoBOM
-          Write-Host "Manifesto $version -> $artefato"
+          Write-Host "Manifesto $version -> $artefato ($url)"
           Get-Content $out
 
-      # A release vem ANTES do SSH de propósito: ela é o caminho de
-      # download do instalador que não depende de nada externo. Se o scp
-      # falhar (secret ausente, VPS fora, pasta com dono errado), o job
-      # quebra aqui — mas o .exe já está salvo e pode ser publicado a mão.
-      - name: Anexar instalador na release do GitHub
-        working-directory: frontend
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $tag = $env:RELEASE_TAG
-          # --repo explicito: a inferencia por repositorio git depende do CWD,
-          # e este passo roda com working-directory=frontend. --target: a
-          # release tem de apontar para o commit que gerou este .exe. Sem isso
-          # ela nasce no topo da branch padrao — outro codigo, com o mesmo
-          # nome de versao.
-          #
-          # O create é melhor esforço de propósito. O `||` que existia aqui
-          # ("create || upload") era armadilha nos dois sentidos, e foi assim
-          # que a release ficou sem o instalador por seis runs seguidos com o
-          # passo VERDE:
-          #   * release nova  → create ganha, o upload NUNCA roda, e a release
-          #     nasce sem asset nenhum;
-          #   * release velha → o create falha (422) e o upload devia rodar,
-          #     mas o passo terminava em 5s, sem tempo de subir 212 MB.
-          # Em ambos os casos o sintoma era invisível: a release existia, o
-          # job passava, e só o cliente perceberia (update que nunca chega).
-          gh release create $tag --repo '${{ github.repository }}' --title "PDV $tag" --target '${{ github.sha }}' --generate-notes 2>$null
-
-          $dir = 'src-tauri/target/release/bundle/nsis'
-          $exe = Get-ChildItem "$dir/*.exe" | Select-Object -First 1
-          if (-not $exe) { Write-Error "Nenhum .exe em $dir"; exit 1 }
-          # Path completo, e nao glob: o glob depende de quem expande (bash
-          # expande antes do gh, PowerShell nao), e um glob que nao casa não
-          # erro — apenas não sobe nada.
-          gh release upload $tag --repo '${{ github.repository }}' $exe.FullName --clobber
-
-          # Confere de verdade que o asset subiu. Sem isto, qualquer falha de
-          # upload (release sem asset, glob que nao casou, token sem escopo)
-          # produzia release vazia com o passo verde.
-          $assets = gh release view $tag --repo '${{ github.repository }}' --json assets --jq '.assets | length'
-          if ([int]$assets -lt 1) {
-            Write-Error "Release $tag ficou sem assets depois do upload (assets=$assets)"
-            exit 1
-          }
-          gh release view $tag --repo '${{ github.repository }}' --json url -q '"release: " + .url'
-          Write-Host "assets na release: $assets"
-
-      # Publicar no servidor é o que dá o download por URL própria
-      # (/updates/files/...) e o manifesto do auto-update. Isso NÃO é feito
-      # aqui: ver o job `publish` abaixo e o motivo de ele existir.
-      #
       # O bundle vai para um artefato do run, e o job `publish` é quem o
       # manda para o VPS. Além de o ssh-action não funcionar no runner
       # Windows, essa separação é o que torna a publicação barata de
@@ -262,17 +247,17 @@ jobs:
       - name: Guardar o bundle para o job de publicação
         uses: actions/upload-artifact@v4
         with:
-          name: nsis-bundle
-          path: frontend/src-tauri/target/release/bundle/nsis
+          name: nsis-bundle-${{ matrix.app }}
+          path: ${{ env.CRATE_DIR }}/target/release/bundle/nsis
           if-no-files-found: error
           retention-days: 7
 
       - name: Resumo dos artefatos
         if: always()
-        working-directory: frontend
+        working-directory: ${{ env.CRATE_DIR }}
         shell: pwsh
         run: |
-          Get-ChildItem 'src-tauri/target/release/bundle/nsis' -ErrorAction SilentlyContinue |
+          Get-ChildItem 'target/release/bundle/nsis' -ErrorAction SilentlyContinue |
             Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}} |
             Format-Table -AutoSize
           if ('${{ inputs.publicar_no_servidor }}' -ne 'true') {
@@ -281,6 +266,101 @@ jobs:
             Write-Host 'o app instalado nao vai encontrar esta versao. Para publicar depois, dispare'
             Write-Host 'este workflow de novo com "publicar_no_servidor" marcado.'
           }
+
+  # A release é um job separado da matriz porque a release é POR TAG, não
+  # por app: os dois instaladores (PDV + KDS) entram na mesma release. Se
+  # fosse dentro da matriz, os dois jobs tentariam criar a release e o
+  # segundo falharia com 422 (release já existe) — e o passo de upload
+  # nunca rodaria, como já aconteceu com o `create || upload` antigo.
+  #
+  # A release vem ANTES do SSH de propósito: ela é o caminho de
+  # download do instalador que não depende de nada externo. Se o scp
+  # falhar (secret ausente, VPS fora, pasta com dono errado), o job
+  # quebra aqui — mas o .exe já está salvo e pode ser publicado a mão.
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # A tag é a ref quando começa com v (entrada por tag, via
+      # deploy-on-tag.yml). Na entrada por dispatch não há tag: quem manda
+      # na versão publicada é o conf do PDV (o app principal da família),
+      # e a release aponta para o commit deste run (--target), que é o que
+      # assinou o artefato.
+      - name: Definir a tag da release
+        id: tag
+        shell: pwsh
+        run: |
+          $ref = '${{ github.ref_name }}'
+          if ($ref -like 'v*') {
+            $tag = $ref
+            Write-Host "Entrada por tag: $tag"
+          } else {
+            $conf = Get-Content standalone-pdv/tauri.conf.json | ConvertFrom-Json
+            $tag = "v$($conf.version)"
+            Write-Host "Disparo manual a partir de $ref, nao de tag."
+            Write-Host "ATENCAO: a release $tag vai apontar para o commit deste run (--target), e e ele que assinou o artefato."
+          }
+          "TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "TAG=$tag"
+
+      # O create é melhor esforço de propósito. O `||` que existia aqui
+      # ("create || upload") era armadilha nos dois sentidos, e foi assim
+      # que a release ficou sem o instalador por seis runs seguidos com o
+      # passo VERDE:
+      #   * release nova  → create ganha, o upload NUNCA roda, e a release
+      #     nasce sem asset nenhum;
+      #   * release velha → o create falha (422) e o upload devia rodar,
+      #     mas o passo terminava em 5s, sem tempo de subir 212 MB.
+      # Em ambos os casos o sintoma era invisível: a release existia, o
+      # job passava, e só o cliente perceberia (update que nunca chega).
+      - name: Criar a release (se não existir)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = $env:TAG
+          # --repo explicito: a inferencia por repositorio git depende do CWD.
+          # --target: a release tem de apontar para o commit que gerou este
+          # .exe. Sem isso ela nasce no topo da branch padrao — outro codigo,
+          # com o mesmo nome de versao.
+          gh release create $tag --repo '${{ github.repository }}' --title "PDV $tag" --target '${{ github.sha }}' --generate-notes 2>$null
+
+      - name: Baixar os bundles do run
+        uses: actions/download-artifact@v4
+        with:
+          pattern: nsis-bundle-*
+          merge-multiple: true
+          path: bundles
+
+      - name: Anexar instaladores na release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = $env:TAG
+          $exes = Get-ChildItem 'bundles/*.exe' | Sort-Object Name
+          if (-not $exes) { Write-Error "Nenhum .exe nos bundles baixados"; exit 1 }
+          foreach ($exe in $exes) {
+            # Path completo, e nao glob: o glob depende de quem expande (bash
+            # expande antes do gh, PowerShell nao), e um glob que nao casa nao
+            # erro — apenas não sobe nada.
+            gh release upload $tag --repo '${{ github.repository }}' $exe.FullName --clobber
+          }
+
+          # Confere de verdade que os assets subiram. Sem isto, qualquer falha
+          # de upload (release sem asset, glob que nao casou, token sem escopo)
+          # produzia release vazia com o passo verde.
+          $assets = gh release view $tag --repo '${{ github.repository }}' --json assets --jq '.assets | length'
+          if ([int]$assets -lt 1) {
+            Write-Error "Release $tag ficou sem assets depois do upload (assets=$assets)"
+            exit 1
+          }
+          gh release view $tag --repo '${{ github.repository }}' --json url -q '"release: " + .url'
+          Write-Host "assets na release: $assets"
 
   # Publicar latest.json + instalador em deploy/updates/ no VPS.
   #
@@ -296,8 +376,8 @@ jobs:
   # fora: e a plataforma. O job `deploy` de deploy-on-tag.yml usa as MESMAS
   # actions e funciona, porque roda em ubuntu-latest.
   #
-  # Onde este job falha, a release do GitHub ja existe com o .exe anexado
-  # (o build faz isso antes), entao o download por URL do GitHub nunca
+  # Onde este job falha, a release do GitHub ja existe com os .exe anexados
+  # (o job release faz isso antes), entao o download por URL do GitHub nunca
   # dependeu do VPS.
   #
   # Uma limitacao conhecida e NAO corrigida aqui: o secret
@@ -311,9 +391,15 @@ jobs:
   # known_hosts escrito em ~/.ssh. O job `deploy` de deploy-on-tag.yml tem a
   # mesma lacuna.
   publish:
-    needs: build
+    needs: release
     if: inputs.publicar_no_servidor
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [pdv, kds]
+    name: publish (${{ matrix.app }})
+    env:
+      APP: ${{ matrix.app }}
     steps:
       # O mkdir vem antes do scp por um motivo concreto: o job `deploy` (dono
       # do ensure_updates_dir, em deploy-on-tag.yml) só acontece DEPOIS deste
@@ -333,12 +419,15 @@ jobs:
             # `-p` sem problema: o dono é o mesmo usuário do scp, então não
             # há como o Docker criar isto antes como root (o que faria o scp
             # falhar com permission denied — ver switch.sh).
-            mkdir -p "$UPDATES/files/windows-x86_64"
+            # Cada app tem seu próprio diretório de manifesto e de artefatos:
+            # o Caddy espera latest.json em deploy/updates/<app>/ e os
+            # artefatos em deploy/updates/files/<app>/windows-x86_64/.
+            mkdir -p "$UPDATES/$APP" "$UPDATES/files/$APP/windows-x86_64"
 
       - name: Baixar o bundle do run
         uses: actions/download-artifact@v4
         with:
-          name: nsis-bundle
+          name: nsis-bundle-${{ matrix.app }}
           path: bundle
 
       - name: Conferir o que será publicado
@@ -346,13 +435,19 @@ jobs:
           set -Eeuo pipefail
           ls -la bundle
           test -f bundle/latest.json || { echo "Faltou o latest.json no bundle"; exit 1; }
+          # O artefato é derivado do .sig quando existe (PDV, com updater) ou
+          # do .exe direto (KDS, sem updater — ver o passo Montar manifesto).
           sig=$(ls bundle/*.sig 2>/dev/null | head -1)
-          test -n "$sig" || { echo "Faltou a assinatura no bundle"; exit 1; }
+          if [ -n "$sig" ]; then
+            artefato="${sig%.sig}"
+          else
+            artefato=$(ls bundle/*.exe 2>/dev/null | head -1)
+          fi
+          test -n "$artefato" || { echo "Faltou o artefato no bundle"; exit 1; }
           # O manifesto tem que apontar para um arquivo que realmente vai
           # subir. Errar aqui é melhor que publicar um latest.json que aponta
           # para o vazio — o app instalado ignoraria a versão em silêncio.
-          artefato="${sig%.sig}"
-          jq -r '.platforms["windows-x86_64"].url' bundle/latest.json | grep -qF "/$(basename "$artefato")" \
+          jq -r '.platforms["windows-x86_64"].url' bundle/latest.json | grep -qF "/files/$APP/windows-x86_64/$(basename "$artefato")" \
             || { echo "O latest.json nao aponta para $(basename "$artefato")"; jq . bundle/latest.json; exit 1; }
           echo "OK: manifesto aponta para $(basename "$artefato")"
 
@@ -366,7 +461,7 @@ jobs:
           # `source` do scp-action é resolvido a partir do workspace, e não de
           # um working-directory do step (que esta action não tem).
           source: 'bundle/*'
-          target: ${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates/
+          target: ${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates/${{ matrix.app }}/
           # O scp-action NÃO copia o conteúdo de um diretório: ele empacota
           # os sources em tar e desempacota no destino. E o tar grava os
           # paths COMO SÃO DADOS — `filepath.Glob("bundle/*")` devolve
@@ -394,19 +489,22 @@ jobs:
           script: |
             set -Eeuo pipefail
             UPDATES="${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates"
-            # scp joga tudo no mesmo nivel; o Caddy espera latest.json na raiz
-            # e os artefatos em files/windows-x86_64/ (ver Caddyfile).
-            cd "$UPDATES"
-            # latest.json fica na raiz; todo o resto vai para o diretorio da
-            # plataforma. O glob de assinatura e `*.sig`, e nao `*.zip.sig`:
-            # em createUpdaterArtifacts=true o artefato do updater e o proprio
-            # .exe, entao a assinatura chega como <exe>.sig. Listar as duas
-            # extensoes de artefato e um `*.sig` cobre v2 e v1Compatible.
-            mv -f -- *.exe *.zip *.sig files/windows-x86_64/ 2>/dev/null || true
+            APP="${{ matrix.app }}"
+            # scp joga tudo no mesmo nivel; o Caddy espera latest.json em
+            # deploy/updates/<app>/ e os artefatos em
+            # deploy/updates/files/<app>/windows-x86_64/ (ver Caddyfile).
+            cd "$UPDATES/$APP"
+            # latest.json fica na raiz do app; todo o resto vai para o
+            # diretorio da plataforma. O glob de assinatura e `*.sig`, e nao
+            # `*.zip.sig`: em createUpdaterArtifacts=true o artefato do updater
+            # e o proprio .exe, entao a assinatura chega como <exe>.sig.
+            # Listar as duas extensoes de artefato e um `*.sig` cobre v2 e
+            # v1Compatible.
+            mv -f -- *.exe *.zip *.sig "../files/$APP/windows-x86_64/" 2>/dev/null || true
             # O `bundle/` é o que sobrou da publicação anterior, quando o
             # scp-action desempacotava com o prefixo do source (ver o
             # comentário no passo de scp). Não é servido pelo Caddy — só
             # ocupava 212 MB e confundia quem fosse olhar o diretório.
-            # `--` e o cd acima mantêm isto restrito a $UPDATES/bundle.
+            # `--` e o cd acima mantêm isto restrito a $UPDATES/$APP/bundle.
             rm -rf -- bundle
-            ls -la . files/windows-x86_64
+            ls -la . "../files/$APP/windows-x86_64"

@@ -70,11 +70,18 @@ jobs:
   # temporariamente para destravar o build. Ver printer/README.md.
 
   build-desktop:
-    # O instalador em si é o workflow `build-desktop.yml`, que também pode
-    # ser disparado sozinho ("gerar só o instalador", sem tag e sem deploy
-    # do backend). Aqui ele roda porque é a tag que define a versão: o app
-    # instalado pergunta "existe <versão>?" comparando com o manifesto que
-    # este passo publica.
+    # Os instaladores da família standalone (PDV Caixa + KDS Cozinha) é o
+    # workflow `build-desktop.yml`, que também pode ser disparado sozinho
+    # ("gerar só o instalador", sem tag e sem deploy do backend). Aqui ele
+    # roda a cada tag: o manifesto do auto-update é publicado junto com o
+    # deploy do backend, e o app instalado pergunta "existe <versão>?"
+    # comparando com ele.
+    #
+    # A versão publicada é a do tauri.conf.json de CADA crate (conferida
+    # contra o Cargo.toml do crate), não a tag — a tag é do app v1/backend,
+    # e cada app da família tem sua própria versão. O app v1
+    # (frontend/src-tauri, em produção) tem o seu próprio script de build:
+    # `frontend/build-app.sh`.
     uses: ./.github/workflows/build-desktop.yml
     # `contents: write` precisa estar AQUI, não só no workflow chamado: em
     # `workflow_call` o token é a interseção das permissões de quem chama com

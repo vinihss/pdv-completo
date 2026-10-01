@@ -10,11 +10,25 @@
 #
 # Funciona em qualquer máquina com Go: o daemon é Go puro
 # (modernc.org/sqlite não usa cgo), então dá para cross-compilar.
+#
+# O diretório de saída é o do app v1 (`frontend/src-tauri/binaries/`) por
+# padrão — é onde o `externalBin` dele aponta. A família standalone aponta
+# para outro lugar (`standalone-pdv/binaries/`), então o destino é passado
+# com `--out-dir` (ou a variável OUT_DIR). Sem o parâmetro o comportamento é
+# o de sempre: o app v1 não quebra.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DAEMON_DIR="$ROOT/printer/daemon"
-OUT_DIR="$ROOT/frontend/src-tauri/binaries"
+OUT_DIR="${OUT_DIR:-$ROOT/frontend/src-tauri/binaries}"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --out-dir) OUT_DIR="${2:?--out-dir precisa do diretório de destino}"; shift 2 ;;
+    -h|--help) sed -n '3,17p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    *) echo "Opção desconhecida: $1" >&2; exit 1 ;;
+  esac
+done
 
 if ! command -v go >/dev/null 2>&1; then
   echo "Go 1.22+ é necessário para gerar o sidecar." >&2
