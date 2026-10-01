@@ -80,7 +80,22 @@ deploy/
 
 ## Pendência conhecida
 
-**Um dono só do outbox**: durante o drain (~5s) um cliente cujo WS está na instância antiga pode perder um evento de outbox reivindicado pela nova; o `onReconnect` do `useRealtime` recompõe por REST em ~250ms. Fechar a janela exige **um dono só do outbox** (advisory lock do Postgres para eleger líder, ou `LISTEN/NOTIFY`) — os workers (outbox, maintenance, polling iFood) **não** foram tocados neste trabalho.
+**Um dono só do outbox**: durante o drain (~5s) um cliente cujo WS está na instância antiga pode perder um evento de outbox reivindicado pela nova; o `onReconnect` do `useRealtime` recompõe por REST em ~250ms. Fechar a janela exige **um dono só do outbox** (advisory lock do Postgres para eleger líder, ou `LISTEN/NOTIFY`).
+
+> **A coordenação agora existe; a janela de perda, não.** Os três ciclos
+> (dispatcher do outbox, maintenance, polling do iFood) abrem uma transação
+> com `pg_try_advisory_xact_lock(hashtext(<chave>))` no topo e só rodam se
+> ganharem o lock; perdedor pula o ciclo em silêncio. As chaves, e a razão de
+> o lock ser **de transação** e não de sessão, estão em
+> `backend/src/infra/locks.ts`. Na prática o blue/green já garante uma
+> instância só, então isto é a rede de segurança para o caso em que as duas
+> apontem para o mesmo banco ao mesmo tempo (deploy manual, sobreposição de
+> drain, dev local apontado para o banco de produção).
+>
+> O que **continua valendo**: durante o drain a instância antiga pode ainda
+> estar com o lock e a nova ainda não o pegou. A janela de perda de evento só
+> fecha com o `onReconnect` recompõe por REST — que é o comportamento atual,
+> não uma regressão.
 
 ## Medições
 

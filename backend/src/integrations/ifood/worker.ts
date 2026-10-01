@@ -1,5 +1,6 @@
 import { db } from "../../infra/db/client.js";
 import { ifoodEvents } from "../../infra/db/schema.js";
+import { LOCKS, tryWithAdvisoryLock } from "../../infra/locks.js";
 import { eq, inArray } from "drizzle-orm";
 import { ifoodConfig, isIfoodEnabled, isIfoodMock } from "./config.js";
 import { ifoodFetch } from "./client.js";
@@ -33,7 +34,13 @@ export function startIfoodSync(): { stop: () => void } {
     if (running) return;
     running = true;
     try {
-      await pollOnce();
+      // O `running` acima é POR PROCESSO: evita o ciclo se sobrepor a si
+      // mesmo, mas não serializa contra outra instância apontada pro mesmo
+      // banco. O advisory lock de transação (`pdv:ifood:worker`) é o que faz
+      // isso — segurar o lock durante as chamadas HTTP ao iFood é o ponto:
+      // é o que impede duas instâncias de buscarem/ACKarem o mesmo evento.
+      // Réplica sem o lock pula o ciclo em silêncio (nada de erro no log).
+      await tryWithAdvisoryLock(LOCKS.ifoodWorker, () => pollOnce());
     } finally {
       running = false;
     }
@@ -81,6 +88,10 @@ async function pollOnce(): Promise<void> {
     await setIfoodState(ifoodStateKeys.lastPollError, "");
   } catch (err) {
     // Falha de rede/token não derruba o worker; guarda pro painel do gerente.
+    // Este catch também é o que mantém o ciclo do advisory lock saudável: a
+    // chamada de rede acontece de dentro do lock, e uma exceção estourando
+    // aqui rolabackaria a transação que segura o lock em vez de virar o
+    // `lastPollError` que o gerente vê no painel.
     const msg = err instanceof Error ? err.message : String(err);
     await setIfoodState(ifoodStateKeys.lastPollError, msg);
     console.error("[ifood] poll falhou:", msg);
