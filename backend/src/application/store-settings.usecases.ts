@@ -41,6 +41,8 @@ function serialize(s: typeof storeSettings.$inferSelect) {
     restaurantLong: s.restaurantLong,
     freeDeliveryMin: s.freeDeliveryMin,
     deliveryFeeTiers: JSON.parse(s.deliveryFeeTiers),
+    deliveryPrepMinutes: s.deliveryPrepMinutes,
+    minutesPerKm: s.minutesPerKm,
   };
 }
 
@@ -77,6 +79,8 @@ export async function updateStoreSettingsUsecase(input: {
   restaurantLong?: number | null;
   freeDeliveryMin?: number;
   deliveryFeeTiers?: Array<{ maxKm: number; fee: number }>;
+  deliveryPrepMinutes?: number;
+  minutesPerKm?: number;
 }) {
   if (input.merchantName.length > 25) throw Errors.validationFailed({ field: "merchantName", max: 25 });
   if (input.merchantCity.length > 15) throw Errors.validationFailed({ field: "merchantCity", max: 15 });
@@ -120,6 +124,8 @@ export async function updateStoreSettingsUsecase(input: {
       restaurantLong: input.restaurantLong ?? null,
       freeDeliveryMin: input.freeDeliveryMin ?? 0,
       deliveryFeeTiers: JSON.stringify(input.deliveryFeeTiers ?? []),
+      deliveryPrepMinutes: input.deliveryPrepMinutes ?? 40,
+      minutesPerKm: input.minutesPerKm ?? 2,
     })
     .where(eq(storeSettings.id, "singleton"))
     .returning();

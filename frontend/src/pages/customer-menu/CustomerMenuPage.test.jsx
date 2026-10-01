@@ -324,15 +324,17 @@ describe("CustomerMenuPage (busca de CEP)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("CEP válido preenche rua, bairro e cidade", async () => {
+  it("CEP válido preenche rua, bairro, cidade e estado", async () => {
     await abrirFormEndereco();
     digitarCep("01310100");
 
     await waitFor(() => expect(campo("Rua")).toBe("Avenida Paulista"));
     expect(campo("Bairro")).toBe("Bela Vista");
     expect(campo("Cidade")).toBe("São Paulo");
-    // complemento entra porque o campo estava vazio
-    expect(campo("Complemento (opcional)")).toBe("lado ímpar");
+    expect(campo("Estado")).toBe("SP");
+    // O complemento do ViaCEP ("lado ímpar") é faixa, não endereço: NUNCA
+    // entra. O campo continua existindo e continua sendo digitado à mão.
+    expect(campo("Complemento (opcional)")).toBe("");
     // número é sempre manual
     expect(campo("Número")).toBe("");
     expect(fetchMock.mock.calls[0][0]).toContain("01310100");

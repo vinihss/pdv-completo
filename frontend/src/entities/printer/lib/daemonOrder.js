@@ -81,7 +81,11 @@ export function toDaemonOrder(order) {
     number: toNumber(order),
     created_at: order.openedAt,
     type: channelToType(order.channel),
-    notes: "",
+    // Observação do pedido inteiro. O daemon Go e o espelho Rust já renderizam
+    // esse campo (`case "notes"`), e o template da cozinha já pede o bloco —
+    // o mapper é que sempre mandava vazio, então a observação do cliente nunca
+    // saía na bobina. Não confundir com as observações por item (it.notes).
+    notes: order.notes ?? "",
     items,
     total_cents: Math.round(orderTotal(order) * 100),
   };

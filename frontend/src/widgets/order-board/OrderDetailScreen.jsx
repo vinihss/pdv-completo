@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  Plus, Check, Trash2, Clock, AlertTriangle, Printer, MapPin,
+  Plus, Check, Trash2, Clock, AlertTriangle, Printer, MapPin, MessageSquare,
 } from "lucide-react";
 import { ConfirmModal, ScreenHeader } from "@/shared/components";
 import { updateItemStatus, deleteItem, closeOrder } from "@/entities/order";
@@ -130,6 +130,18 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
             <MapPin size={12} /> Endereço de entrega
           </div>
           <p className="text-sm text-stone-100 leading-snug mt-1">{order.delivery.address}</p>
+        </div>
+      )}
+
+      {/* Observação do pedido inteiro, escrita pelo cliente no checkout público.
+          Fica logo abaixo do endereço e acima dos itens porque é assim que se
+          lê: onde entregar, o que observar, e então o que produzir. */}
+      {order.notes && (
+        <div className="mx-5 mt-3 rounded-xl border border-stone-700 bg-stone-900 px-3 py-2.5">
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-stone-400">
+            <MessageSquare size={12} /> Observação do cliente
+          </div>
+          <p className="text-sm text-stone-100 leading-snug mt-1 whitespace-pre-line">{order.notes}</p>
         </div>
       )}
 

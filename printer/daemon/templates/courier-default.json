@@ -8,6 +8,7 @@
     {"type":"separator"},
     {"type":"customer"},
     {"type":"delivery"},
+    {"type":"notes"},
     {"type":"separator"},
     {"type":"items"},
     {"type":"payment"},

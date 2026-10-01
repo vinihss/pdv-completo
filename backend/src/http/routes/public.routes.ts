@@ -35,6 +35,7 @@ const addressFields = {
   complement: z.string().optional(),
   neighborhood: z.string().min(1),
   city: z.string().min(1),
+  state: z.string().max(2).optional(),
   reference: z.string().optional(),
   isDefault: z.boolean().optional(),
 };
@@ -70,6 +71,7 @@ const createOrderSchema = z.object({
     )
     .min(1),
   paymentMethodIntent: z.enum(["cash", "card", "pix", "other"]),
+  notes: z.string().optional(),
 });
 
 const cancelOrderSchema = z.object({

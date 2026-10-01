@@ -34,7 +34,17 @@ export default function KitchenDisplay() {
         // Só itens de produção roteada: produto sem kitchen_group_id (bar/balcão)
         // não entra na fila da cozinha. A foto já vem no próprio item.
         if ((item.status === "ordered" || item.status === "ready") && item.kitchenGroupId) {
-          flattened.push({ ...item, orderId: order.id, label, imagePath: item.productImagePath ?? null });
+          // `orderNotes` é a observação do pedido INTEIRO (cliente, checkout
+          // público) — instrução que vale para todos os itens, diferente de
+          // `item.notes`, que é específica deste. Vai no ticket porque a cozinha
+          // produz a partir do ticket, não da comanda.
+          flattened.push({
+            ...item,
+            orderId: order.id,
+            label,
+            orderNotes: order.notes ?? "",
+            imagePath: item.productImagePath ?? null,
+          });
         }
       }
     }
@@ -146,6 +156,11 @@ export default function KitchenDisplay() {
                 <div className="font-display text-2xl font-bold leading-tight mb-1">{t.name}</div>
                 {variation && <div className="text-stone-400 text-base mb-2">{variation}</div>}
                 <div className="text-stone-500 text-sm font-medium mt-3">{t.label}</div>
+                {t.orderNotes && (
+                  <div className="text-amber-300 text-sm font-semibold mt-2 leading-snug border-t border-stone-700 pt-2">
+                    OBS: {t.orderNotes}
+                  </div>
+                )}
               </button>
             );
           })}
@@ -181,6 +196,9 @@ export default function KitchenDisplay() {
                 <div className="font-display text-lg font-bold leading-tight">{t.quantity}× {t.name}</div>
                 {variation && <div className="text-stone-400 text-sm">{variation}</div>}
                 <div className="text-stone-500 text-xs font-medium mt-2">{t.label}</div>
+                {t.orderNotes && (
+                  <div className="text-amber-300 text-xs font-semibold mt-2 leading-snug">OBS: {t.orderNotes}</div>
+                )}
               </div>
             );
           })}

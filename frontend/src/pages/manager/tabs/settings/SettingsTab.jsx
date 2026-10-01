@@ -269,6 +269,33 @@ export default function SettingsTab({ showToast }) {
                 className={inputClass}
               />
             </Field>
+            <Field label="Tempo de preparo (min)">
+              <input
+                type="number"
+                step="1"
+                min="1"
+                value={form.deliveryPrepMinutes}
+                onChange={(e) => set({ deliveryPrepMinutes: Number(e.target.value) })}
+                className={inputClass}
+              />
+              <p className="text-stone-600 text-xs mt-1.5">
+                Base da previsão de entrega que o cliente vê na página de pedido. Some-se o tempo de viagem da faixa
+                escolhida.
+              </p>
+            </Field>
+            <Field label="Minutos de viagem por km">
+              <input
+                type="number"
+                step="0.5"
+                min="0"
+                value={form.minutesPerKm}
+                onChange={(e) => set({ minutesPerKm: Number(e.target.value) })}
+                className={inputClass}
+              />
+              <p className="text-stone-600 text-xs mt-1.5">
+                Multiplicado pelo km máximo da faixa. Na prática 2 é razoável em cidade; ajuste conforme sua região.
+              </p>
+            </Field>
           </>
         )}
       </Section>

@@ -23,12 +23,16 @@ describe("fetchAddressByCep", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
+    // `complement` do ViaCEP NÃO aparece no retorno: ele vem como faixa
+    // ("de lado ímpar", "de 101 a 150") e sobrescreveria o complemento que a
+    // pessoa escreveu à mão. A UF entra no lugar — é dado do endereço, não
+    // observação de quem mora lá.
     await expect(fetchAddressByCep("01310100")).resolves.toEqual({
       cep: "01310-100",
       street: "Avenida Paulista",
       neighborhood: "Bela Vista",
       city: "São Paulo",
-      complement: "de lado ímpar",
+      state: "SP",
     });
     // só dígitos no caminho e nada de token da sessão: serviço público
     expect(fetchMock).toHaveBeenCalledWith("https://viacep.com.br/ws/01310100/json/", {
@@ -42,6 +46,7 @@ describe("fetchAddressByCep", () => {
     expect(found.street).toBe("");
     expect(found.neighborhood).toBe("Centro");
     expect(found.city).toBe("Rio Branco");
+    expect(found.state).toBe("AC");
   });
 
   it("erro: true vira not_found", async () => {

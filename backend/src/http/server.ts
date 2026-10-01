@@ -142,6 +142,13 @@ export async function buildApp(): Promise<FastifyInstance> {
         usesDelivery: s.usesDelivery,
         ifoodIntegrationEnabled: s.ifoodIntegrationEnabled,
         deliveryFee: s.deliveryFee,
+        // A tabela de frete e os tempos de preparo: o checkout público usa as
+        // mesmas faixas que o balcão para montar o seletor de distância e a
+        // previsão de entrega (domain/delivery-eta.ts). Sem isso aqui, a tela
+        // teria que adivinhar as faixas e a previsão não bateria com a loja.
+        deliveryFeeTiers: s.deliveryFeeTiers,
+        deliveryPrepMinutes: s.deliveryPrepMinutes,
+        minutesPerKm: s.minutesPerKm,
         enabledPaymentMethods: s.enabledPaymentMethods,
       };
     });
