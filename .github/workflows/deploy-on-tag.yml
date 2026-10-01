@@ -6,68 +6,18 @@ on:
       - 'v*.*.*'
 
 jobs:
+  # As suítes moram em `tests.yml` (reusable workflow), e não aqui: o mesmo
+  # gate roda na PR (ci-pr.yml) e na tag. Se cada caller carregasse uma
+  # cópia dos corpos, a CI de PR e o gate de release iam divergir em
+  # silêncio — o merge deixaria passar exatamente o que o deploy rejeita.
+  # As CHAVES dos jobs continuam `test-backend`/`test-frontend` porque o
+  # `needs:` abaixo resolve pelo nome do job NESTE arquivo, não pelo do
+  # workflow chamado.
   test-backend:
-    runs-on: ubuntu-latest
-    # Os testes do backend rodam contra um Postgres DEDICADO (pdv_test), não
-    # contra o banco da aplicação: o global setup (backend/test/global-setup.ts)
-    # derruba e recria o schema `public` antes de cada suíte, o que num banco
-    # real apagaria os dados. Sem este serviço o job morria com ECONNREFUSED e
-    # o vitest ainda imprimia "No test files found", que engana: o glob está
-    # certo, quem falha é o setup.
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          # Mesmas credenciais do default em backend/test/test-db.ts, para o
-          # banco efêmero do CI e o Postgres local de desenvolvimento não
-          # divergirem.
-          POSTGRES_USER: pdv
-          POSTGRES_PASSWORD: pdv_test_pw
-          POSTGRES_DB: pdv_test
-        ports:
-          - 55432:5432
-        # Sem healthcheck o vitest começa antes do Postgres aceitar conexão e
-        # o job falha de forma intermitente, dependendo da carga do runner.
-        options: >-
-          --health-cmd "pg_isready -U pdv -d pdv_test"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      # Aponta para o serviço acima. O global setup usa esta variável para
-      # recriar o schema e o config do vitest a repassa como DATABASE_URL.
-      TEST_DATABASE_URL: postgres://pdv:pdv_test_pw@localhost:55432/pdv_test
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
-      - working-directory: backend
-        run: |
-          npm ci
-          npm run build
-          npm run test
+    uses: ./.github/workflows/tests.yml
 
   test-frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - working-directory: frontend
-        run: |
-          npm ci
-          npm run lint
-          npm run build
-          npm run test
-
-  # TODO: refazer os testes do printer/daemon (go test ./...) — removidos
-  # temporariamente para destravar o build. Ver printer/README.md.
+    uses: ./.github/workflows/tests.yml
 
   build-desktop:
     # Os instaladores da família standalone (PDV Caixa + KDS Cozinha) é o
