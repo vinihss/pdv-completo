@@ -82,6 +82,7 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | Outbox Dispatcher | `backend/src/infra/realtime/outbox-dispatcher.ts` |
 | WebSocket | `backend/src/infra/realtime/ws-gateway.ts` |
 | Maintenance | `backend/src/infra/maintenance.ts` |
+| Advisory locks (dono único dos workers) | `backend/src/infra/locks.ts` |
 | Cache | `backend/src/infra/cache/` |
 
 ## Integrações
