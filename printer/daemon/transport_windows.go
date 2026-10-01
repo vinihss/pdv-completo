@@ -73,7 +73,7 @@ func (t windowsSpoolerTransport) Send(ctx context.Context, data []byte) error {
 	var handle windows.Handle
 	result, _, callErr := procOpenPrinter.Call(uintptr(unsafe.Pointer(name)), uintptr(unsafe.Pointer(&handle)), 0)
 	if result == 0 {
-		return fmt.Errorf("abrir impressora %q: %w", t.printerName, callErr)
+		return markTransient(fmt.Errorf("abrir impressora %q: %w", t.printerName, callErr))
 	}
 	defer procClosePrinter.Call(uintptr(handle))
 
@@ -82,13 +82,13 @@ func (t windowsSpoolerTransport) Send(ctx context.Context, data []byte) error {
 	doc := docInfo1{docName: docName, dataType: dataType}
 	job, _, callErr := procStartDocPrinter.Call(uintptr(handle), 1, uintptr(unsafe.Pointer(&doc)))
 	if job == 0 {
-		return fmt.Errorf("iniciar trabalho na impressora %q: %w", t.printerName, callErr)
+		return markTransient(fmt.Errorf("iniciar trabalho na impressora %q: %w", t.printerName, callErr))
 	}
 	defer procEndDocPrinter.Call(uintptr(handle))
 
 	page, _, callErr := procStartPagePrinter.Call(uintptr(handle))
 	if page == 0 {
-		return fmt.Errorf("iniciar página na impressora %q: %w", t.printerName, callErr)
+		return markTransient(fmt.Errorf("iniciar página na impressora %q: %w", t.printerName, callErr))
 	}
 	defer procEndPagePrinter.Call(uintptr(handle))
 

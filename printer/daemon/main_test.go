@@ -181,6 +181,7 @@ func newTestDaemon(t *testing.T, cfg Config) *Daemon {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
+	db.SetMaxOpenConns(1) // igual ao runDaemon: SQLite com um escritor por vez
 	if err := migrate(db); err != nil {
 		t.Fatal(err)
 	}

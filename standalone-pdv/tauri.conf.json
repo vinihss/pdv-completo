@@ -1,7 +1,6 @@
 {
   "$schema": "../frontend/node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "PDV Caixa",
-  "version": "0.1.0",
   "identifier": "com.pdvapp.caixa",
   "build": {
     "frontendDist": "../frontend/dist/pdv",

@@ -1,3 +1,5 @@
+> **Nota:** documento histórico, escrito antes de transportes USB/CUPS, token, API v1, worker por impressora e polling web existirem no código. Use o README e `docs/` para o estado atual.
+
 # Revisão do daemon de impressão
 
 ## Resumo executivo

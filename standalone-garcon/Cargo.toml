@@ -29,7 +29,7 @@ name = "pdv-garcon"
 # Igual ao `version` do tauri.conf.json. Os dois precisam bater porque o
 # instalador do Windows tira a versão do conf e o `cargo` usa a do manifesto;
 # divergindo, o binário e o about do app contam histórias diferentes.
-version = "0.1.0"
+version.workspace = true
 description = "PDV Garçom — app móvel do garçom para lançar pedidos da mesa"
 edition = "2021"
 rust-version = "1.77.2"

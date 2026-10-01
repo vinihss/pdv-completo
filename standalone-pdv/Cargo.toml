@@ -4,7 +4,7 @@
 # Um crate chamado `pdv` aqui seria o primeiro passo de uma confusão que só
 # aparece no servidor de update, no menu do Windows e no `latest.json`.
 name = "pdv-caixa"
-version = "0.1.0"
+version.workspace = true
 # Este `version` e o `version` do `tauri.conf.json` são conferidos um contra o
 # outro pelo build de entrega, e divergentes o instalador sai com uma versão e
 # o manifesto outra — o update "não existe" sem erro nenhum. 0.1.0 porque este

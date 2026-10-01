@@ -14,9 +14,13 @@ id "$SERVICE_USER" >/dev/null 2>&1 || useradd --system --home "$PREFIX" --shell 
 
 go build -trimpath -ldflags='-s -w' -o "$PREFIX/pdv-printer-daemon" "$ROOT/daemon"
 cp -R "$ROOT/daemon/templates" "$PREFIX/"
-if [[ ! -f "$CONFIG_DIR/config.json" ]]; then cp "$ROOT/daemon/config.example.json" "$CONFIG_DIR/config.json"; fi
+# Não copia o config.example.json: ele traz IPs fictícios e uma impressora
+# windows_spooler. Sem config, o próprio daemon cria um padrão na primeira
+# execução, com impressoras sem endereço (ready=false até configurar) e um
+# api_token aleatório.
 chown -R "$SERVICE_USER:$SERVICE_USER" "$PREFIX" "$CONFIG_DIR"
 chmod 0755 "$PREFIX/pdv-printer-daemon"
+chmod 0750 "$CONFIG_DIR"
 
 cat > /etc/systemd/system/pdv-printer.service <<EOF
 [Unit]
@@ -42,4 +46,6 @@ EOF
 systemctl daemon-reload
 systemctl enable --now pdv-printer.service
 systemctl --no-pager --full status pdv-printer.service || true
-echo "Instalado. Edite $CONFIG_DIR/config.json e reinicie: systemctl restart pdv-printer"
+echo "Instalado. O daemon cria $CONFIG_DIR/config.json na primeira execução (com api_token)."
+echo "Edite as impressoras e reinicie: sudo nano $CONFIG_DIR/config.json && systemctl restart pdv-printer"
+echo "O PDV precisa enviar  Authorization: Bearer <api_token>  (campo api_token do config)."

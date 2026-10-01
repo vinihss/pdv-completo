@@ -58,7 +58,10 @@ func (t cupsTransport) Send(ctx context.Context, data []byte) error {
 		if message == "" {
 			message = err.Error()
 		}
-		return fmt.Errorf("enviar ESC/POS para fila CUPS %q: %s", t.printerName, message)
+		// lp só sai com erro quando o CUPS não aceitou o job (fila inexistente,
+		// desabilitada, scheduler parado): nada foi enviado, então é seguro
+		// repetir.
+		return markTransient(fmt.Errorf("enviar ESC/POS para fila CUPS %q: %s", t.printerName, message))
 	}
 	return nil
 }

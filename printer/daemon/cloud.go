@@ -50,7 +50,19 @@ type cloudAck struct {
 	Destination     string `json:"destination"`
 	JobID           string `json:"job_id"`
 	Status          string `json:"status"`
+	Error           string `json:"error,omitempty"`
 }
+
+// permanentEventError marca um evento que nunca será aceito, não importa
+// quantas vezes seja reentregue (destino sem impressora, template inexistente,
+// conflito de idempotência). Esses eventos são confirmados como "rejected";
+// do contrário o cursor não avança e eles bloqueiam todos os eventos seguintes.
+type permanentEventError struct{ err error }
+
+func (e *permanentEventError) Error() string { return e.err.Error() }
+func (e *permanentEventError) Unwrap() error { return e.err }
+
+func permanentEvent(err error) error { return &permanentEventError{err: err} }
 
 type cloudJobStatus struct {
 	StationID       string `json:"station_id"`
@@ -82,7 +94,7 @@ func normalizeCloudConfig(cfg CloudConfig) CloudConfig {
 	return cfg
 }
 
-func (d *Daemon) startCloudWorker() {
+func (d *Daemon) startCloudWorker(ctx context.Context) {
 	cfg := normalizeCloudConfig(d.cfg.Cloud)
 	if !cfg.Enabled {
 		return
@@ -95,7 +107,7 @@ func (d *Daemon) startCloudWorker() {
 		return
 	}
 	d.cfg.Cloud = cfg
-	go d.cloudWorker(context.Background())
+	go d.cloudWorker(ctx)
 }
 
 func validateCloudConfig(cfg CloudConfig) error {
@@ -125,6 +137,7 @@ func (d *Daemon) cloudWorker(ctx context.Context) {
 	// Faz uma busca logo no início para reduzir o tempo até a primeira
 	// impressão depois que o serviço sobe.
 	d.pollCloudOnce(ctx, client)
+	d.reportPendingStatuses(ctx, client)
 
 	ticker := time.NewTicker(time.Duration(cfg.PollIntervalSecs) * time.Second)
 	defer ticker.Stop()
@@ -134,6 +147,9 @@ func (d *Daemon) cloudWorker(ctx context.Context) {
 			return
 		case <-ticker.C:
 			d.pollCloudOnce(ctx, client)
+			// Roda mesmo se o polling falhou: o resultado de jobs já aceitos
+			// (inclusive os que imprimiram em retry) precisa chegar à nuvem.
+			d.reportPendingStatuses(ctx, client)
 		}
 	}
 }
@@ -212,24 +228,24 @@ func (d *Daemon) handleCloudEvent(ctx context.Context, client *http.Client, even
 		event.Print.JobID = "cloud-" + event.ExternalEventID
 	}
 	if err := validatePrintRequest(event.Print); err != nil {
-		_ = d.recordCloudEventFailure(event.ExternalEventID, err.Error())
-		// Erro de contrato é permanente para este payload. Confirma a rejeição
-		// para que um evento inválido não impeça a entrega dos próximos.
-		if ackErr := d.ackCloudEvent(ctx, client, event, "", "rejected"); ackErr != nil {
-			return fmt.Errorf("pedido inválido: %v; confirmar rejeição: %w", err, ackErr)
-		}
-		return nil
+		return d.rejectCloudEvent(ctx, client, event, fmt.Errorf("pedido inválido: %w", err))
 	}
 
 	jobID, destination, duplicate, err := d.persistCloudEvent(event)
 	if err != nil {
+		var permanent *permanentEventError
+		if errors.As(err, &permanent) {
+			return d.rejectCloudEvent(ctx, client, event, err)
+		}
+		// Falha transitória (banco ocupado, disco): não avança o cursor; o
+		// evento volta no próximo polling.
 		return err
 	}
 
 	// O ACK confirma somente que o daemon recebeu e persistiu o trabalho
-	// localmente. O status posterior diferencia sent_to_printer, retry_waiting
-	// e reprint_confirmation.
-	if err := d.ackCloudEvent(ctx, client, event, jobID, "accepted"); err != nil {
+	// localmente. O status posterior (sent_to_printer, retry_waiting,
+	// reprint_confirmation, failed) é reportado por reportPendingStatuses.
+	if err := d.ackCloudEvent(ctx, client, event, jobID, "accepted", ""); err != nil {
 		return err
 	}
 
@@ -239,29 +255,82 @@ func (d *Daemon) handleCloudEvent(ctx context.Context, client *http.Client, even
 	}
 
 	go func() {
-		processErr := d.process(jobID)
-		status := d.jobStatus(jobID)
-		if processErr != nil && status == "unknown" {
-			status = "failed"
+		if processErr := d.process(jobID); processErr != nil {
+			log.Printf("cloud: job %s: %v", jobID, processErr)
 		}
-		if err := d.reportCloudJobStatus(context.Background(), client, event, jobID, status, processErr); err != nil {
-			log.Printf("cloud: reportar status event=%s job=%s: %v", event.ExternalEventID, jobID, err)
-		}
+		d.reportPendingStatuses(context.Background(), client)
 	}()
 
 	log.Printf("cloud: evento aceito event=%s destination=%s job=%s", event.ExternalEventID, destination, jobID)
 	return nil
 }
 
+// rejectCloudEvent registra e confirma a rejeição de um evento que nunca será
+// impresso. Se o ACK falhar devolve erro, e o evento é reentregue.
+func (d *Daemon) rejectCloudEvent(ctx context.Context, client *http.Client, event CloudEvent, cause error) error {
+	_ = d.recordCloudEventFailure(event.ExternalEventID, cause.Error())
+	log.Printf("cloud: evento %s rejeitado: %v", event.ExternalEventID, cause)
+	if ackErr := d.ackCloudEvent(ctx, client, event, "", "rejected", cause.Error()); ackErr != nil {
+		return fmt.Errorf("%v; confirmar rejeição: %w", cause, ackErr)
+	}
+	return nil
+}
+
+// reportPendingStatuses envia à nuvem o status atual de todo job aceito cujo
+// status mudou desde o último relato. Ler do banco (e não de uma goroutine
+// que imprime uma vez) cobre retries que imprimem depois, reimpressão manual,
+// eventos reentregues e reinício do daemon.
+func (d *Daemon) reportPendingStatuses(ctx context.Context, client *http.Client) {
+	cfg := d.cfg.Cloud
+	if strings.TrimSpace(cfg.StatusPath) == "" {
+		return
+	}
+	d.reportMu.Lock()
+	defer d.reportMu.Unlock()
+
+	// O pool tem uma única conexão: lê tudo e fecha o cursor antes de fazer
+	// HTTP ou outro Exec, senão o daemon trava.
+	type pending struct{ eventID, destination, jobID, status, lastError string }
+	rows, err := d.db.Query(`SELECT e.external_event_id, e.destination, j.id, j.status, COALESCE(j.last_error,'')
+		FROM external_events e JOIN print_jobs j ON j.id = e.job_id
+		WHERE e.status='accepted'
+		  AND j.status IN ('retry_waiting','sent_to_printer','reprint_confirmation','failed','blocked_printer')
+		  AND COALESCE(e.reported_status,'') <> j.status
+		ORDER BY e.received_at LIMIT 50`)
+	if err != nil {
+		log.Printf("cloud: consultar status pendentes: %v", err)
+		return
+	}
+	var list []pending
+	for rows.Next() {
+		var p pending
+		if rows.Scan(&p.eventID, &p.destination, &p.jobID, &p.status, &p.lastError) == nil {
+			list = append(list, p)
+		}
+	}
+	_ = rows.Close()
+
+	for _, p := range list {
+		if ctx.Err() != nil {
+			return
+		}
+		if err := d.reportCloudJobStatus(ctx, client, p.eventID, p.jobID, p.status, p.lastError); err != nil {
+			log.Printf("cloud: reportar status event=%s job=%s: %v", p.eventID, p.jobID, err)
+			return // nuvem indisponível; tenta de novo no próximo ciclo
+		}
+		_, _ = d.db.Exec(`UPDATE external_events SET reported_status=? WHERE external_event_id=? AND destination=?`, p.status, p.eventID, p.destination)
+	}
+}
+
 func (d *Daemon) persistCloudEvent(event CloudEvent) (jobID, destination string, duplicate bool, err error) {
 	req := event.Print
 	profile, ok := d.cfg.Printers[req.Destination]
 	if !ok || !profileConfigured(profile) {
-		return "", req.Destination, false, fmt.Errorf("nenhuma impressora configurada para %s", req.Destination)
+		return "", req.Destination, false, permanentEvent(fmt.Errorf("nenhuma impressora configurada para %s", req.Destination))
 	}
 	template, err := d.templateFor(profile.Template, req.Destination)
 	if err != nil {
-		return "", req.Destination, false, err
+		return "", req.Destination, false, permanentEvent(err)
 	}
 	payload, err := json.Marshal(req)
 	if err != nil {
@@ -306,7 +375,7 @@ func (d *Daemon) persistCloudEvent(event CloudEvent) (jobID, destination string,
 			oldHash = fmt.Sprintf("%x", sha256.Sum256([]byte(oldPayload)))
 		}
 		if oldHash != hash {
-			return "", req.Destination, false, fmt.Errorf("%w: job_id existente=%s", errIdempotencyConflict, existingID)
+			return "", req.Destination, false, permanentEvent(fmt.Errorf("%w: job_id existente=%s", errIdempotencyConflict, existingID))
 		}
 		jobID = existingID
 	} else if errors.Is(queryErr, sql.ErrNoRows) {
@@ -335,33 +404,29 @@ func (d *Daemon) recordCloudEventFailure(eventID, message string) error {
 	return err
 }
 
-func (d *Daemon) ackCloudEvent(ctx context.Context, client *http.Client, event CloudEvent, jobID, status string) error {
+func (d *Daemon) ackCloudEvent(ctx context.Context, client *http.Client, event CloudEvent, jobID, status, message string) error {
 	cfg := d.cfg.Cloud
 	endpoint, err := cloudEndpoint(cfg.BaseURL, strings.ReplaceAll(cfg.AckPath, "{external_event_id}", url.PathEscape(event.ExternalEventID)))
 	if err != nil {
 		return err
 	}
-	body, err := json.Marshal(cloudAck{StationID: cfg.StationID, ExternalEventID: event.ExternalEventID, Destination: event.Print.Destination, JobID: jobID, Status: status})
+	body, err := json.Marshal(cloudAck{StationID: cfg.StationID, ExternalEventID: event.ExternalEventID, Destination: event.Print.Destination, JobID: jobID, Status: status, Error: message})
 	if err != nil {
 		return err
 	}
 	return d.postCloudJSON(ctx, client, endpoint, body)
 }
 
-func (d *Daemon) reportCloudJobStatus(ctx context.Context, client *http.Client, event CloudEvent, jobID, status string, processErr error) error {
+func (d *Daemon) reportCloudJobStatus(ctx context.Context, client *http.Client, externalEventID, jobID, status, message string) error {
 	cfg := d.cfg.Cloud
 	if strings.TrimSpace(cfg.StatusPath) == "" {
 		return nil
 	}
-	endpoint, err := cloudEndpoint(cfg.BaseURL, strings.ReplaceAll(cfg.StatusPath, "{external_event_id}", url.PathEscape(event.ExternalEventID)))
+	endpoint, err := cloudEndpoint(cfg.BaseURL, strings.ReplaceAll(cfg.StatusPath, "{external_event_id}", url.PathEscape(externalEventID)))
 	if err != nil {
 		return err
 	}
-	message := ""
-	if processErr != nil {
-		message = processErr.Error()
-	}
-	body, err := json.Marshal(cloudJobStatus{StationID: cfg.StationID, ExternalEventID: event.ExternalEventID, JobID: jobID, Status: status, Error: message})
+	body, err := json.Marshal(cloudJobStatus{StationID: cfg.StationID, ExternalEventID: externalEventID, JobID: jobID, Status: status, Error: message})
 	if err != nil {
 		return err
 	}

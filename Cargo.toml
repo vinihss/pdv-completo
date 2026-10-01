@@ -16,6 +16,12 @@ members = [
   "standalone-entregador",
 ]
 
+# Versão única da família standalone. Os 4 apps herdam via `version.workspace
+# = true` nos seus Cargo.toml, e os tauri.conf.json NÃO declaram `version` —
+# o Tauri lê do Cargo.toml do crate automaticamente. Para bump: ./bump-version.sh 0.2.0
+[workspace.package]
+version = "0.1.0"
+
 # O `exclude` NÃO é cosmético: `frontend/src-tauri` é um crate Rust válido e
 # continua no repo (app v1.0.x já em produção, em transição). Sem esta linha,
 # `cargo build` de dentro de `frontend/src-tauri` morre com "current package
