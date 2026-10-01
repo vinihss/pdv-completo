@@ -1,8 +1,10 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import useEscapeLayer from "@/shared/hooks/useEscapeLayer.js";
 import useBodyScrollLock from "@/shared/hooks/useBodyScrollLock.js";
 import useFocusTrap from "@/shared/hooks/useFocusTrap.js";
+
+const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 // Arrastar para baixo fecha. Os limiares são generosos de propósito: o dedo
 // precisa de intenção clara, senão um scroll nervoso derruba o formulário.
@@ -41,6 +43,44 @@ export default function Modal({
   // app: o body rolava por trás dos overlays) e prende/restaura o foco.
   useBodyScrollLock();
   useFocusTrap(layerRef);
+
+  // Focus trap + restauração de foco: Tab/Shift+Tab ficam dentro do modal e o
+  // foco retorna ao elemento que abriu ao fechar.
+  useEffect(() => {
+    const node = layerRef.current;
+    if (!node) return;
+    const previouslyFocused = document.activeElement;
+    const focusables = () => Array.from(node.querySelectorAll(FOCUSABLE)).filter((el) => el.offsetParent !== null || el === document.activeElement);
+    const first = focusables()[0];
+    if (first) first.focus();
+
+    function handleKeyDown(e) {
+      if (e.key !== "Tab") return;
+      const items = focusables();
+      if (items.length === 0) {
+        e.preventDefault();
+        return;
+      }
+      const firstEl = items[0];
+      const lastEl = items[items.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && (active === firstEl || !node.contains(active))) {
+        e.preventDefault();
+        lastEl.focus();
+      } else if (!e.shiftKey && (active === lastEl || !node.contains(active))) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown, true);
+      if (previouslyFocused && document.contains(previouslyFocused)) {
+        previouslyFocused.focus();
+      }
+    };
+  }, [layerRef]);
 
   function handleTouchStart(e) {
     if (e.touches.length !== 1) return;

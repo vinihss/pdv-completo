@@ -45,7 +45,7 @@ printer/   Daemon Go para impressão térmica (ESC/POS)
 | `docs/agent-backend.md` | Convenções backend: camadas, transações, migrations, estoque, alertas, impressão |
 | `docs/agent-frontend.md` | Convenções frontend: FSD, camadas, componentes, overlays, menu, Tauri |
 | `docs/agent-deploy.md` | Deploy azul/verde: switch, healthcheck, regras, backup |
-| `docs/agent-testing.md` | Como rodar testes: backend (16 suítes), frontend (34 suítes), printer |
+| `docs/agent-testing.md` | Como rodar testes: backend (17 suítes), frontend (34 suítes), printer |
 | `docs/agent-api-index.md` | Índice de todos os endpoints da API, agrupados por domínio |
 | `docs/agent-glossary.md` | Glossário de termos do domínio (BR Code, FSD, blue/green, …) |
 | `docs/agent-backend-map.md` | Mapa arquivo→conteúdo do backend (onde mexer para cada assunto) |
@@ -154,7 +154,7 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `npm run seed` | backend | seed de dev (usuários/PINs fictícios) |
 | `npm run seed:prod` | backend | seed de primeiro deploy (sem dados fictícios) |
 | `npm run db:migrate` | backend | aplica `migrations/*.sql` (também roda no boot em modo local) |
-| `npm run test` | backend | vitest 5, 16 suítes (Postgres dedicado `pdv_test`) |
+| `npm run test` | backend | vitest 5, 17 suítes (Postgres dedicado `pdv_test`) |
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
 | `npm run test` | frontend | vitest (jsdom + Testing Library; 34 suítes) |
@@ -163,6 +163,59 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `go test ./...` | `printer/daemon` | suíte do daemon |
 | `./switch.sh` | deploy | deploy sem downtime (instância nova + `caddy reload`); `--status`, `--rollback`, `--install`, `--no-build` |
 | `./probe-availability.sh --url <url> --seconds N` | deploy | mede o gap de downtime real (sai != 0 se houve falha) |
+| `./scripts/dev-worktree.sh new <branch>` | raiz | cria o worktree de trabalho em `~/pdv-worktrees/<branch>`, a partir da `origin/main` já atualizada |
+| `./scripts/dev-worktree.sh list` | raiz | lista os worktrees e a branch de cada um |
+| `./scripts/dev-worktree.sh rm <branch>` | raiz | remove o worktree; só apaga a branch se ela já estiver mergeada na `main` |
+| `git config core.hooksPath .githooks` | qualquer | ativa os hooks versionados — **necessário após cada clone novo** |
+
+## Git: worktree por branch, `main` intocada
+
+**Regra**: o worktree principal (`~/pdv-completo`) fica em `main` e serve só de
+base/coordenação (ler, comparar, abrir o editor). **Todo desenvolvimento acontece
+em worktree separado**, em `~/pdv-worktrees/<branch>` — um por branch, nunca
+dentro do repo (o git recusa worktree dentro de outro repo).
+
+```bash
+./scripts/dev-worktree.sh new feat/minha-branch   # cria ~/pdv-worktrees/feat/minha-branch
+git push -u origin feat/minha-branch && gh pr create --fill
+./scripts/dev-worktree.sh rm feat/minha-branch    # apaga a branch só se já mergeada na main
+```
+
+**Nunca commit em `main`.** Fluxo de hotfix urgente é o mesmo: branch própria +
+PR + squash merge. Não é mais rápido commitar na main — é o caminho que existe
+para o urgente.
+
+### Hooks locais (freio, não tranca)
+
+`.githooks/pre-commit` e `.githooks/pre-push` barram commit e push direto na
+`main`. São versionados, mas **não se auto-ativam**: após cada clone novo (ou
+worktree novo em máquina nova), rode
+
+```bash
+git config core.hooksPath .githooks
+```
+
+O path é relativo ao topo da working tree, então vale para o worktree principal
+e para todos os worktrees ligados. Dois detalhes: `pre-commit` **deixa passar
+detached HEAD** (rebase, cherry-pick e merge aparecem assim — bloquear geraria
+falso-positivo) e `pre-push` **nunca bloqueia `refs/tags/*`**, porque a tag é o
+gatilho de deploy.
+
+Os hooks são **freio de acidente**: `git commit --no-verify` /
+`git push --no-verify` contornam. A barreira real é o ruleset da `main` no
+GitHub, que recusa push direto mesmo com `--no-verify`. Para remover a proteção
+do servidor:
+
+```bash
+gh api -X DELETE repos/OWNER/REPO/rulesets/ID
+```
+
+### Tag continua sendo o gate de deploy
+
+O deploy **não** é disparado por push na `main`: `.github/workflows/deploy-on-tag.yml`
+roda em `push: tags: v*.*.*`. Publicar versão é `./bump-version.sh <versão>`
++ `git push origin v<versão>`, e isso funciona de qualquer branch — é por isso
+que `pre-push` deixa tag passar.
 
 ## Regras críticas
 
@@ -197,6 +250,15 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 - **Menu principal = accordion** na esquerda (desktop) ou `Drawer` (mobile)
 - **Login por PIN**: envio explícito (botão ou Enter), sem auto-envio em 6 dígitos
 - Rodar `npm run lint` (oxlint) antes de terminar
+
+### Git (resumo)
+
+- **Nunca commitar na `main`**: branch própria + PR + squash merge, sempre via worktree
+- **Worktree por branch** em `~/pdv-worktrees/<branch>` (`./scripts/dev-worktree.sh new|list|rm`)
+- **Hooks versionados** em `.githooks/`: precisam de `git config core.hooksPath .githooks` após clone novo
+- Hook é **freio, não tranca** (`--no-verify` contorna); a garantia é o ruleset no GitHub
+- **`rm` de worktree não apaga branch não mergeada** — publicar ou `branch -D` consciously
+- **Tag é o gate de deploy**, não push na main
 
 ### Deploy (resumo)
 

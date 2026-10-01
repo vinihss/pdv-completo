@@ -137,16 +137,12 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
       title={product ? "Editar produto" : "Novo produto"}
       onClose={onClose}
       footer={
-        <button type="submit" form="form-produto" disabled={saving} className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl">
+        <button type="submit" form="product-form" disabled={saving} className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl">
           {saving ? "Salvando…" : "Salvar"}
         </button>
       }
     >
-      {/* noValidate: a validação é a do app (handleSave + toast PT-BR), não a
-          nativa do browser — o bubble nativo anclado no campo pode cair fora da
-          tela num modal de corpo rolável. `required` continua marcando o
-          asterisco e o campo para o leitor de tela. */}
-      <form id="form-produto" noValidate onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="p-5 space-y-3">
+      <form id="product-form" noValidate onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="p-5 space-y-3">
         <Field label="Foto do produto">
           <div className="flex items-center gap-3">
             {image.preview ? (

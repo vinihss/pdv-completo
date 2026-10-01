@@ -11,7 +11,7 @@ npm run test
 
 **Framework**: vitest 5 + PostgreSQL dedicado `pdv_test` (recriado no global setup via `TEST_DATABASE_URL`).
 
-### Suítes (16 arquivos)
+### Suítes (17 arquivos)
 
 | Arquivo | Cobertura |
 |---|---|
@@ -22,6 +22,7 @@ npm run test
 | `test/delivery-pricing.test.ts` | Cálculo de preço de entrega |
 | `test/idempotency.test.ts` | Retry de failed/expirado, 409 processing, cache de completed |
 | `test/maintenance.test.ts` | Outbox corrompido não derruba, cleanup |
+| `test/outbox-dispatcher.test.ts` | Ciclo do dispatcher: publica, teto de 50, ordem `created_at`/`seq`, payload corrompido, dono único por advisory lock |
 | `test/order-flow.test.ts` | Validação de mesa, eventos outbox de fechamento/cancelamento/pagamento/delete |
 | `test/pix-key.test.ts` | Canonicalização de chave Pix (6 testes) |
 | `test/printer.test.ts` | Impressão: 404 vs 503, auto-print, resetState |

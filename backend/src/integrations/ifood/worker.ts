@@ -1,5 +1,6 @@
 import { db } from "../../infra/db/client.js";
 import { ifoodEvents } from "../../infra/db/schema.js";
+import { LOCKS, tryWithAdvisoryLock } from "../../infra/locks.js";
 import { eq, inArray } from "drizzle-orm";
 import { ifoodConfig, isIfoodEnabled, isIfoodMock } from "./config.js";
 import { ifoodFetch } from "./client.js";
@@ -33,7 +34,22 @@ export function startIfoodSync(): { stop: () => void } {
     if (running) return;
     running = true;
     try {
-      await pollOnce();
+      // O `running` acima é POR PROCESSO: evita o ciclo se sobrepor a si
+      // mesmo, mas não serializa contra outra instância apontada pro mesmo
+      // banco. O advisory lock de transação (`pdv:ifood:worker`) é o que faz
+      // isso — segurar o lock durante as chamadas HTTP ao iFood é o ponto:
+      // é o que impede duas instâncias de buscarem/ACKarem o mesmo evento.
+      // Réplica sem o lock pula o ciclo em silêncio (nada de erro no log).
+      await tryWithAdvisoryLock(LOCKS.ifoodWorker, () => pollOnce());
+    } catch (err) {
+      // Um erro de ciclo não pode derrubar o processo — é a regra 1.5, e o
+      // dispatcher e a maintenance já têm exatamente este `.catch()`. O iFood
+      // era o único dos três sem ele, e o advisory lock tornou o buraco mais
+      // largo: a aquisição do lock é `db.transaction`, então banco fora ou o
+      // `connectionTimeoutMillis` de 10s (infra/db/client.ts) rejeitam em TODO
+      // ciclo e escapavam por `void tick()` / `setInterval(tick, ...)` sem
+      // ninguém para pegar — unhandled rejection derruba o processo no Node 15+.
+      console.error("[ifood] erro no ciclo de polling:", err);
     } finally {
       running = false;
     }
@@ -81,6 +97,9 @@ async function pollOnce(): Promise<void> {
     await setIfoodState(ifoodStateKeys.lastPollError, "");
   } catch (err) {
     // Falha de rede/token não derruba o worker; guarda pro painel do gerente.
+    // O `running` volta ao `false` pelo `finally` do `tick`, e qualquer
+    // rejection de infraestrutura que escapar daqui (ver o `catch` do `tick`)
+    // é logado ali — este `catch` é só para erro de negócio da chamada.
     const msg = err instanceof Error ? err.message : String(err);
     await setIfoodState(ifoodStateKeys.lastPollError, msg);
     console.error("[ifood] poll falhou:", msg);

@@ -3,73 +3,207 @@ name: Deploy on Tag
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - 'v*.*.*'        # linha BACKEND (publica o deploy)
+      - 'app-v*.*.*'   # linha APP (publica o instalador Windows)
 
 jobs:
+  # As suítes moram em `tests.yml` (reusable workflow), e não aqui: o mesmo
+  # gate roda na PR (ci-pr.yml) e na tag. Se cada caller carregasse uma
+  # cópia dos corpos, a CI de PR e o gate de release iam divergir em
+  # silêncio — o merge deixaria passar exatamente o que o deploy rejeita.
+  # As CHAVES dos jobs continuam `test-backend`/`test-frontend` porque o
+  # `needs:` abaixo resolve pelo nome do job NESTE arquivo, não pelo do
+  # workflow chamado.
   test-backend:
-    runs-on: ubuntu-latest
-    # Os testes do backend rodam contra um Postgres DEDICADO (pdv_test), não
-    # contra o banco da aplicação: o global setup (backend/test/global-setup.ts)
-    # derruba e recria o schema `public` antes de cada suíte, o que num banco
-    # real apagaria os dados. Sem este serviço o job morria com ECONNREFUSED e
-    # o vitest ainda imprimia "No test files found", que engana: o glob está
-    # certo, quem falha é o setup.
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          # Mesmas credenciais do default em backend/test/test-db.ts, para o
-          # banco efêmero do CI e o Postgres local de desenvolvimento não
-          # divergirem.
-          POSTGRES_USER: pdv
-          POSTGRES_PASSWORD: pdv_test_pw
-          POSTGRES_DB: pdv_test
-        ports:
-          - 55432:5432
-        # Sem healthcheck o vitest começa antes do Postgres aceitar conexão e
-        # o job falha de forma intermitente, dependendo da carga do runner.
-        options: >-
-          --health-cmd "pg_isready -U pdv -d pdv_test"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      # Aponta para o serviço acima. O global setup usa esta variável para
-      # recriar o schema e o config do vitest a repassa como DATABASE_URL.
-      TEST_DATABASE_URL: postgres://pdv:pdv_test_pw@localhost:55432/pdv_test
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
-      - working-directory: backend
-        run: |
-          npm ci
-          npm run build
-          npm run test
+    uses: ./.github/workflows/tests.yml
 
   test-frontend:
+    uses: ./.github/workflows/tests.yml
+
+  # ============================================================
+  # O NOME DA TAG É O PORTÃO. O DIFF É A AUDITORIA.
+  # ============================================================
+  # Duas linhas de versão, um prefixo cada:
+  #
+  #   v1.0.17      linha BACKEND  -> publica o backend (job `deploy`)
+  #   app-v1.4.2   linha APP      -> publica o instalador Windows
+  #
+  # Antes these duas linhas dividiam o MESMO namespace e o MESMO formato
+  # `vX.Y.Z`, e isso já causou incidente: `git push origin v1.4.1` (tag de
+  # app) casou com `tags: ['v*.*.*']` e o job `deploy` RODOU — o log mostra
+  # "[deploy] Deploy da tag: v1.4.1" e um switch azul/verde bem-sucedido em
+  # produção. Um push meanto só para compilar o instalador publicava backend.
+  #
+  # POR QUE O PREFIXO DECIDE, E O DIFF SÓ FISCALIZA
+  # A alternativa "descobrir o que mudou e decidir pelo diff" foi testada e
+  # descartada por dois motivos medidos neste repo:
+  #
+  #   1. Falso positivo caro. `printer/asdasda.md` (zero bytes, commitado por
+  #      engano no PR #7) mora dentro de `printer/`, que está no escopo do
+  #      app: um arquivo inútil sozinho disparava ~20 min de compilação Rust.
+  #   2. Falso negativo silencioso é pior. A lista de caminhos é inferência
+  #      sobre arquivos, e inferência erra quieta.
+  #
+  # Quem decide é a tag, que é uma afirmação explícita do humano. O diff
+  # vira fiscal: quando as duas coisas discordam, este job FALHA com a lista
+  # dos arquivos, em vez de escolher sozinho e errar em silêncio.
+  #
+  # Viés deliberado: na dúvida, gritar. Erro de configuração custa um run
+  # vermelho que alguém lê; o inverso custa cliente sem instalador.
+  #
+  # Sem `dorny/paths-filter` nem action de terceiros: dependência externa de
+  # Action é superfície de supply chain, e este repo não usa nenhuma. Só
+  # `actions/checkout` e shell.
+  # ============================================================
+  tag-info:
     runs-on: ubuntu-latest
+    outputs:
+      is-app-tag: ${{ steps.audit.outputs.is_app_tag }}
+      is-backend-tag: ${{ steps.audit.outputs.is_backend_tag }}
+      build-desktop-should-run: ${{ steps.audit.outputs.build_desktop_should_run }}
+      deploy-should-run: ${{ steps.audit.outputs.deploy_should_run }}
+      previous-tag: ${{ steps.audit.outputs.previous_tag }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - working-directory: frontend
-        run: |
-          npm ci
-          npm run lint
-          npm run build
-          npm run test
+          # fetch-depth: 0 é OBRIGATÓRIO: o checkout padrão traz 1 commit e
+          # NENHUMA tag, então `git describe --tags` não teria o que casar
+          # e a auditoria rodaria sem comparação nenhuma.
+          fetch-depth: 0
 
-  # TODO: refazer os testes do printer/daemon (go test ./...) — removidos
-  # temporariamente para destravar o build. Ver printer/README.md.
+      - name: Classificar a tag e auditar o diff
+        id: audit
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          TAG="${GITHUB_REF_NAME}"
+
+          # A linha da tag. O `--match` abaixo usa a MESMA chave: é isto que
+          # impede a auditoria de comparar uma tag de app contra uma tag de
+          # backend (os globs são disjuntos — `v*.*.*` NÃO casa `app-v1.4.2`,
+          # porque o padrão exige `v` no primeiro caractere).
+          if [[ "$TAG" == app-v* ]]; then
+            IS_APP=true
+            IS_BACKEND=false
+            MATCH='app-v*.*.*'
+          else
+            IS_APP=false
+            IS_BACKEND=true
+            MATCH='v*.*.*'
+          fi
+
+          # Tag anterior DA MESMA LINHA, e só entre ancestrais: `HEAD^` como
+          # ponto de partida garante que o resultado descreve um commit que
+          # está de fato na história deste tag. Isto importa porque `v1.0.16`
+          # NÃO é ancestral de `main` — comparar contra ela diffaria duas
+          # histórias divergentes e a resposta seria aleatória.
+          PREV="$(git describe --tags --abbrev=0 --match "$MATCH" HEAD^ 2>/dev/null || true)"
+
+          # ==========================================================
+          # ESCOPO DO APP — o que de fato entra no artefato instalado.
+          #
+          # `frontend/**` é o item mais fácil de errar: o app embute o
+          # web. Os `standalone-*/tauri.conf.json` têm
+          #   beforeBuildCommand: cd ../frontend && npm run build:pdv|kds
+          #   frontendDist:       ../frontend/dist/pdv|kds
+          # então QUALQUER mudança em `frontend/` entra no .exe. O backend
+          # não vai para o binário, mas o build do app sempre recompila o
+          # frontend — é por isso que `frontend/` conta como escopo do app
+          # e não como escopo do backend.
+          #
+          # `standalone-pdv/**` e `standalone-kds/**` cobrem de uma vez
+          # `tauri.conf.json`, `capabilities/**`, `icons/**` e os `*.rs`
+          # dos dois crates.
+          #
+          # `Cargo.toml`/`Cargo.lock` contam porque a versão publicada do
+          # instalador é resolvida de lá: trocar uma `tauri-plugin-*`
+          # muda o binário. `printer/**` é o daemon; `build-standalone.sh`
+          # é o build local equivalente; `build-desktop.yml` é a definição
+          # canônica do próprio instalador, e mudá-lo é motivo para
+          # revalidar o artefato.
+          #
+          # NÃO entram: `.githooks/**` e `scripts/dev-worktree.sh` — são
+          # ferramentas de desenvolvimento, não componentes do artefato.
+          # ==========================================================
+          APP_SCOPE_RE='^(standalone-pdv/|standalone-kds/|frontend/|printer/)|^Cargo\.toml$|^Cargo\.lock$|^build-standalone\.sh$|^\.github/workflows/build-desktop\.yml$'
+
+          APP_CHANGED=false
+          TOTAL_CHANGED=0
+          ERRO=""
+          AVISO=""
+
+          if [[ -n "$PREV" ]]; then
+            DIFF="$(git diff --name-only "$PREV..$TAG")"
+            TOTAL_CHANGED="$(printf '%s\n' "$DIFF" | wc -l)"
+            RELEVANTES="$(printf '%s\n' "$DIFF" | grep -E "$APP_SCOPE_RE" || true)"
+            if [[ -n "$RELEVANTES" ]]; then
+              APP_CHANGED=true
+            fi
+
+            if [[ "$IS_BACKEND" == true && "$APP_CHANGED" == true ]]; then
+              ERRO="tag de backend, mas mudou o app. A tag '$TAG' diz que a release é do backend, e o diff $PREV..$TAG mostra $(printf '%s\n' "$RELEVANTES" | wc -l) arquivo(s) do escopo do instalador Windows: $(printf '%s\n' "$RELEVANTES" | head -10 | tr '\n' ' ')|| ou a tag devia ser 'app-$TAG', ou esses arquivos entraram por engano."
+            fi
+
+            if [[ "$IS_APP" == true && "$APP_CHANGED" == false ]]; then
+              # NÃO falha: release forçado/rebuild é legítimo, e o
+              # `workflow_dispatch` do build-desktop.yml já é o escape.
+              AVISO="tag de app '$TAG' mas NENHUM arquivo do escopo do instalador mudou entre $PREV e $TAG ($TOTAL_CHANGED arquivo(s) no total). Seguindo com o build mesmo assim — se foi rebuild forçado, tudo bem."
+            fi
+          else
+            AVISO="primeira tag da linha '$MATCH' neste repo: não há tag anterior para comparar, então a auditoria NÃO foi verificada. O portão (o prefixo da tag) segue valendo."
+          fi
+
+          # O portão. Só o prefixo decide o que é publicado.
+          BUILD_DESKTOP=false
+          DEPLOY=false
+          if [[ "$IS_APP" == true ]]; then
+            BUILD_DESKTOP=true
+            DEPLOY=false
+          else
+            BUILD_DESKTOP=false
+            DEPLOY=true
+          fi
+
+          {
+            echo "is_app_tag=$IS_APP"
+            echo "is_backend_tag=$IS_BACKEND"
+            echo "build_desktop_should_run=$BUILD_DESKTOP"
+            echo "deploy_should_run=$DEPLOY"
+            echo "previous_tag=$PREV"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "::group::decisao por prefixo"
+          echo "  tag            : $TAG"
+          echo "  linha          : $([[ $IS_APP == true ]] && echo 'APP (instalador Windows)' || echo 'BACKEND (deploy)')"
+          echo "  tag anterior   : ${PREV:-(nenhuma)}"
+          if [[ -n "$PREV" ]]; then
+            echo "  arquivos no diff: $TOTAL_CHANGED (escopo do app: $APP_CHANGED)"
+          fi
+          echo "  build-desktop  : $BUILD_DESKTOP"
+          echo "  deploy backend : $DEPLOY"
+          echo "::endgroup::"
+
+          if [[ -n "$ERRO" ]]; then
+            echo "::error::$ERRO"
+            exit 1
+          fi
+          if [[ -n "$AVISO" ]]; then
+            echo "::warning::$AVISO"
+          fi
 
   build-desktop:
+    # `needs` + `if` no job CHAMADOR, e não dentro do `build-desktop.yml`:
+    # a regra do repo é uma única definição de build, e `if:` em job de
+    # `workflow_call` é do chamador por definição. `needs.<job>.outputs`
+    # resolve no contexto do chamador (o contexto `needs` está disponível em
+    # `jobs.<job_id>.if`), então o resultado do `tag-info` chega aqui
+    # normalmente.
+    #
+    # O `needs` também é o freio de segurança do resto do workflow: se a
+    # auditoria falhar, este job não roda mesmo que o `if`-passasse.
+    needs: tag-info
+    if: needs.tag-info.outputs.build-desktop-should-run == 'true'
     # Os instaladores da família standalone (PDV Caixa + KDS Cozinha) é o
     # workflow `build-desktop.yml`, que também pode ser disparado sozinho
     # ("gerar só o instalador", sem tag e sem deploy do backend). Aqui ele
@@ -104,7 +238,13 @@ jobs:
       HOSTINGER_APP_PATH: ${{ secrets.HOSTINGER_APP_PATH }}
 
   deploy:
-    needs: [test-backend, test-frontend]
+    # `tag-info` entra no `needs` e ganha um `if:` — as DUAS linhas
+    # são o mínimo estrito para a mudança de gatilho: sem elas, uma
+    # tag `app-v*.*.*` casaria no `on:` e este job continuaria
+    # publicando o backend, que é exatamente o incidente que o
+    # prefixo veio para fechar. O script SSH abaixo não foi tocado.
+    needs: [test-backend, test-frontend, tag-info]
+    if: needs.tag-info.outputs.deploy-should-run == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Deploy sem downtime no VPS via SSH

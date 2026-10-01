@@ -1,5 +1,11 @@
 # Dependências
 node_modules/
+# `node_modules/` acima não casa com o SYMLINK que os worktrees de
+# desenvolvimento usam para reaproveitar as dependências do repo principal
+# (`ln -s ~/pdv-completo/backend/node_modules backend/node_modules`): o git
+# trata symlink como arquivo, não como diretório. Sem esta regra, o symlink
+# aparece como untracked e pode acabar num commit por engano.
+node_modules
 dist/
 
 # Ambiente

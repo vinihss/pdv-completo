@@ -1,0 +1,61 @@
+name: CI (pull request)
+
+# ============================================================
+# O GATE DE MERGE.
+#
+# Roda a cada pull_request contra `main` e nada mais: o que este arquivo
+# NÃO faz também é intencional.
+#
+# - Não dispara em push direto na `main`. Quem escreve na main é o merge do
+#   PR, e o PR já foi testado aqui; rodar de novo só duplicaria runner.
+# - Não roda em tag. O gate de release é o `deploy-on-tag.yml`, que chama
+#   a MESMA suíte (`tests.yml`) — mesmo contrato antes do merge e antes
+#   do deploy, uma definição só.
+# - Não substitui o `build-desktop.yml`. O instalador Windows não é
+#   gate de merge (é lento e muda por decisão de release), e ele tem as
+#   próprias verificações de frontend antes de compilar.
+#
+# O job abaixo não tem `runs-on`/`steps`: chama o workflow reutilizável.
+#
+# ============================================================
+# UM JOB CHAMADOR, NÃO DOIS — LEIA ANTES DE "CORRIGIR"
+# ============================================================
+# A armadilha do `workflow_call` que custa runner dobrado: um job chamador
+# NÃO escolhe qual job do workflow chamado roda. Ele chama o workflow
+# INTEIRO, e o GitHub roda TODOS os jobs de dentro. O total de execuções
+# num run é `jobs do chamador × jobs do chamado`:
+#
+#     2 chamadores × 2 jobs do tests.yml  =  4 execuções  (backend 2×, frontend 2×)
+#     1 chamador   × 2 jobs do tests.yml  =  2 execuções  (backend 1×, frontend 1×)
+#
+# Foi assim que a primeira versão deste arquivo ficou: dois jobs chamadores
+# (`test-backend` e `test-frontend`), ambos apontando para o mesmo
+# `tests.yml` — e cada suíte rodou duas vezes, com o runner-minutes pelo
+# meio. Do ponto de vista do YAML parecia innocuous; o desperdício só
+# aparece em `gh pr checks`, que listava 4 checks num PR.
+#
+# NÃO "descompartilhe" em dois chamadores achando que está evitando
+# colisão de nome: os nomes dos checks são `job do chamador / job do
+# chamado`, então dois chamadores não colidem — eles só duplicam as
+# execuções. Um chamador é o que produz 2 checks, um por suíte.
+#
+# (A saída alternativa, um input booleano + `if:` no workflow chamado,
+# também funciona e deixa o número de chamadores igual ao de suítes —
+# mas cobra um input e uma condição para comprar nada. Não é o caminho.)
+#
+# CONSEQUÊNCIA PARA O RULESET: com um chamador, o nome do check é
+# `tests / test-backend` e `tests / test-frontend` (o job chamador chama
+# `tests`, e os jobs de dentro mantêm o nome). Antes eram
+# `test-backend / test-backend` e `test-frontend / test-frontend`. Se
+# houver ruleset exigindo check por nome, ele precisa do nome ATUAL —
+# confirme em `gh pr checks` antes de escrever a regra.
+# ============================================================
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml

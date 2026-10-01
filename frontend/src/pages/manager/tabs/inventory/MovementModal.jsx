@@ -45,7 +45,7 @@ export default function MovementModal({ product, onClose, onSaved, showToast }) 
       footer={
         <button
           type="submit"
-          form="form-movimento"
+          form="movement-form"
           disabled={saving}
           className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl"
         >
@@ -53,7 +53,7 @@ export default function MovementModal({ product, onClose, onSaved, showToast }) 
         </button>
       }
     >
-      <form id="form-movimento" noValidate onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="p-5">
+      <form id="movement-form" noValidate onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="p-5">
         <div className="grid grid-cols-2 gap-2 mb-4" role="group" aria-label="Tipo de movimento">
           <button
             type="button"
