@@ -1,10 +1,35 @@
-import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Star } from "lucide-react";
-import { createCustomer, updateCustomer, setDefaultCustomerAddress, deleteCustomerAddress } from "@/entities/customer";
+import React, { useState, useEffect, useRef } from "react";
+import { Camera, Plus, Trash2, Star } from "lucide-react";
+import {
+  addCustomerAddress,
+  createCustomer,
+  cpfDigits,
+  deleteCustomerAddress,
+  getCustomer,
+  removeCustomerPhoto,
+  setDefaultCustomerAddress,
+  updateCustomer,
+  uploadCustomerPhoto,
+  validarCpf,
+} from "@/entities/customer";
 import { Field, inputClass, Modal } from "@/shared/components";
-import { formatAddress, maskPhone } from "@/shared/lib";
+import { formatAddress, initials, maskCep, maskCnpjCpf, maskPhone, maskState } from "@/shared/lib";
+import { assetUrl } from "@/shared/lib/server";
 
-const EMPTY_ADDRESS = { label: "", street: "", number: "", complement: "", neighborhood: "", city: "", reference: "" };
+// `cep` e `state` entraram junto: o endereço salvo pela página pública já os
+// traz (migration 0005) e o gerente não podia-digitá-los aqui — o mesmo
+// endereço acabava gravado com e sem UF, dependendo de onde foi cadastrado.
+const EMPTY_ADDRESS = {
+  label: "",
+  cep: "",
+  street: "",
+  number: "",
+  complement: "",
+  neighborhood: "",
+  city: "",
+  state: "",
+  reference: "",
+};
 
 function AddressRow({ customerId, address, onChange, showToast }) {
   async function handleSetDefault() {
@@ -35,7 +60,7 @@ function AddressRow({ customerId, address, onChange, showToast }) {
           </div>
           <div className="text-stone-400 text-xs mt-0.5">
             {formatAddress(address)}
-            {address.reference ? ` — ${address.reference}` : ""}
+            {address.reference ? ` (${address.reference})` : ""}
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -57,13 +82,64 @@ function AddressRow({ customerId, address, onChange, showToast }) {
   );
 }
 
+function PhotoPicker({ customer, busy, onPick, onRemove }) {
+  const inputRef = useRef(null);
+  return (
+    <div className="flex items-center gap-4">
+      <div className="relative shrink-0">
+        {customer?.photoPath ? (
+          <img
+            src={assetUrl(customer.photoPath)}
+            alt={customer.name}
+            className="w-16 h-16 rounded-full object-cover border border-stone-700"
+          />
+        ) : (
+          <div className="w-16 h-16 rounded-full bg-stone-800 border border-stone-700 flex items-center justify-center text-stone-400 font-bold">
+            {initials(customer?.name ?? "?")}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={busy}
+          aria-label="Enviar foto"
+          className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-amber-500 text-stone-950 flex items-center justify-center hover:bg-amber-400 disabled:opacity-50"
+        >
+          <Camera size={13} />
+        </button>
+        {/* `capture` faz o celular abrir a câmera direto em vez da galeria. */}
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => onPick(e.target.files?.[0])}
+        />
+      </div>
+      <div className="text-xs text-stone-500 space-y-1">
+        <p>Foto do cliente — identifica na comanda e no delivery.</p>
+        {customer?.photoPath && (
+          <button type="button" onClick={onRemove} disabled={busy} className="flex items-center gap-1 text-red-400 hover:text-red-300 disabled:opacity-50">
+            <Trash2 size={12} /> Remover foto
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function CustomerModal({ customer, onClose, onSaved, showToast }) {
   const isEdit = Boolean(customer);
   const [name, setName] = useState(customer?.name ?? "");
   const [phone, setPhone] = useState(customer?.phone ? maskPhone(customer.phone) : "");
   const [email, setEmail] = useState(customer?.email ?? "");
+  const [cpf, setCpf] = useState(customer?.cpf ? maskCnpjCpf(customer.cpf) : "");
+  const [cpfError, setCpfError] = useState("");
+  const [notes, setNotes] = useState(customer?.notes ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [photoBusy, setPhotoBusy] = useState(false);
   const [addresses, setAddresses] = useState(customer?.addresses ?? []);
   const [addingAddress, setAddingAddress] = useState(false);
   const [newAddress, setNewAddress] = useState(EMPTY_ADDRESS);
@@ -73,20 +149,62 @@ export default function CustomerModal({ customer, onClose, onSaved, showToast })
   useEffect(() => {
     if (!isEdit) return;
     let cancelled = false;
-    import("@/entities/customer").then(({ getCustomer }) =>
-      getCustomer(customer.id).then((detail) => {
-        if (!cancelled) setAddresses(detail.addresses);
-      })
-    );
+    getCustomer(customer.id).then((detail) => {
+      if (!cancelled) setAddresses(detail.addresses ?? []);
+    });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function reloadAddresses() {
     if (!isEdit) return;
-    const { getCustomer } = await import("@/entities/customer");
     const detail = await getCustomer(customer.id);
-    setAddresses(detail.addresses);
+    setAddresses(detail.addresses ?? []);
+  }
+
+  // A foto sobe no `onChange`, sem esperar o PATCH do cadastro (mesmo padrão do
+  // `UserModal`): o arquivo já está escolhido, e o servidor é quem manda.
+  async function handlePickPhoto(file) {
+    if (!file) return;
+    setPhotoBusy(true);
+    try {
+      await uploadCustomerPhoto(customer.id, file);
+      await onSaved();
+    } catch (e) {
+      showToast(e.message, "error");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
+  async function handleRemovePhoto() {
+    setPhotoBusy(true);
+    try {
+      await removeCustomerPhoto(customer.id);
+      await onSaved();
+    } catch (e) {
+      showToast(e.message, "error");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
+  function checkCpf() {
+    const digits = cpfDigits(cpf);
+    if (!digits) {
+      setCpfError("");
+      return true;
+    }
+    if (digits.length !== 11) {
+      setCpfError("CPF incompleto — faltam dígitos.");
+      return false;
+    }
+    if (!validarCpf(digits)) {
+      setCpfError("CPF inválido — confira os dígitos verificadores.");
+      return false;
+    }
+    setCpfError("");
+    return true;
   }
 
   async function handleSubmit() {
@@ -94,10 +212,19 @@ export default function CustomerModal({ customer, onClose, onSaved, showToast })
       setError("Informe o nome do cliente.");
       return;
     }
+    // O CPF é único no banco: avisar no campo é melhor do que deixar o POST
+    // responder 409 depois de o gerente preencher o formulário inteiro.
+    if (!checkCpf()) return;
     setError("");
     setSaving(true);
     try {
-      const body = { name: name.trim(), phone: phone.trim() || null, email: email.trim() || null };
+      const body = {
+        name: name.trim(),
+        phone: phone.trim() || null,
+        email: email.trim() || null,
+        cpf: cpfDigits(cpf) || null,
+        notes: notes.trim() || null,
+      };
       if (isEdit) await updateCustomer(customer.id, body);
       else await createCustomer(body);
       await onSaved();
@@ -114,7 +241,6 @@ export default function CustomerModal({ customer, onClose, onSaved, showToast })
       return;
     }
     try {
-      const { addCustomerAddress } = await import("@/entities/customer");
       await addCustomerAddress(customer.id, { ...newAddress, isDefault: addresses.length === 0 });
       setNewAddress(EMPTY_ADDRESS);
       setAddingAddress(false);
@@ -139,6 +265,11 @@ export default function CustomerModal({ customer, onClose, onSaved, showToast })
       }
     >
       <div className="p-5 space-y-4">
+        {/* Foto só no modo edição: o upload é imediato e precisa do id, que
+            cliente recem-criado ainda não tem. Quem acabou de cadastrar sai
+            da lista, clica no card e encontra a foto aqui — e na ficha. */}
+        {isEdit && <PhotoPicker customer={customer} busy={photoBusy} onPick={handlePickPhoto} onRemove={handleRemovePhoto} />}
+
         <Field label="Nome" required>
           <input
             value={name}
@@ -168,6 +299,30 @@ export default function CustomerModal({ customer, onClose, onSaved, showToast })
           />
         </Field>
 
+        <div>
+          <Field label="CPF (opcional)">
+            <input
+              value={cpf}
+              onChange={(e) => { setCpf(maskCnpjCpf(e.target.value)); if (cpfError) setCpfError(""); }}
+              placeholder="000.000.000-00"
+              inputMode="numeric"
+              autoComplete="off"
+              className={inputClass + (cpfError ? " border-red-500/60" : "")}
+            />
+          </Field>
+          {cpfError && <p className="text-red-400 text-xs mt-1.5">{cpfError}</p>}
+        </div>
+
+        <Field label="Observações">
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={3}
+            placeholder="Anotação interna: preferência, restrição, nome da pessoa que pede..."
+            className={inputClass + " resize-y"}
+          />
+        </Field>
+
         {error && <p className="text-red-400 text-xs">{error}</p>}
 
         {isEdit && (
@@ -190,6 +345,17 @@ export default function CustomerModal({ customer, onClose, onSaved, showToast })
                     value={newAddress.label}
                     onChange={(e) => setNewAddress({ ...newAddress, label: e.target.value })}
                     placeholder="Casa, Trabalho..."
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="CEP">
+                  <input
+                    value={newAddress.cep}
+                    onChange={(e) => setNewAddress({ ...newAddress, cep: maskCep(e.target.value) })}
+                    placeholder="00000-000"
+                    inputMode="numeric"
+                    autoComplete="postal-code"
+                    maxLength={9}
                     className={inputClass}
                   />
                 </Field>
@@ -225,13 +391,26 @@ export default function CustomerModal({ customer, onClose, onSaved, showToast })
                       className={inputClass}
                     />
                   </Field>
-                  <Field label="Cidade" required>
-                    <input
-                      value={newAddress.city}
-                      onChange={(e) => setNewAddress({ ...newAddress, city: e.target.value })}
-                      className={inputClass}
-                    />
-                  </Field>
+                  <div className="grid grid-cols-[1fr_70px] gap-2">
+                    <Field label="Cidade" required>
+                      <input
+                        value={newAddress.city}
+                        onChange={(e) => setNewAddress({ ...newAddress, city: e.target.value })}
+                        className={inputClass}
+                      />
+                    </Field>
+                    <Field label="UF">
+                      <input
+                        value={newAddress.state}
+                        onChange={(e) => setNewAddress({ ...newAddress, state: maskState(e.target.value) })}
+                        placeholder="UF"
+                        inputMode="text"
+                        maxLength={2}
+                        autoComplete="address-level1"
+                        className={inputClass}
+                      />
+                    </Field>
+                  </div>
                 </div>
                 <Field label="Ponto de referência">
                   <input

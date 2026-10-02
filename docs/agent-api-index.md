@@ -127,9 +127,13 @@ listadas nas seções **Comandas** e **Catálogo** — não são repetidas aqui.
 |---|---|---|---|
 | GET | `/customers/search` | manager, cashier, waiter | Busca leve (só ativos) |
 | GET | `/customers` | manager, cashier | Lista paginada |
-| GET | `/customers/:id` | manager, cashier | Detalhe + endereços |
+| GET | `/customers/:id` | manager, cashier | Detalhe + endereços + comandas abertas |
+| GET | `/customers/:id/orders` | manager, cashier | Histórico de comandas (paginado) |
+| GET | `/customers/:id/summary` | manager, cashier | Consumo por dia (`?days=30&tz=-03:00`) |
 | POST | `/customers` | manager, cashier, waiter | Criar cliente |
 | PATCH | `/customers/:id` | manager, cashier | Editar/soft-delete/reativar |
+| POST | `/customers/:id/photo` | manager, cashier | Upload de foto |
+| DELETE | `/customers/:id/photo` | manager, cashier | Remover foto |
 | POST | `/customers/:id/addresses` | manager, cashier | Adicionar endereço |
 | POST | `/customers/:id/addresses/:addressId/default` | manager, cashier | Marcar como padrão |
 | DELETE | `/customers/:id/addresses/:addressId` | manager, cashier | Remover endereço |
