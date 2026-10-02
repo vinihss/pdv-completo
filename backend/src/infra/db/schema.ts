@@ -427,9 +427,30 @@ export const cashDrawerMovements = pgTable(
   (t) => [index("idx_cash_drawer_movement_drawer").on(t.drawerId)],
 );
 
-// ---------- configuração (singleton) ----------
+// ---------- lojas (multi-tenant) ----------
+export const stores = pgTable("stores", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").unique().notNull(),
+  owner_user_id: text("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+  status: text("status").notNull().default("active"),
+  pagarme_recipient_id: text("pagarme_recipient_id"),
+  split_platform_percentage: real("split_platform_percentage").notNull().default(5),
+  pagarme_status: text("pagarme_status").notNull().default("not_configured"),
+  created_at: text("created_at")
+    .notNull()
+    .default(
+      sql`to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+    ),
+  updated_at: text("updated_at")
+    .notNull()
+    .default(
+      sql`to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+    ),
+});
 export const storeSettings = pgTable("store_settings", {
   id: text("id").primaryKey().default("singleton"),
+  storeId: text("store_id").references(() => stores.id),
   merchantName: text("merchant_name").notNull(),
   merchantCity: text("merchant_city").notNull(),
   logoPath: text("logo_path"), // nome do arquivo do logo em /uploads/logo.<ext>

@@ -107,13 +107,13 @@ const cartQuerySchema = z.object({ phone: z.string().min(1) });
 // externa (e internamente pelo webhook do WhatsApp, como chamada de função,
 // não HTTP — ver 05-delivery-api-contracts.md).
 export async function publicRoutes(app: FastifyInstance) {
-  async function assertDeliveryEnabled() {
-    const s = await getStoreSettingsUsecase();
+  async function assertDeliveryEnabled(req: any) {
+    const s = await getStoreSettingsUsecase(req.storeId!);
     if (!s.usesDelivery) throw Errors.deliveryDisabled();
   }
 
-  app.get("/public/menu", async () => {
-    await assertDeliveryEnabled();
+  app.get("/public/menu", async (req) => {
+    await assertDeliveryEnabled(req);
     return getPublicMenuUsecase();
   });
 
@@ -150,7 +150,7 @@ export async function publicRoutes(app: FastifyInstance) {
 
   app.post("/public/orders", { preHandler: publicOrderRateLimit }, async (req, reply) => {
     const body = createOrderSchema.parse(req.body);
-    await assertDeliveryEnabled();
+    await assertDeliveryEnabled(req);
     const result = await withIdempotency("POST /public/orders", body.correlationId, body, async () => {
       const created = await createSelfServiceOrderUsecase(body);
       return { status: 201, body: created };
