@@ -46,7 +46,7 @@ Ver nota completa em `src/application/order/order.usecases.ts:15-28`.
 
 ## Migrations
 
-Diretório `backend/migrations/` com 5 arquivos:
+Diretório `backend/migrations/` com 9 arquivos:
 
 | Arquivo | Conteúdo |
 |---|---|
@@ -55,11 +55,16 @@ Diretório `backend/migrations/` com 5 arquivos:
 | `0003_printer.sql` | flags `printer_enabled` / `printer_auto_print` |
 | `0003_profile_fields.sql` | `user.phone/email/photo_path`, `customer.email/active`, extensão `unaccent` |
 | `0004_alerts.sql` | tabela `alert` (sino da casca) |
+| `0005_customer_address_cep.sql` | `customer_address.cep` (8 dígitos crus, ViaCEP no cliente) |
+| `0006_delivery_eta_and_notes.sql` | `order.notes`, ETA na `store_settings`, `customer_address.state` |
+| `0007_whatsapp_integration_enabled.sql` | toggle do painel de WhatsApp |
+| `0008_customer_profile_fields.sql` | `customer.photo_path/cpf/notes` + `uq_customer_cpf` |
 
 **Colisão `0003_*`**: são dois arquivos com o mesmo prefixo. É de propósito — o runner chaveia por filename em `_migrations.name`. **Não renomear**.
 
 **Regras**:
-- Sempre usar número zero-padded lexicograficamente **maior** (próximo: `0005_*`)
+- Sempre usar número zero-padded lexicograficamente **maior** (próximo: `0009_*`)
+- O prefixo não precisa ser único desde `0003` (o controle é pelo nome completo), mas **mantenha o prefixo igual ao número da ordem** para o `ls` não mentir
 - Escrever migration idempotente (`ADD COLUMN IF NOT EXISTS`, `CREATE ... IF NOT EXISTS`)
 - O boot **aborta** se a migration falhar (`runMigrations()` com `await` no `server.ts`)
 - **Não reintroduza** `runMigrations()` sem `await`
@@ -167,3 +172,12 @@ Ordem de inserção de `stock_movement`, `outbox_event` e `purchase_item` vem da
 
 - Usar `zod` para validação de payloads
 - Erros de validação retornam 422 com detalhes campo a campo
+
+## Detalhe de cliente (0008)
+
+- **Valores crus, não formatados**: `cpf` (11 dígitos), `customer_address.cep` (8), `user.phone`. A entrada aceita com ou sem máscara (`normalizeCpf` em `domain/cpf.ts`, `normalizePhone`, `normalizeCep`); a máscara é apresentação do frontend. Gravar formatado quebraria índice e comparação.
+- **CPF**: dígitos verificadores conferidos no servidor (`domain/cpf.ts#isValidCpf`, função pura, mesma do frontend) e **único entre clientes** (`uq_customer_cpf`, índice parcial). Ausente/vazio é `null` e não erro — cliente sem documento continua cadastrável. Colisão → `400 validation_failed` com `{ field: "cpf" }`, mesmo formato do `assertEmailAvailable`.
+- **Foto**: coluna `photo_path` guarda **só o basename** (`<id>.<ext>`), nome gerado pelo app; `photoUrl()` monta o `/uploads/...` na resposta. Regra idêntica em `user`, `product` e `store_settings` — mudou um, mudou os quatro (e `uploadsDir()` precisa do `mkdirSync` porque os testes rodam sem boot).
+- **Regra de venda do histórico e do gráfico do cliente** = a de `report-overview.usecases.ts`: só comanda `closed`, total por `unit_price × quantity` no snapshot (item `cancelled` fora) **mais a taxa de entrega**. `order_payment` não entra (iFood grava em `order.ifood_payments`) — os dois números precisam bater com o relatório, senão o gerente não sabe qual dos dois está errado.
+- **Gráfico por dia**: reusar `bucketKeyFor`/`bucketLabel`/`fillBuckets`/`dayStart`/`dayEnd`. Dia sem venda vem **zerado** (gráfico com buraco é pior que gráfico nenhum), dia é o **local da loja** (`tz`), e o `label` pt-BR sai pronto do backend.
+- **Sem cache** no gráfico do cliente: é de uma pessoa e muda a cada pagamento.
