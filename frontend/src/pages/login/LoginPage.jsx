@@ -6,6 +6,7 @@ import { useAuth } from "@/app/providers/auth";
 import { Modal, UserAvatar } from "@/shared/components";
 import { applyBrandPrimary } from "@/shared/lib";
 import { assetUrl, currentServerLabel, fetchTag, setServerBase, getServerBase, serverDefault } from "@/shared/lib/server";
+import { Spinner } from "@/shared/components";
 
 const ROLE_META = {
   waiter: { label: "Garçom", icon: ClipboardList },
@@ -182,9 +183,7 @@ export default function Login() {
           </div>
 
           {loadingUsers && (
-            <div className="flex items-center justify-center gap-2 text-stone-500 py-10">
-              <Loader2 size={18} className="animate-spin" /> Carregando...
-            </div>
+            <Spinner visible={true} onFadeComplete={() => {}} />
           )}
 
           {loadError && (
