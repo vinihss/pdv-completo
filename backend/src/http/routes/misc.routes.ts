@@ -30,9 +30,13 @@
  *   DELETE /users/:id/photo         — remover foto (manager)
  *   GET    /customers/search        — busca leve (manager, cashier, waiter)
  *   GET    /customers               — lista paginada (manager, cashier)
- *   GET    /customers/:id           — detalhe + endereços (manager, cashier)
+ *   GET    /customers/:id           — detalhe + endereços + comandas abertas (manager, cashier)
+ *   GET    /customers/:id/orders    — histórico de comandas paginado (manager, cashier)
+ *   GET    /customers/:id/summary   — consumo por dia para o gráfico (manager, cashier)
  *   POST   /customers               — criar cliente (manager, cashier, waiter)
  *   PATCH  /customers/:id           — editar/soft-delete/reativar (manager, cashier)
+ *   POST   /customers/:id/photo     — upload de foto (manager, cashier)
+ *   DELETE /customers/:id/photo     — remover foto (manager, cashier)
  *   POST   /customers/:id/addresses — adicionar endereço (manager, cashier)
  *   POST   /customers/:id/addresses/:addressId/default — marcar padrão (manager, cashier)
  *   DELETE /customers/:id/addresses/:addressId — remover endereço (manager, cashier)
@@ -95,6 +99,10 @@ import {
   createCustomerUsecase,
   updateCustomerUsecase,
   searchCustomersUsecase,
+  saveCustomerPhotoUsecase,
+  clearCustomerPhotoUsecase,
+  listCustomerOrdersUsecase,
+  customerSummaryUsecase,
 } from "../../application/customer.usecases.js";
 import { addCustomerAddressUsecase, setDefaultCustomerAddressUsecase, deleteCustomerAddressUsecase } from "../../application/self-service/customer-address.usecases.js";
 import { salesReportUsecase } from "../../application/report.usecases.js";
@@ -234,6 +242,11 @@ const customerSchema = z.object({
   name: z.string().min(1),
   phone: z.string().optional().nullable(),
   email: z.string().optional().nullable(),
+  // CPF e observações (0008). Válidos como string aqui e normalizados no
+  // usecase: quem manda é o cliente_http, e o arquivo do CPF pode vir com
+  // máscara ("529.982.247-25") — o backend guarda os 11 dígitos crus.
+  cpf: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
 });
 const customerUpdateSchema = customerSchema.partial().extend({ active: z.boolean().optional() });
 const addressCreateSchema = z.object({
@@ -244,6 +257,10 @@ const addressCreateSchema = z.object({
   complement: z.string().optional().nullable(),
   neighborhood: z.string().min(1),
   city: z.string().min(1),
+  // UF (0006) — a rota pública de endereço já aceitava e devolvia; o cadastro
+  // manual ficava sem o campo, então o mesmo cliente saía com UF ou sem
+  // dependendo de qual tela o cadastrou.
+  state: z.string().optional().nullable(),
   reference: z.string().optional().nullable(),
   isDefault: z.boolean().optional(),
 });
@@ -433,6 +450,31 @@ export async function miscRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     return getCustomerDetailUsecase(id);
   });
+  // Histórico de comandas do cliente — paginado, mais recente primeiro (com a
+  // comanda em aberto por último: `closed_at NULLS LAST` no usecase).
+  // `from`/`to` (YYYY-MM-DD) são opcionais e existem para o drill-down do dia
+  // no gráfico; sem eles vem o histórico inteiro. O `total` é sempre do
+  // conjunto filtrado, não da página.
+  app.get("/customers/:id/orders", { preHandler: requireRole("manager", "cashier") }, async (req) => {
+    const { id } = req.params as { id: string };
+    const q = req.query as { limit?: string; offset?: string; from?: string; to?: string; tz?: string };
+    return listCustomerOrdersUsecase(id, {
+      limit: Math.min(Number(q.limit ?? 20), 100),
+      offset: Number(q.offset ?? 0),
+      from: q.from,
+      to: q.to,
+      tz: q.tz,
+    });
+  });
+  // Série de consumo por dia para o gráfico. `days` tem default 30 e é
+  // limitado a 365 dentro do usecase (o teto é decisão de domínio, e o
+  // parâmetro também chega por URL). `tz` é o offset do fuso da loja
+  // ("-03:00"), igual ao da visão geral — sem ele o dia vira UTC.
+  app.get("/customers/:id/summary", { preHandler: requireRole("manager", "cashier") }, async (req) => {
+    const { id } = req.params as { id: string };
+    const q = req.query as { days?: string; tz?: string };
+    return customerSummaryUsecase(id, { days: q.days !== undefined ? Number(q.days) : undefined, tz: q.tz });
+  });
   // Criar cliente é operação de balcão (garçom abre comanda com cliente);
   // editar/endereços seguem restritos a gerente/caixa.
   app.post("/customers", { preHandler: requireRole("manager", "cashier", "waiter") }, async (req, reply) => {
@@ -459,6 +501,23 @@ export async function miscRoutes(app: FastifyInstance) {
   app.delete("/customers/:id/addresses/:addressId", { preHandler: requireRole("manager", "cashier") }, async (req) => {
     const { id, addressId } = req.params as { id: string; addressId: string };
     return deleteCustomerAddressUsecase(id, addressId);
+  });
+  // Foto do cliente — upload multipart (multipart/form-data, campo "photo").
+  // Mesmo desenho de `/users/:id/photo`: nome de arquivo gerado pelo app,
+  // JPEG/PNG/WebP pelos limites do `@fastify/multipart` (2 MB, 1 arquivo).
+  app.post("/customers/:id/photo", { preHandler: requireRole("manager", "cashier") }, async (req) => {
+    const { id } = req.params as { id: string };
+    const file = await req.file();
+    if (!file) throw Errors.validationFailed({ field: "photo" });
+    const ext = imageExtByMime[file.mimetype];
+    if (!ext) throw Errors.validationFailed({ field: "photo" });
+    const buffer = await file.toBuffer();
+    return saveCustomerPhotoUsecase(id, { buffer, ext }, req.authUser!.sub);
+  });
+  // Foto do cliente — remover
+  app.delete("/customers/:id/photo", { preHandler: requireRole("manager", "cashier") }, async (req) => {
+    const { id } = req.params as { id: string };
+    return clearCustomerPhotoUsecase(id, req.authUser!.sub);
   });
 
   // ---------- Reports ----------

@@ -93,6 +93,12 @@ export const customers = pgTable(
     name: text("name").notNull(),
     phone: text("phone"),
     email: text("email"),
+    // Perfil completo (0008). Os três guardam o valor CRU, sem máscara — a
+    // apresentação é do frontend, o banco é a fonte: `photo_path` só o
+    // basename (`<id>.<ext>`), `cpf` os 11 dígitos, `notes` o texto livre.
+    photoPath: text("photo_path"),
+    cpf: text("cpf"),
+    notes: text("notes"),
     // Soft-delete: cliente tem histórico de pedidos (order.customer_id), então
     // a manutenção desativa em vez de apagar — reativável a qualquer momento.
     active: boolean("active").notNull().default(true),
@@ -102,6 +108,9 @@ export const customers = pgTable(
     index("idx_customer_name").on(t.name),
     index("idx_customer_phone").on(t.phone),
     uniqueIndex("uq_customer_email").on(t.email).where(sql`${t.email} IS NOT NULL`),
+    // CPF único quando informado — mesmo formato parcial do email. O
+    // "quando informado" é o que mantém válido o cliente sem documento.
+    uniqueIndex("uq_customer_cpf").on(t.cpf).where(sql`${t.cpf} IS NOT NULL`),
   ],
 );
 

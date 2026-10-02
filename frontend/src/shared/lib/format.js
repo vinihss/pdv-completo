@@ -22,9 +22,27 @@ export function maskPhone(raw) {
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
 }
 
+// Máscara de CEP (00000-000) e de UF (2 letras). Ficam aqui porque dois
+// formulários de endereço do app precisam deles — o do gerente (editar cliente)
+// e o da página pública — e cada um com o seu já era o mesmo campo escrito de
+// duas maneiras.
+export function maskCep(raw) {
+  const d = digitsOnly(raw).slice(0, 8);
+  return d.length > 5 ? `${d.slice(0, 5)}-${d.slice(5)}` : d;
+}
+
+export function maskState(raw) {
+  return String(raw ?? "")
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "")
+    .slice(0, 2);
+}
+
 export function formatAddress(a) {
   if (!a) return "";
-  return `${a.street}, ${a.number}${a.complement ? ` - ${a.complement}` : ""} · ${a.neighborhood}, ${a.city}`;
+  const cep = a.cep ? `${a.cep} · ` : "";
+  const uf = a.state ? ` - ${a.state}` : "";
+  return `${cep}${a.street}, ${a.number}${a.complement ? ` - ${a.complement}` : ""} · ${a.neighborhood}, ${a.city}${uf}`;
 }
 
 export function minutesSince(ts, now = Date.now()) {
