@@ -26,6 +26,7 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | Report | `report.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (reports) |
 | User | `user.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (users) |
 | Customer | `customer.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (customers) |
+| Customer (CPF) | `cpf.ts` | `backend/src/domain/` | `misc.routes.ts` (customers) — valida DV, devolve os 11 dígitos crus |
 | Product | `product.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (products) |
 | Category | `category.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (categories) |
 | Kitchen Group | `kitchen-group.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (kitchen-groups) |
