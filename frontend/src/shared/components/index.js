@@ -6,3 +6,4 @@ export { default as AccordionMenu } from "./AccordionMenu.jsx";
 export { default as ScreenHeader } from "./ScreenHeader.jsx";
 export { default as ConfirmModal } from "./ConfirmModal.jsx";
 export { default as UserAvatar } from "./UserAvatar.jsx";
+export { default as Spinner } from "./Spinner.jsx";
