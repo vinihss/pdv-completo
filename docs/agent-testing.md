@@ -31,7 +31,7 @@ npm run test
 | `test/purchase.test.ts` | Compras + custo médio móvel (7 testes) |
 | `test/self-service.test.ts` | Página pública: carrinho, variações, grupos obrigatórios |
 | `test/stock.test.ts` | Ledger de estoque (10 testes): débito, refund, bloqueio, margem |
-| `test/team-customers.test.ts` | Clientes + equipe (12 testes): CRUD, endereços, PIN, foto |
+| `test/team-customers.test.ts` | Clientes + equipe (28 testes): CRUD, CPF/observações, foto do cliente, comanda aberta, histórico paginado, série do gráfico, PIN |
 | `test/whatsapp.test.ts` | WhatsApp: webhooks, dedupe, status (35 testes) |
 
 ### Padrões
