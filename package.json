@@ -3,7 +3,14 @@
   "private": true,
   "description": "CLI do Tauri para a família de apps standalone (pdv, kds, garcon, entregador). Os crates Rust vivem em standalone-*/ e o workspace Cargo na raiz; este package.json existe só para congelar a versão da CLI fora de frontend/node_modules.",
   "devDependencies": {
-    "@tauri-apps/cli": "^2.11.5"
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^19.8.1",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/github": "^11.0.6",
+    "@semantic-release/release-notes-generator": "^14.1.1",
+    "@tauri-apps/cli": "^2.11.5",
+    "semantic-release": "^24.2.9"
   },
   "scripts": {
     "tauri": "tauri"
