@@ -51,3 +51,7 @@ echo
 echo "Próximos passos:"
 echo "  git commit -am 'chore(release): bump standalone para $NEW_VERSION'"
 echo "  git push origin main"
+
+# DEPRECATED: Versionamento agora é automático via Semantic Release (Conventional Commits).
+# Este script é mantido como fallback de emergência apenas.
+# Ver: CONTRIBUTING.md, AGENTS.md

@@ -253,12 +253,16 @@ que `pre-push` deixa tag passar.
 
 ### Git (resumo)
 
-- **Nunca commitar na `main`**: branch própria + PR + squash merge, sempre via worktree
+- **Nunca commitar na `main`**: branch própria + PR + squash merge, sempre via worktree (Trunk-Based com branches curtos).
+- **Trunk-Based Development**: branches de vida curta (< 1–2 dias), PRs pequenos e frequentes. Integrar na `main` assim que aprovado e verde.
+- **Conventional Commits obrigatório**: todos os commits devem seguir [Conventional Commits](https://www.conventionalcommits.org/). Validado automaticamente no PR (commitlint).
+- **Versionamento automático**: no merge na `main`, Semantic Release analisa os commits, gera/atualiza `CHANGELOG.md`, cria **tag `vX.Y.Z`** e **GitHub Release** automaticamente (baseado no tipo de mudança: `feat`→minor, `fix/perf`→patch, `BREAKING CHANGE`→major).
 - **Worktree por branch** em `~/pdv-worktrees/<branch>` (`./scripts/dev-worktree.sh new|list|rm`)
 - **Hooks versionados** em `.githooks/`: precisam de `git config core.hooksPath .githooks` após clone novo
 - Hook é **freio, não tranca** (`--no-verify` contorna); a garantia é o ruleset no GitHub
 - **`rm` de worktree não apaga branch não mergeada** — publicar ou `branch -D` consciously
-- **Tag é o gate de deploy**, não push na main
+- **Tag é o gate de deploy**: produção é disparada **apenas** por push de tag `v*.*.*` (workflow `deploy-on-tag.yml`). Com o Semantic Release, a **tag deixa de ser manual e passa a ser automática e consistente**, sem alterar esse gate.
+- **Deploy contínuo híbrido**: merge na `main` → valida em **staging** (healthcheck + smoke). Produção → só via **Release/Tag** automático (criado pelo Semantic Release).
 
 ### Deploy (resumo)
 
