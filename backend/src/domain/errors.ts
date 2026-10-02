@@ -156,4 +156,40 @@ export const Errors = {
   // permissão). O detalhe vai junto para o gerente ver na UI.
   whatsappProviderError: (message: string, details?: unknown) =>
     new AppError("whatsapp_provider_error", 502, `A Meta recusou a conexão: ${message}`, details),
+  // ---------- Pagar.me V5 (cobrança no gateway) ----------
+  // Mesma lógica do WhatsApp: 409 e não 400/500 porque não é payload
+  // inválido — é a instalação que ainda não está pronta. `missing` diz o que
+  // falta (toggle, secret key) para o gerente não ficar adivinhando.
+  pagarmeNotConfigured: (missing: string[]) =>
+    new AppError(
+      "pagarme_not_configured",
+      409,
+      "A cobrança no Pagar.me ainda não está configurada neste servidor.",
+      { missing },
+    ),
+  // A cobrança existe do lado do gateway mas não aqui (ou nunca foi criada).
+  // 404 e não "não encontrada" genérico: quem chama é o caixa, e a resposta
+  // honesta é que o pagamento não existe, não que o pedido sumiu.
+  paymentNotFound: (ref?: string) =>
+    new AppError("payment_not_found", 404, "Cobrança não encontrada.", ref ? { ref } : undefined),
+  // O gateway recusou a operação financeira (recusou o cartão, estorno não
+  // elegível, valor acima do estornado...). 502: o pedido estava bem, quem
+  // respondeu não foi. A mensagem vai pro log com o detalhe do provedor, não
+  // pro cliente final.
+  pagarmeProviderError: (message: string, details?: unknown) =>
+    new AppError("pagarme_provider_error", 502, `O Pagar.me recusou a operação: ${message}`, details),
+  // Estorno maior do que o que sobrou de estornável. 422 (e não 409): os
+  // números são válidos, a combinação não é — mesma régua do variation_required.
+  invalidRefundAmount: (requested: number, refundable: number) =>
+    new AppError(
+      "invalid_refund_amount",
+      422,
+      `Estorno de R$ ${requested.toFixed(2)} maior que o valor estornável (R$ ${refundable.toFixed(2)}).`,
+      { requested, refundable },
+    ),
+  // Assinatura do webhook ausente ou não confere. 401: quem chamou não se
+  // provou ser o Pagar.me. Mesmo código/mensagem do webhook do WhatsApp
+  // (`invalid_signature`), porque é exatamente o mesmo caso.
+  invalidSignature: () =>
+    new AppError("invalid_signature", 401, "Assinatura do webhook inválida."),
 };
