@@ -121,6 +121,16 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.code(503).send({ status: "degraded", database: "disconnected" });
   });
 
+  // ---------- Permissão para on-demand TLS do Caddy (§wildcard) ----------
+  // O Caddy consulta GET /internal/caddy-on-demand-tls?domain=<host> antes
+  // de emitir um certificado sob demanda; 2xx libera, demais bloqueia.
+  // Só subdomínios de UMA label de *.labolabe.tech passam.
+  app.get("/internal/caddy-on-demand-tls", async (req, reply) => {
+    const domain = String((req.query as Record<string, unknown>)?.domain ?? "").toLowerCase();
+    const ok = /^[a-z0-9-]+\.labolabe\.tech$/.test(domain);
+    return reply.code(ok ? 204 : 403).send();
+  });
+
   await app.register(authRoutes);
   await app.register(orderRoutes);
   await app.register(cashFlowRoutes);
