@@ -1,0 +1,24 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+key.properties
+keystore.properties
+# Keystore de assinatura do release — material de máquina, nunca no git
+# (app/build.gradle.kts lê keystore.properties e aponta para ele).
+*.keystore
+*.jks
+
+/.tauri
+/tauri.settings.gradle
