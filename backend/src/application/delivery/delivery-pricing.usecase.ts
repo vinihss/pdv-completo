@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { storeSettings } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
@@ -46,12 +47,17 @@ export function calculateDeliveryFee(tiers: DeliveryFeeTier[], distanceKm: numbe
   return null;
 }
 
-export async function getDeliveryPricingUsecase(): Promise<{
+/**
+ * Faixas de frete da loja. `storeId` é obrigatório desde a 0011: sem filtro,
+ * o `findFirst()` pegava "a primeira linha da tabela", que com settings por
+ * store passaria a ser a loja errada.
+ */
+export async function getDeliveryPricingUsecase(storeId: string): Promise<{
   tiers: DeliveryFeeTier[];
   freeDeliveryMin: number;
 }> {
-  const settings = await db.query.storeSettings.findFirst();
-  if (!settings) throw new Error("store_settings não inicializado");
+  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.storeId, storeId) });
+  if (!settings) throw new Error("store_settings não inicializado para esta store.");
 
   return {
     tiers: parseTiers(settings.deliveryFeeTiers),

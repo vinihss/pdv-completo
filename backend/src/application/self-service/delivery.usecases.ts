@@ -75,7 +75,12 @@ export async function listCourierDeliveriesUsecase(input: {
 }
 
 // ---------- PATCH /courier/deliveries/:id/dispatch ----------
-export async function dispatchDeliveryUsecase(input: { deliveryId: string; courierId: string }) {
+export async function dispatchDeliveryUsecase(input: {
+  deliveryId: string;
+  courierId: string;
+  /** Tenant das settings (impressão do courier) — vem da rota. */
+  storeId: string;
+}) {
   const delivery = await getOwnedDelivery(input.deliveryId, input.courierId);
   // Transição validada pela máquina declarativa (customer-order-state.ts) —
   // regra única compartilhada com deliver/fail/cancelamento.
@@ -98,7 +103,7 @@ export async function dispatchDeliveryUsecase(input: { deliveryId: string; couri
 
   // Impressão automática do courier (pós-commit, fire-and-forget).
   try {
-    const settings = await getSettings();
+    const settings = await getSettings(input.storeId);
     if (settings.printerEnabled && settings.printerAutoPrint) {
       printCourierOrder(updated.orderId).catch((err) => console.error("falha ao imprimir comanda no courier:", err));
     }
@@ -110,7 +115,12 @@ export async function dispatchDeliveryUsecase(input: { deliveryId: string; couri
 }
 
 // ---------- PATCH /courier/deliveries/:id/deliver ----------
-export async function deliverDeliveryUsecase(input: { deliveryId: string; courierId: string }) {
+export async function deliverDeliveryUsecase(input: {
+  deliveryId: string;
+  courierId: string;
+  /** Tenant das settings — repassado pro fechamento da comanda. */
+  storeId: string;
+}) {
   const delivery = await getOwnedDelivery(input.deliveryId, input.courierId);
   if (!canTransitionDelivery(delivery.status, "delivered"))
     throw Errors.invalidDeliveryTransition("Entrega não está em trânsito.");
@@ -138,7 +148,7 @@ export async function deliverDeliveryUsecase(input: { deliveryId: string; courie
   // Compartilhado com `setDeliveryStatusUsecase` (gerente marcando entregue
   // pelo balcão): os dois precisam do mesmo efeito, e duas cópias divergem
   // no primeiro conserto de uma delas. O comentário de lá explica o porquê.
-  await closeOrderAfterDelivery(updated.orderId, input.courierId);
+  await closeOrderAfterDelivery(updated.orderId, input.courierId, input.storeId);
 
   notifyDelivered(updated.orderId).catch((err) => console.error("falha ao notificar entrega concluída pro cliente:", err));
 

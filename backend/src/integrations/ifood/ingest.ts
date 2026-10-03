@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { customers, deliveries, orders, products } from "../../infra/db/schema.js";
-import { SYSTEM_USER_ID } from "../../domain/constants.js";
+import { DEFAULT_STORE_ID, SYSTEM_USER_ID } from "../../domain/constants.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
 import { openOrderUsecase, addItemsUsecase } from "../../application/order/order.usecases.js";
@@ -83,7 +83,16 @@ export async function ingestIfoodOrder(order: IfoodOrder): Promise<{
 
   // 4. Itens — addItemsUsecase já roteia por estação (kitchen-display) e
   //    snapshotta o preço local.
-  const items = await addItemsUsecase({ orderId: orderLocal.id, userId: SYSTEM_USER_ID, items: mappedItems });
+  //    `storeId` não vem de request (o worker do iFood não tem um): a
+  //    integração ainda é single-store (config global em ifood/config.ts),
+  //    então as settings impressão/estoque/pagamento são as da store default.
+  //    Se um dia houver config iFood por store, este é o ponto a trocar.
+  const items = await addItemsUsecase({
+    orderId: orderLocal.id,
+    userId: SYSTEM_USER_ID,
+    storeId: DEFAULT_STORE_ID,
+    items: mappedItems,
+  });
 
   // Persiste os métodos de pagamento do iFood (usados no CONCLUDED, Etapa C).
   if (order.payments && order.payments.length > 0) {
