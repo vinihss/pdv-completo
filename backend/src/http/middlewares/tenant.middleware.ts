@@ -45,7 +45,7 @@ export async function resolveTenantMiddleware(req: FastifyRequest, _reply: Fasti
   const hostname = host.split(":")[0];
   const parts = hostname.split(".");
   const subdomain = parts.length >= 3 ? parts[0] : null;
-  const hasDerivableSubdomain = parts.length >= 3 && subdomain !== "www";
+  const hasDerivableSubdomain = parts.length >= 3 && subdomain !== "www" && subdomain !== "app";
 
   // ---------- 1. JWT do usuário autenticado (tenant no token) ----------
   // O login embute storeId/storeSlug no JWT (ver login.usecase). Quando o
@@ -114,7 +114,11 @@ export async function resolveTenantMiddleware(req: FastifyRequest, _reply: Fasti
     //    continua 404, e X-Store-ID inválido não cai silenciosamente no
     //    fallback.
     const storeIdHeader = req.headers["x-store-id"] as string | undefined;
-    const noDerivableSubdomain = parts.length < 3 || subdomain === "www";
+    // Subdomínios "virtuais" de infra (www/app) não são tenants: caem na
+    // store default, igual ao apex. Subdomínio desconhecido (ex.: "foo")
+    // continua 404.
+    const noDerivableSubdomain =
+      parts.length < 3 || subdomain === "www" || subdomain === "app";
     if (!storeIdHeader && noDerivableSubdomain) {
       store = await db.query.stores.findFirst({
         where: eq(stores.slug, "default"),
