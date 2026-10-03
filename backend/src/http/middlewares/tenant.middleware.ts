@@ -27,7 +27,7 @@ declare module "fastify" {
  */
 export async function resolveTenantMiddleware(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
   // Rotas públicas que não requerem resolução de store
-  const publicPaths = ["/health", "/uploads/"];
+  const publicPaths = ["/health", "/uploads/", "/internal/caddy-on-demand-tls"];
   const path = req.url ?? "";
   if (publicPaths.some((prefix) => path.startsWith(prefix))) {
     return;

@@ -11,6 +11,13 @@
 # apenas HTTP). Ver a seção "DNS obrigatório" do deploy/README.md.
 # ============================================================
 
+{
+	on_demand_tls {
+		# O Caddy só emite cert sob demanda se este endpoint liberar o domínio.
+		ask http://{$PDV_BACKEND_UPSTREAM:backend:3000}/internal/caddy-on-demand-tls
+	}
+}
+
 # Rotas da aplicação, compartilhadas pelos sites que servem o PDV.
 # `handle` faz o roteamento por caminho; o resto vai pro frontend.
 (site) {
@@ -167,48 +174,23 @@ app.umamisushiarte.com.br {
 # ============================================================
 # ---------- Multi-tenant por subdomínio ----------
 #
-# *.labolabe.tech deve apontar (DNS A) para o IP do servidor e o
-# Caddy resolve o subdomínio → store:
+# TODO subdomínio de *.labolabe.tech cai no mesmo bloco e o backend
+# resolve a loja pelo subdomínio (tenant middleware lê o Host):
 #
-#   restaurante1.labolabe.tech → store slug "restaurante1"
-#   restaurante2.labolabe.tech → store slug "restaurante2"
-#   app.labolabe.tech          → store slug "app"
-#   www.labolabe.tech          → resolve para a loja padrão
+#   restaurante1.labolabe.tech  → store slug "restaurante1"
+#   qualquer-coisa.labolabe.tech → store slug "qualquer-coisa"
 #
-# TLS: um wildcard `*.labolabe.tech` exige o desafio DNS-01 do Let's
-# Encrypt, e a imagem `caddy:2-alpine` não traz plugins de DNS. Opções:
+# TLS: on-demand — na primeira requisição TLS de um subdomínio novo,
+# o Caddy pede um certificado específico (HTTP-01) e passa a servi-lo.
+# Por isso é OBRIGATÓRIO um registro DNS A coringa `*.labolabe.tech`
+# apontando para este servidor; sem ele o ACME não consegue validar.
 #
-#   1) Caddy com plugin DNS (cloudflare, aws, etc.) — habilita
-#      `*.labolabe.tech` com um único certificado wildcard.
-#   2) Cada subdomínio individual (HTTP-01 funciona):
-#        restaurante1.labolabe.tech { import site }
-#        ...
-#   3) Certificado wildcard manual: coloque o cert + key em
-#      /etc/caddy/certs/*.labolabe.tech.pem e use `tls`.
-#
-# O middleware de tenant (backend/src/http/middlewares/tenant.middleware.ts)
-# lê o subdomínio do Host e escolhe a loja — por isso o slug do tenant
-# deve bater com a parte antes do primeiro "." do hostname.
+# O wildcard de UMA label: `*.labolabe.tech` cobre `foo.labolabe.tech`,
+# mas não `foo.bar.labolabe.tech`.
 # ============================================================
-# *.labolabe.tech {
-# 	# Caddyfile: sem plugins, este bloco NÃO gera wildcard.
-# 	# Descomentar quando houver certificado wildcard (opção 1 ou 3 acima):
-# 	# import site
-# 	# tls {
-# 	# 	dns cloudflare {env.CLOUDFLARE_API_TOKEN}
-# 	# }
-# }
-
-# Exemplos individuais (HTTP-01, funcionam sem plugin DNS):
-restaurante1.labolabe.tech {
+*.labolabe.tech {
 	import site
-}
-restaurante2.labolabe.tech {
-	import site
-}
-app.labolabe.tech {
-	import site
-}
-www.labolabe.tech {
-	import site
+	tls {
+		on_demand
+	}
 }
