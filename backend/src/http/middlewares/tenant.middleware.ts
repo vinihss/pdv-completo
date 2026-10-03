@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { stores } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
+import { verifyTokenRaw } from "./auth.middleware.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -15,9 +16,10 @@ declare module "fastify" {
  * Middleware de resolução de tenant (store) por subdomínio.
  *
  * Ordem de resolução:
- * 1. Subdomínio do header `Host` (ex: `joao.labolabe.tech` → `joao`)
- * 2. Header `X-Store-ID` (para apps mobile/desktop)
- * 3. `req.authUser?.storeId` (se já autenticado)
+ * 1. JWT do usuário autenticado (`Authorization: Bearer`, storeId no payload)
+ * 2. Subdomínio do header `Host` (ex: `joao.labolabe.tech` → `joao`)
+ * 3. Header `X-Store-ID` (para apps mobile/desktop)
+ * 4. `req.authUser?.storeId` (se já autenticado)
  *
  * Lança `storeNotResolved` (404) se não resolver, ou `storeInactive` (403) se a store estiver suspensa/inativa.
  * Injeta `req.storeId` e `req.store` no request para uso downstream.
@@ -43,6 +45,41 @@ export async function resolveTenantMiddleware(req: FastifyRequest, _reply: Fasti
   const hostname = host.split(":")[0];
   const parts = hostname.split(".");
   const subdomain = parts.length >= 3 ? parts[0] : null;
+  const hasDerivableSubdomain = parts.length >= 3 && subdomain !== "www";
+
+  // ---------- 1. JWT do usuário autenticado (tenant no token) ----------
+  // O login embute storeId/storeSlug no JWT (ver login.usecase). Quando o
+  // request traz um token válido, ele é a fonte do tenant — cobre desktop/
+  // mobile (sem subdomínio) e deixa o backend independente do Host.
+  // Se o Host ALSO aponta um subdomínio, o JWT precisa bater com ele:
+  // usuário logado na loja A acessando o subdomínio da loja B é 403.
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    try {
+      const payload = verifyTokenRaw(authHeader.slice("Bearer ".length));
+      if (payload.storeId) {
+        const byJwt = await db.query.stores.findFirst({
+          where: eq(stores.id, payload.storeId),
+        });
+        if (byJwt) {
+          if (hasDerivableSubdomain && byJwt.slug !== subdomain) {
+            throw Errors.tenantMismatch();
+          }
+          if (byJwt.status === "suspended" || byJwt.status === "inactive") {
+            throw Errors.storeInactive();
+          }
+          req.storeId = byJwt.id;
+          req.store = byJwt;
+          return;
+        }
+      }
+    } catch (err) {
+      if (err && typeof err === "object" && (err as { code?: string }).code === "tenant_mismatch") throw err;
+      if (err && typeof err === "object" && (err as { code?: string }).code === "store_inactive") throw err;
+      // Token inválido/expirado: segue o fluxo público. Nas rotas protegidas
+      // o authMiddleware responde 401 depois — não é papel do tenant middleware.
+    }
+  }
 
   let store: typeof stores.$inferSelect | undefined;
 

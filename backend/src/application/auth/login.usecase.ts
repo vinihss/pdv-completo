@@ -2,7 +2,7 @@ import argon2 from "argon2";
 import jwt from "jsonwebtoken";
 import { eq } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
-import { users } from "../../infra/db/schema.js";
+import { stores, users } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
 import { config } from "../../config/env.js";
 import { photoUrl } from "../user.usecases.js";
@@ -34,7 +34,18 @@ export async function loginUsecase(userId: string, rawPin: string) {
 
   await db.update(users).set({ failedAttempts: 0, lockedUntil: null }).where(eq(users.id, userId));
 
-  const token = jwt.sign({ sub: u.id, role: u.role }, config.jwtSecret, { expiresIn: "12h" });
+  // Multi-tenant: embute a store do usuário no JWT. Enquanto o usuário
+  // estiver logado, o header Authorization substitui o Host na resolução do
+  // tenant (ver tenant.middleware) — funciona também fora do domínio web
+  // (desktop/mobile), que não têm subdomínio próprio.
+  const store = u.storeId
+    ? await db.query.stores.findFirst({ where: eq(stores.id, u.storeId) })
+    : undefined;
+  const token = jwt.sign(
+    { sub: u.id, role: u.role, storeId: u.storeId ?? undefined, storeSlug: store?.slug },
+    config.jwtSecret,
+    { expiresIn: "12h" },
+  );
   // A foto vai na sessão (não no JWT) para a identidade do app logado mostrar
   // o avatar sem uma segunda chamada.
   return { token, user: { id: u.id, name: u.name, role: u.role, photoPath: photoUrl(u.photoPath) } };
