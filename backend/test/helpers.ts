@@ -49,8 +49,10 @@ export const raw = {
   },
 };
 
-export function tokenOf(userId: string, role: string) {
-  return jwt.sign({ sub: userId, role }, config.jwtSecret);
+// `storeId` opcional embute a loja no payload — é o formato que o login real
+// gera (ver login.usecase) e o que o tenant middleware lê como fonte #1.
+export function tokenOf(userId: string, role: string, storeId?: string) {
+  return jwt.sign({ sub: userId, role, ...(storeId ? { storeId } : {}) }, config.jwtSecret);
 }
 
 // Fixture mínima para os fluxos de comanda + caixa: usuários pelos 3 perfis
