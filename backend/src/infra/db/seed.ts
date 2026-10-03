@@ -9,6 +9,7 @@ import { eq } from "drizzle-orm";
 import { runMigrations } from "./migrate.js";
 import { closeDatabase, db } from "./client.js";
 import { users, categories, products, restaurantTables, storeSettings, kitchenGroups, stockMovements } from "./schema.js";
+import { DEFAULT_STORE_ID } from "../../domain/constants.js";
 
 // Usuários demo são reconciliados em TODA execução do seed (não só no primeiro
 // populate): cada um é inserido apenas se ainda não existir pelo nome. Isso faz
@@ -35,39 +36,87 @@ async function reconcileDemoUsers() {
   }
 }
 
+/**
+ * Settings de CADA store existente (idempotente).
+ *
+ * A migration 0011 já cria a linha de toda store que não tem settings, mas o
+ * seed também garante — cobre store criada depois da migration e banco que
+ * recebeu a 0011 com a tabela de stores vazia. A store default pode nascer da
+ * migration com o placeholder (nome da store, cidade vazia); é aqui que ela
+ * recebe os valores demo, sem nunca sobrescrever o que alguém já editou
+ * (`merchant_city` vazio + nome igual ao da store = linha intocada).
+ */
+async function ensureStoreSettings() {
+  const allStores = await db.query.stores.findMany();
+  for (const store of allStores) {
+    const existing = await db.query.storeSettings.findFirst({ where: eq(storeSettings.storeId, store.id) });
+    const untouched = existing && existing.merchantName === store.name && existing.merchantCity === "";
+
+    if (!existing) {
+      const isDefault = store.id === DEFAULT_STORE_ID;
+      await db.insert(storeSettings).values({
+        // A store default mantém o id histórico 'singleton' (dado legado e
+        // scripts apontam pra ele); as demais usam o próprio store_id.
+        id: isDefault ? "singleton" : store.id,
+        storeId: store.id,
+        merchantName: isDefault ? "Bar do Zé" : store.name,
+        merchantCity: isDefault ? "Sao Paulo" : "",
+        pixKey: "",
+        pixKeyType: "phone",
+        usesTables: true,
+        kitchenEnabled: true,
+        usesDelivery: true,
+        ifoodIntegrationEnabled: false,
+        whatsappIntegrationEnabled: false,
+        inventoryEnabled: isDefault, // demo com controle de estoque ligado
+        enabledPaymentMethods: JSON.stringify(["cash", "card", "pix", "other"]),
+        kitchenPrepWarnMin: 3,
+        kitchenPrepUrgentMin: 6,
+        kitchenPickupUrgentMin: 5,
+      });
+      console.log(`[seed] + store_settings criada para a store "${store.slug}"`);
+    } else if (store.id === DEFAULT_STORE_ID && untouched) {
+      await db
+        .update(storeSettings)
+        .set({
+          merchantName: "Bar do Zé",
+          merchantCity: "Sao Paulo",
+          inventoryEnabled: true, // demo com controle de estoque ligado
+        })
+        .where(eq(storeSettings.storeId, store.id));
+      console.log("[seed] store_settings da store default atualizada com os dados demo");
+    }
+  }
+}
+
 async function seed() {
   // migrations são async no Postgres: sem await o seed competiria com o DDL.
   await runMigrations();
 
-  const existing = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
-  if (existing) {
-    console.log("[seed] store_settings já existe — pulando dados base e reconciliando usuários demo.");
+  // 1) Uma linha de settings por store — SEMPRE, antes de qualquer dado base.
+  await ensureStoreSettings();
+
+  // 2) Dados demo (catálogo + usuários): o marcador passou a ser o catálogo,
+  //    não mais a existência de store_settings — a 0011 cria settings em todo
+  //    banco novo e esse marcador estaria sempre "verdadeiro".
+  const catalogSeeded = await db.query.categories.findFirst();
+  if (catalogSeeded) {
+    console.log("[seed] catálogo demo já existe — pulando dados base e reconciliando usuários demo.");
     await reconcileDemoUsers();
     console.log("[seed] concluído.");
     console.log("[seed] PINs de teste — Ana: 1234 · Carlos: 5678 · Roberto: 9999 · Caixa: 2468 · Entregador: 1357 · Cozinha: 0000");
     return;
   }
 
-  await db.insert(storeSettings).values({
-    id: "singleton",
-    merchantName: "Bar do Zé",
-    merchantCity: "Sao Paulo",
-    pixKey: "",
-    pixKeyType: "phone",
-    usesTables: true,
-    kitchenEnabled: true,
-    usesDelivery: true,
-    ifoodIntegrationEnabled: false,
-    whatsappIntegrationEnabled: false,
-    inventoryEnabled: true, // demo com controle de estoque ligado
-    enabledPaymentMethods: JSON.stringify(["cash", "card", "pix", "other"]),
-    kitchenPrepWarnMin: 3,
-    kitchenPrepUrgentMin: 6,
-    kitchenPickupUrgentMin: 5,
-  });
-
   let managerId: string = "";
   for (const u of DEMO_USERS) {
+    // Mesma reconciliação do reconcileDemoUsers: um banco que já tem os
+    // usuários mas perdeu o catálogo não pode ganhar uma cópia duplicada.
+    const found = await db.query.users.findFirst({ where: eq(users.name, u.name) });
+    if (found) {
+      if (u.role === "manager") managerId = found.id;
+      continue;
+    }
     const pinHash = await argon2.hash(u.pin);
     const [created] = await db.insert(users).values({ name: u.name, role: u.role, pinHash, phone: u.phone ?? null, email: u.email ?? null }).returning();
     if (u.role === "manager") managerId = created.id;

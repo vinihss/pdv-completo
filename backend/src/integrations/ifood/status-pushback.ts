@@ -1,7 +1,7 @@
 import { and, eq, notInArray, sql } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { orders, orderItems, orderPayments, deliveries, storeSettings } from "../../infra/db/schema.js";
-import { SYSTEM_USER_ID } from "../../domain/constants.js";
+import { DEFAULT_STORE_ID, SYSTEM_USER_ID } from "../../domain/constants.js";
 import { round2 } from "../../domain/money.js";
 import { Errors } from "../../domain/errors.js";
 import { canTransitionDelivery } from "../../domain/customer-order-state.js";
@@ -61,7 +61,13 @@ export async function concludeIfoodOrder(orderRef: string): Promise<boolean> {
   const order = await db.query.orders.findFirst({ where: eq(orders.externalRef, orderRef) });
   if (!order || order.channel !== "ifood" || order.status !== "open") return false;
 
-  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
+  // Settings por tenant (0011). O `order.store_id` existe na tabela (0008)
+  // mas ainda não está no model do Drizzle nem é gravado no INSERT — enquanto
+  // isso não acontecer, o iFood (integração single-store, config global) lê as
+  // settings da store default.
+  const settings = await db.query.storeSettings.findFirst({
+    where: eq(storeSettings.storeId, DEFAULT_STORE_ID),
+  });
   const enabled: string[] = settings ? JSON.parse(settings.enabledPaymentMethods) : [];
   const ifoodPayments: Array<{ method?: string; type?: string }> = order.ifoodPayments
     ? JSON.parse(order.ifoodPayments)

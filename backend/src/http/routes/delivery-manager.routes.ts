@@ -49,6 +49,7 @@ export async function deliveryManagerRoutes(app: FastifyInstance) {
       status: body.status,
       reason: body.reason,
       managerId: req.authUser!.sub,
+      storeId: req.storeId!,
     });
   });
 

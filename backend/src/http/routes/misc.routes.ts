@@ -313,7 +313,7 @@ export async function miscRoutes(app: FastifyInstance) {
   });
   // Geocodificar restaurante (forward geocoding do endereço do estabelecimento)
   app.post("/store/geocode-restaurant", { preHandler: requireRole("manager") }, async (req) => {
-    return geocodeRestaurantUsecase();
+    return geocodeRestaurantUsecase(req.storeId!);
   });
 
   // ---------- Products ----------

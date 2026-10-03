@@ -48,9 +48,14 @@ const cache = getCache();
 // drizzle propaga o erro), então os AppError de domínio seguem funcionando
 // igual.
 
-export async function getSettings() {
-  const s = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
-  if (!s) throw new Error("store_settings não inicializado — rode o seed.");
+// Settings da loja — `storeId` é PARÂMETRO EXPLÍCITO, sempre vindo de cima
+// (rota passa `req.storeId`, resolvido pelo tenant middleware; fluxos sem
+// request resolvem na própria entidade/constante de store default). Nunca
+// importar `req` aqui: esta camada não conhece HTTP.
+// Antes da 0011 isto era `WHERE id = 'singleton'` — uma única config global.
+export async function getSettings(storeId: string) {
+  const s = await db.query.storeSettings.findFirst({ where: eq(storeSettings.storeId, storeId) });
+  if (!s) throw new Error("store_settings não inicializado para esta store — rode o seed.");
   return s;
 }
 
@@ -290,6 +295,8 @@ export async function openOrderUsecase(input: {
 export async function addItemsUsecase(input: {
   orderId: string;
   userId: string;
+  /** Tenant das settings (impressão/estoque/pagamentos) — vem da rota. */
+  storeId: string;
   items: Array<{
     productId: string;
     quantity: number;
@@ -301,7 +308,7 @@ export async function addItemsUsecase(input: {
   if (!order) throw Errors.notFound("Comanda");
   if (order.status !== "open") throw Errors.orderNotOpen();
 
-  const settings = await getSettings();
+  const settings = await getSettings(input.storeId);
 
   const createdItems = await db.transaction(async (tx) => {
     const result: ReturnType<typeof serializeItem>[] = [];
@@ -411,10 +418,12 @@ export async function updateItemStatusUsecase(input: {
   userRole: "waiter" | "kitchen" | "manager" | "courier" | "cashier";
   newStatus: "ready" | "delivered";
   expectedVersion: number;
+  /** Tenant das settings (modo cozinha) — vem da rota. */
+  storeId: string;
 }) {
-  const settings = await getSettings();
   const item = await db.query.orderItems.findFirst({ where: eq(orderItems.id, input.itemId) });
   if (!item || item.orderId !== input.orderId) throw Errors.notFound("Item");
+  const settings = await getSettings(input.storeId);
 
   // Validação de transição por modo (§7.2, kitchen_enabled)
   if (settings.kitchenEnabled) {
@@ -487,10 +496,16 @@ export async function updateItemStatusUsecase(input: {
 }
 
 // ---------- DELETE /orders/:id/items/:itemId ----------
-export async function deleteItemUsecase(input: { orderId: string; itemId: string; userId: string }) {
-  const settings = await getSettings();
+export async function deleteItemUsecase(input: {
+  orderId: string;
+  itemId: string;
+  userId: string;
+  /** Tenant das settings (modo cozinha) — vem da rota. */
+  storeId: string;
+}) {
   const item = await db.query.orderItems.findFirst({ where: eq(orderItems.id, input.itemId) });
   if (!item || item.orderId !== input.orderId) throw Errors.notFound("Item");
+  const settings = await getSettings(input.storeId);
   // Modo sem cozinha: a comanda não controla status — item já entra entregue,
   // então exclusão por engano continua permitida. Com cozinha, item entregue é imutável.
   if (settings.kitchenEnabled && item.status === "delivered") throw Errors.itemAlreadyDelivered();
@@ -747,8 +762,10 @@ export async function setOrderPaymentsUsecase(input: {
   orderId: string;
   userId: string;
   payments: PaymentLineInput[];
+  /** Tenant das settings (formas de pagamento habilitadas) — vem da rota. */
+  storeId: string;
 }) {
-  const settings = await getSettings();
+  const settings = await getSettings(input.storeId);
   const enabled: string[] = JSON.parse(settings.enabledPaymentMethods);
   if (input.payments.length === 0) {
     throw Errors.validationFailed({ field: "payments", reason: "informe ao menos uma forma de pagamento" });
@@ -868,8 +885,10 @@ export async function registerPaymentUsecase(input: {
   confirmed: boolean;
   /** Só cash: quanto o cliente vai entregar. Ausente = valor exato. */
   received?: number;
+  /** Tenant das settings (formas de pagamento habilitadas) — vem da rota. */
+  storeId: string;
 }) {
-  const settings = await getSettings();
+  const settings = await getSettings(input.storeId);
   const enabled: string[] = JSON.parse(settings.enabledPaymentMethods);
   if (!enabled.includes(input.paymentMethod)) throw Errors.paymentMethodDisabled();
 

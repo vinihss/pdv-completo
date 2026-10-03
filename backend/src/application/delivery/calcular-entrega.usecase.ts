@@ -23,6 +23,12 @@ export interface CalcularEntregaInput {
   latitude: number;
   longitude: number;
   itemsTotal?: number;
+  /**
+   * Tenant das settings (coordenadas do restaurante + faixas de frete) — vem
+   * da rota pública (`req.storeId`); o bot do WhatsApp ainda não tem tenant
+   * próprio e passa a store default.
+   */
+  storeId: string;
 }
 
 export interface CalcularEntregaResult {
@@ -80,8 +86,8 @@ async function setCachedGeocoding(key: string, address: GeocodedAddress) {
 export async function calcularEntregaUsecase(input: CalcularEntregaInput): Promise<CalcularEntregaResult> {
   validateCoordinates(input.latitude, input.longitude);
 
-  const settings = await db.query.storeSettings.findFirst();
-  if (!settings) throw new Error("store_settings não inicializado");
+  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.storeId, input.storeId) });
+  if (!settings) throw new Error("store_settings não inicializado para esta store.");
 
   if (settings.restaurantLat == null || settings.restaurantLong == null) {
     throw Errors.validationFailed({ reason: "restaurante sem coordenadas configuradas" });
@@ -109,7 +115,7 @@ export async function calcularEntregaUsecase(input: CalcularEntregaInput): Promi
     throw Errors.validationFailed({ reason: "Não foi possível calcular a rota" });
   }
 
-  const { tiers, freeDeliveryMin } = await getDeliveryPricingUsecase();
+  const { tiers, freeDeliveryMin } = await getDeliveryPricingUsecase(input.storeId);
   const pricing = applyDeliveryPricing(tiers, freeDeliveryMin, {
     distanceKm: routing.distanceKm,
     itemsTotal: input.itemsTotal ?? 0,

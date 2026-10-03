@@ -201,7 +201,9 @@ CREATE TABLE store_settings (
     kitchen_prep_urgent_min  INTEGER NOT NULL DEFAULT 6, -- minutos em preparo até o cartão virar vermelho pulsante
     kitchen_pickup_urgent_min INTEGER NOT NULL DEFAULT 5 -- minutos parado em "Prontos" até destacar como urgente
 );
--- Tabela de linha única (singleton) nesta etapa: um estabelecimento por instância
+-- Uma linha por store desde a migration 0011_store_settings_per_store.sql
+-- (UNIQUE em store_id; a store default mantém id 'singleton'). Nesta etapa
+-- original era linha única: um estabelecimento por instância.
 
 -- Log de auditoria — toda ação relevante do garçom/gerente é registrada
 CREATE TABLE audit_log (

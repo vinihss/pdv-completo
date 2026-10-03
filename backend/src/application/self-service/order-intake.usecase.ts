@@ -5,7 +5,7 @@ import { Errors } from "../../domain/errors.js";
 import { SYSTEM_USER_ID } from "../../domain/constants.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
-import { openOrderUsecase, addItemsUsecase, getOrderUsecase, registerPaymentUsecase } from "../order/order.usecases.js";
+import { openOrderUsecase, addItemsUsecase, getOrderUsecase, registerPaymentUsecase, getSettings } from "../order/order.usecases.js";
 import { formatAddress, addCustomerAddressUsecase } from "./customer-address.usecases.js";
 import { deriveCustomerStage, stageTimeline, CUSTOMER_STAGES } from "../../domain/customer-order-state.js";
 import { emitCustomerStageChangedTx } from "./customer-stage.js";
@@ -76,6 +76,8 @@ async function assertVariationsSelectable(lines: IntakeLine[]) {
  */
 export async function createSelfServiceOrderUsecase(input: {
   channel: "whatsapp" | "web";
+  /** Tenant das settings (frete/ETA/habilitação) — vem da rota pública. */
+  storeId: string;
   customerPhone: string;
   customerName: string;
   addressId?: string;
@@ -141,8 +143,7 @@ export async function createSelfServiceOrderUsecase(input: {
   }
 
   // 3. Taxa de entrega — snapshot da configuração atual, gravado no pedido (§04 "Taxa de entrega").
-  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
-  if (!settings) throw new Error("store_settings não inicializado — rode o seed.");
+  const settings = await getSettings(input.storeId);
 
   // 4. Cria o pedido reaproveitando as mesmas usecases do garçom — só muda quem abre (SYSTEM_USER_ID) e o channel.
   const order = await openOrderUsecase({
@@ -154,7 +155,12 @@ export async function createSelfServiceOrderUsecase(input: {
     notes: input.notes,
   });
 
-  const items = await addItemsUsecase({ orderId: order.id, userId: SYSTEM_USER_ID, items: input.items });
+  const items = await addItemsUsecase({
+    orderId: order.id,
+    userId: SYSTEM_USER_ID,
+    storeId: input.storeId,
+    items: input.items,
+  });
 
   // Sem isso, closeOrderUsecase rejeitaria o fechamento por
   // "payment_not_registered" quando a entrega for confirmada (ver
@@ -185,6 +191,7 @@ export async function createSelfServiceOrderUsecase(input: {
     paymentMethod: input.paymentMethodIntent,
     confirmed: false,
     received: cashReceivedNum,
+    storeId: input.storeId,
   });
 
   // 4.1 Previsão de entrega — calculada ANTES da transação da entrega porque
@@ -291,10 +298,10 @@ function etaForStage(
  * compat do polling). total/estimatedMinutes alimentam a retomada por
  * ?order=<id> (o orderId é a "senha" de fato — já era visível hoje).
  */
-export async function getSelfServiceOrderStatusUsecase(orderId: string) {
+export async function getSelfServiceOrderStatusUsecase(orderId: string, storeId: string) {
   const order = await getOrderUsecase(orderId);
   const delivery = await db.query.deliveries.findFirst({ where: eq(deliveries.orderId, orderId) });
-  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
+  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.storeId, storeId) });
 
   const stage = deriveCustomerStage(
     { status: order.status },
@@ -326,7 +333,7 @@ export async function getSelfServiceOrderStatusUsecase(orderId: string) {
  * self-service; o stage pode ser terminal-fracassado ("failed") — o
  * cliente precisa ver isso também pra poder cancelar ou reordenar.
  */
-export async function getActiveSelfServiceOrderByPhoneUsecase(phone: string) {
+export async function getActiveSelfServiceOrderByPhoneUsecase(phone: string, storeId: string) {
   const customer = await db.query.customers.findFirst({ where: eq(customers.phone, phone) });
   if (!customer) return null;
 
@@ -338,7 +345,7 @@ export async function getActiveSelfServiceOrderByPhoneUsecase(phone: string) {
 
   const items = await db.query.orderItems.findMany({ where: eq(orderItems.orderId, active.id) });
   const delivery = await db.query.deliveries.findFirst({ where: eq(deliveries.orderId, active.id) });
-  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
+  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.storeId, storeId) });
 
   const stage = deriveCustomerStage(
     { status: active.status },

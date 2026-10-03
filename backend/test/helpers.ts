@@ -72,8 +72,17 @@ export async function seedFixture() {
   resetCache();
   await runMigrations();
 
-  // onConflictDoNothing: o banco persiste por toda a sessão de testes (só é
-  // recriado no global setup), então múltiplos arquivos chamam seedFixture.
+  // O banco persiste por toda a sessão de testes (só é recriado no global
+  // setup), então múltiplos arquivos chamam seedFixture — e a linha precisa
+  // ficar IGUAL em todos.
+  //
+  // Desde a migration 0011 existe UMA linha de settings por store, e ela já
+  // nasce para a store default (id 'singleton') antes de qualquer suíte rodar.
+  // Por isso é UPSERT e não "insert or ignore": um DO NOTHING deixaria os
+  // valores da fixture (merchantCity, usesDelivery:false, métodos de pagamento)
+  // de fora e os `UPDATE ... WHERE id = 'singleton'` das suítes passariam a
+  // mexer numa linha com os defaults da migration. O arbiter é a PK `id` — é
+  // para ele que todos os testes raw apontam.
   await db
     .insert(storeSettings)
     .values({
@@ -84,7 +93,15 @@ export async function seedFixture() {
       enabledPaymentMethods: JSON.stringify(["cash", "card", "pix", "other"]),
       usesDelivery: false,
     })
-    .onConflictDoNothing();
+    .onConflictDoUpdate({
+      target: storeSettings.id,
+      set: {
+        merchantName: "Teste Café",
+        merchantCity: "Sao Paulo",
+        enabledPaymentMethods: JSON.stringify(["cash", "card", "pix", "other"]),
+        usesDelivery: false,
+      },
+    });
 
   await db
     .insert(users)
@@ -172,10 +189,12 @@ export type ApiResult = { status: number; json: any; body: string };
 // pros testes que exercitam as rotas públicas: elas têm rate limit por IP
 // (5 pedidos/min pra POST /public/orders), então cada teste precisa do seu
 // próprio "cliente" pra não se auto-bloquear.
+// `headers` é o escape pra headers de domínio — hoje `x-store-id`, que é o
+// que o middleware de tenant usa quando o Host não traz subdomínio.
 export async function api(
   method: "get" | "post" | "put" | "patch" | "delete",
   url: string,
-  opts: { token?: string; body?: any; ip?: string } = {}
+  opts: { token?: string; body?: any; ip?: string; headers?: Record<string, string> } = {}
 ): Promise<ApiResult> {
   const res = await (await testApp()).inject({
     method,
@@ -183,6 +202,7 @@ export async function api(
     headers: {
       ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
       ...(opts.ip ? { "x-forwarded-for": opts.ip } : {}),
+      ...(opts.headers ?? {}),
     },
     payload: opts.body,
   });

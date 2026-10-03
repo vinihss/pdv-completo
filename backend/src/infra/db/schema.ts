@@ -461,8 +461,15 @@ export const stores = pgTable("stores", {
     ),
 });
 export const storeSettings = pgTable("store_settings", {
+  // A PK `id` continua com a DEFAULT 'singleton' de propósito (expand/contract:
+  // dado legado e scripts ainda apontam para ela), mas a linha É por store —
+  // a unicidade está em `store_id` (migration 0011, uq_store_settings_store).
+  // A default store mantém id 'singleton'; as demais nascem com id = store_id.
   id: text("id").primaryKey().default("singleton"),
-  storeId: text("store_id").references(() => stores.id),
+  // UNIQUE: exatamente uma linha de settings por tenant. A migration 0011 é
+  // quem cria a constraint (SQL idempotente); aqui fica a declaração espelho
+  // — é ela que habilita `.onConflictDoUpdate({ target: storeSettings.storeId })`.
+  storeId: text("store_id").unique().references(() => stores.id),
   merchantName: text("merchant_name").notNull(),
   merchantCity: text("merchant_city").notNull(),
   logoPath: text("logo_path"), // nome do arquivo do logo em /uploads/logo.<ext>

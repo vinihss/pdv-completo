@@ -23,8 +23,12 @@ export async function authRoutes(app: FastifyInstance) {
   // compartilhado: sem ela o garçom não reconhece o colleague da foto. Não é
   // dado sensível — `/uploads/` é servido sem autenticação (server.ts), mesmo
   // padrão das fotos de produto.
-  app.get("/auth/users", async () => {
-    const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
+  app.get("/auth/users", async (req) => {
+    // Tenant do login: o middleware de store já resolveu req.storeId (mesmo
+    // caminho que /store-info). Antes da 0011 isto era `id = 'singleton'`.
+    const settings = await db.query.storeSettings.findFirst({
+      where: eq(storeSettings.storeId, req.storeId!),
+    });
     const rows = await db.query.users.findMany({ where: eq(users.active, true), orderBy: (u, { asc }) => asc(u.name) });
     return rows
       .filter((u) => settings?.kitchenEnabled || u.role !== "kitchen")

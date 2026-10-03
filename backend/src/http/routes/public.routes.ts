@@ -152,7 +152,7 @@ export async function publicRoutes(app: FastifyInstance) {
     const body = createOrderSchema.parse(req.body);
     await assertDeliveryEnabled(req);
     const result = await withIdempotency("POST /public/orders", body.correlationId, body, async () => {
-      const created = await createSelfServiceOrderUsecase(body);
+      const created = await createSelfServiceOrderUsecase({ ...body, storeId: req.storeId! });
       return { status: 201, body: created };
     });
     return reply.code(result.status).send(result.body);
@@ -176,12 +176,12 @@ export async function publicRoutes(app: FastifyInstance) {
   // mesmo link). Superfície de leitura (mesmo modelo de confiança do lookup).
   app.post("/public/orders/active", { preHandler: publicLookupRateLimit }, async (req) => {
     const body = activeOrderSchema.parse(req.body);
-    return getActiveSelfServiceOrderByPhoneUsecase(body.phone);
+    return getActiveSelfServiceOrderByPhoneUsecase(body.phone, req.storeId!);
   });
 
   app.get("/public/orders/:id/status", async (req) => {
     const { id } = req.params as { id: string };
-    return getSelfServiceOrderStatusUsecase(id);
+    return getSelfServiceOrderStatusUsecase(id, req.storeId!);
   });
 
   // ---------- Carrinho server-side (continuação do pedido) ----------
@@ -213,6 +213,6 @@ export async function publicRoutes(app: FastifyInstance) {
 
   app.post("/calcular-entrega", { preHandler: publicWriteRateLimit }, async (req) => {
     const body = calcularEntregaSchema.parse(req.body);
-    return calcularEntregaUsecase(body);
+    return calcularEntregaUsecase({ ...body, storeId: req.storeId! });
   });
 }

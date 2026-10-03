@@ -50,12 +50,12 @@ export async function courierRoutes(app: FastifyInstance) {
 
   app.patch("/courier/deliveries/:id/dispatch", async (req) => {
     const { id } = req.params as { id: string };
-    return dispatchDeliveryUsecase({ deliveryId: id, courierId: req.authUser!.sub });
+    return dispatchDeliveryUsecase({ deliveryId: id, courierId: req.authUser!.sub, storeId: req.storeId! });
   });
 
   app.patch("/courier/deliveries/:id/deliver", async (req) => {
     const { id } = req.params as { id: string };
-    return deliverDeliveryUsecase({ deliveryId: id, courierId: req.authUser!.sub });
+    return deliverDeliveryUsecase({ deliveryId: id, courierId: req.authUser!.sub, storeId: req.storeId! });
   });
 
   app.patch("/courier/deliveries/:id/fail", async (req) => {
