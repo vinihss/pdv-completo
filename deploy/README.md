@@ -55,19 +55,26 @@ apontando para o IP público do VPS:
 
 | Registro | Aponta para | Serve |
 |---|---|---|
-| `umamisushiarte.com.br` | IP do VPS | redirect para a vitrine (`app./pedido`) |
-| `www.umamisushiarte.com.br` | IP do VPS | redirect para a vitrine (`app./pedido`) |
+| `umamisushiarte.com.br` | IP do VPS | redirect para o WhatsApp (`wa.me`) |
+| `www.umamisushiarte.com.br` | IP do VPS | redirect para o WhatsApp (`wa.me`) |
 | `app.umamisushiarte.com.br` | IP do VPS | **a aplicação (PDV)** |
 
-O domínio raiz **não** serve o app — ele redireciona (302, temporário) para a
-vitrine pública em **`app./pedido`**. Quem for usar o PDV (garçons, cozinha,
-gerente) entra por **`app.`**; o cliente final chega no domínio raiz e cai
-direto na página de pedidos. O path é `/pedido` no **singular** (é o que o
-React Router declara em `frontend/src/app/router.jsx`); `/pedidos` cai no
-catch-all e mostra a tela de login. O redirect é **temporário** (302) de
-propósito: o 308 (`permanent`) fica cacheado no navegador e mascara a
-mudança — valide com `curl -sI` e só volte pra `permanent` quando o destino
-estiver definitivo.
+O domínio raiz **não** serve o app — ele redireciona (302, temporário) para o
+**WhatsApp** da casa (`wa.me`, link com o número em texto). Quem for usar o PDV
+(garçons, cozinha, gerente) entra por **`app.`**; quem digitar o domínio sem
+`app.` cai no WhatsApp, que é o canal de contato/vendas. Como o `redir` é do
+site inteiro no Caddy, qualquer caminho no domínio raiz (inclusive
+`/cardapio/do-acao`) cai no mesmo link — o path da requisição não vaza para o
+`Location`. O redirect é **temporário** (302) de propósito: o 308
+(`permanent`) fica cacheado no navegador e mascara a mudança — quem já tinha
+visitado o domínio continuaria indo para o destino antigo até limpar o cache.
+Por isso, se o número do WhatsApp mudar depois, basta editar o `redir` e
+recarregar. Valide sempre com `curl -sI` e só considere `permanent` quando o
+destino estiver definitivo:
+
+```bash
+curl -sI https://umamisushiarte.com.br | grep -i location
+```
 
 Depois de criar/alterar, é só recarregar o Caddy — ele pega os certificados
 sozinho, sem reiniciar containers:
@@ -98,8 +105,8 @@ chamada de API ser bloqueada pelo navegador**, sem erro visível no servidor.
 O `docker-compose.yml` usa `CORS_ORIGIN=${CORS_ORIGIN:-https://${DOMAIN}}`,
 então a lista completa vai no `.env`, separada por vírgula e **sem espaços**.
 Aqui só entram os endereços que **servem o app** — o domínio raiz e o `www.`
-redirecionam para a vitrine, então não precisam (e não devem) estar na
-lista:
+redirecionam para o WhatsApp (não servem o app), então não precisam (e não
+devem) estar na lista:
 
 ```
 CORS_ORIGIN=https://app.umamisushiarte.com.br
