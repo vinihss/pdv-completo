@@ -78,6 +78,7 @@ export async function seedFixture() {
     .insert(storeSettings)
     .values({
       id: "singleton",
+      storeId: "00000000-0000-0000-0000-000000000001",
       merchantName: "Teste Café",
       merchantCity: "Sao Paulo",
       enabledPaymentMethods: JSON.stringify(["cash", "card", "pix", "other"]),

@@ -27,10 +27,6 @@ export const Errors = {
     new AppError("invalid_kitchen_thresholds", 400, "O limiar urgente precisa ser maior que o de alerta."),
   invalidTransition: (msg = "Transição de status inválida.") =>
     new AppError("invalid_transition", 400, msg),
-  // Mesmo código de invalidTransition, mas 409: o eixo delivery e o
-  // cancelamento do cliente são conflito de estado do pedido (docs/05
-  // "Conflitos"), não erro de validação de request (docs/01 usa 400 no
-  // PATCH de item, que é outro contexto).
   invalidDeliveryTransition: (msg = "Transição de entrega inválida.") =>
     new AppError("invalid_transition", 409, msg),
   pinNotAllowedHere: () =>
@@ -156,4 +152,31 @@ export const Errors = {
   // permissão). O detalhe vai junto para o gerente ver na UI.
   whatsappProviderError: (message: string, details?: unknown) =>
     new AppError("whatsapp_provider_error", 502, `A Meta recusou a conexão: ${message}`, details),
+  storeNotResolved: () => new AppError("store_not_resolved", 404, "Não foi possível identificar a loja. Acesse pelo subdomínio correto."),
+  storeInactive: () => new AppError("store_inactive", 403, "Esta loja está inativa ou suspensa."),
+  // ---------- Pagar.me / PagarMe ----------
+  paymentGatewayNotConfigured: () =>
+    new AppError(
+      "payment_gateway_not_configured",
+      409,
+      "O Pagar.me ainda não está configurado para esta loja. Solicite o cadastro no painel administrativo."
+    ),
+  recipientNotConfigured: () =>
+    new AppError(
+      "recipient_not_configured",
+      409,
+      "O Pagar.me não está configurado para esta loja. Cadastre o recebedor antes de processar pagamentos."
+    ),
+  recipientAlreadyConfigured: () =>
+    new AppError(
+      "recipient_already_configured",
+      409,
+      "Uma conta Pagar.me já está cadastrada para esta loja."
+    ),
+  recipientRejected: () =>
+    new AppError(
+      "recipient_rejected",
+      403,
+      "A conta Pagar.me desta loja foi rejeitada no KYC. Verifique a documentação no painel."
+    ),
 };

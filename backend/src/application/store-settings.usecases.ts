@@ -12,8 +12,8 @@ import { NominatimGeocodingService } from "../integrations/maps/geocoding.servic
 
 const cache = getCache();
 
-function invalidateStoreSettingsRelated() {
-  cache.invalidate("store-settings:singleton");
+function invalidateStoreSettingsRelated(storeId: string) {
+  cache.invalidate(`store-settings:${storeId}`);
 }
 
 function serialize(s: typeof storeSettings.$inferSelect) {
@@ -47,17 +47,18 @@ function serialize(s: typeof storeSettings.$inferSelect) {
   };
 }
 
-export async function getStoreSettingsUsecase() {
-  const cached = cache.get<ReturnType<typeof serialize>>("store-settings:singleton");
+export async function getStoreSettingsUsecase(storeId: string) {
+  const key = `store-settings:${storeId}`;
+  const cached = cache.get<ReturnType<typeof serialize>>(key);
   if (cached) return cached;
-  const s = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
+  const s = await db.query.storeSettings.findFirst({ where: eq(storeSettings.storeId, storeId) });
   if (!s) throw Errors.notFound("Configuração da loja");
   const result = serialize(s);
-  cache.set("store-settings:singleton", result, { ttl: 300 });
+  cache.set(key, result, { ttl: 300 });
   return result;
 }
 
-export async function updateStoreSettingsUsecase(input: {
+export async function updateStoreSettingsUsecase(storeId: string, input: {
   merchantName: string;
   merchantCity: string;
   brandColor: string;
@@ -91,7 +92,7 @@ export async function updateStoreSettingsUsecase(input: {
   if (!/^#[0-9a-fA-F]{6}$/.test(input.brandColor)) throw Errors.validationFailed({ field: "brandColor" });
   if (input.kitchenPrepUrgentMin <= input.kitchenPrepWarnMin) throw Errors.invalidKitchenThresholds();
 
-  const current = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
+  const current = await db.query.storeSettings.findFirst({ where: eq(storeSettings.storeId, storeId) });
   if (!current) throw Errors.notFound("Configuração da loja");
 
   const nameOrCityChanged = input.merchantName !== current.merchantName || input.merchantCity !== current.merchantCity;
@@ -132,10 +133,10 @@ export async function updateStoreSettingsUsecase(input: {
       deliveryPrepMinutes: input.deliveryPrepMinutes ?? 40,
       minutesPerKm: input.minutesPerKm ?? 2,
     })
-    .where(eq(storeSettings.id, "singleton"))
+    .where(eq(storeSettings.storeId, storeId))
     .returning();
 
-  invalidateStoreSettingsRelated();
+  invalidateStoreSettingsRelated(storeId);
 
   if (nameOrCityChanged) {
     const geocodingService = new NominatimGeocodingService();
@@ -145,10 +146,10 @@ export async function updateStoreSettingsUsecase(input: {
         await tx
           .update(storeSettings)
           .set({ restaurantLat: coords.latitude, restaurantLong: coords.longitude })
-          .where(eq(storeSettings.id, "singleton"));
+          .where(eq(storeSettings.storeId, storeId));
         await logAction(tx, "system", "restaurant_geocoded", null, { latitude: coords.latitude, longitude: coords.longitude });
       });
-      invalidateStoreSettingsRelated();
+      invalidateStoreSettingsRelated(storeId);
       updated.restaurantLat = coords.latitude;
       updated.restaurantLong = coords.longitude;
     } catch (err) {
@@ -185,8 +186,10 @@ function removeFile(fullPath: string | null) {
   }
 }
 
-export async function saveStoreLogoUsecase(input: { buffer: Buffer; ext: string }, actorId: string) {
-  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
+export async function saveStoreLogoUsecase(storeId: string, input: { buffer: Buffer; ext: string }, actorId: string) {
+  const settings = await db.query.storeSettings.findFirst({
+    where: eq(storeSettings.storeId, storeId),
+  });
   if (!settings) throw Errors.notFound("Configuração da loja");
 
   const filename = `logo.${input.ext}`;
@@ -204,17 +207,19 @@ export async function saveStoreLogoUsecase(input: { buffer: Buffer; ext: string 
     const [row] = await tx
       .update(storeSettings)
       .set({ logoPath: filename })
-      .where(eq(storeSettings.id, "singleton"))
+      .where(eq(storeSettings.storeId, storeId))
       .returning();
     await logAction(tx, actorId, "store_logo_changed", null, { logoPath: filename });
     return row;
   });
-  invalidateStoreSettingsRelated();
+  invalidateStoreSettingsRelated(storeId);
   return serialize(updated);
 }
 
-export async function clearStoreLogoUsecase(actorId: string) {
-  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
+export async function clearStoreLogoUsecase(storeId: string, actorId: string) {
+  const settings = await db.query.storeSettings.findFirst({
+    where: eq(storeSettings.storeId, storeId),
+  });
   if (!settings) throw Errors.notFound("Configuração da loja");
   if (!settings.logoPath) return serialize(settings);
 
@@ -223,11 +228,11 @@ export async function clearStoreLogoUsecase(actorId: string) {
     const [row] = await tx
       .update(storeSettings)
       .set({ logoPath: null })
-      .where(eq(storeSettings.id, "singleton"))
+      .where(eq(storeSettings.storeId, storeId))
       .returning();
     await logAction(tx, actorId, "store_logo_removed", null);
     return row;
   });
-  invalidateStoreSettingsRelated();
+  invalidateStoreSettingsRelated(storeId);
   return serialize(updated);
 }

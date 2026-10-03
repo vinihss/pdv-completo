@@ -162,3 +162,52 @@ umamisushiarte.com.br, www.umamisushiarte.com.br {
 app.umamisushiarte.com.br {
 	import site
 }
+
+# ============================================================
+# ---------- Multi-tenant por subdomínio ----------
+#
+# *.labolabe.tech deve apontar (DNS A) para o IP do servidor e o
+# Caddy resolve o subdomínio → store:
+#
+#   restaurante1.labolabe.tech → store slug "restaurante1"
+#   restaurante2.labolabe.tech → store slug "restaurante2"
+#   app.labolabe.tech          → store slug "app"
+#   www.labolabe.tech          → resolve para a loja padrão
+#
+# TLS: um wildcard `*.labolabe.tech` exige o desafio DNS-01 do Let's
+# Encrypt, e a imagem `caddy:2-alpine` não traz plugins de DNS. Opções:
+#
+#   1) Caddy com plugin DNS (cloudflare, aws, etc.) — habilita
+#      `*.labolabe.tech` com um único certificado wildcard.
+#   2) Cada subdomínio individual (HTTP-01 funciona):
+#        restaurante1.labolabe.tech { import site }
+#        ...
+#   3) Certificado wildcard manual: coloque o cert + key em
+#      /etc/caddy/certs/*.labolabe.tech.pem e use `tls`.
+#
+# O middleware de tenant (backend/src/http/middlewares/tenant.middleware.ts)
+# lê o subdomínio do Host e escolhe a loja — por isso o slug do tenant
+# deve bater com a parte antes do primeiro "." do hostname.
+# ============================================================
+# *.labolabe.tech {
+# 	# Caddyfile: sem plugins, este bloco NÃO gera wildcard.
+# 	# Descomentar quando houver certificado wildcard (opção 1 ou 3 acima):
+# 	# import site
+# 	# tls {
+# 	# 	dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+# 	# }
+# }
+
+# Exemplos individuais (HTTP-01, funcionam sem plugin DNS):
+restaurante1.labolabe.tech {
+	import site
+}
+restaurante2.labolabe.tech {
+	import site
+}
+app.labolabe.tech {
+	import site
+}
+www.labolabe.tech {
+	import site
+}

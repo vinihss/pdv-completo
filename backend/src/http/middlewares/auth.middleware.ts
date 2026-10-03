@@ -8,6 +8,7 @@ export type Role = "waiter" | "kitchen" | "manager" | "courier" | "cashier";
 export interface AuthUser {
   sub: string; // user id
   role: Role;
+  storeId?: string; // multi-tenant (Fase 2)
 }
 
 declare module "fastify" {
