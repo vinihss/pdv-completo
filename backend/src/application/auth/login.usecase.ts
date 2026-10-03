@@ -6,11 +6,36 @@ import { stores, users } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
 import { config } from "../../config/env.js";
 import { photoUrl } from "../user.usecases.js";
+import { belongsToStore } from "./user-store-scope.js";
 
 const MAX_ATTEMPTS = 5;
 const LOCK_MS = 5 * 60_000;
 
-export async function loginUsecase(userId: string, rawPin: string) {
+/**
+ * Contabiliza uma tentativa de login errada (incrementa `failedAttempts` e
+ * trava a conta em `MAX_ATTEMPTS`). É a mesma conta para PIN errado e para
+ * tentativa de outra loja: a tentativa aconteceu, o lockout protege a conta.
+ */
+async function countFailedAttempt(u: Pick<typeof users.$inferSelect, "id" | "failedAttempts">) {
+  const attempts = u.failedAttempts + 1;
+  const shouldLock = attempts >= MAX_ATTEMPTS;
+  await db
+    .update(users)
+    .set({
+      failedAttempts: attempts,
+      lockedUntil: shouldLock ? new Date(Date.now() + LOCK_MS).toISOString() : null,
+    })
+    .where(eq(users.id, u.id));
+}
+
+/**
+ * Autentica um usuário por PIN dentro da LOJA resolvida do request.
+ *
+ * `storeId` vem da camada HTTP (`req.storeId!`, resolvido pelo tenant
+ * middleware): o usecase não conhece o request — a loja entra como parâmetro
+ * explícito, como em todo o resto da camada application.
+ */
+export async function loginUsecase(userId: string, rawPin: string, storeId: string) {
   const u = await db.query.users.findFirst({ where: eq(users.id, userId) });
   if (!u || !u.active) throw Errors.invalidCredentials();
 
@@ -18,17 +43,22 @@ export async function loginUsecase(userId: string, rawPin: string) {
     throw Errors.invalidCredentials(); // mensagem genérica de propósito — não vaza motivo do bloqueio
   }
 
+  // Multi-tenant: o usuário só autentica na loja a que pertence. Sem isto um
+  // PIN válido da loja B logava pela superfície da loja A — além de confirmar
+  // que o userId existe, permitia brute force de PIN de outra loja por aqui.
+  // A resposta é o MESMO invalid_credentials genérico do resto do fluxo: não
+  // vaza que a loja está errada nem que o usuário pertence a outra store
+  // (anti-enumeração, mesmo padrão já usado pro motivo do bloqueio).
+  if (!belongsToStore(u.storeId, storeId)) {
+    // A tentativa conta normalmente pro lockout (a tentativa existe) — só a
+    // resposta continua genérica.
+    await countFailedAttempt(u);
+    throw Errors.invalidCredentials();
+  }
+
   const valid = await argon2.verify(u.pinHash, rawPin);
   if (!valid) {
-    const attempts = u.failedAttempts + 1;
-    const shouldLock = attempts >= MAX_ATTEMPTS;
-    await db
-      .update(users)
-      .set({
-        failedAttempts: attempts,
-        lockedUntil: shouldLock ? new Date(Date.now() + LOCK_MS).toISOString() : null,
-      })
-      .where(eq(users.id, userId));
+    await countFailedAttempt(u);
     throw Errors.invalidCredentials();
   }
 
