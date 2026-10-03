@@ -153,6 +153,7 @@ export const Errors = {
   whatsappProviderError: (message: string, details?: unknown) =>
     new AppError("whatsapp_provider_error", 502, `A Meta recusou a conexão: ${message}`, details),
   storeNotResolved: () => new AppError("store_not_resolved", 404, "Não foi possível identificar a loja. Acesse pelo subdomínio correto."),
+  tenantMismatch: () => new AppError("tenant_mismatch", 403, "O login pertence a outra loja. Acesse pelo subdomínio correto."),
   storeInactive: () => new AppError("store_inactive", 403, "Esta loja está inativa ou suspensa."),
   // ---------- Pagar.me / PagarMe ----------
   paymentGatewayNotConfigured: () =>

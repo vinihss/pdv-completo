@@ -82,6 +82,9 @@ export const users = pgTable("user", {
   phone: text("phone"),
   email: text("email"),
   photoPath: text("photo_path"),
+  // Multi-tenant (Fase 2, migration 0008): store dona do usuário. Tipado aqui
+  // para o login conseguir embutir a store no JWT (AuthUser.storeId).
+  storeId: text("store_id"), // FK em 0008 (stores); text puro p/ evitar inferência circular no drizzle
   createdAt: text("created_at").notNull().default(isoNow),
   updatedAt: text("updated_at").notNull().default(isoNow),
 });
