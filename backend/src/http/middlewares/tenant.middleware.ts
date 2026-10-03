@@ -27,7 +27,7 @@ declare module "fastify" {
  */
 export async function resolveTenantMiddleware(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
   // Rotas públicas que não requerem resolução de store
-  const publicPaths = ["/health", "/public/", "/uploads/"];
+  const publicPaths = ["/health", "/uploads/"];
   const path = req.url ?? "";
   if (publicPaths.some((prefix) => path.startsWith(prefix))) {
     return;
@@ -68,6 +68,21 @@ export async function resolveTenantMiddleware(req: FastifyRequest, _reply: Fasti
     store = await db.query.stores.findFirst({
       where: eq(stores.id, req.authUser.storeId),
     });
+  }
+
+  if (!store) {
+    // 4. Fallback: store "default" apenas quando não há subdomínio derivável
+    //    (localhost, 127.0.0.1, *.localhost, apex do domínio) ou quando o
+    //    subdomínio é "www". Subdomínio presente e desconhecido (ex.: "foo")
+    //    continua 404, e X-Store-ID inválido não cai silenciosamente no
+    //    fallback.
+    const storeIdHeader = req.headers["x-store-id"] as string | undefined;
+    const noDerivableSubdomain = parts.length < 3 || subdomain === "www";
+    if (!storeIdHeader && noDerivableSubdomain) {
+      store = await db.query.stores.findFirst({
+        where: eq(stores.slug, "default"),
+      });
+    }
   }
 
   if (!store) {
