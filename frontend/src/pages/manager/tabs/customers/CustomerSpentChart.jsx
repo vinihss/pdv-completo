@@ -26,7 +26,7 @@ import { formatBRL } from "@/shared/lib";
  * Sem nenhum dia com valor, texto. Eixo vazio com grade e sem barra parece
  * bug, e o gerente não sabe dizer se falhou ou se o cliente não veio.
  */
-export default function CustomerSpentChart({ series = [], loading, selectedDay, onSelectDay, height = 190 }) {
+export default function CustomerSpentChart({ series = [], loading, selectedDay, onSelectDay, height }) {
   if (loading) {
     return (
       <div className="text-stone-600 text-center py-10" data-testid="customer-chart-loading">
@@ -44,32 +44,37 @@ export default function CustomerSpentChart({ series = [], loading, selectedDay, 
     );
   }
 
+  // 30 dias em barras horizontais: a altura cresce com a série para cada dia
+  // ter linha legível (~24px por dia), com um piso. `height` ainda pode forçar.
+  const chartHeight = height ?? Math.max(240, series.length * 24);
+
   return (
     <div className="space-y-2">
-      <div style={{ height }} data-testid="customer-chart">
+      <div style={{ height: chartHeight }} data-testid="customer-chart">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={series} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-            <CartesianGrid stroke="#292524" strokeDasharray="3 3" vertical={false} />
+          <BarChart layout="vertical" data={series} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+            <CartesianGrid stroke="#292524" strokeDasharray="3 3" horizontal={false} />
             <XAxis
-              dataKey="label"
+              type="number"
               tick={{ fill: "#78716c", fontSize: 10 }}
               tickLine={false}
               axisLine={{ stroke: "#292524" }}
-              interval="preserveStartEnd"
-              minTickGap={8}
+              tickFormatter={(v) => formatBRL(v)}
             />
             <YAxis
+              type="category"
+              dataKey="label"
               tick={{ fill: "#78716c", fontSize: 10 }}
               tickLine={false}
               axisLine={false}
               width={56}
-              tickFormatter={(v) => formatBRL(v)}
+              interval={0}
             />
             <Tooltip content={<DayTooltip />} cursor={{ fill: "#57534e", fillOpacity: 0.12 }} />
             <Bar
               dataKey="total"
               fill="#f59e0b"
-              radius={[2, 2, 0, 0]}
+              radius={[0, 2, 2, 0]}
               isAnimationActive={false}
               cursor="pointer"
               onClick={(entry, index) => {
