@@ -62,3 +62,4 @@ standalone-*/.local-signing.key.pub
 /ws-gateway/ws-gateway
 /ws-gateway/*.exe
 data.db*
+.idea/
