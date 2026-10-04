@@ -170,7 +170,11 @@ function serializeDelivery(d: typeof deliveries.$inferSelect) {
 // Total da comanda a partir do snapshot unit_price (nunca o preço atual do
 // produto), arredondado pra 2 casas. Itens "cancelled" não contam (mesma
 // regra do relatório de vendas). Roda dentro da transação do fechamento.
-async function computeOrderTotal(tx: Tx, order: typeof orders.$inferSelect): Promise<number> {
+//
+// Exportado para a camada de pagamento no gateway (application/payment): a
+// cobrança tem que ser o MESMO total que o fechamento vai conferir, e duplicar
+// a fórmula aqui seria o jeito de os dois divergirem num item cancelado.
+export async function computeOrderTotal(tx: Tx, order: typeof orders.$inferSelect): Promise<number> {
   const rows = await tx
     .select({ unitPrice: orderItems.unitPrice, quantity: orderItems.quantity })
     .from(orderItems)
