@@ -66,7 +66,7 @@ nunca bloqueia: numa loja sem internet o PDV abre na versão em disco. Ver
 
 ## Decisões de configuração (gerente)
 
-Tabela `store_settings` (singleton) concentra os parâmetros que mudam o comportamento do app sem precisar de deploy:
+Tabela `store_settings` concentra os parâmetros que mudam o comportamento do app sem precisar de deploy. É um **singleton** (uma linha só, `id = 'singleton'`) e cada instalação atende um estabelecimento:
 
 | Campo | Efeito |
 |---|---|

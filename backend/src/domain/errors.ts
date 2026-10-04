@@ -152,31 +152,4 @@ export const Errors = {
   // permissão). O detalhe vai junto para o gerente ver na UI.
   whatsappProviderError: (message: string, details?: unknown) =>
     new AppError("whatsapp_provider_error", 502, `A Meta recusou a conexão: ${message}`, details),
-  storeNotResolved: () => new AppError("store_not_resolved", 404, "Não foi possível identificar a loja. Acesse pelo subdomínio correto."),
-  storeInactive: () => new AppError("store_inactive", 403, "Esta loja está inativa ou suspensa."),
-  // ---------- Pagar.me / PagarMe ----------
-  paymentGatewayNotConfigured: () =>
-    new AppError(
-      "payment_gateway_not_configured",
-      409,
-      "O Pagar.me ainda não está configurado para esta loja. Solicite o cadastro no painel administrativo."
-    ),
-  recipientNotConfigured: () =>
-    new AppError(
-      "recipient_not_configured",
-      409,
-      "O Pagar.me não está configurado para esta loja. Cadastre o recebedor antes de processar pagamentos."
-    ),
-  recipientAlreadyConfigured: () =>
-    new AppError(
-      "recipient_already_configured",
-      409,
-      "Uma conta Pagar.me já está cadastrada para esta loja."
-    ),
-  recipientRejected: () =>
-    new AppError(
-      "recipient_rejected",
-      403,
-      "A conta Pagar.me desta loja foi rejeitada no KYC. Verifique a documentação no painel."
-    ),
 };

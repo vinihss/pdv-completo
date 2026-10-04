@@ -5,7 +5,7 @@ import { Errors } from "../../domain/errors.js";
 import { SYSTEM_USER_ID } from "../../domain/constants.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
-import { openOrderUsecase, addItemsUsecase, getOrderUsecase, registerPaymentUsecase } from "../order/order.usecases.js";
+import { openOrderUsecase, addItemsUsecase, getOrderUsecase, registerPaymentUsecase, getSettings } from "../order/order.usecases.js";
 import { formatAddress, addCustomerAddressUsecase } from "./customer-address.usecases.js";
 import { deriveCustomerStage, stageTimeline, CUSTOMER_STAGES } from "../../domain/customer-order-state.js";
 import { emitCustomerStageChangedTx } from "./customer-stage.js";
@@ -141,8 +141,7 @@ export async function createSelfServiceOrderUsecase(input: {
   }
 
   // 3. Taxa de entrega — snapshot da configuração atual, gravado no pedido (§04 "Taxa de entrega").
-  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
-  if (!settings) throw new Error("store_settings não inicializado — rode o seed.");
+  const settings = await getSettings();
 
   // 4. Cria o pedido reaproveitando as mesmas usecases do garçom — só muda quem abre (SYSTEM_USER_ID) e o channel.
   const order = await openOrderUsecase({
@@ -154,7 +153,11 @@ export async function createSelfServiceOrderUsecase(input: {
     notes: input.notes,
   });
 
-  const items = await addItemsUsecase({ orderId: order.id, userId: SYSTEM_USER_ID, items: input.items });
+  const items = await addItemsUsecase({
+    orderId: order.id,
+    userId: SYSTEM_USER_ID,
+    items: input.items,
+  });
 
   // Sem isso, closeOrderUsecase rejeitaria o fechamento por
   // "payment_not_registered" quando a entrega for confirmada (ver

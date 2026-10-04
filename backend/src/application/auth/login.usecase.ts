@@ -10,6 +10,23 @@ import { photoUrl } from "../user.usecases.js";
 const MAX_ATTEMPTS = 5;
 const LOCK_MS = 5 * 60_000;
 
+/**
+ * Contabiliza uma tentativa de login errada (incrementa `failedAttempts` e
+ * trava a conta em `MAX_ATTEMPTS`).
+ */
+async function countFailedAttempt(u: Pick<typeof users.$inferSelect, "id" | "failedAttempts">) {
+  const attempts = u.failedAttempts + 1;
+  const shouldLock = attempts >= MAX_ATTEMPTS;
+  await db
+    .update(users)
+    .set({
+      failedAttempts: attempts,
+      lockedUntil: shouldLock ? new Date(Date.now() + LOCK_MS).toISOString() : null,
+    })
+    .where(eq(users.id, u.id));
+}
+
+/** Autentica um usuário por PIN. */
 export async function loginUsecase(userId: string, rawPin: string) {
   const u = await db.query.users.findFirst({ where: eq(users.id, userId) });
   if (!u || !u.active) throw Errors.invalidCredentials();
@@ -20,15 +37,7 @@ export async function loginUsecase(userId: string, rawPin: string) {
 
   const valid = await argon2.verify(u.pinHash, rawPin);
   if (!valid) {
-    const attempts = u.failedAttempts + 1;
-    const shouldLock = attempts >= MAX_ATTEMPTS;
-    await db
-      .update(users)
-      .set({
-        failedAttempts: attempts,
-        lockedUntil: shouldLock ? new Date(Date.now() + LOCK_MS).toISOString() : null,
-      })
-      .where(eq(users.id, userId));
+    await countFailedAttempt(u);
     throw Errors.invalidCredentials();
   }
 

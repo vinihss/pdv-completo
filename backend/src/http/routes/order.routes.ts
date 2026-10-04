@@ -119,7 +119,11 @@ export async function orderRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const body = addItemsSchema.parse(req.body);
       const result = await withIdempotency(`POST /orders/${id}/items`, body.correlationId, body, async () => {
-        const items = await addItemsUsecase({ orderId: id, userId: req.authUser!.sub, items: body.items });
+        const items = await addItemsUsecase({
+          orderId: id,
+          userId: req.authUser!.sub,
+          items: body.items,
+        });
         return { status: 201, body: { data: items } };
       });
       return reply.code(result.status).send(result.body);
@@ -168,7 +172,11 @@ export async function orderRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as { id: string };
       const body = setPaymentsSchema.parse(req.body);
-      return setOrderPaymentsUsecase({ orderId: id, userId: req.authUser!.sub, payments: body.payments });
+      return setOrderPaymentsUsecase({
+        orderId: id,
+        userId: req.authUser!.sub,
+        payments: body.payments,
+        });
     }
   );
 

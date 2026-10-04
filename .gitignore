@@ -56,3 +56,8 @@ standalone-*/gen/
 # Chave de assinatura local por app (build local sem chave de entrega)
 standalone-*/.local-signing.key
 standalone-*/.local-signing.key.pub
+
+# Gateway WebSocket em Go (módulo aninhado, mesmo caso do printer/daemon).
+# O binário é compilado no build da imagem / no deploy, nunca versionado.
+/ws-gateway/ws-gateway
+/ws-gateway/*.exe

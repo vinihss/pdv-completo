@@ -11,7 +11,7 @@ npm run test
 
 **Framework**: vitest 5 + PostgreSQL dedicado `pdv_test` (recriado no global setup via `TEST_DATABASE_URL`).
 
-### Suítes (17 arquivos)
+### Suítes (20 arquivos)
 
 | Arquivo | Cobertura |
 |---|---|

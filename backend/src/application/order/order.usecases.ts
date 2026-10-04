@@ -48,6 +48,8 @@ const cache = getCache();
 // drizzle propaga o erro), então os AppError de domínio seguem funcionando
 // igual.
 
+// Settings da loja — singleton (id = 'singleton').
+// Nunca importar `req` aqui: esta camada não conhece HTTP.
 export async function getSettings() {
   const s = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
   if (!s) throw new Error("store_settings não inicializado — rode o seed.");
@@ -412,9 +414,9 @@ export async function updateItemStatusUsecase(input: {
   newStatus: "ready" | "delivered";
   expectedVersion: number;
 }) {
-  const settings = await getSettings();
   const item = await db.query.orderItems.findFirst({ where: eq(orderItems.id, input.itemId) });
   if (!item || item.orderId !== input.orderId) throw Errors.notFound("Item");
+  const settings = await getSettings();
 
   // Validação de transição por modo (§7.2, kitchen_enabled)
   if (settings.kitchenEnabled) {
@@ -487,10 +489,14 @@ export async function updateItemStatusUsecase(input: {
 }
 
 // ---------- DELETE /orders/:id/items/:itemId ----------
-export async function deleteItemUsecase(input: { orderId: string; itemId: string; userId: string }) {
-  const settings = await getSettings();
+export async function deleteItemUsecase(input: {
+  orderId: string;
+  itemId: string;
+  userId: string;
+}) {
   const item = await db.query.orderItems.findFirst({ where: eq(orderItems.id, input.itemId) });
   if (!item || item.orderId !== input.orderId) throw Errors.notFound("Item");
+  const settings = await getSettings();
   // Modo sem cozinha: a comanda não controla status — item já entra entregue,
   // então exclusão por engano continua permitida. Com cozinha, item entregue é imutável.
   if (settings.kitchenEnabled && item.status === "delivered") throw Errors.itemAlreadyDelivered();

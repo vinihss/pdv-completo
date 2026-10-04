@@ -83,7 +83,11 @@ export async function ingestIfoodOrder(order: IfoodOrder): Promise<{
 
   // 4. Itens — addItemsUsecase já roteia por estação (kitchen-display) e
   //    snapshotta o preço local.
-  const items = await addItemsUsecase({ orderId: orderLocal.id, userId: SYSTEM_USER_ID, items: mappedItems });
+  const items = await addItemsUsecase({
+    orderId: orderLocal.id,
+    userId: SYSTEM_USER_ID,
+    items: mappedItems,
+  });
 
   // Persiste os métodos de pagamento do iFood (usados no CONCLUDED, Etapa C).
   if (order.payments && order.payments.length > 0) {

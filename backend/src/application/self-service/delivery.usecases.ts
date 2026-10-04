@@ -75,7 +75,10 @@ export async function listCourierDeliveriesUsecase(input: {
 }
 
 // ---------- PATCH /courier/deliveries/:id/dispatch ----------
-export async function dispatchDeliveryUsecase(input: { deliveryId: string; courierId: string }) {
+export async function dispatchDeliveryUsecase(input: {
+  deliveryId: string;
+  courierId: string;
+}) {
   const delivery = await getOwnedDelivery(input.deliveryId, input.courierId);
   // Transição validada pela máquina declarativa (customer-order-state.ts) —
   // regra única compartilhada com deliver/fail/cancelamento.
@@ -110,7 +113,10 @@ export async function dispatchDeliveryUsecase(input: { deliveryId: string; couri
 }
 
 // ---------- PATCH /courier/deliveries/:id/deliver ----------
-export async function deliverDeliveryUsecase(input: { deliveryId: string; courierId: string }) {
+export async function deliverDeliveryUsecase(input: {
+  deliveryId: string;
+  courierId: string;
+}) {
   const delivery = await getOwnedDelivery(input.deliveryId, input.courierId);
   if (!canTransitionDelivery(delivery.status, "delivered"))
     throw Errors.invalidDeliveryTransition("Entrega não está em trânsito.");

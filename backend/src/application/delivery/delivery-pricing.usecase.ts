@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { storeSettings } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
@@ -46,12 +47,13 @@ export function calculateDeliveryFee(tiers: DeliveryFeeTier[], distanceKm: numbe
   return null;
 }
 
+/** Faixas de frete da loja. */
 export async function getDeliveryPricingUsecase(): Promise<{
   tiers: DeliveryFeeTier[];
   freeDeliveryMin: number;
 }> {
-  const settings = await db.query.storeSettings.findFirst();
-  if (!settings) throw new Error("store_settings não inicializado");
+  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
+  if (!settings) throw new Error("store_settings não inicializado.");
 
   return {
     tiers: parseTiers(settings.deliveryFeeTiers),

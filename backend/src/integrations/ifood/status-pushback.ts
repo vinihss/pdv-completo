@@ -61,7 +61,9 @@ export async function concludeIfoodOrder(orderRef: string): Promise<boolean> {
   const order = await db.query.orders.findFirst({ where: eq(orders.externalRef, orderRef) });
   if (!order || order.channel !== "ifood" || order.status !== "open") return false;
 
-  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
+  const settings = await db.query.storeSettings.findFirst({
+    where: eq(storeSettings.id, "singleton"),
+  });
   const enabled: string[] = settings ? JSON.parse(settings.enabledPaymentMethods) : [];
   const ifoodPayments: Array<{ method?: string; type?: string }> = order.ifoodPayments
     ? JSON.parse(order.ifoodPayments)

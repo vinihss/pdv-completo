@@ -108,7 +108,7 @@ const cartQuerySchema = z.object({ phone: z.string().min(1) });
 // não HTTP — ver 05-delivery-api-contracts.md).
 export async function publicRoutes(app: FastifyInstance) {
   async function assertDeliveryEnabled(req: any) {
-    const s = await getStoreSettingsUsecase(req.storeId!);
+    const s = await getStoreSettingsUsecase();
     if (!s.usesDelivery) throw Errors.deliveryDisabled();
   }
 

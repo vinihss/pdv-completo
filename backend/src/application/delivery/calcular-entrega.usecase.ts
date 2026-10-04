@@ -80,8 +80,8 @@ async function setCachedGeocoding(key: string, address: GeocodedAddress) {
 export async function calcularEntregaUsecase(input: CalcularEntregaInput): Promise<CalcularEntregaResult> {
   validateCoordinates(input.latitude, input.longitude);
 
-  const settings = await db.query.storeSettings.findFirst();
-  if (!settings) throw new Error("store_settings não inicializado");
+  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
+  if (!settings) throw new Error("store_settings não inicializado.");
 
   if (settings.restaurantLat == null || settings.restaurantLong == null) {
     throw Errors.validationFailed({ reason: "restaurante sem coordenadas configuradas" });
