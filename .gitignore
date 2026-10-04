@@ -45,6 +45,14 @@ frontend/src-tauri/gen/
 standalone-*/target/
 standalone-*/binaries/
 standalone-*/gen/
+# Exceção: o `gen/android/` do Garçom é FONTE, não artefato — é ele que carrega
+# o AndroidManifest, a liberação de cleartext para o plano local, o signing do
+# release e a correção do BuildTask (o template chama `node tauri`, que não
+# resolve com `@tauri-apps/cli`). Versionado do mesmo jeito que
+# `frontend/src-tauri/gen/`. Os descartáveis continuam fora: `/gen/schemas`
+# (standalone-garcon/.gitignore) e build/, .gradle, local.properties,
+# keystore.properties, *.keystore (gen/android/.gitignore).
+!standalone-garcon/gen/
 # Chave de assinatura local por app (build local sem chave de entrega)
 standalone-*/.local-signing.key
 standalone-*/.local-signing.key.pub
