@@ -39,6 +39,7 @@ printer/   Daemon Go para impressão térmica (ESC/POS)
 | `docs/14-usabilidade-e-processos.md` | Backlog priorizado: fluxo de pedido, gestão e caixa (8 bugs de confiabilidade + 40 propostas em 8 camadas, roadmap P0-P5) |
 | `docs/15-multi-tenant-schema.md` | Multi-tenant por **schema PostgreSQL** (subdomínio → tenant): arquitetura, decisões, fases e riscos |
 | `docs/16-pendencias.md` | Pendências do planejamento multi-tenant + intenção de unificar migrations numa única baseline |
+| `docs/17-runbook-unificacao-migrations.md` | Runbook do cutover para o baseline único de migrations (com validação de backup) |
 
 ### Guias para agentes
 
@@ -233,7 +234,7 @@ que `pre-push` deixa tag passar.
 - **ESM + NodeNext**: imports com extensão `.js`
 - **Camadas**: `domain` → `application` → `infra` → `http`
 - **Transações assíncronas**: todo acesso dentro de `db.transaction` é `await tx...`
-- **Migrations**: 5 arquivos, próximo é `0005_*`. Escrever idempotente. O boot falha se a migration falhar
+- **Migrations**: baseline único `backend/migrations/0001_init.sql` (cadeia antiga arquivada em `backend/migrations/archive/`). Novas migrations incrementais vão como `0002_*`, `0003_*`, … — sempre idempotentes. O boot falha se a migration falhar
 - **Audit log + outbox na mesma transação** da escrita de domínio
 - **Erros**: usar `AppError` com código do catálogo em `src/domain/errors.ts`
 - **Idempotência**: endpoints marcados devem usar `withIdempotency` com `correlationId`
