@@ -62,10 +62,10 @@ roll completo é restaurar esse dump. Janela de segundos para 1 loja.
 
 1. **Postgres de produção dá `CREATE` no banco?** ✅ Respondido (2026-10-04): manter a role
    `pdv` como está; separação `pdv_app`/`pdv_dba` fora das fases iniciais.
-2. **Alvo de N tenants em 12 meses** ✅ Respondido (2026-10-04): **sem pool dedicado por
-   tenant** — pool compartilhado com `SET LOCAL search_path`.
-   A dúvida do alvo de N fica menos crítica, mas o pool compartilhado precisa de
-   atenção a `search_path` e timeouts.
+2. **Alvo de N tenants em 12 meses** ✅ Respondido (2026-10-04): **pool dedicado por
+   tenant** (ver nota de revisão em §3 abaixo). Teto honesto ~20 tenants simultâneos com
+   `TENANT_POOL_MAX=4`; acima disso, revisitar (pool compartilhado + `SET LOCAL search_path`
+   fica como plano B no `docs/15` §4.3).
 3. **Credenciais do iFood são por loja?** ✅ **Respondido (2026-10-04):** cada tenant tem a
    sua própria loja no iFood. Plano em `docs/18-ifood-por-loja.md` (sem implementação).
 4. **Impressora:** o daemon (`PRINTER_DAEMON_URL`) é global — 1 por host ou compartilhado entre
@@ -78,9 +78,9 @@ roll completo é restaurar esse dump. Janela de segundos para 1 loja.
 **Registradas em 2026-10-04:**
 - §3.1: **Postgres mantém a role `pdv` como está** (SUPERUSER). Separação
   `pdv_app`/`pdv_dba` fica para a Fase 3 ou mais tarde.
-- §3.2: **NÃO usar pool dedicado por tenant.** O pool do banco será **compartilhado**
-  entre tenants, com `SET LOCAL search_path` por transação/query. Isso muda a Fase 3 do
-  `docs/15` (arquitetura de conexão).
+- §3.2: **Pool dedicado por tenant** (revisado em 2026-10-04 — volta a valer a
+  recomendação do `docs/15`). Teto honesto ~20 tenants simultâneos; acima disso, revisar.
+  Sem `SET LOCAL search_path` global — o pin é por startup packet do pool.
 
 ---
 
