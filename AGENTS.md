@@ -40,6 +40,7 @@ printer/   Daemon Go para impressão térmica (ESC/POS)
 | `docs/15-multi-tenant-schema.md` | Multi-tenant por **schema PostgreSQL** (subdomínio → tenant): arquitetura, decisões, fases e riscos |
 | `docs/16-pendencias.md` | Pendências do planejamento multi-tenant + intenção de unificar migrations numa única baseline |
 | `docs/17-runbook-unificacao-migrations.md` | Runbook do cutover para o baseline único de migrations (com validação de backup) |
+| `docs/18-ifood-por-loja.md` | iFood por tenant: estado atual, delta necessário, riscos (sem implementação) |
 
 ### Guias para agentes
 

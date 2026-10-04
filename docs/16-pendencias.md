@@ -98,6 +98,9 @@ roll completo é restaurar esse dump. Janela de segundos para 1 loja.
 **Veredicto para a pendência §3.3:** hoje credenciais e estado são **globais**; só o toggle
 é por loja. Se cada loja tiver o seu merchant, os itens 1–4 são pré-requisito antes das
 fases 0–2 do multi-tenant.
+
+> Decisão de produto (2026-10-04): **cada tenant tem a sua própria loja no iFood.**
+> Plano detalhado e inventário do código em `docs/18-ifood-por-loja.md` (sem implementação).
 4. **Impressora:** o daemon (`PRINTER_DAEMON_URL`) é global — 1 por host ou compartilhado entre
    lojas? Se compartilhado, o daemon Go (`printer/`) precisa de fila por loja.
 5. **Gerente pode operar 2 lojas?** Impacta o JWT (`t: <schema>`) e exige troca de subdomínio
