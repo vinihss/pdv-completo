@@ -1,16 +1,15 @@
 import { eq } from "drizzle-orm";
-import fs from "node:fs";
-import path from "node:path";
 import { db } from "../infra/db/client.js";
 import { storeSettings } from "../infra/db/schema.js";
 import { Errors } from "../domain/errors.js";
 import { canonicalizePixKey } from "../domain/pix-key.js";
-import { config } from "../config/env.js";
 import { logAction } from "../infra/audit-log.js";
 import { getCache } from "../infra/cache/index.js";
+import { getStorage, isSafeFilename, storageAssetPath, storageFilename } from "../infra/storage/index.js";
 import { NominatimGeocodingService } from "../integrations/maps/geocoding.service.js";
 
 const cache = getCache();
+const storage = getStorage();
 
 function invalidateStoreSettingsRelated() {
   cache.invalidate("store-settings");
@@ -20,7 +19,7 @@ function serialize(s: typeof storeSettings.$inferSelect) {
   return {
     merchantName: s.merchantName,
     merchantCity: s.merchantCity,
-    logoUrl: s.logoPath ? `/uploads/${s.logoPath}` : null,
+    logoUrl: s.logoPath ? storageAssetPath("logo", s.logoPath) : null,
     brandColor: s.brandColor,
     pixKey: s.pixKey,
     pixKeyType: s.pixKeyType,
@@ -161,30 +160,11 @@ export async function updateStoreSettingsUsecase(input: {
 }
 
 // ---------- Logo (identidade) — upload em disco, caminho em store_settings.logo_path ----------
-
-function uploadsDir(): string {
-  const dir = path.resolve(config.uploadsDir);
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-function logoFileFor(s: { logoPath: string | null }): string | null {
-  if (!s.logoPath) return null;
-  // O banco guarda só o nome do arquivo ("logo.<ext>"), sempre gerado por nós.
-  // basename defende contra qualquer path absoluto/relativo que escape do dir.
-  const filename = path.basename(s.logoPath);
-  if (!filename) return null;
-  return path.resolve(uploadsDir(), filename);
-}
-
-function removeFile(fullPath: string | null) {
-  if (!fullPath) return;
-  try {
-    fs.unlinkSync(fullPath);
-  } catch {
-    // arquivo já removido ou inexistente — logo órfão não impede nada
-  }
-}
+//
+// O nome é FIXO (`logo.<ext>`) — era o que fazia a loja B sobrescrever o logo
+// da loja A num diretório único (doc 15 §5.2). Quem resolve agora é o layout:
+// `<uploads>/<schema>/logo/logo.<ext>`, um diretório por tenant. O
+// `logo_path` continua significando "o nome do arquivo do logo".
 
 export async function saveStoreLogoUsecase(input: { buffer: Buffer; ext: string }, actorId: string) {
   const settings = await db.query.storeSettings.findFirst({
@@ -193,15 +173,12 @@ export async function saveStoreLogoUsecase(input: { buffer: Buffer; ext: string 
   if (!settings) throw Errors.notFound("Configuração da loja");
 
   const filename = `logo.${input.ext}`;
-  const target = path.resolve(uploadsDir(), filename);
-  if (!target.startsWith(uploadsDir())) {
-    throw Errors.validationFailed({ field: "logo" });
-  }
-  fs.writeFileSync(target, input.buffer);
+  if (!isSafeFilename(filename)) throw Errors.validationFailed({ field: "logo" });
+  await storage.put("logo", filename, input.buffer);
 
   // Remove o logo antigo quando a extensão muda (logo.jpg → logo.png)
-  const previous = logoFileFor(settings);
-  if (previous && previous !== target) removeFile(previous);
+  const previous = storageFilename(settings.logoPath);
+  if (previous && previous !== filename) await storage.remove("logo", previous);
 
   const updated = await db.transaction(async (tx) => {
     const [row] = await tx
@@ -223,7 +200,8 @@ export async function clearStoreLogoUsecase(actorId: string) {
   if (!settings) throw Errors.notFound("Configuração da loja");
   if (!settings.logoPath) return serialize(settings);
 
-  removeFile(logoFileFor(settings));
+  const previous = storageFilename(settings.logoPath);
+  if (previous) await storage.remove("logo", previous);
   const updated = await db.transaction(async (tx) => {
     const [row] = await tx
       .update(storeSettings)

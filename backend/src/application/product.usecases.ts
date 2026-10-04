@@ -1,17 +1,16 @@
 import { and, asc, count, desc, eq, sql, type SQL } from "drizzle-orm";
-import fs from "node:fs";
-import path from "node:path";
 import { db } from "../infra/db/client.js";
 import { products, categories, kitchenGroups } from "../infra/db/schema.js";
 import { Errors } from "../domain/errors.js";
-import { config } from "../config/env.js";
 import { logAction } from "../infra/audit-log.js";
 import { stockBalances, currentStock, applyStockMovementTx } from "./stock/stock.usecases.js";
 import { normalizeVariations, type VariationGroup } from "../domain/variations.js";
 import { getCache } from "../infra/cache/index.js";
+import { getStorage, isSafeFilename, storageAssetPath, storageFilename } from "../infra/storage/index.js";
 import { normalizeAccents } from "../domain/text.js";
 
 const cache = getCache();
+const storage = getStorage();
 
 function productListKey(input: {
   categoryId?: string;
@@ -34,9 +33,9 @@ function productSearchCondition(search: string): SQL {
 // cadastro de produto). A implementação é pura e mora em domain/variations.ts.
 export { normalizeVariations, type VariationGroup };
 
-// Caminho HTTP da foto, relativo à raiz: /uploads/<id>.<ext>
+// Caminho HTTP da foto, relativo à raiz: /uploads/product/<id>.<ext>
 function imageUrl(filename: string | null | undefined): string | null {
-  return filename ? `/uploads/${filename}` : null;
+  return filename ? storageAssetPath("product", filename) : null;
 }
 
 // Nomes de categoria/grupo de produção para o payload — resolvidos fora do
@@ -296,32 +295,11 @@ export async function setProductActiveUsecase(id: string, active: boolean, actor
 }
 
 // ---------- Foto (upload em disco, caminho gravado em product.image_path) ----------
-
-function uploadsDir(): string {
-  const dir = path.resolve(config.uploadsDir);
-  // Garante que o diretório existe,
-  // mesmo quando o use case roda fora do boot do servidor (testes/cron).
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-function oldFileFor(row: { imagePath: string | null }): string | null {
-  if (!row.imagePath) return null;
-  // O banco guarda só o nome do arquivo ("<id>.<ext>"), sempre gerado por nós.
-  // basename defende contra qualquer path absoluto/relativo que escape do dir.
-  const filename = path.basename(row.imagePath);
-  if (!filename) return null;
-  return path.resolve(uploadsDir(), filename);
-}
-
-function removeFile(fullPath: string | null) {
-  if (!fullPath) return;
-  try {
-    fs.unlinkSync(fullPath);
-  } catch {
-    // arquivo já removido ou inexistente — foto órfã não impede nada
-  }
-}
+//
+// O `storage` (infra/storage) é quem monta o caminho em disco e quem apaga o
+// arquivo antigo; aqui fica só o que é regra de produto: o nome vem do id
+// (o "minha-foto.png" enviado no multipart nunca vira caminho), o `image_path`
+// guarda SÓ o basename e o `logAction` vai na mesma transação do UPDATE.
 
 export async function saveProductImageUsecase(
   id: string,
@@ -332,15 +310,12 @@ export async function saveProductImageUsecase(
   if (!existing) throw Errors.notFound("Produto");
 
   const filename = `${id}.${input.ext}`;
-  const target = path.resolve(uploadsDir(), filename);
-  if (!target.startsWith(uploadsDir())) {
-    throw Errors.validationFailed({ field: "image" });
-  }
-  fs.writeFileSync(target, input.buffer);
+  if (!isSafeFilename(filename)) throw Errors.validationFailed({ field: "image" });
+  await storage.put("product", filename, input.buffer);
 
   // Remove a foto antiga quando o produto trocou a extensão do arquivo
-  const previous = oldFileFor(existing);
-  if (previous && previous !== target) removeFile(previous);
+  const previous = storageFilename(existing.imagePath);
+  if (previous && previous !== filename) await storage.remove("product", previous);
 
   const updated = await db.transaction(async (tx) => {
     const [row] = await tx
@@ -358,7 +333,8 @@ export async function saveProductImageUsecase(
 export async function clearProductImageUsecase(id: string, actorId: string) {
   const existing = await db.query.products.findFirst({ where: eq(products.id, id) });
   if (!existing) throw Errors.notFound("Produto");
-  removeFile(oldFileFor(existing));
+  const previous = storageFilename(existing.imagePath);
+  if (previous) await storage.remove("product", previous);
   const updated = await db.transaction(async (tx) => {
     const [row] = await tx
       .update(products)

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { categories, products } from "../../infra/db/schema.js";
 import { parseVariations, type VariationGroup } from "../../domain/variations.js";
+import { storageAssetPath } from "../../infra/storage/index.js";
 
 // Cardápio público expõe as variações no MESMO formato do payload interno de
 // produto (`VariationGroup[]`: name/options/required/allowMultiple) — o cliente
@@ -36,7 +37,7 @@ export async function getPublicMenuUsecase() {
           description: p.description,
           price: p.price,
           variations: publicVariations(p.variations),
-          imagePath: p.imagePath ? `/uploads/${p.imagePath}` : null,
+          imagePath: p.imagePath ? storageAssetPath("product", p.imagePath) : null,
           // Vitrine: a página monta a seção "Destaques" com os marcados
           // (o produto continua na sua categoria — docs/04).
           featured: p.featured,
