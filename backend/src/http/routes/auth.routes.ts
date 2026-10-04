@@ -1,10 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { users, storeSettings } from "../../infra/db/schema.js";
 import { loginUsecase } from "../../application/auth/login.usecase.js";
-import { usersOfStoreFilter } from "../../application/auth/user-store-scope.js";
 import { photoUrl } from "../../application/user.usecases.js";
 import { loginRateLimit } from "../middlewares/rate-limit.middleware.js";
 
@@ -19,27 +18,12 @@ export async function authRoutes(app: FastifyInstance) {
   // toggles de rollout, escondendo usuários de módulos desligados: "kitchen"
   // quando kitchen_enabled=false e "courier" quando uses_delivery=false —
   // mesmo filtro por configuração que rege o resto do produto.
-  //
-  // Escopo de loja (PR multi-tenant "A"): a tela roda ANTES da autenticação,
-  // então sem o filtro por store_id um visitante do subdomínio da loja A via
-  // nomes/fotos/papéis de TODAS as lojas. `usersOfStoreFilter` também decide
-  // o que fazer com `store_id NULL` (legado = só na loja default) — a regra
-  // está documentada em application/auth/user-store-scope.ts.
-  //
-  // A foto entra porque a spec pede "seleção de avatar/nome" e o tablet é
-  // compartilhado: sem ela o garçom não reconhece o colleague da foto. Não é
-  // dado sensível — `/uploads/` é servido sem autenticação (server.ts), mesmo
-  // padrão das fotos de produto.
   app.get("/auth/users", async (req) => {
-    // Tenant do login: o middleware de store já resolveu req.storeId (mesmo
-    // caminho que /store-info). Antes da 0011 isto era `id = 'singleton'`.
-    const storeId = req.storeId!;
     const settings = await db.query.storeSettings.findFirst({
-      where: eq(storeSettings.storeId, storeId),
+      where: eq(storeSettings.id, "singleton"),
     });
     const rows = await db.query.users.findMany({
-      // ativos + escopo da loja (o filtro de store é o que fecha o vazamento)
-      where: and(eq(users.active, true), usersOfStoreFilter(storeId)),
+      where: eq(users.active, true),
       orderBy: (u, { asc }) => asc(u.name),
     });
     return rows
@@ -50,10 +34,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post("/auth/login", { preHandler: loginRateLimit }, async (req, reply) => {
     const body = loginSchema.parse(req.body);
-    // req.storeId!: o tenant middleware já garantiu a loja (ou respondeu 404).
-    // O usecase recusa usuário de outra loja com o mesmo erro genérico de
-    // credenciais — ver login.usecase.
-    const result = await loginUsecase(body.userId, body.pin, req.storeId!);
+    const result = await loginUsecase(body.userId, body.pin);
     return reply.code(200).send(result);
   });
 }

@@ -16,7 +16,6 @@ npm run test
 | Arquivo | Cobertura |
 |---|---|
 | `test/alerts.test.ts` | Central de alertas (25 testes): rollback, desempate de seq, público, rooms |
-| `test/auth-escopo-store.test.ts` | Identidade escopada por loja (9 testes): `GET /auth/users` só da loja resolvida, login cross-store recusado com erro genérico, lockout contando a tentativa, `store_id NULL` só na loja default |
 | `test/cash-flow.test.ts` | Fluxo de caixa: sessão única, sangria/suprimento/fechamento, idempotência, hard block, estorno, resumo |
 | `test/catalog.test.ts` | Catálogo: CRUD produtos, categorias, ordenação, busca |
 | `test/delivery-location.test.ts` | Geocoding, cache, cálculo de distância |
@@ -32,7 +31,6 @@ npm run test
 | `test/purchase.test.ts` | Compras + custo médio móvel (7 testes) |
 | `test/self-service.test.ts` | Página pública: carrinho, variações, grupos obrigatórios |
 | `test/stock.test.ts` | Ledger de estoque (10 testes): débito, refund, bloqueio, margem |
-| `test/store-settings-por-store.test.ts` | store_settings por store (0011): linha por tenant, UNIQUE em `store_id`, rotas leem as settings da loja do request |
 | `test/team-customers.test.ts` | Clientes + equipe (28 testes): CRUD, CPF/observações, foto do cliente, comanda aberta, histórico paginado, série do gráfico, PIN |
 | `test/whatsapp.test.ts` | WhatsApp: webhooks, dedupe, status (35 testes) |
 

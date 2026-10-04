@@ -15,7 +15,6 @@ import { checkDatabaseHealth } from "../infra/db/client.js";
 import { startOutboxDispatcher } from "../infra/realtime/outbox-dispatcher.js";
 import { startMaintenanceJobs } from "../infra/maintenance.js";
 import { AppError } from "../domain/errors.js";
-import { resolveTenantMiddleware } from "./middlewares/tenant.middleware.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { orderRoutes } from "./routes/order.routes.js";
 import { cashFlowRoutes } from "./routes/cash-flow.routes.js";
@@ -25,7 +24,6 @@ import { publicRoutes } from "./routes/public.routes.js";
 import { courierRoutes } from "./routes/courier.routes.js";
 import { deliveryManagerRoutes } from "./routes/delivery-manager.routes.js";
 import { whatsappWebhookRoutes } from "./routes/whatsapp-webhook.routes.js";
-import { pagarmeWebhookRoutes } from "./routes/pagarme-webhook.routes.js";
 import { ifoodRoutes } from "./routes/ifood.routes.js";
 import { whatsappRoutes } from "./routes/whatsapp.routes.js";
 import { printRoutes } from "./routes/print.routes.js";
@@ -107,11 +105,6 @@ export async function buildApp(): Promise<FastifyInstance> {
   // o resto das rotas.
   await app.register(rateLimit, { max: 300, timeWindow: "1 minute" });
 
-  // ---------- Resolução do tenant (store) por subdomínio (§Fase 2) ----------
-  // Middleware global: roda antes de TODAS as rotas. Rotas públicas não
-  // dependem de store e o middleware passa direto por elas.
-  app.addHook("onRequest", resolveTenantMiddleware);
-
   // ---------- Health check (§14.4) — sem autenticação ----------
   app.get("/health", async (_req, reply) => {
     const healthy = await checkDatabaseHealth();
@@ -140,7 +133,6 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(courierRoutes);
   await app.register(deliveryManagerRoutes);
   await app.register(whatsappWebhookRoutes);
-  await app.register(pagarmeWebhookRoutes);
   await app.register(ifoodRoutes);
   await app.register(whatsappRoutes);
   await app.register(printRoutes);
@@ -151,7 +143,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   // para ramificar a UI antes de autenticar (ex.: delivery desligado).
   await app.register(async (publicApp) => {
     publicApp.get("/store-info", async (req) => {
-      const s = await getStoreSettingsUsecase(req.storeId!);
+      const s = await getStoreSettingsUsecase();
       return {
         merchantName: s.merchantName,
         merchantCity: s.merchantCity,

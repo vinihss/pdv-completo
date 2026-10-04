@@ -76,8 +76,6 @@ async function assertVariationsSelectable(lines: IntakeLine[]) {
  */
 export async function createSelfServiceOrderUsecase(input: {
   channel: "whatsapp" | "web";
-  /** Tenant das settings (frete/ETA/habilitação) — vem da rota pública. */
-  storeId: string;
   customerPhone: string;
   customerName: string;
   addressId?: string;
@@ -143,7 +141,7 @@ export async function createSelfServiceOrderUsecase(input: {
   }
 
   // 3. Taxa de entrega — snapshot da configuração atual, gravado no pedido (§04 "Taxa de entrega").
-  const settings = await getSettings(input.storeId);
+  const settings = await getSettings();
 
   // 4. Cria o pedido reaproveitando as mesmas usecases do garçom — só muda quem abre (SYSTEM_USER_ID) e o channel.
   const order = await openOrderUsecase({
@@ -158,7 +156,6 @@ export async function createSelfServiceOrderUsecase(input: {
   const items = await addItemsUsecase({
     orderId: order.id,
     userId: SYSTEM_USER_ID,
-    storeId: input.storeId,
     items: input.items,
   });
 
@@ -191,7 +188,6 @@ export async function createSelfServiceOrderUsecase(input: {
     paymentMethod: input.paymentMethodIntent,
     confirmed: false,
     received: cashReceivedNum,
-    storeId: input.storeId,
   });
 
   // 4.1 Previsão de entrega — calculada ANTES da transação da entrega porque
@@ -298,10 +294,10 @@ function etaForStage(
  * compat do polling). total/estimatedMinutes alimentam a retomada por
  * ?order=<id> (o orderId é a "senha" de fato — já era visível hoje).
  */
-export async function getSelfServiceOrderStatusUsecase(orderId: string, storeId: string) {
+export async function getSelfServiceOrderStatusUsecase(orderId: string) {
   const order = await getOrderUsecase(orderId);
   const delivery = await db.query.deliveries.findFirst({ where: eq(deliveries.orderId, orderId) });
-  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.storeId, storeId) });
+  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
 
   const stage = deriveCustomerStage(
     { status: order.status },
@@ -333,7 +329,7 @@ export async function getSelfServiceOrderStatusUsecase(orderId: string, storeId:
  * self-service; o stage pode ser terminal-fracassado ("failed") — o
  * cliente precisa ver isso também pra poder cancelar ou reordenar.
  */
-export async function getActiveSelfServiceOrderByPhoneUsecase(phone: string, storeId: string) {
+export async function getActiveSelfServiceOrderByPhoneUsecase(phone: string) {
   const customer = await db.query.customers.findFirst({ where: eq(customers.phone, phone) });
   if (!customer) return null;
 
@@ -345,7 +341,7 @@ export async function getActiveSelfServiceOrderByPhoneUsecase(phone: string, sto
 
   const items = await db.query.orderItems.findMany({ where: eq(orderItems.orderId, active.id) });
   const delivery = await db.query.deliveries.findFirst({ where: eq(deliveries.orderId, active.id) });
-  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.storeId, storeId) });
+  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
 
   const stage = deriveCustomerStage(
     { status: active.status },

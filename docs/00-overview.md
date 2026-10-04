@@ -66,7 +66,7 @@ nunca bloqueia: numa loja sem internet o PDV abre na versão em disco. Ver
 
 ## Decisões de configuração (gerente)
 
-Tabela `store_settings` concentra os parâmetros que mudam o comportamento do app sem precisar de deploy. Nasceu como singleton (uma linha só), mas desde a migration `0011_store_settings_per_store.sql` é **uma linha por store** (`UNIQUE` em `store_id`): o tenant vem do middleware de subdomínio (`req.storeId`) e cada loja tem suas próprias flags:
+Tabela `store_settings` concentra os parâmetros que mudam o comportamento do app sem precisar de deploy. É um **singleton** (uma linha só, `id = 'singleton'`) e cada instalação atende um estabelecimento:
 
 | Campo | Efeito |
 |---|---|
