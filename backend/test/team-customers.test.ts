@@ -332,10 +332,10 @@ describe("detalhe de cliente — CPF, observações e foto (0008)", () => {
     });
     expect(upload.statusCode).toBe(200);
     // O nome do arquivo vem do APP (`<id>.<ext>`), não do "minha-foto.png" enviado.
-    expect(upload.json().photoPath).toBe(`/uploads/${id}.png`);
+    expect(upload.json().photoPath).toBe(`/uploads/customer/${id}.png`);
 
     const detalhe = await api("get", `/customers/${id}`, { token: manager });
-    expect(detalhe.json.photoPath).toBe(`/uploads/${id}.png`);
+    expect(detalhe.json.photoPath).toBe(`/uploads/customer/${id}.png`);
 
     // GIF não está na lista de MIME aceitos da rota.
     const gif = new FormData();
@@ -639,11 +639,11 @@ describe("perfil completo de equipe (telefone, email, PIN manual)", () => {
       payload: form,
     });
     expect(upload.statusCode).toBe(200);
-    expect(upload.json().photoPath).toBe(`/uploads/${criado.json.id}.png`);
+    expect(upload.json().photoPath).toBe(`/uploads/user/${criado.json.id}.png`);
 
     const lista = await api("get", "/users", { token: manager });
     const eu = lista.json.find((u: any) => u.id === criado.json.id);
-    expect(eu.photoPath).toBe(`/uploads/${criado.json.id}.png`);
+    expect(eu.photoPath).toBe(`/uploads/user/${criado.json.id}.png`);
 
     const remove = await api("delete", `/users/${criado.json.id}/photo`, { token: manager });
     expect(remove.status).toBe(200);

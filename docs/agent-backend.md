@@ -164,6 +164,49 @@ O `Dockerfile` faz `npm ci` + `npm prune --omit=dev` no estágio `build` (com to
 - Movimentos manuais (`POST /stock/:productId/movements`) são idempotentes e viram `stock_movement_manual` no audit
 - API e regras em `src/application/stock/stock.usecases.ts`
 
+## Storage de arquivos (fotos: produto, logo, cliente, equipe)
+
+`src/infra/storage/` é a **única** parte do backend que conhece o layout em disco. Antes dela
+existiam 4 cópias da mesma lógica (uma por coluna), cada uma com seu `uploadsDir()`/`removeFile()`.
+
+```
+<UPLOADS_DIR>/<schema>/<kind>/<filename>      kind ∈ product | logo | customer | user
+uploads/public/logo/logo.png
+uploads/public/product/0f9c….webp
+```
+
+- **O banco não muda**: `products.image_path`, `store_settings.logo_path`, `user.photo_path` e
+  `customer.photo_path` continuam guardando **só o basename**. Sem migration.
+- **A API devolve `/uploads/<kind>/<filename>`** (um segmento a mais). O frontend trata o valor
+  como URL opaca (`assetUrl(x)`) — **nenhum consumidor faz parse do caminho**.
+- **Porta `FileStorage`** (`put`/`get`/`remove`/`exists`) + adapter `LocalDiskStorage`, com
+  singleton `getStorage()`. Nada na interface é específico de `fs`: S3/R2 entra como troca de adapter.
+- **Seam do tenant**: `resolveTenantSchema()` (`storage/tenant.ts`) — hoje só
+  `DEFAULT_TENANT_SCHEMA ?? "public"`. A Fase 2 do doc 15 (§6) troca o **corpo** dessa função pela
+  leitura do ALS; **nenhum outro arquivo muda**.
+- **Serving**: `GET /uploads/:kind/:filename` em `src/http/routes/uploads.routes.ts` (substitui o
+  `@fastify/static`, removido do `package.json`). Valida `kind` contra a whitelist, valida `filename`
+  (`isSafeFilename`: sem `..`, sem barra, sem caminho absoluto) e responde `404` no resto. O schema
+  **não** vai na URL → a URL da loja A dá 404 na loja B por construção. `Cache-Control`:
+  `immutable` para os nomes UUID, `no-cache` para o logo (é sobrescrito no lugar). `ETag` +
+  `Last-Modified` respondidos, `304` em `if-none-match`, `nosniff` sempre.
+  O **prefixo `/uploads/` não muda** — `deploy/Caddyfile` e o volume `pdv_backend_uploads` seguem iguais.
+
+### Migração do layout antigo (flat → por tenant)
+
+```bash
+npm run uploads:migrate-layout -- --dry-run   # só o plano
+npm run uploads:migrate-layout                # move (idempotente: pode rodar 2×)
+npm run uploads:migrate-layout -- --copy      # copia e mantém o flat
+npm run uploads:migrate-layout -- --revert    # volta pro flat (idempotente)
+UPLOADS_DIR=/app/uploads npm run uploads:migrate-layout   # em produção
+```
+
+Lê as **4 colunas** para decidir o `kind` de cada arquivo (um `<uuid>.png` solto não é
+classificável por nome), move só o que reconhece e imprime o resumo por kind. **Órfão (arquivo sem
+referência) nunca é apagado** — é reportado; referência sem arquivo também. Em caso de nome
+classificado por dois kinds, o script aborta sem mexer em nada.
+
 ## Sem rowid
 
 Ordem de inserção de `stock_movement`, `outbox_event` e `purchase_item` vem da sequência `seq BIGSERIAL` (a média móvel é um replay do ledger, então a ordem precisa ser estável). **Não trocar por `created_at`**.
@@ -177,7 +220,7 @@ Ordem de inserção de `stock_movement`, `outbox_event` e `purchase_item` vem da
 
 - **Valores crus, não formatados**: `cpf` (11 dígitos), `customer_address.cep` (8), `user.phone`. A entrada aceita com ou sem máscara (`normalizeCpf` em `domain/cpf.ts`, `normalizePhone`, `normalizeCep`); a máscara é apresentação do frontend. Gravar formatado quebraria índice e comparação.
 - **CPF**: dígitos verificadores conferidos no servidor (`domain/cpf.ts#isValidCpf`, função pura, mesma do frontend) e **único entre clientes** (`uq_customer_cpf`, índice parcial). Ausente/vazio é `null` e não erro — cliente sem documento continua cadastrável. Colisão → `400 validation_failed` com `{ field: "cpf" }`, mesmo formato do `assertEmailAvailable`.
-- **Foto**: coluna `photo_path` guarda **só o basename** (`<id>.<ext>`), nome gerado pelo app; `photoUrl()` monta o `/uploads/...` na resposta. Regra idêntica em `user`, `product` e `store_settings` — mudou um, mudou os quatro (e `uploadsDir()` precisa do `mkdirSync` porque os testes rodam sem boot).
+- **Foto**: coluna `photo_path` guarda **só o basename** (`<id>.<ext>`), nome gerado pelo app; `photoUrl(photoPath, kind)` monta o `/uploads/<kind>/<filename>` na resposta. Regra idêntica em `user`, `product`, `customer` e `store_settings` (o `kind` é explícito: `user`/`customer`/`product`/`logo`) — mudou um, mudou os quatro. O caminho em disco e a remoção do arquivo antigo são do **storage** (§Storage de arquivos), não do use case.
 - **Regra de venda do histórico e do gráfico do cliente** = a de `report-overview.usecases.ts`: só comanda `closed`, total por `unit_price × quantity` no snapshot (item `cancelled` fora) **mais a taxa de entrega**. `order_payment` não entra (iFood grava em `order.ifood_payments`) — os dois números precisam bater com o relatório, senão o gerente não sabe qual dos dois está errado.
 - **Gráfico por dia**: reusar `bucketKeyFor`/`bucketLabel`/`fillBuckets`/`dayStart`/`dayEnd`. Dia sem venda vem **zerado** (gráfico com buraco é pior que gráfico nenhum), dia é o **local da loja** (`tz`), e o `label` pt-BR sai pronto do backend.
 - **Sem cache** no gráfico do cliente: é de uma pessoa e muda a cada pagamento.

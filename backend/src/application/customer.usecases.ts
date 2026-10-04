@@ -1,17 +1,17 @@
 import { and, asc, count, eq, gte, inArray, lte, sql, type SQL } from "drizzle-orm";
-import fs from "node:fs";
-import path from "node:path";
 import { db } from "../infra/db/client.js";
 import { customers, customerAddresses, orders, orderItems, restaurantTables } from "../infra/db/schema.js";
 import { Errors } from "../domain/errors.js";
 import { logAction } from "../infra/audit-log.js";
 import { normalizeAccents } from "../domain/text.js";
 import { normalizeCpf } from "../domain/cpf.js";
-import { config } from "../config/env.js";
 import { round2 } from "../domain/money.js";
 import { photoUrl } from "./user.usecases.js";
+import { getStorage, isSafeFilename, storageFilename } from "../infra/storage/index.js";
 import { bucketKeyFor, bucketLabel, fillBuckets, isValidReportDate } from "./report-overview.usecases.js";
 import { dayEnd, dayStart, isValidTz, parseTzOffset } from "./cash-flow/day-bounds.js";
+
+const storage = getStorage();
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -56,7 +56,7 @@ function serialize(c: typeof customers.$inferSelect, addressCount = 0) {
     // quem consome a API não monta `/uploads/...` por conta própria.
     cpf: c.cpf ?? null,
     notes: c.notes ?? null,
-    photoPath: photoUrl(c.photoPath),
+    photoPath: photoUrl(c.photoPath, "customer"),
     active: c.active,
     addressCount,
     createdAt: c.createdAt,
@@ -288,47 +288,22 @@ export async function updateCustomerUsecase(
 //
 // Cópia do desenho de `user.usecases.ts` (foto de equipe), que é o mesmo das
 // fotos de produto e do logo da loja: nome de arquivo GERADO pelo app a partir
-// do id (o nome enviado pelo cliente nunca vira caminho em disco), `basename`
-// como segunda guarda contra path que escape do diretório, arquivo antigo
-// removido quando a extensão muda, e o `logAction` na mesma transação do
-// UPDATE — se a auditoria falhasse fora dela, ninguém saberia que a foto mudou.
-
-function uploadsDir(): string {
-  const dir = path.resolve(config.uploadsDir);
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-function oldFileFor(row: { photoPath: string | null }): string | null {
-  if (!row.photoPath) return null;
-  const filename = path.basename(row.photoPath);
-  if (!filename) return null;
-  return path.resolve(uploadsDir(), filename);
-}
-
-function removeFile(fullPath: string | null) {
-  if (!fullPath) return;
-  try {
-    fs.unlinkSync(fullPath);
-  } catch {
-    // arquivo já removido ou inexistente — foto órfã não impede nada
-  }
-}
+// do id (o nome enviado pelo cliente nunca vira caminho em disco), o nome
+// gravado no banco é só o basename, arquivo antigo removido quando a extensão
+// muda, e o `logAction` na mesma transação do UPDATE — se a auditoria falhasse
+// fora dela, ninguém saberia que a foto mudou.
 
 export async function saveCustomerPhotoUsecase(id: string, input: { buffer: Buffer; ext: string }, actorId: string) {
   const existing = await db.query.customers.findFirst({ where: eq(customers.id, id) });
   if (!existing) throw Errors.notFound("Cliente");
 
   const filename = `${id}.${input.ext}`;
-  const target = path.resolve(uploadsDir(), filename);
-  if (!target.startsWith(uploadsDir())) {
-    throw Errors.validationFailed({ field: "photo" });
-  }
-  fs.writeFileSync(target, input.buffer);
+  if (!isSafeFilename(filename)) throw Errors.validationFailed({ field: "photo" });
+  await storage.put("customer", filename, input.buffer);
 
   // Remove a foto antiga quando o cliente trocou a extensão do arquivo
-  const previous = oldFileFor(existing);
-  if (previous && previous !== target) removeFile(previous);
+  const previous = storageFilename(existing.photoPath);
+  if (previous && previous !== filename) await storage.remove("customer", previous);
 
   const updated = await db.transaction(async (tx) => {
     const [row] = await tx.update(customers).set({ photoPath: filename }).where(eq(customers.id, id)).returning();
@@ -341,7 +316,8 @@ export async function saveCustomerPhotoUsecase(id: string, input: { buffer: Buff
 export async function clearCustomerPhotoUsecase(id: string, actorId: string) {
   const existing = await db.query.customers.findFirst({ where: eq(customers.id, id) });
   if (!existing) throw Errors.notFound("Cliente");
-  removeFile(oldFileFor(existing));
+  const previous = storageFilename(existing.photoPath);
+  if (previous) await storage.remove("customer", previous);
   const updated = await db.transaction(async (tx) => {
     const [row] = await tx.update(customers).set({ photoPath: null }).where(eq(customers.id, id)).returning();
     await logAction(tx, actorId, "customer_photo_removed", null, { customerId: id });

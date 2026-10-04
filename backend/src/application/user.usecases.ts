@@ -1,12 +1,18 @@
 import { eq } from "drizzle-orm";
 import argon2 from "argon2";
-import fs from "node:fs";
-import path from "node:path";
 import { db } from "../infra/db/client.js";
 import { users } from "../infra/db/schema.js";
 import { Errors } from "../domain/errors.js";
-import { config } from "../config/env.js";
 import { logAction } from "../infra/audit-log.js";
+import {
+  getStorage,
+  isSafeFilename,
+  storageAssetPath,
+  storageFilename,
+  type StorageKind,
+} from "../infra/storage/index.js";
+
+const storage = getStorage();
 
 export type UserRole = "waiter" | "kitchen" | "manager" | "courier" | "cashier";
 
@@ -17,9 +23,12 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * público. Fonte única do prefixo — a foto é servida em `/uploads/` sem auth
  * (o mesmo argumento das fotos de produto), então isso vale inclusive para as
  * rotas públicas do login.
+ *
+ * O `kind` é explícito porque `user.photo_path` e `customer.photo_path` são
+ * colunas diferentes apontando para o mesmo formato: `/uploads/<kind>/<arquivo>`.
  */
-export function photoUrl(photoPath: string | null | undefined): string | null {
-  return photoPath ? `/uploads/${photoPath}` : null;
+export function photoUrl(photoPath: string | null | undefined, kind: StorageKind): string | null {
+  return photoPath ? storageAssetPath(kind, photoPath) : null;
 }
 
 function serialize(u: typeof users.$inferSelect) {
@@ -30,7 +39,7 @@ function serialize(u: typeof users.$inferSelect) {
     active: u.active,
     phone: u.phone ?? null,
     email: u.email ?? null,
-    photoPath: photoUrl(u.photoPath),
+    photoPath: photoUrl(u.photoPath, "user"),
     createdAt: u.createdAt,
   };
 }
@@ -143,42 +152,23 @@ export async function resetPinUsecase(id: string) {
 }
 
 // ---------- Foto (upload em disco, caminho gravado em user.photo_path) ----------
-
-function uploadsDir(): string {
-  const dir = path.resolve(config.uploadsDir);
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-function oldFileFor(row: { photoPath: string | null }): string | null {
-  if (!row.photoPath) return null;
-  const filename = path.basename(row.photoPath);
-  if (!filename) return null;
-  return path.resolve(uploadsDir(), filename);
-}
-
-function removeFile(fullPath: string | null) {
-  if (!fullPath) return;
-  try {
-    fs.unlinkSync(fullPath);
-  } catch {
-    // arquivo já removido ou inexistente — foto órfã não impede nada
-  }
-}
+//
+// Mesmo desenho de `customer.usecases.ts` e `product.usecases.ts`: nome de
+// arquivo GERADO pelo app a partir do id (o nome enviado pelo cliente nunca
+// vira caminho), arquivo antigo removido quando a extensão muda, e o
+// `logAction` na mesma transação do UPDATE. O caminho em disco é montado pelo
+// `storage` (infra/storage), com o diretório do tenant.
 
 export async function saveUserPhotoUsecase(id: string, input: { buffer: Buffer; ext: string }, actorId: string) {
   const existing = await db.query.users.findFirst({ where: eq(users.id, id) });
   if (!existing) throw Errors.notFound("Usuário");
 
   const filename = `${id}.${input.ext}`;
-  const target = path.resolve(uploadsDir(), filename);
-  if (!target.startsWith(uploadsDir())) {
-    throw Errors.validationFailed({ field: "photo" });
-  }
-  fs.writeFileSync(target, input.buffer);
+  if (!isSafeFilename(filename)) throw Errors.validationFailed({ field: "photo" });
+  await storage.put("user", filename, input.buffer);
 
-  const previous = oldFileFor(existing);
-  if (previous && previous !== target) removeFile(previous);
+  const previous = storageFilename(existing.photoPath);
+  if (previous && previous !== filename) await storage.remove("user", previous);
 
   const updated = await db.transaction(async (tx) => {
     const [row] = await tx
@@ -195,7 +185,8 @@ export async function saveUserPhotoUsecase(id: string, input: { buffer: Buffer; 
 export async function clearUserPhotoUsecase(id: string, actorId: string) {
   const existing = await db.query.users.findFirst({ where: eq(users.id, id) });
   if (!existing) throw Errors.notFound("Usuário");
-  removeFile(oldFileFor(existing));
+  const previous = storageFilename(existing.photoPath);
+  if (previous) await storage.remove("user", previous);
   const updated = await db.transaction(async (tx) => {
     const [row] = await tx
       .update(users)
