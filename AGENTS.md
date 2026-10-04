@@ -165,20 +165,21 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `go test ./...` | `printer/daemon` | suíte do daemon |
 | `./switch.sh` | deploy | deploy sem downtime (instância nova + `caddy reload`); `--status`, `--rollback`, `--install`, `--no-build` |
 | `./probe-availability.sh --url <url> --seconds N` | deploy | mede o gap de downtime real (sai != 0 se houve falha) |
-| `./scripts/dev-worktree.sh new <branch>` | raiz | cria o worktree de trabalho em `~/pdv-worktrees/<branch>`, a partir da `origin/main` já atualizada |
+| `./scripts/dev-worktree.sh new <branch>` | raiz | cria o worktree de trabalho em `~/pdv/<branch>` (dentro do clone bare), a partir da `origin/main` já atualizada |
 | `./scripts/dev-worktree.sh list` | raiz | lista os worktrees e a branch de cada um |
 | `./scripts/dev-worktree.sh rm <branch>` | raiz | remove o worktree; só apaga a branch se ela já estiver mergeada na `main` |
 | `git config core.hooksPath .githooks` | qualquer | ativa os hooks versionados — **necessário após cada clone novo** |
 
 ## Git: worktree por branch, `main` intocada
 
-**Regra**: o worktree principal (`~/pdv-completo`) fica em `main` e serve só de
-base/coordenação (ler, comparar, abrir o editor). **Todo desenvolvimento acontece
-em worktree separado**, em `~/pdv-worktrees/<branch>` — um por branch, nunca
-dentro do repo (o git recusa worktree dentro de outro repo).
+**Regra**: o repositório é um **clone bare** em `~/pdv/.bare`. Cada branch de trabalho
+tem seu próprio worktree **dentro de `~/pdv/<branch>`** — um por branch, nunca dentro de
+outro worktree (o git recusa). O worktree de `main` fica em `~/pdv/main` e serve só de
+base/coordenação (ler, comparar, abrir o editor). **Todo desenvolvimento acontece em
+worktree separado**; o clone bare em `~/pdv/.bare` não tem working tree.
 
 ```bash
-./scripts/dev-worktree.sh new feat/minha-branch   # cria ~/pdv-worktrees/feat/minha-branch
+./scripts/dev-worktree.sh new feat/minha-branch   # cria ~/pdv/feat/minha-branch
 git push -u origin feat/minha-branch && gh pr create --fill
 ./scripts/dev-worktree.sh rm feat/minha-branch    # apaga a branch só se já mergeada na main
 ```
@@ -259,7 +260,7 @@ que `pre-push` deixa tag passar.
 - **Trunk-Based Development**: branches de vida curta (< 1–2 dias), PRs pequenos e frequentes. Integrar na `main` assim que aprovado e verde.
 - **Conventional Commits obrigatório**: todos os commits devem seguir [Conventional Commits](https://www.conventionalcommits.org/). Validado automaticamente no PR (commitlint).
 - **Versionamento automático**: no merge na `main`, Semantic Release analisa os commits, gera/atualiza `CHANGELOG.md`, cria **tag `vX.Y.Z`** e **GitHub Release** automaticamente (baseado no tipo de mudança: `feat`→minor, `fix/perf`→patch, `BREAKING CHANGE`→major).
-- **Worktree por branch** em `~/pdv-worktrees/<branch>` (`./scripts/dev-worktree.sh new|list|rm`)
+- **Worktree por branch** dentro do clone bare (`~/pdv/<branch>`; `./scripts/dev-worktree.sh new|list|rm`)
 - **Hooks versionados** em `.githooks/`: precisam de `git config core.hooksPath .githooks` após clone novo
 - Hook é **freio, não tranca** (`--no-verify` contorna); a garantia é o ruleset no GitHub
 - **`rm` de worktree não apaga branch não mergeada** — publicar ou `branch -D` consciously
