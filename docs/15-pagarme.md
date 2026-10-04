@@ -146,12 +146,14 @@ secret key (o exemplo canônico da doc é `cat body | openssl dgst -sha1 -hmac
 
 ## Pendências conhecidas
 
-- **Endpoints de cancel/refund não confirmados na doc oficial.** Estão
-  centralizados em `integrations/pagarme/config.ts` com `@todo`. Errar o path
-  custa "estorno não aconteceu" (a reconciliação detecta), nunca "estornado sem
-  o PDV saber" — porque o estado local só muda por webhook/reconciliação.
-- **Frontend não ligado.** O QR do gateway é devolvido pela API, mas a tela de
+A lista completa, com risco e prioridade de cada item, está em
+`docs/16-pagarme-pendencias.md`. Resumo:
+
+- **Endpoints de cancel/refund não confirmados na doc oficial** — centralizados
+  em `config.ts` com `@todo`. Errar o path custa "estorno não aconteceu" (a
+  reconciliação detecta), nunca "estornado sem o PDV saber".
+- **Frontend não ligado** — o QR do gateway é devolvido pela API, mas a tela de
   checkout continua no BR Code local. Ligar é PR próprio.
-- **Tokenização de cartão no navegador** (Pagar.me.js / checkout transparente)
-  não foi implementada — o backend já aceita `cardToken`/`cardId`.
-- **Split e multi-tenant** ficam para o roadmap do `PLANO_PAGARME.md`.
+- **Tokenização de cartão no navegador** — o backend aceita `cardToken`/
+  `cardId`, mas não há código no frontend que gere o token.
+- **Split e multi-tenant** — ficam para o roadmap do `PLANO_PAGARME.md`.

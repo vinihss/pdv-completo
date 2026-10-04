@@ -38,6 +38,7 @@ printer/   Daemon Go para impressão térmica (ESC/POS)
 | `docs/13-deploy-workflow-melhoras.md` | Melhoras no workflow de deploy (versão, artefatos, publicação) |
 | `docs/14-usabilidade-e-processos.md` | Backlog priorizado: fluxo de pedido, gestão e caixa (8 bugs de confiabilidade + 40 propostas em 8 camadas, roadmap P0-P5) |
 | `docs/15-pagarme.md` | Camada de pagamentos Pagar.me V5: arquitetura, webhook, reconciliação, decisões e pendências |
+| `docs/16-pagarme-pendencias.md` | Pendências da integração Pagar.me V5: o que falta, risco e prioridade |
 
 ### Guias para agentes
 
