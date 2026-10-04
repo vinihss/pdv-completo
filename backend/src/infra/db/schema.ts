@@ -82,9 +82,6 @@ export const users = pgTable("user", {
   phone: text("phone"),
   email: text("email"),
   photoPath: text("photo_path"),
-  // Multi-tenant (Fase 2, migration 0008): store dona do usuário. Tipado aqui
-  // para o login conseguir embutir a store no JWT (AuthUser.storeId).
-  storeId: text("store_id"), // FK em 0008 (stores); text puro p/ evitar inferência circular no drizzle
   createdAt: text("created_at").notNull().default(isoNow),
   updatedAt: text("updated_at").notNull().default(isoNow),
 });
@@ -439,37 +436,9 @@ export const cashDrawerMovements = pgTable(
   (t) => [index("idx_cash_drawer_movement_drawer").on(t.drawerId)],
 );
 
-// ---------- lojas (multi-tenant) ----------
-export const stores = pgTable("stores", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  slug: text("slug").unique().notNull(),
-  owner_user_id: text("owner_user_id").references(() => users.id, { onDelete: "set null" }),
-  status: text("status").notNull().default("active"),
-  pagarme_recipient_id: text("pagarme_recipient_id"),
-  split_platform_percentage: real("split_platform_percentage").notNull().default(5),
-  pagarme_status: text("pagarme_status").notNull().default("not_configured"),
-  created_at: text("created_at")
-    .notNull()
-    .default(
-      sql`to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
-    ),
-  updated_at: text("updated_at")
-    .notNull()
-    .default(
-      sql`to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
-    ),
-});
 export const storeSettings = pgTable("store_settings", {
-  // A PK `id` continua com a DEFAULT 'singleton' de propósito (expand/contract:
-  // dado legado e scripts ainda apontam para ela), mas a linha É por store —
-  // a unicidade está em `store_id` (migration 0011, uq_store_settings_store).
-  // A default store mantém id 'singleton'; as demais nascem com id = store_id.
+  // Singleton: exatamente uma linha, com id 'singleton'.
   id: text("id").primaryKey().default("singleton"),
-  // UNIQUE: exatamente uma linha de settings por tenant. A migration 0011 é
-  // quem cria a constraint (SQL idempotente); aqui fica a declaração espelho
-  // — é ela que habilita `.onConflictDoUpdate({ target: storeSettings.storeId })`.
-  storeId: text("store_id").unique().references(() => stores.id),
   merchantName: text("merchant_name").notNull(),
   merchantCity: text("merchant_city").notNull(),
   logoPath: text("logo_path"), // nome do arquivo do logo em /uploads/logo.<ext>

@@ -76,18 +76,13 @@ export async function seedFixture() {
   // setup), então múltiplos arquivos chamam seedFixture — e a linha precisa
   // ficar IGUAL em todos.
   //
-  // Desde a migration 0011 existe UMA linha de settings por store, e ela já
-  // nasce para a store default (id 'singleton') antes de qualquer suíte rodar.
-  // Por isso é UPSERT e não "insert or ignore": um DO NOTHING deixaria os
-  // valores da fixture (merchantCity, usesDelivery:false, métodos de pagamento)
-  // de fora e os `UPDATE ... WHERE id = 'singleton'` das suítes passariam a
-  // mexer numa linha com os defaults da migration. O arbiter é a PK `id` — é
-  // para ele que todos os testes raw apontam.
+  // Singleton (id 'singleton'): UPSERT para deixar a linha IGUAL em todos os
+  // arquivos de teste que chamam seedFixture. O arbiter é a PK `id` — é para
+  // ele que todos os testes raw apontam.
   await db
     .insert(storeSettings)
     .values({
       id: "singleton",
-      storeId: "00000000-0000-0000-0000-000000000001",
       merchantName: "Teste Café",
       merchantCity: "Sao Paulo",
       enabledPaymentMethods: JSON.stringify(["cash", "card", "pix", "other"]),
@@ -189,8 +184,7 @@ export type ApiResult = { status: number; json: any; body: string };
 // pros testes que exercitam as rotas públicas: elas têm rate limit por IP
 // (5 pedidos/min pra POST /public/orders), então cada teste precisa do seu
 // próprio "cliente" pra não se auto-bloquear.
-// `headers` é o escape pra headers de domínio — hoje `x-store-id`, que é o
-// que o middleware de tenant usa quando o Host não traz subdomínio.
+// `headers` é o escape pra headers de domínio.
 export async function api(
   method: "get" | "post" | "put" | "patch" | "delete",
   url: string,

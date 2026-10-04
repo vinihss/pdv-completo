@@ -201,9 +201,7 @@ CREATE TABLE store_settings (
     kitchen_prep_urgent_min  INTEGER NOT NULL DEFAULT 6, -- minutos em preparo até o cartão virar vermelho pulsante
     kitchen_pickup_urgent_min INTEGER NOT NULL DEFAULT 5 -- minutos parado em "Prontos" até destacar como urgente
 );
--- Uma linha por store desde a migration 0011_store_settings_per_store.sql
--- (UNIQUE em store_id; a store default mantém id 'singleton'). Nesta etapa
--- original era linha única: um estabelecimento por instância.
+-- Linha única (id 'singleton'): um estabelecimento por instância.
 
 -- Log de auditoria — toda ação relevante do garçom/gerente é registrada
 CREATE TABLE audit_log (
@@ -1128,7 +1126,7 @@ Migration que precisa de dado default pra coluna nova em tabela já populada (ex
 
 ## 15. Requisitos Não-Funcionais
 
-Dimensionamento pensado pra um único estabelecimento de porte pequeno/médio (bar/restaurante), não pra escala multi-tenant nesta etapa:
+Dimensionamento pensado pra um único estabelecimento de porte pequeno/médio (bar/restaurante), não pra um ambiente multi-tenant:
 
 - **Volume esperado**: até ~30 mesas/comandas simultâneas, pico de ~15 lançamentos de item por minuto no rush. O Postgres aguenta essa carga com folga (e o pool de conexões é de 10 por padrão, tudo no mesmo host). Se o estabelecimento crescer muito além disso, é sinal pra subir de instância (`DATABASE_POOL_MAX` + Postgres maior), não pra trocar de banco.
 - **Latência aceitável**: ações do garçom (adicionar item, marcar entregue) devem responder em menos de 300ms em modo local (rede interna, sem round-trip de internet) — se não bater isso, é sintoma de problema real (query sem índice, lock desnecessário), não de expectativa mal calibrada.

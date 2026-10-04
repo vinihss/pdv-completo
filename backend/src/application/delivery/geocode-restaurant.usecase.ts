@@ -11,17 +11,13 @@ const cache = getCache();
 
 /**
  * Geocoda o endereço do restaurante e grava as coordenadas em `store_settings`.
- *
- * `storeId` é explícito porque as settings são por tenant desde a migration
- * 0011 (antes era o singleton fixo): a rota repassa `req.storeId` — sem ela a
- * coordenada cairia na loja errada.
  */
-export async function geocodeRestaurantUsecase(storeId: string): Promise<{
+export async function geocodeRestaurantUsecase(): Promise<{
   latitude: number;
   longitude: number;
 }> {
-  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.storeId, storeId) });
-  if (!settings) throw new Error("store_settings não inicializado para esta store.");
+  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
+  if (!settings) throw new Error("store_settings não inicializado.");
 
   const address = `${settings.merchantName}, ${settings.merchantCity}`;
 
@@ -32,11 +28,11 @@ export async function geocodeRestaurantUsecase(storeId: string): Promise<{
       await tx
         .update(storeSettings)
         .set({ restaurantLat: coords.latitude, restaurantLong: coords.longitude })
-        .where(eq(storeSettings.storeId, storeId));
+        .where(eq(storeSettings.id, "singleton"));
       await logAction(tx, SYSTEM_USER_ID, "restaurant_geocoded", null, { latitude: coords.latitude, longitude: coords.longitude });
     });
 
-    cache.invalidate(`store-settings:${storeId}`);
+    cache.invalidate("store-settings");
 
     return coords;
   } catch (err) {

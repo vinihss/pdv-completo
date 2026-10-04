@@ -47,17 +47,13 @@ export function calculateDeliveryFee(tiers: DeliveryFeeTier[], distanceKm: numbe
   return null;
 }
 
-/**
- * Faixas de frete da loja. `storeId` é obrigatório desde a 0011: sem filtro,
- * o `findFirst()` pegava "a primeira linha da tabela", que com settings por
- * store passaria a ser a loja errada.
- */
-export async function getDeliveryPricingUsecase(storeId: string): Promise<{
+/** Faixas de frete da loja. */
+export async function getDeliveryPricingUsecase(): Promise<{
   tiers: DeliveryFeeTier[];
   freeDeliveryMin: number;
 }> {
-  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.storeId, storeId) });
-  if (!settings) throw new Error("store_settings não inicializado para esta store.");
+  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
+  if (!settings) throw new Error("store_settings não inicializado.");
 
   return {
     tiers: parseTiers(settings.deliveryFeeTiers),
