@@ -3,9 +3,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import websocketPlugin from "@fastify/websocket";
 import rateLimit from "@fastify/rate-limit";
-import fastifyStatic from "@fastify/static";
 import fastifyMultipart from "@fastify/multipart";
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
@@ -14,6 +12,7 @@ import { runMigrations } from "../infra/db/migrate.js";
 import { checkDatabaseHealth } from "../infra/db/client.js";
 import { startOutboxDispatcher } from "../infra/realtime/outbox-dispatcher.js";
 import { startMaintenanceJobs } from "../infra/maintenance.js";
+import { initStorage } from "../infra/storage/index.js";
 import { AppError } from "../domain/errors.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { orderRoutes } from "./routes/order.routes.js";
@@ -30,6 +29,7 @@ import { pagarmeWebhookRoutes } from "./routes/pagarme-webhook.routes.js";
 import { whatsappRoutes } from "./routes/whatsapp.routes.js";
 import { printRoutes } from "./routes/print.routes.js";
 import { alertRoutes } from "./routes/alert.routes.js";
+import { uploadsRoutes } from "./routes/uploads.routes.js";
 import { startIfoodSync } from "../integrations/ifood/worker.js";
 import { startPagarmeWorkers } from "../integrations/pagarme/worker.js";
 import { getStoreSettingsUsecase } from "../application/store-settings.usecases.js";
@@ -87,17 +87,16 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await app.register(websocketPlugin);
 
-  // ---------- Fotos de produto (§ cadastro) ----------
-  // Diretório criado no boot (e no Docker via volume). As imagens são
-  // públicas em /uploads/<product_id>.<ext> — nada sensível nelas.
-  const uploadsDir = path.resolve(config.uploadsDir);
-  fs.mkdirSync(uploadsDir, { recursive: true });
+  // ---------- Fotos (produto, logo, cliente, equipe) ----------
+  // A raiz do volume nasce no boot (e no Docker via volume). Quem serve é a
+  // rota explícita `GET /uploads/:kind/:filename` (uploads.routes.ts): ela
+  // resolve o tenant por operação e lê de `<uploads>/<schema>/<kind>/`, o que
+  // dá fronteira de isolamento ao storage — o `@fastify/static` (diretório
+  // flat, escopo raiz, sem auth) não dava. As imagens seguem públicas: não
+  // têm nada sensível nelas.
+  initStorage();
 
-  await app.register(fastifyStatic, {
-    root: uploadsDir,
-    prefix: "/uploads/",
-    decorateReply: false,
-  });
+  await app.register(uploadsRoutes);
 
   await app.register(fastifyMultipart, {
     limits: { fileSize: 2 * 1024 * 1024, files: 1 }, // 2 MB, 1 arquivo por request
@@ -115,6 +114,16 @@ export async function buildApp(): Promise<FastifyInstance> {
       return reply.code(200).send({ status: "ok", database: "connected", tag: process.env.APP_TAG ?? "" });
     }
     return reply.code(503).send({ status: "degraded", database: "disconnected" });
+  });
+
+  // ---------- Permissão para on-demand TLS do Caddy (§wildcard) ----------
+  // O Caddy consulta GET /internal/caddy-on-demand-tls?domain=<host> antes
+  // de emitir um certificado sob demanda; 2xx libera, demais bloqueia.
+  // Só subdomínios de UMA label de *.labolabe.tech passam.
+  app.get("/internal/caddy-on-demand-tls", async (req, reply) => {
+    const domain = String((req.query as Record<string, unknown>)?.domain ?? "").toLowerCase();
+    const ok = /^[a-z0-9-]+\.labolabe\.tech$/.test(domain);
+    return reply.code(ok ? 204 : 403).send();
   });
 
   await app.register(authRoutes);
@@ -139,7 +148,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   // também expõe flags de operação que a página externa e o próprio login usam
   // para ramificar a UI antes de autenticar (ex.: delivery desligado).
   await app.register(async (publicApp) => {
-    publicApp.get("/store-info", async () => {
+    publicApp.get("/store-info", async (req) => {
       const s = await getStoreSettingsUsecase();
       return {
         merchantName: s.merchantName,

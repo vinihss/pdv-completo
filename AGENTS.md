@@ -37,8 +37,12 @@ printer/   Daemon Go para impressão térmica (ESC/POS)
 | `docs/12-n-plus-one-list-orders.md` | Roadmap: eliminar N+1 em `listOrders` |
 | `docs/13-deploy-workflow-melhoras.md` | Melhoras no workflow de deploy (versão, artefatos, publicação) |
 | `docs/14-usabilidade-e-processos.md` | Backlog priorizado: fluxo de pedido, gestão e caixa (8 bugs de confiabilidade + 40 propostas em 8 camadas, roadmap P0-P5) |
-| `docs/15-pagarme.md` | Camada de pagamentos Pagar.me V5: arquitetura, webhook, reconciliação, decisões e pendências |
-| `docs/16-pagarme-pendencias.md` | Pendências da integração Pagar.me V5: o que falta, risco e prioridade |
+| `docs/15-multi-tenant-schema.md` | Multi-tenant por **schema PostgreSQL** (subdomínio → tenant): arquitetura, decisões, fases e riscos |
+| `docs/16-pendencias.md` | Pendências do planejamento multi-tenant + intenção de unificar migrations numa única baseline |
+| `docs/17-runbook-unificacao-migrations.md` | Runbook do cutover para o baseline único de migrations (com validação de backup) |
+| `docs/18-ifood-por-loja.md` | iFood por tenant: estado atual, delta necessário, riscos (sem implementação) |
+| `docs/19-pagarme.md` | Camada de pagamentos Pagar.me V5: arquitetura, webhook, reconciliação, decisões e pendências |
+| `docs/20-pagarme-pendencias.md` | Pendências da integração Pagar.me V5: o que falta, risco e prioridade |
 
 ### Guias para agentes
 
@@ -165,20 +169,21 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `go test ./...` | `printer/daemon` | suíte do daemon |
 | `./switch.sh` | deploy | deploy sem downtime (instância nova + `caddy reload`); `--status`, `--rollback`, `--install`, `--no-build` |
 | `./probe-availability.sh --url <url> --seconds N` | deploy | mede o gap de downtime real (sai != 0 se houve falha) |
-| `./scripts/dev-worktree.sh new <branch>` | raiz | cria o worktree de trabalho em `~/pdv-worktrees/<branch>`, a partir da `origin/main` já atualizada |
+| `./scripts/dev-worktree.sh new <branch>` | raiz | cria o worktree de trabalho em `~/pdv/<branch>` (dentro do clone bare), a partir da `origin/main` já atualizada |
 | `./scripts/dev-worktree.sh list` | raiz | lista os worktrees e a branch de cada um |
 | `./scripts/dev-worktree.sh rm <branch>` | raiz | remove o worktree; só apaga a branch se ela já estiver mergeada na `main` |
 | `git config core.hooksPath .githooks` | qualquer | ativa os hooks versionados — **necessário após cada clone novo** |
 
 ## Git: worktree por branch, `main` intocada
 
-**Regra**: o worktree principal (`~/pdv-completo`) fica em `main` e serve só de
-base/coordenação (ler, comparar, abrir o editor). **Todo desenvolvimento acontece
-em worktree separado**, em `~/pdv-worktrees/<branch>` — um por branch, nunca
-dentro do repo (o git recusa worktree dentro de outro repo).
+**Regra**: o repositório é um **clone bare** em `~/pdv/.bare`. Cada branch de trabalho
+tem seu próprio worktree **dentro de `~/pdv/<branch>`** — um por branch, nunca dentro de
+outro worktree (o git recusa). O worktree de `main` fica em `~/pdv/main` e serve só de
+base/coordenação (ler, comparar, abrir o editor). **Todo desenvolvimento acontece em
+worktree separado**; o clone bare em `~/pdv/.bare` não tem working tree.
 
 ```bash
-./scripts/dev-worktree.sh new feat/minha-branch   # cria ~/pdv-worktrees/feat/minha-branch
+./scripts/dev-worktree.sh new feat/minha-branch   # cria ~/pdv/feat/minha-branch
 git push -u origin feat/minha-branch && gh pr create --fill
 ./scripts/dev-worktree.sh rm feat/minha-branch    # apaga a branch só se já mergeada na main
 ```
@@ -232,7 +237,7 @@ que `pre-push` deixa tag passar.
 - **ESM + NodeNext**: imports com extensão `.js`
 - **Camadas**: `domain` → `application` → `infra` → `http`
 - **Transações assíncronas**: todo acesso dentro de `db.transaction` é `await tx...`
-- **Migrations**: 5 arquivos, próximo é `0005_*`. Escrever idempotente. O boot falha se a migration falhar
+- **Migrations**: baseline único `backend/migrations/0001_init.sql` (cadeia antiga arquivada em `backend/migrations/archive/`). Novas migrations incrementais vão como `0002_*`, `0003_*`, … — sempre idempotentes. O boot falha se a migration falhar
 - **Audit log + outbox na mesma transação** da escrita de domínio
 - **Erros**: usar `AppError` com código do catálogo em `src/domain/errors.ts`
 - **Idempotência**: endpoints marcados devem usar `withIdempotency` com `correlationId`
@@ -256,15 +261,17 @@ que `pre-push` deixa tag passar.
 ### Git (resumo)
 
 - **Nunca commitar na `main`**: branch própria + PR + squash merge, sempre via worktree (Trunk-Based com branches curtos).
+- **Auto-merge habilitado**: o repo tem `allow_auto_merge: true`. Após abrir a PR com `gh pr create --fill`, ativar o merge automático de squash com `gh pr merge --auto --squash` — o GitHub faz o merge sozinho assim que CI (backend, frontend, commitlint) ficar verde. Não é mais necessário clicar em "Merge" à mão. **Observação (gh 2.101.0)**: o subcomando `--auto` retornou sucesso sem registrar (`autoMergeRequest: null`); workaround que funcionou na PR #65: `gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {pullRequestId: "'$(gh pr view <n> --json id --jq .id)'", mergeMethod: SQUASH}) { pullRequest { autoMergeRequest { enabledAt } } } }'`. Se nada persistir, `gh pr checks <n> --watch` + `gh pr merge <n> --squash` manual.
 - **Trunk-Based Development**: branches de vida curta (< 1–2 dias), PRs pequenos e frequentes. Integrar na `main` assim que aprovado e verde.
 - **Conventional Commits obrigatório**: todos os commits devem seguir [Conventional Commits](https://www.conventionalcommits.org/). Validado automaticamente no PR (commitlint).
 - **Versionamento automático**: no merge na `main`, Semantic Release analisa os commits, gera/atualiza `CHANGELOG.md`, cria **tag `vX.Y.Z`** e **GitHub Release** automaticamente (baseado no tipo de mudança: `feat`→minor, `fix/perf`→patch, `BREAKING CHANGE`→major).
-- **Worktree por branch** em `~/pdv-worktrees/<branch>` (`./scripts/dev-worktree.sh new|list|rm`)
+- **Worktree por branch** dentro do clone bare (`~/pdv/<branch>`; `./scripts/dev-worktree.sh new|list|rm`)
 - **Hooks versionados** em `.githooks/`: precisam de `git config core.hooksPath .githooks` após clone novo
 - Hook é **freio, não tranca** (`--no-verify` contorna); a garantia é o ruleset no GitHub
 - **`rm` de worktree não apaga branch não mergeada** — publicar ou `branch -D` consciously
 - **Tag é o gate de deploy**: produção é disparada **apenas** por push de tag `v*.*.*` (workflow `deploy-on-tag.yml`). Com o Semantic Release, a **tag deixa de ser manual e passa a ser automática e consistente**, sem alterar esse gate.
 - **Deploy contínuo híbrido**: merge na `main` → valida em **staging** (healthcheck + smoke). Produção → só via **Release/Tag** automático (criado pelo Semantic Release).
+- **A tag do Semantic Release só acorda o deploy se o `release.yml` usar o PAT** (`SEMANTIC_RELEASE_TOKEN`, escopo `contents: write`): o GitHub não dispara workflows a partir de eventos criados com `GITHUB_TOKEN`. Sem o secret, o `release.yml` cai no fallback e publica a tag do mesmo jeito — **o versionamento continua, o deploy não sai** (foi o que segurou produção parada entre `v1.18.0` e `v1.21.0`). Detalhe em `deploy/README.md` § Quem cria a tag.
 
 ### Deploy (resumo)
 

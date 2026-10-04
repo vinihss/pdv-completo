@@ -59,7 +59,12 @@ export async function closeOrderAfterDelivery(orderId: string, userId: string): 
     // confirmed:true — o dinheiro/pix foi recebido nesse momento, diferente do
     // registro inicial em createSelfServiceOrderUsecase (confirmed:false lá,
     // que era só a intenção declarada no checkout).
-    await registerPaymentUsecase({ orderId, userId, paymentMethod: order.paymentMethod, confirmed: true });
+    await registerPaymentUsecase({
+      orderId,
+      userId,
+      paymentMethod: order.paymentMethod,
+      confirmed: true,
+    });
     await closeOrderUsecase({ orderId, userId });
   }
 }

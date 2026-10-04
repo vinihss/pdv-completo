@@ -93,6 +93,12 @@ export const customers = pgTable(
     name: text("name").notNull(),
     phone: text("phone"),
     email: text("email"),
+    // Perfil completo (0008). Os três guardam o valor CRU, sem máscara — a
+    // apresentação é do frontend, o banco é a fonte: `photo_path` só o
+    // basename (`<id>.<ext>`), `cpf` os 11 dígitos, `notes` o texto livre.
+    photoPath: text("photo_path"),
+    cpf: text("cpf"),
+    notes: text("notes"),
     // Soft-delete: cliente tem histórico de pedidos (order.customer_id), então
     // a manutenção desativa em vez de apagar — reativável a qualquer momento.
     active: boolean("active").notNull().default(true),
@@ -102,6 +108,9 @@ export const customers = pgTable(
     index("idx_customer_name").on(t.name),
     index("idx_customer_phone").on(t.phone),
     uniqueIndex("uq_customer_email").on(t.email).where(sql`${t.email} IS NOT NULL`),
+    // CPF único quando informado — mesmo formato parcial do email. O
+    // "quando informado" é o que mantém válido o cliente sem documento.
+    uniqueIndex("uq_customer_cpf").on(t.cpf).where(sql`${t.cpf} IS NOT NULL`),
   ],
 );
 
@@ -427,8 +436,8 @@ export const cashDrawerMovements = pgTable(
   (t) => [index("idx_cash_drawer_movement_drawer").on(t.drawerId)],
 );
 
-// ---------- configuração (singleton) ----------
 export const storeSettings = pgTable("store_settings", {
+  // Singleton: exatamente uma linha, com id 'singleton'.
   id: text("id").primaryKey().default("singleton"),
   merchantName: text("merchant_name").notNull(),
   merchantCity: text("merchant_city").notNull(),
@@ -442,7 +451,7 @@ export const storeSettings = pgTable("store_settings", {
   ifoodIntegrationEnabled: boolean("ifood_integration_enabled").notNull().default(false),
   // Integração WhatsApp (0007): master switch do painel em Configurações.
   whatsappIntegrationEnabled: boolean("whatsapp_integration_enabled").notNull().default(false),
-  // Pagar.me V5 (0008): mesmo desenho do toggle do WhatsApp — a cobrança no
+  // Pagar.me V5 (0002): mesmo desenho do toggle do WhatsApp — a cobrança no
   // gateway é opt-in por loja e nada acontece enquanto estiver false.
   pagarmeEnabled: boolean("pagarme_enabled").notNull().default(false),
   inventoryEnabled: boolean("inventory_enabled").notNull().default(false), // estoque (0016)
@@ -704,7 +713,7 @@ export const whatsappInboundMessages = pgTable(
 );
 
 // ============================================================
-// Pagar.me V5 (0008) — ver migrations/0008_pagarme.sql
+// Pagar.me V5 (0002) — ver migrations/0002_pagarme.sql
 // ============================================================
 
 // ## `payment` NÃO é `order_payment` — a armadilha nº1 deste bloco

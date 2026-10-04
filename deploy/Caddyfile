@@ -2,7 +2,7 @@
 # Caddy — proxy reverso com HTTPS automático (Let's Encrypt).
 #
 # Domínios:
-#   umamisushiarte.com.br      → redirect para a vitrine pública (app./pedido)
+#   umamisushiarte.com.br      → redirect para o WhatsApp (link wa.me)
 #   app.umamisushiarte.com.br  → aplicação (backend + frontend)
 #
 # Todos precisam de registro DNS tipo A apontando para o IP do
@@ -10,6 +10,13 @@
 # HTTP-01 e nenhum certificado é emitido (o Caddy fica servindo
 # apenas HTTP). Ver a seção "DNS obrigatório" do deploy/README.md.
 # ============================================================
+
+{
+	on_demand_tls {
+		# O Caddy só emite cert sob demanda se este endpoint liberar o domínio.
+		ask http://{$PDV_BACKEND_UPSTREAM:backend:3000}/internal/caddy-on-demand-tls
+	}
+}
 
 # Rotas da aplicação, compartilhadas pelos sites que servem o PDV.
 # `handle` faz o roteamento por caminho; o resto vai pro frontend.
@@ -135,30 +142,51 @@
 	encode gzip
 }
 
-# ---------- Domínio principal: vitrine pública ----------
-# Não serve o app: quem digitar o domínio sem `app.` cai direto na página de
-# pedidos (rota pública `/pedido/*` do CustomerMenuPage, sem login).
-#
-# O path é `/pedido` no SINGULAR — é o que o React Router declara
-# (`frontend/src/app/router.jsx`). `/pedidos` cai no catch-all `/*` e mostra a
-# tela de login, então nunca use o plural aqui.
+# ---------- Domínio principal: redirect para o WhatsApp ----------
+# Não serve o app: quem digitar o domínio sem `app.` vai direto para o
+# WhatsApp da casa, que é o canal de contato/vendas.
 #
 # O `redir` é de site inteiro: qualquer caminho no domínio raiz
-# (`umamisushiarte.com.br/qualquer-coisa`) vai para a vitrine, sem
-# precisar repetir a regra por path.
+# (`umamisushiarte.com.br/qualquer-coisa`) cai no MESMO link do WhatsApp, sem
+# precisar repetir a regra por path — e o path da requisição não vaza para o
+# `Location` (verificado com `caddy adapt` e com um Caddy real: `/cardapio` e
+# `/x?utm=1` devolvem o `Location` exato abaixo).
 #
 # SEM `permanent` = 302 temporário, de propósito. O 308 (`permanent`) é cacheado
 # pelo navegador com força: quem já abriu o domínio antes continua indo para o
-# destino antigo mesmo depois do deploy, até limpar o cache. Enquanto o
-# destino estiver sendo ajustado, deixe 302 e valide com curl:
+# destino antigo mesmo depois do deploy, até limpar o cache. Como o destino foi
+# ajustado de novo agora (Instagram → vitrine → WhatsApp), um 308 já cacheado
+# exigiria que cada cliente limpasse o cache antes de ver a mudança. Deixe 302
+# e valide com curl:
 #   curl -sI https://umamisushiarte.com.br | grep -i location
-# Quando o destino estiver definitivo, volte `permanent` no fim da linha
-# (relembre: precisa de `--force-recreate caddy` ou `caddy reload`).
+# Trocar o número do WhatsApp depois é só editar a linha de `redir` (relembre:
+# precisa de `--force-recreate caddy` ou `caddy reload`). Só considere
+# `permanent` quando o destino estiver definitivo e a mudança for para ficar.
 umamisushiarte.com.br, www.umamisushiarte.com.br {
-	redir https://app.umamisushiarte.com.br/pedido
+	redir https://wa.me/5551997506070?type=phone_number&app_absent=0
 }
 
 # ---------- Subdomínio: a aplicação ----------
 app.umamisushiarte.com.br {
 	import site
+}
+
+# ============================================================
+# ---------- Wildcard *.labolabe.tech ----------
+#
+# TODO subdomínio de *.labolabe.tech cai no mesmo bloco e serve a mesma app.
+#
+# TLS: on-demand — na primeira requisição TLS de um subdomínio novo,
+# o Caddy pede um certificado específico (HTTP-01) e passa a servi-lo.
+# Por isso é OBRIGATÓRIO um registro DNS A coringa `*.labolabe.tech`
+# apontando para este servidor; sem ele o ACME não consegue validar.
+#
+# O wildcard de UMA label: `*.labolabe.tech` cobre `foo.labolabe.tech`,
+# mas não `foo.bar.labolabe.tech`.
+# ============================================================
+*.labolabe.tech {
+	import site
+	tls {
+		on_demand
+	}
 }

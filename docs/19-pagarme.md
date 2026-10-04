@@ -18,7 +18,7 @@ a interface `PaymentGateway` mora em `domain/payment.ts` e a `PagarmeGateway`
 | infra | `src/integrations/pagarme/{config,client,types,mapper,gateway,webhook-signature,worker}.ts` | HTTP Basic, timeout, classificação de erro, tradução de payload, assinatura, worker |
 | http | `src/http/routes/payment.routes.ts` | endpoints autenticados (caixa/gerente) |
 | http | `src/http/routes/pagarme-webhook.routes.ts` | `POST /webhooks/pagarme` (sem sessão; prova-se pela assinatura) |
-| banco | `migrations/0008_pagarme.sql` | `payment`, `payment_event`, `payment_refund` |
+| banco | `migrations/0002_pagarme.sql` | `payment`, `payment_event`, `payment_refund` |
 
 ## `payment` NÃO é `order_payment`
 
@@ -147,7 +147,7 @@ secret key (o exemplo canônico da doc é `cat body | openssl dgst -sha1 -hmac
 ## Pendências conhecidas
 
 A lista completa, com risco e prioridade de cada item, está em
-`docs/16-pagarme-pendencias.md`. Resumo:
+`docs/20-pagarme-pendencias.md`. Resumo:
 
 - **Endpoints de cancel/refund não confirmados na doc oficial** — centralizados
   em `config.ts` com `@todo`. Errar o path custa "estorno não aconteceu" (a

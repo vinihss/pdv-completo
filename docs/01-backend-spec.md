@@ -201,7 +201,7 @@ CREATE TABLE store_settings (
     kitchen_prep_urgent_min  INTEGER NOT NULL DEFAULT 6, -- minutos em preparo até o cartão virar vermelho pulsante
     kitchen_pickup_urgent_min INTEGER NOT NULL DEFAULT 5 -- minutos parado em "Prontos" até destacar como urgente
 );
--- Tabela de linha única (singleton) nesta etapa: um estabelecimento por instância
+-- Linha única (id 'singleton'): um estabelecimento por instância.
 
 -- Log de auditoria — toda ação relevante do garçom/gerente é registrada
 CREATE TABLE audit_log (
@@ -279,6 +279,32 @@ O custo de `unit_price` em `order_item` é snapshot, não referência viva a
 - UUIDs como PK, adequados para futura sincronização multi-servidor.
 - `version` em `order_item` suporta lock otimista (seção 6).
 - **Identificação da order**: `table_id`, `customer_id` e `tab_label` são independentes entre si (não hierárquicos) — a constraint `order_identification_required` garante que ao menos um esteja preenchido. Isso suporta tanto o modelo de restaurante tradicional (mesa) quanto o de pub sem mesa (comanda vinculada a cliente cadastrado ou a um rótulo livre digitado na hora, sem exigir cadastro). `customer` é uma entidade própria (não um campo solto) para permitir busca por nome/telefone e reaproveitamento em visitas futuras, mesmo que histórico de consumo fique fora do escopo da etapa 1.
+
+### Adições da migration `0008_customer_profile_fields` (detalhe de cliente)
+
+O `customer` do §4 é o mínimo do balcão. A tela de detalhe acrescenta três
+colunas — todas opcionais, nenhuma muda o comportamento de quem já tem cliente
+cadastrado:
+
+```sql
+-- Foto, no mesmo padrão de user.photo_path e product.image_path: só o basename
+-- (<id>.<ext>, nome gerado pelo app), servido em /uploads/<id>.<ext>.
+ALTER TABLE customer ADD COLUMN photo_path TEXT;
+
+-- CPF com os 11 dígitos CRUS, sem máscara (máscara é apresentação e muda de
+-- contexto). Único entre clientes; o índice é parcial porque NULL não colide —
+-- cliente sem documento continua cadastrável.
+ALTER TABLE customer ADD COLUMN cpf TEXT;
+CREATE UNIQUE INDEX uq_customer_cpf ON customer(cpf) WHERE cpf IS NOT NULL;
+
+-- Observação livre do gerente/caixa ("pede sem cebola", "paga sempre no Pix").
+ALTER TABLE customer ADD COLUMN notes TEXT;
+```
+
+O histórico de consumo do cliente (comandas fechadas, total pelos itens no
+snapshot) **não** é coluna: é calculado a partir de `order`/`order_item` com o
+`idx_order_customer` que já existe, para não duplicar a fonte da verdade da
+venda. Ver §7.8.
 
 ## 5. Arquitetura em Camadas
 
@@ -557,11 +583,30 @@ PATCH  /users/:id/reset-pin       → gera novo PIN, retorna uma única vez em t
 ### 7.8 Clientes
 
 ```
-GET    /customers?search=         → busca por nome/telefone (autocomplete na abertura de comanda)
+GET    /customers?search=&active=&limit=&offset=  → lista paginada (manutenção)
+GET    /customers/search?q=                       → busca leve (abertura de comanda)
+GET    /customers/:id                             → detalhe + endereços + comandas abertas
+GET    /customers/:id/orders?limit=&offset=       → histórico de comandas do cliente
+GET    /customers/:id/summary?days=&tz=           → consumo por dia (série do gráfico)
 POST   /customers
+PATCH  /customers/:id
+POST   /customers/:id/photo                       → upload (multipart, campo "photo")
+DELETE /customers/:id/photo                       → remover foto
+POST   /customers/:id/addresses
+POST   /customers/:id/addresses/:addressId/default
+DELETE /customers/:id/addresses/:addressId
 ```
-- Sem restrição de role — qualquer perfil autenticado pode buscar/cadastrar cliente durante o atendimento
-- 201 no `POST`: cliente criado; sem endpoint de edição nesta etapa (fora do escopo — ver `01-backend-spec.md`, seção 1)
+
+- **Papéis**: a *busca* e o *cadastro* são operação de balcão — `manager`, `cashier` e `waiter`. A manutenção (lista, detalhe, edição, endereços, foto, histórico, série) é `manager`/`cashier`. O garçom só enxerga `GET /customers/search` e `POST /customers`: ele precisa achar e cadastrar o cliente na hora da comanda, e nada além disso.
+- 201 no `POST`: cliente criado.
+- **CPF** (`cpf` no `POST`/`PATCH`): 11 dígitos **crus, sem máscara** — a entrada aceita com ou sem (`529.982.247-25` e `52998224725` viram o mesmo valor) e o backend normaliza. Os dígitos verificadores são conferidos no servidor: CPF inválido, com dígitos repetidos ou com menos de 11 dígitos é `400 validation_failed` com `details.field = "cpf"`. **Único entre clientes** (`uq_customer_cpf`, índice parcial `WHERE cpf IS NOT NULL`), então o mesmo CPF já cadastrado em outro cliente também é 400 com `details.field = "cpf"`. Ausente ou vazio grava `null` — o documento é obrigatório em nota fiscal, não em cadastro de balcão.
+- **Observações** (`notes` no `POST`/`PATCH`): texto livre, opcional; só o vazio é normalizado para `null`.
+- **Foto** (`photo_path`): mesma régua de `user.photo_path` e `product.image_path` — o banco guarda **só o basename** `<id>.<ext>` (nome gerado pelo app, nunca o enviado pelo cliente) e a API devolve o caminho público em `photoPath` (`/uploads/<id>.<ext>`). JPEG/PNG/WebP, 2 MB, 1 arquivo por request. Trocar a extensão remove o arquivo antigo; `logAction` grava `customer_photo_changed`/`customer_photo_removed` na mesma transação do UPDATE.
+- `GET /customers/:id` também devolve `openOrders` (comandas `status = "open"` do cliente, mais antiga primeiro) — é o alerta de "conta em aberto" que o caixa precisa ver antes de cobrar.
+- `GET /customers/:id/orders`: paginado (`limit` 20, teto 100; `offset`), ordenado por `closed_at DESC NULLS LAST` — comanda aberta não tem `closed_at` e num histórico de visitas passadas ela pertence ao **fim**, não ao topo.
+- `GET /customers/:id/summary?days=30&tz=-03:00`: série diária de consumo. `days` tem default 30 e é limitado a 365; `tz` é o offset do fuso da loja (mesmo parâmetro de `/reports/overview`) e sem ele o dia é UTC. O `label` de cada ponto vem pronto em pt-BR (`"01/10"`) e **dia sem consumo vem com zero, nunca ausente** — o frontend desenha os pontos que recebe, então buraco na série vira buraco no gráfico.
+- **Regra de venda do `summary` e do `total` do histórico**: a mesma da visão geral (`/reports/overview`) — só comandas **fechadas**, total pela soma de `order_item.unit_price × quantity` (snapshot do lançamento, `cancelled` fora) mais a taxa de entrega. `order_payment` **não** entra: o iFood grava o pagamento em `order.ifood_payments` (JSON) e a comanda apareceria como zero. Se os dois gráficos discordarem sobre as mesmas comandas, o gerente perde a confiança nos dois.
+- Sem cache no `summary`: é o consumo de **uma** pessoa e muda toda vez que ela paga — cache mostraria um valor já desmentido por um pagamento.
 
 ### 7.9 Relatório de vendas (requer role: manager)
 
@@ -1081,7 +1126,7 @@ Migration que precisa de dado default pra coluna nova em tabela já populada (ex
 
 ## 15. Requisitos Não-Funcionais
 
-Dimensionamento pensado pra um único estabelecimento de porte pequeno/médio (bar/restaurante), não pra escala multi-tenant nesta etapa:
+Dimensionamento pensado pra um único estabelecimento de porte pequeno/médio (bar/restaurante), não pra um ambiente multi-tenant:
 
 - **Volume esperado**: até ~30 mesas/comandas simultâneas, pico de ~15 lançamentos de item por minuto no rush. O Postgres aguenta essa carga com folga (e o pool de conexões é de 10 por padrão, tudo no mesmo host). Se o estabelecimento crescer muito além disso, é sinal pra subir de instância (`DATABASE_POOL_MAX` + Postgres maior), não pra trocar de banco.
 - **Latência aceitável**: ações do garçom (adicionar item, marcar entregue) devem responder em menos de 300ms em modo local (rede interna, sem round-trip de internet) — se não bater isso, é sintoma de problema real (query sem índice, lock desnecessário), não de expectativa mal calibrada.

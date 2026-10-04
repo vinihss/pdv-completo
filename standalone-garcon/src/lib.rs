@@ -66,17 +66,16 @@
 //!     (o app inteiro, com as 4 telas) e não a entry do garçom. O `frontend`
 //!     não tem um `dev:garcon` e esta fase não mexe nele.
 //!
-//! ## Mobile: o que falta para o build
+//! ## Mobile (Android)
 //!
-//! O `tauri android init` e o `tauri android build` não rodam neste ambiente
-//! (sem Android SDK/NDK). O que falta:
-//!
-//! - `gen/android/` (projeto Gradle) — que `tauri android init` gera;
-//! - o `AndroidManifest.xml` e as permissões de sistema;
-//! - o schema de capabilities em mobile (`mobile-schema.json` vs
-//!   `desktop-schema.json` do desktop) — o `$schema` do
-//!   `capabilities/default.json` aponta para `../gen/schemas/desktop-schema.json`,
-//!   que é o schema do desktop. O schema mobile só existe depois do `init`.
+//! O projeto Gradle fica em `gen/android/` e é **versionado** — é ele que
+//! carrega o `AndroidManifest.xml`, a liberação de cleartext (o plano LOCAL do
+//! produto fala `http://<ip-da-lan>`), o signing do release e a correção do
+//! `BuildTask` (o template chama `node tauri`, que não resolve com o
+//! `@tauri-apps/cli` deste repo). O passo a passo de build, os requisitos
+//! (compileSdk 36, NDK r30, JDK 17) e o que ainda não foi provado estão no
+//! README do crate — leia lá antes de rodar `tauri android init`, que
+//! regenera os arquivos por cima.
 //!
 /// Ponto de entrada do app — o `main.rs` só chama isto.
 ///

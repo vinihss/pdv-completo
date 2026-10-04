@@ -1,4 +1,4 @@
-// Domínio de pagamento no GATEWAY (Pagar.me V5) — ver migration 0008 e
+// Domínio de pagamento no GATEWAY (Pagar.me V5) — ver migration 0002 e
 // integrations/pagarme/.
 //
 // ## `payment` e `order_payment` são coisas diferentes

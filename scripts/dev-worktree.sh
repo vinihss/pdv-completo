@@ -3,18 +3,16 @@
 #
 # POR QUE WORKTREE
 # ----------------
-# A regra do repo: o worktree principal (~/pdv-completo) fica em `main` e serve
-# só de base/coordenação. TODO desenvolvimento acontece em worktree separado
-# em ~/pdv-worktrees/<branch>. Isso é o que permite ter a `main` sempre
-# checkada e limpa (para ler, comparar, abrir o editor) enquanto se trabalha em
-# uma branch — sem `git stash`, sem `git checkout` derrubando o trabalho alheio
-# no meio, e sem o hook de pre-commit barrando commit porque o cwd está na
-# main.
+# A regra do repo: o repositório é um clone bare em ~/pdv/.bare. Cada branch
+# de trabalho tem seu próprio worktree DENTRO de ~/pdv/<branch>. O worktree de
+# main fica em ~/pdv/main e serve só de base/coordenação (ler, comparar, abrir
+# o editor). TODO desenvolvimento acontece no worktree da branch — o clone
+# bare não tem working tree. Isso é o que permite ter a `main` sempre limpa
+# enquanto se trabalha em uma branch — sem `git stash`, sem `git checkout`
+# derrubando o trabalho alheio no meio, e sem o hook de pre-commit barrando
+# commit porque o cwd está na main.
 #
-# Por que o diretório é IRMÃO do repo e não dentro dele: o git recusa
-# `git worktree add` para um caminho dentro de outro repositório/working tree.
-#
-#   new <branch>   cria (ou reanexa) ~/pdv-worktrees/<branch> a partir da
+#   new <branch>   cria (ou reanexa) ~/pdv/<branch> a partir da
 #                  origin/main recém-atualizada
 #   list           lista os worktrees e a branch de cada um
 #   rm <branch>    remove o worktree; a branch só é apagada se JÁ estiver
@@ -30,7 +28,7 @@
 # recuperável), e explica como removê-la de propósito depois.
 set -eu
 
-BASE_DIR="${PDV_WORKTREE_DIR:-$HOME/pdv-worktrees}"
+BASE_DIR="${PDV_WORKTREE_DIR:-$HOME/pdv}"
 REMOTE_REF="origin/main"
 
 usage() {
@@ -194,7 +192,7 @@ cmd_rm() {
 	# Onde a worktree DESTA branch está. Não assume `$BASE_DIR/$branch`: a
 	# convenção vale para o que o `new` cria, mas um worktree já existente pode
 	# estar em outro caminho — `ci-pr-workflow` apontava para `ci/pr-tests`, e o
-	# `rm` procurava `~/pdv-worktrees/ci/pr-tests`, não achava, e o `branch -D`
+	# `rm` procurava `~/pdv/feat/<branch>`, não achava, e o `branch -D`
 	# seguinte falhava com "cannot delete branch ... used by worktree at ...".
 	# Quem responde é o git, que registra a association branch -> worktree.
 	target="$(git -C "$repo" worktree list --porcelain |

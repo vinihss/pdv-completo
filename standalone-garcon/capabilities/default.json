@@ -1,7 +1,7 @@
 {
-  "$schema": "../gen/schemas/desktop-schema.json",
+  "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "default",
-  "description": "Garçom: o core do Tauri e o http (é por ele que o app fala com a API). Sem `process` e sem `updater` — este app não registra os dois plugins. O `$schema` aponta para o schema do desktop; o schema mobile (`mobile-schema.json`) só existe depois do `tauri android init`.",
+  "description": "Garçom: o core do Tauri e o http (é por ele que o app fala com a API). Sem `process` e sem `updater` — este app não registra os dois plugins. O `$schema` aponta para o schema mobile, que um build Android gera em `gen/schemas/`; um build de host gera o `desktop-schema.json` no mesmo lugar (os dois têm o mesmo formato de capability, o que muda é a lista de permissões disponível).",
   "windows": [
     "main"
   ],

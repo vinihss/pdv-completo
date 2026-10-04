@@ -27,10 +27,6 @@ export const Errors = {
     new AppError("invalid_kitchen_thresholds", 400, "O limiar urgente precisa ser maior que o de alerta."),
   invalidTransition: (msg = "Transição de status inválida.") =>
     new AppError("invalid_transition", 400, msg),
-  // Mesmo código de invalidTransition, mas 409: o eixo delivery e o
-  // cancelamento do cliente são conflito de estado do pedido (docs/05
-  // "Conflitos"), não erro de validação de request (docs/01 usa 400 no
-  // PATCH de item, que é outro contexto).
   invalidDeliveryTransition: (msg = "Transição de entrega inválida.") =>
     new AppError("invalid_transition", 409, msg),
   pinNotAllowedHere: () =>

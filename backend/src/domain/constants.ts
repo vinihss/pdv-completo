@@ -4,3 +4,4 @@
 // têm garçom nem gerente responsável — ver 04-delivery-self-service-integration.md
 // "Decisões de arquitetura".
 export const SYSTEM_USER_ID = "system";
+

@@ -1,6 +1,6 @@
 # Pagar.me V5 — pendências e o que ficou para trás
 
-Complementa `docs/15-pagarme.md`. Este arquivo é o **resto** do trabalho: o que
+Complementa `docs/19-pagarme.md`. Este arquivo é o **resto** do trabalho: o que
 não foi feito, por que, e qual o risco de cada item ficar parado.
 
 O fluxo principal (criar cobrança → webhook confirma → `order_payment`

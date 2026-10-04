@@ -11,7 +11,7 @@ npm run test
 
 **Framework**: vitest 5 + PostgreSQL dedicado `pdv_test` (recriado no global setup via `TEST_DATABASE_URL`).
 
-### Suítes (17 arquivos)
+### Suítes (20 arquivos)
 
 | Arquivo | Cobertura |
 |---|---|
@@ -31,7 +31,7 @@ npm run test
 | `test/purchase.test.ts` | Compras + custo médio móvel (7 testes) |
 | `test/self-service.test.ts` | Página pública: carrinho, variações, grupos obrigatórios |
 | `test/stock.test.ts` | Ledger de estoque (10 testes): débito, refund, bloqueio, margem |
-| `test/team-customers.test.ts` | Clientes + equipe (12 testes): CRUD, endereços, PIN, foto |
+| `test/team-customers.test.ts` | Clientes + equipe (28 testes): CRUD, CPF/observações, foto do cliente, comanda aberta, histórico paginado, série do gráfico, PIN |
 | `test/whatsapp.test.ts` | WhatsApp: webhooks, dedupe, status (35 testes) |
 
 ### Padrões
@@ -39,6 +39,29 @@ npm run test
 - **Postgres dedicado**: o global setup recria o banco `pdv_test` antes de cada suíte
 - **`resetState()`**: algumas suítes (printer) precisam resetar o estado entre testes (mesa compartilhada)
 - **Stub HTTP**: printer usa stub na porta 3456; whatsapp usa stub da Graph em porta fixa apontada pelo `env` do `vitest.config.ts`
+
+### Isolamento do banco de teste
+
+O `pdv_test` é **exclusivo da suíte**. Servidor de dev nunca pode apontar para ele — `npm run dev` usa outro banco (o de dev). A causa de 99% dos testes "instáveis" no outbox é essa mistura.
+
+**Sintoma**: `test/outbox-dispatcher.test.ts` falha com contagens erradas — `expected 25 to be 50` no teste do teto de 50 por ciclo, ou `pollOutboxOnce()` devolvendo `0` no teste do advisory lock. E **quais** testes falham muda entre execuções. Essa instabilidade com "contagem errada" (e não com timeout ou conexão recusada) é a assinatura do problema.
+
+**Por quê**: `startOutboxDispatcher()` roda a cada 200ms em qualquer servidor de pé (`src/http/server.ts:197`). Com um servidor alheio conectado no mesmo banco, ele disputa as linhas do outbox (publica as mais antigas por `created_at` antes do teste) e o advisory lock de transação com a suíte. Não é bug de código — é configuração de ambiente.
+
+**Guard**: `test/global-setup.ts` checa `pg_stat_activity` antes do `recreateSchema` e falha cedo com mensagem acionável (lista `pid`, `application_name`, `state`, `client_addr` e diz o que parar). Bônus: com conexão estrangeira viva, o `DROP SCHEMA public CASCADE` do próprio setup também pode travar ou falhar de forma confusa — o guard falha antes, legível.
+
+Escape para quem legitimamente precisa (depurar o banco na mão enquanto a suíte roda, duas execuções concorrentes em worktrees diferentes):
+
+```bash
+TEST_ALLOW_FOREIGN_CONNECTIONS=1 npm run test
+```
+
+Como achar o processo estranho:
+
+```bash
+ss -tnp | grep 55432                                       # quem está conectado
+ps -eo pid,ppid,etimes,args | grep "dist/http/server.js"   # servidor órfão tem PPID 1
+```
 
 ## Frontend
 

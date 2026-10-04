@@ -9,12 +9,15 @@ import { SYSTEM_USER_ID } from "../../domain/constants.js";
 const geocodingService = new NominatimGeocodingService();
 const cache = getCache();
 
+/**
+ * Geocoda o endereço do restaurante e grava as coordenadas em `store_settings`.
+ */
 export async function geocodeRestaurantUsecase(): Promise<{
   latitude: number;
   longitude: number;
 }> {
   const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
-  if (!settings) throw new Error("store_settings não inicializado");
+  if (!settings) throw new Error("store_settings não inicializado.");
 
   const address = `${settings.merchantName}, ${settings.merchantCity}`;
 
@@ -29,7 +32,7 @@ export async function geocodeRestaurantUsecase(): Promise<{
       await logAction(tx, SYSTEM_USER_ID, "restaurant_geocoded", null, { latitude: coords.latitude, longitude: coords.longitude });
     });
 
-    cache.invalidate("store-settings:singleton");
+    cache.invalidate("store-settings");
 
     return coords;
   } catch (err) {
