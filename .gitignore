@@ -61,3 +61,4 @@ standalone-*/.local-signing.key.pub
 # O binário é compilado no build da imagem / no deploy, nunca versionado.
 /ws-gateway/ws-gateway
 /ws-gateway/*.exe
+data.db*
