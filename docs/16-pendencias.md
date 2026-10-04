@@ -64,8 +64,40 @@ roll completo é restaurar esse dump. Janela de segundos para 1 loja.
    `pdv_app`/`pdv_dba` exige `CREATE` no banco — precisa confirmar antes da Fase 3.
 2. **Alvo de N tenants em 12 meses** — o pool dedicado tem teto ~20; acima disso, a
    arquitetura muda (pool compartilhado + `SET LOCAL search_path`).
-3. **Credenciais do iFood são por loja?** Hoje `IFOOD_CLIENT_ID/SECRET` são globais em env, mas
-   `ifood_state` é por loja. Se cada loja tiver o seu, precisam sair do env.
+3. **Credenciais do iFood são por loja?** Análise completa na nova §6 (abaixo): hoje
+   ambas as credenciais (env) e `ifood_state` (DB) são **globais**, só o toggle
+   `ifood_enabled` é por loja. Se cada loja tiver o seu merchant, precisam sair do env.
+
+---
+
+## 6. Análise: iFood por loja
+
+> Levantamento 2026-10-04 (commit equivalente, `feat/schema` removida) — estado atual
+> do `backend/src/integrations/ifood/`.
+
+| Camada | Onde | Hoje |
+|---|---|---|
+| Credenciais | `config/env.ts:88-90` (`IFOOD_CLIENT_ID/SECRET`, `IFOOD_MERCHANT_ID`) | globais em env |
+| Estado | `integrations/ifood/state.ts:1-45`, `schema.ts:545` (`ifood_state.key/value`) | global no DB, PK só `key` |
+| Worker de polling | `worker.ts:72-104`, iniciado uma única vez em `server.ts:199` | 1 merchant no processo todo |
+| Toggle por loja | `store_settings.ifood_enabled` (`schema.ts:152`) | por loja ✅ |
+| Flag por produto | `product.ifood_enabled` + `ifoodSku` (`schema.ts:152-153`) | por produto ✅ |
+
+**Delta para iFood por loja (multi-tenant):**
+
+1. `ifood_state.key/value` passar a ser chaveado por loja (`(store_id, key)`) — hoje a PK
+   é só `key`, então duas lojas pisariam no token uma da outra.
+2. Credenciais saírem do `.env` e irem para o banco (ex.: `stores.ifood_client_id/secret/
+   merchant_id`) — o worker roda no mesmo processo de todas as lojas, então env por tenant
+   não resolve.
+3. `worker.ts` / `client.ts` / `catalog-sync.ts` iterarem as lojas com `ifood_enabled = true`,
+   com cache de token por loja.
+4. `GET /ifood/status` e rotas exigirem resolver o `store_id` a partir do JWT
+   (`t: <schema>`), para não vazar token/merchant entre lojas.
+
+**Veredicto para a pendência §3.3:** hoje credenciais e estado são **globais**; só o toggle
+é por loja. Se cada loja tiver o seu merchant, os itens 1–4 são pré-requisito antes das
+fases 0–2 do multi-tenant.
 4. **Impressora:** o daemon (`PRINTER_DAEMON_URL`) é global — 1 por host ou compartilhado entre
    lojas? Se compartilhado, o daemon Go (`printer/`) precisa de fila por loja.
 5. **Gerente pode operar 2 lojas?** Impacta o JWT (`t: <schema>`) e exige troca de subdomínio
