@@ -60,13 +60,27 @@ roll completo é restaurar esse dump. Janela de segundos para 1 loja.
 
 ## 3. Decisões/pendências de produto (do §10 do `docs/15`)
 
-1. **Postgres de produção dá `CREATE` no banco?** Hoje a role `pdv` é SUPERUSER. Separar
-   `pdv_app`/`pdv_dba` exige `CREATE` no banco — precisa confirmar antes da Fase 3.
-2. **Alvo de N tenants em 12 meses** — o pool dedicado tem teto ~20; acima disso, a
-   arquitetura muda (pool compartilhado + `SET LOCAL search_path`).
-3. **Credenciais do iFood são por loja?** Análise completa na nova §6 (abaixo): hoje
-   ambas as credenciais (env) e `ifood_state` (DB) são **globais**, só o toggle
-   `ifood_enabled` é por loja. Se cada loja tiver o seu merchant, precisam sair do env.
+1. **Postgres de produção dá `CREATE` no banco?** ✅ Respondido (2026-10-04): manter a role
+   `pdv` como está; separação `pdv_app`/`pdv_dba` fora das fases iniciais.
+2. **Alvo de N tenants em 12 meses** ✅ Respondido (2026-10-04): **sem pool dedicado por
+   tenant** — pool compartilhado com `SET LOCAL search_path`.
+   A dúvida do alvo de N fica menos crítica, mas o pool compartilhado precisa de
+   atenção a `search_path` e timeouts.
+3. **Credenciais do iFood são por loja?** ✅ **Respondido (2026-10-04):** cada tenant tem a
+   sua própria loja no iFood. Plano em `docs/18-ifood-por-loja.md` (sem implementação).
+4. **Impressora:** o daemon (`PRINTER_DAEMON_URL`) é global — 1 por host ou compartilhado entre
+   lojas? Se compartilhado, o daemon Go (`printer/`) precisa de fila por loja. ⏳ depois.
+5. **Gerente pode operar 2 lojas?** ✅ **Respondido (2026-10-04): não.** JWT não precisa de
+   troca de tenant; UI não precisa de troca de subdomínio.
+6. **Downtime tolerável no cutover** (hoje é segundos; zero exigiria logical replication). ⏳ depois.
+7. **Painel de administração** (provisionar/pausar loja) — script manual ou UI interna? ⏳ depois.
+
+**Registradas em 2026-10-04:**
+- §3.1: **Postgres mantém a role `pdv` como está** (SUPERUSER). Separação
+  `pdv_app`/`pdv_dba` fica para a Fase 3 ou mais tarde.
+- §3.2: **NÃO usar pool dedicado por tenant.** O pool do banco será **compartilhado**
+  entre tenants, com `SET LOCAL search_path` por transação/query. Isso muda a Fase 3 do
+  `docs/15` (arquitetura de conexão).
 
 ---
 
