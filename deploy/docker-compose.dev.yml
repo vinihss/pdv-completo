@@ -71,6 +71,19 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-pdv}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Publica a porta do Postgres no HOST, em 127.0.0.1 por padrão (a nota
+    # longa, com o porquê do loopback e o aviso de segurança, está no compose
+    # de produção). Serve para o `psql` da sua máquina falar com o banco do
+    # compose — o backend não precisa disto, ele usa o nome `postgres`.
+    #
+    # A armadilha da porta do HOST: este serviço compartilha o volume
+    # `pdv_postgres_data` com o compose de produção, mas a porta 5432 é uma só
+    # por máquina. Se já houver um Postgres rodando no seu host (ou outro
+    # projeto) nessa porta, o `up` falha com "address already in use" — não é
+    # bug do volume, é o bind. Mude a porta do HOST (POSTGRES_PORT=55432) ou
+    # apague o Postgres que está ocupando a 5432.
+    ports:
+      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pdv} -d ${POSTGRES_DB:-pdv}"]
       interval: 10s
