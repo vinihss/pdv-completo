@@ -41,10 +41,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Node 22, alinhado com `tests.yml` (o portão de testes) e com
+      # `build-desktop.yml`. Não descer para 20: o GitHub descontinuou o 20 e
+      # força o runner no 24 (`Node.js 20 is deprecated ... forced to run on
+      # Node.js 24`), e o `vmThreads` do vitest (frontend/vitest.config.js)
+      # quebra no 24 com ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING — a suíte nem
+      # chega a rodar. O `20` aqui vivia só nesta cópia do gate; era o único
+      # `node-version` do arquivo (backend e frontend compartilham este
+      # setup-node).
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install Backend
