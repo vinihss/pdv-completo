@@ -34,7 +34,69 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # ============================================================
+      # O TOKEN DO SEMANTIC-RELEASE É O PORTÃO DO DEPLOY DE
+      # PRODUÇÃO — E `GITHUB_TOKEN` NÃO ABRE ESSE PORTÃO.
+      # ============================================================
+      # O GitHub tem uma trava anti-recursão: evento criado com
+      # `GITHUB_TOKEN` (o token do próprio Actions) NÃO dispara outros
+      # workflows. O push da tag que o semantic-release faz ao publicar
+      # entra por essa porta e, com `GITHUB_TOKEN`, não acorda o
+      # `deploy-on-tag.yml` — que escuta `on: push: tags: ['v*.*.*']`.
+      # Nenhum run fica vermelho: o Release dá verde, a tag e a release
+      # aparecem no repositório, e produção simplesmente não muda. É um
+      # portão que falha em silêncio, que é a pior categoria de bug de
+      # pipeline: parece automatismo e não é.
+      #
+      # MEDIDO NESTE REPO: `v1.18.0` foi a última tag que entrou em
+      # produção pelo fluxo da tag. `v1.19.0`, `v1.19.1`, `v1.20.0` e
+      # `v1.21.0` publicaram sem NENHUM run do `deploy-on-tag.yml`
+      # (a v1.21.0 só foi para o servidor porque a tag foi apagada e
+      # re-pushada à mão, depois de horas de produção parada).
+      #
+      # A SAÍDA É O PAT. Um push de tag feito com token de PAT conta
+      # como ação de usuário e dispara workflows, então o gatilho
+      # natural (`push: tags`) volta a funcionar sem mexer na estrutura
+      # do deploy. `SEMANTIC_RELEASE_TOKEN` é um Personal Access Token
+      # com escopo `contents: write`: o release precisa escrever a tag,
+      # criar a release e aplicar o label `released`. A alternativa
+      # "chamar o deploy-on-tag.yml daqui" foi considerada e REJEITADA de
+      # propósito — exigiria a tag como input daquele workflow e
+      # duplicaria os jobs de teste (ver a armadilha do runner dobrado
+      # em `ci-pr.yml`). O `deploy-on-tag.yml` segue sendo a única
+      # definição de deploy.
+      #
+      # O `permissions:` do topo NÃO é a saída e NÃO deve ser mexido:
+      # ele concede escrita ao `GITHUB_TOKEN`, e a trava anti-recursão
+      # vale para qualquer evento criado com esse token, escopo que for.
+      # O PAT troca só a env abaixo.
+      #
+      # O `||` é PROPOSITAL — não remover enquanto o secret não existir
+      # no repositório. Sem o PAT configurado, `secrets.SEMANTIC_RELEASE_TOKEN`
+      # resolve para string vazia e o fallback entrega o `GITHUB_TOKEN`:
+      # o release continua publicando tag, release e changelog (o
+      # versionamento automático nunca para) e só o deploy não dispara —
+      # exatamente o estado degradado de hoje. Se esta linha virar só
+      # `secrets.SEMANTIC_RELEASE_TOKEN`, o primeiro `feat` que entrar na
+      # `main` depois do merge quebra o job por token ausente e o repo
+      # perde o versionamento automático inteiro, por causa de um
+      # secret que ninguém criou. Degradar é aceitável; parar de vez, não.
+      # (mesmo idioma já usado em `deploy-on-tag.yml`:
+      # `${{ secrets.HOSTINGER_PORT || '22' }}`)
+      #
+      # PARA CRIAR O PAT, uma vez, no dono do repositório:
+      #   GitHub → Settings → Developer settings → Personal access
+      #   tokens → Fine-grained → escopo `contents: write` só neste repo,
+      #   com expir longa. Guardar em Settings → Secrets and variables →
+      #   Actions (ou pela CLI):
+      #     gh secret set SEMANTIC_RELEASE_TOKEN --repo <owner>/<repo>
+      # É um segredo de escrita no repositório: mora só no secret do
+      # Actions e não vai para `env:` de nenhum outro step/job nem para
+      # o log. Sem o PAT a produção só sai por tag manual
+      # (`git push origin vX.Y.Z`), que continua funcionando — é por isso
+      # que este PR pode ser mergeado antes do secret existir.
+      # ============================================================
       - name: Run Semantic Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.SEMANTIC_RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: npx semantic-release

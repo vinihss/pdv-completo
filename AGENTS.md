@@ -269,6 +269,7 @@ que `pre-push` deixa tag passar.
 - **`rm` de worktree não apaga branch não mergeada** — publicar ou `branch -D` consciously
 - **Tag é o gate de deploy**: produção é disparada **apenas** por push de tag `v*.*.*` (workflow `deploy-on-tag.yml`). Com o Semantic Release, a **tag deixa de ser manual e passa a ser automática e consistente**, sem alterar esse gate.
 - **Deploy contínuo híbrido**: merge na `main` → valida em **staging** (healthcheck + smoke). Produção → só via **Release/Tag** automático (criado pelo Semantic Release).
+- **A tag do Semantic Release só acorda o deploy se o `release.yml` usar o PAT** (`SEMANTIC_RELEASE_TOKEN`, escopo `contents: write`): o GitHub não dispara workflows a partir de eventos criados com `GITHUB_TOKEN`. Sem o secret, o `release.yml` cai no fallback e publica a tag do mesmo jeito — **o versionamento continua, o deploy não sai** (foi o que segurou produção parada entre `v1.18.0` e `v1.21.0`). Detalhe em `deploy/README.md` § Quem cria a tag.
 
 ### Deploy (resumo)
 

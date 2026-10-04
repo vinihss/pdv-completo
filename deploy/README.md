@@ -288,6 +288,26 @@ entrega vs chave local descartável) e gera o instalador.
 2. O workflow roda automaticamente: testes → backup → deploy → health check
 3. Acompanhe na aba **Actions** do repositório
 
+### Quem cria a tag: o `release.yml` (e por que ele precisa de PAT)
+
+Hoje a tag **não precisa ser criada à mão**: o merge na `main` dispara
+**`.github/workflows/release.yml`**, que roda o Semantic Release e publica
+tag, release e changelog. O passo 1 acima é o caminho manual, que continua
+valendo (e é o escape quando o versionamento automático não roda).
+
+Só que o push da tag do Semantic Release **precisa de um PAT** para acordar
+o `deploy-on-tag.yml`: o GitHub não dispara workflows a partir de eventos
+criados com o `GITHUB_TOKEN` do próprio Actions (trava anti-recursão), e o
+release usava só ele. O sintoma era silencioso — run verde, tag e release
+publicadas, produção parada: entre `v1.18.0` e `v1.21.0` nenhuma tag
+disparou deploy, e a `v1.21.0` só entrou em produção quando a tag foi
+apagada e re-pushada à mão. O `release.yml` agora usa
+`SEMANTIC_RELEASE_TOKEN` com fallback para `GITHUB_TOKEN`: **sem o secret o
+release continua publicando** (o versionamento automático nunca para) e só
+o deploy não dispara — por isso o fallback é deliberado e não deve ser
+removido. O bloco `permissions:` do `release.yml` não resolve o problema
+(a trava vale em qualquer escopo) e não deve ser mexido por causa disso.
+
 ### Secrets necessários no GitHub Actions
 
 Configure em **Settings → Secrets and variables → Actions**:
@@ -301,6 +321,13 @@ Configure em **Settings → Secrets and variables → Actions**:
 - `TAURI_SIGNING_PRIVATE_KEY` (chave Ed25519 do auto-update — ver abaixo)
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (senha dessa chave)
 - `UPDATE_BASE_URL` (opcional; padrão `https://app.umamisushiarte.com.br`)
+- `SEMANTIC_RELEASE_TOKEN` (PAT com escopo `contents: write`, só para o
+  `release.yml`; sem ele a tag é publicada mas o deploy **não** dispara —
+  ver a seção acima)
+
+```bash
+gh secret set SEMANTIC_RELEASE_TOKEN --repo <owner>/<repo>
+```
 
 ### Auto-update do app desktop
 
