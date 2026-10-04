@@ -37,6 +37,7 @@ printer/   Daemon Go para impressão térmica (ESC/POS)
 | `docs/12-n-plus-one-list-orders.md` | Roadmap: eliminar N+1 em `listOrders` |
 | `docs/13-deploy-workflow-melhoras.md` | Melhoras no workflow de deploy (versão, artefatos, publicação) |
 | `docs/14-usabilidade-e-processos.md` | Backlog priorizado: fluxo de pedido, gestão e caixa (8 bugs de confiabilidade + 40 propostas em 8 camadas, roadmap P0-P5) |
+| `docs/15-multi-tenant-schema.md` | Multi-tenant por **schema PostgreSQL** (subdomínio → tenant): arquitetura, decisões, fases e riscos |
 
 ### Guias para agentes
 
