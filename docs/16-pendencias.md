@@ -12,16 +12,22 @@
 | Item | Status |
 |---|---|
 | Plano arquitetural (`docs/15`) | ✅ escrito, PR #59 aberto → `main` |
-| Preparação §6.0 — consolidar migrations + redeploy limpo | ⏳ **pendente, não executado** |
+| Preparação §6.0 — consolidar migrations + redeploy limpo | ✅ **executada em produção (2026-10-04)**: baseline `0001_init.sql` único (PR #64), cutover executado conforme `docs/17` §6 — backup verificado (98 produtos, 12 comandas, 6 usuários), restore de dados validado, `_migrations` com uma única entrada. Rollback: `.dump` mantido em `/opt/backups` + cópia local |
 | Fases 0–8 de implementação | ⏳ não iniciadas |
-| PR #59 (docs) | ⏳ aberta, aguardando review/merge |
+| PR #59 (docs) | ✅ mergeada |
 
 A `feat/schema` foi atualizada com o `main` vigente (ws-gateway Go, guard de banco de teste,
 CI Node 22, APK garçom). Nenhum código alterado — só docs.
 
 ---
 
-## 2. Intenção de unificar as migrations
+## 2. Unificação das migrations — **executada (2026-10-04)**
+
+> Histórico: este doc registrava a intenção. O baseline `backend/migrations/0001_init.sql`
+> entrou na `main` via PR #64, a cadeia antiga foi arquivada em
+> `backend/migrations/archive/` e o cutover em produção foi executado (§6.0 ✅).
+
+### Estado original (pré-2026-10-04)
 
 Hoje: cadeia de 10 arquivos em `backend/migrations/`, com duplo `0003_` (`printer` +
 `profile_fields`), gap (`0008` = `customer_profile_fields`; `0009`–`0011` removidos mas como
@@ -85,8 +91,8 @@ roll completo é restaurar esse dump. Janela de segundos para 1 loja.
 
 ## 5. Próximos passos sugeridos (ordem livre, próxima sessão escolhe)
 
-1. Merge da PR #59 (docs do plano) para a `main`.
-2. Executar §6.0 (unificar migrations + redeploy limpo) — branch própria + PR.
+1. ~~Merge da PR #59 (docs do plano) para a `main`.~~ ✅
+2. ~~Executar §6.0 (unificar migrations + redeploy limpo) — branch própria + PR.~~ ✅ PR #64 + cutover 2026-10-04 (ver `docs/17`).
 3. Decidir sobre o gateway WS Go: quando vira o realtime vivo? O particionamento por tenant
    do §3.3 do `docs/15` vale para **ambos** os gateways enquanto coexistem.
 4. Responder às 7 decisões do §3 deste doc (donos/negócio).
