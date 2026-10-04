@@ -301,7 +301,42 @@ jobs:
           port: ${{ secrets.HOSTINGER_PORT || '22' }}
           username: ${{ secrets.HOSTINGER_USER }}
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
-          known_hosts: ${{ secrets.HOSTINGER_KNOWN_HOSTS }}
+          # `fingerprint` é o input que VERIFICA a host key — e o único que
+          # esta action tem para isso. A linha que estava aqui passava o
+          # secret `HOSTINGER_KNOWN_HOSTS` no input `known_hosts`, e isso
+          # não fazia NADA: `known_hosts` não é um input do
+          # appleboy/ssh-action@v1, a action o ignora e segue conectando sem
+          # conferir a host key.
+          #
+          # O aviso é SILENCIOSO, que é o que torna isso pior do que openly
+          # não passar: no run de produção 37244228557 (v1.21.0) a action
+          # imprimiu "Unexpected input(s) 'known_hosts', valid inputs are
+          # ['host', 'port', ..., 'fingerprint', ...]" e o job foi VERDE. O
+          # deploy mandava a chave privada de produção para qualquer coisa que
+          # se fizesse passar pelo Hostinger no meio da rede — e o log dizia
+          # que estava protegido.
+          #
+          # O formato é o segundo campo do `ssh-keygen -lf`, o "SHA256:...":
+          #   ssh-keyscan -p 22 SEU_HOST_OU_IP | ssh-keygen -lf -
+          # Cuidado ao escolher a linha: o `ssh-keyscan` imprime UMA LINHA
+          # POR TIPO de chave, e a action compara com a chave que o cliente SSH
+          # dela (drone-ssh, em Go) REALMENTE negocia — cuja preferência é
+          # ecdsa-sha2-nistp256 > ecdsa-384 > ecdsa-521 > rsa-sha2-256/512 >
+          # ssh-rsa > ssh-ed25519. O valor é o da linha `ecdsa-sha2-nistp256`;
+          # o ed25519 é a ÚLTIMA preferência, então o `-t ed25519`, que parece
+          # o óbvio, dá mismatch. Se connectar estiver falhando, o erro é
+          # "ssh: host key fingerprint mismatch", e ele acontece NO HANDSHAKE,
+          # antes de qualquer comando rodar no servidor: errar o fingerprint
+          # custa um run vermelho, não um deploy pela metade.
+          #
+          # POR QUE FALLBACK EM SECRET VAZIO, E NÃO VALOR FIXO AQUI
+          # O fingerprint nasce do `ssh-keyscan` no host, não deste
+          # repositório: cadastrá-lo é decisão de quem opera o deploy, e o
+          # custo de errar é o deploy parar. Secret vazio = comportamento de
+          # hoje (sem verificação), ou seja, sem regressão e sem deploy
+          # quebrado. Com o secret criado, a verificação passa a valer sem
+          # ninguém mexer neste arquivo de novo.
+          fingerprint: ${{ secrets.HOSTINGER_SSH_FINGERPRINT }}
           script: |
             set -Eeuo pipefail
 
