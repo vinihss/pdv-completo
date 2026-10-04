@@ -78,8 +78,6 @@ export async function listCourierDeliveriesUsecase(input: {
 export async function dispatchDeliveryUsecase(input: {
   deliveryId: string;
   courierId: string;
-  /** Tenant das settings (impressão do courier) — vem da rota. */
-  storeId: string;
 }) {
   const delivery = await getOwnedDelivery(input.deliveryId, input.courierId);
   // Transição validada pela máquina declarativa (customer-order-state.ts) —
@@ -103,7 +101,7 @@ export async function dispatchDeliveryUsecase(input: {
 
   // Impressão automática do courier (pós-commit, fire-and-forget).
   try {
-    const settings = await getSettings(input.storeId);
+    const settings = await getSettings();
     if (settings.printerEnabled && settings.printerAutoPrint) {
       printCourierOrder(updated.orderId).catch((err) => console.error("falha ao imprimir comanda no courier:", err));
     }
@@ -118,8 +116,6 @@ export async function dispatchDeliveryUsecase(input: {
 export async function deliverDeliveryUsecase(input: {
   deliveryId: string;
   courierId: string;
-  /** Tenant das settings — repassado pro fechamento da comanda. */
-  storeId: string;
 }) {
   const delivery = await getOwnedDelivery(input.deliveryId, input.courierId);
   if (!canTransitionDelivery(delivery.status, "delivered"))
@@ -148,7 +144,7 @@ export async function deliverDeliveryUsecase(input: {
   // Compartilhado com `setDeliveryStatusUsecase` (gerente marcando entregue
   // pelo balcão): os dois precisam do mesmo efeito, e duas cópias divergem
   // no primeiro conserto de uma delas. O comentário de lá explica o porquê.
-  await closeOrderAfterDelivery(updated.orderId, input.courierId, input.storeId);
+  await closeOrderAfterDelivery(updated.orderId, input.courierId);
 
   notifyDelivered(updated.orderId).catch((err) => console.error("falha ao notificar entrega concluída pro cliente:", err));
 

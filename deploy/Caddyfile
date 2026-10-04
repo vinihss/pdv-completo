@@ -172,13 +172,9 @@ app.umamisushiarte.com.br {
 }
 
 # ============================================================
-# ---------- Multi-tenant por subdomínio ----------
+# ---------- Wildcard *.labolabe.tech ----------
 #
-# TODO subdomínio de *.labolabe.tech cai no mesmo bloco e o backend
-# resolve a loja pelo subdomínio (tenant middleware lê o Host):
-#
-#   restaurante1.labolabe.tech  → store slug "restaurante1"
-#   qualquer-coisa.labolabe.tech → store slug "qualquer-coisa"
+# TODO subdomínio de *.labolabe.tech cai no mesmo bloco e serve a mesma app.
 #
 # TLS: on-demand — na primeira requisição TLS de um subdomínio novo,
 # o Caddy pede um certificado específico (HTTP-01) e passa a servi-lo.

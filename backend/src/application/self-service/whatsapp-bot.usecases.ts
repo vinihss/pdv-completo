@@ -2,7 +2,6 @@ import { eq } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { whatsappConversations } from "../../infra/db/schema.js";
 import { config } from "../../config/env.js";
-import { DEFAULT_STORE_ID } from "../../domain/constants.js";
 import { getActiveSelfServiceOrderByPhoneUsecase } from "./order-intake.usecase.js";
 import { calcularEntregaUsecase } from "../delivery/calcular-entrega.usecase.js";
 import type { WhatsAppLocation } from "../../integrations/whatsapp/webhook-payload.js";
@@ -67,9 +66,6 @@ async function handleLocationMessage(phone: string, location: WhatsAppLocation):
     const result = await calcularEntregaUsecase({
       latitude: location.latitude,
       longitude: location.longitude,
-      // Sem contexto de request no bot (whatsapp_connection ainda não expõe
-      // store no app model) — a loja que atende por WhatsApp é a default.
-      storeId: DEFAULT_STORE_ID,
     });
 
     if (!result.disponivel) {
@@ -165,9 +161,7 @@ export async function handleIncomingWhatsAppMessage(
     }
   }
 
-  // Mesmo racional de handleLocationMessage: o bot não tem `req.storeId`,
-  // então a retomada de pedido lê as settings da store default.
-  const active = await getActiveSelfServiceOrderByPhoneUsecase(phone, DEFAULT_STORE_ID);
+  const active = await getActiveSelfServiceOrderByPhoneUsecase(phone);
   if (active) {
     return {
       replyText:

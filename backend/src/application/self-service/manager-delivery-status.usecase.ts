@@ -48,7 +48,7 @@ function serialize(d: typeof deliveries.$inferSelect) {
  * composição sequencial já usado em `createSelfServiceOrderUsecase` e no
  * `deliverDeliveryUsecase`.
  */
-export async function closeOrderAfterDelivery(orderId: string, userId: string, storeId: string): Promise<void> {
+export async function closeOrderAfterDelivery(orderId: string, userId: string): Promise<void> {
   await db
     .update(orderItems)
     .set({ status: "delivered" })
@@ -64,7 +64,6 @@ export async function closeOrderAfterDelivery(orderId: string, userId: string, s
       userId,
       paymentMethod: order.paymentMethod,
       confirmed: true,
-      storeId,
     });
     await closeOrderUsecase({ orderId, userId });
   }
@@ -89,8 +88,6 @@ export async function setDeliveryStatusUsecase(input: {
   status: DeliveryStatus;
   managerId: string;
   reason?: string;
-  /** Tenant das settings (impressão do courier) — vem da rota. */
-  storeId: string;
 }) {
   const delivery = await db.query.deliveries.findFirst({ where: eq(deliveries.id, input.deliveryId) });
   if (!delivery) throw Errors.notFound("Entrega");
@@ -132,7 +129,7 @@ export async function setDeliveryStatusUsecase(input: {
 
   // Entrega concluída pelo gerente fecha a comanda igual o entregador fecha.
   if (input.status === "delivered") {
-    await closeOrderAfterDelivery(updated.orderId, input.managerId, input.storeId);
+    await closeOrderAfterDelivery(updated.orderId, input.managerId);
   }
 
   // O gerente pode marcar `out_for_delivery` de um pedido que o entregador
@@ -141,7 +138,7 @@ export async function setDeliveryStatusUsecase(input: {
   // Reaproveita o mesmo caminho de flags de `dispatchDeliveryUsecase`.
   if (input.status === "out_for_delivery") {
     try {
-      const settings = await getSettings(input.storeId);
+      const settings = await getSettings();
       if (settings.printerEnabled && settings.printerAutoPrint) {
         printCourierOrder(updated.orderId).catch((err) =>
           console.error("falha ao imprimir comanda no courier:", err),

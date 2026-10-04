@@ -293,10 +293,10 @@ export async function miscRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authMiddleware);
 
   // ---------- Store settings ----------
-  app.get("/store-settings", async (req) => getStoreSettingsUsecase(req.storeId!));
+  app.get("/store-settings", async (req) => getStoreSettingsUsecase());
   app.put("/store-settings", { preHandler: requireRole("manager") }, async (req) => {
     const body = storeSettingsSchema.parse(req.body);
-    return updateStoreSettingsUsecase(req.storeId!, body);
+    return updateStoreSettingsUsecase(body);
   });
   // Logo — upload multipart (multipart/form-data, campo "logo")
   app.post("/store-settings/logo", { preHandler: requireRole("manager") }, async (req) => {
@@ -305,15 +305,15 @@ export async function miscRoutes(app: FastifyInstance) {
     const ext = imageExtByMime[file.mimetype];
     if (!ext) throw Errors.validationFailed({ field: "logo" });
     const buffer = await file.toBuffer();
-    return saveStoreLogoUsecase(req.storeId!, { buffer, ext }, req.authUser!.sub);
+    return saveStoreLogoUsecase({ buffer, ext }, req.authUser!.sub);
   });
   // Logo — remover
   app.delete("/store-settings/logo", { preHandler: requireRole("manager") }, async (req) => {
-    return clearStoreLogoUsecase(req.storeId!, req.authUser!.sub);
+    return clearStoreLogoUsecase(req.authUser!.sub);
   });
   // Geocodificar restaurante (forward geocoding do endereço do estabelecimento)
   app.post("/store/geocode-restaurant", { preHandler: requireRole("manager") }, async (req) => {
-    return geocodeRestaurantUsecase(req.storeId!);
+    return geocodeRestaurantUsecase();
   });
 
   // ---------- Products ----------

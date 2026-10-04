@@ -122,7 +122,6 @@ export async function orderRoutes(app: FastifyInstance) {
         const items = await addItemsUsecase({
           orderId: id,
           userId: req.authUser!.sub,
-          storeId: req.storeId!,
           items: body.items,
         });
         return { status: 201, body: { data: items } };
@@ -141,7 +140,6 @@ export async function orderRoutes(app: FastifyInstance) {
       userRole: req.authUser!.role,
       newStatus: body.status,
       expectedVersion: body.expectedVersion,
-      storeId: req.storeId!,
     });
   });
 
@@ -150,7 +148,7 @@ export async function orderRoutes(app: FastifyInstance) {
     { preHandler: requireRole("waiter", "manager") },
     async (req, reply) => {
       const { id, itemId } = req.params as { id: string; itemId: string };
-      await deleteItemUsecase({ orderId: id, itemId, userId: req.authUser!.sub, storeId: req.storeId! });
+      await deleteItemUsecase({ orderId: id, itemId, userId: req.authUser!.sub });
       return reply.code(204).send();
     }
   );
@@ -161,7 +159,7 @@ export async function orderRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as { id: string };
       const body = paymentSchema.parse(req.body);
-      return registerPaymentUsecase({ orderId: id, userId: req.authUser!.sub, ...body, storeId: req.storeId! });
+      return registerPaymentUsecase({ orderId: id, userId: req.authUser!.sub, ...body });
     }
   );
 
@@ -178,8 +176,7 @@ export async function orderRoutes(app: FastifyInstance) {
         orderId: id,
         userId: req.authUser!.sub,
         payments: body.payments,
-        storeId: req.storeId!,
-      });
+        });
     }
   );
 
