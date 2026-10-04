@@ -4,6 +4,10 @@
 > **Contexto:** este documento registra o que ficou pendente ao final da sessão de planejamento do
 > multi-tenant (ver `docs/15-multi-tenant-schema.md`) e a intenção já discutida de unificar as
 > migrations do backend num único baseline. A implementação fica para a próxima sessão.
+>
+> **Revisão 2026-10-04** (branch `feat/ws-gateway`): só a §4 (linha do gateway WS Go) e o item 3
+> da §5 foram atualizados — o gateway foi plugado no `deploy/`, com o gate `WS_DISPATCH` protegendo
+> a coexistência. O restante do documento continua exatamente como saiu da sessão de planejamento.
 
 ---
 
@@ -73,7 +77,7 @@ roll completo é restaurar esse dump. Janela de segundos para 1 loja.
 
 | Achado | Onde | Severidade percebida |
 |---|---|---|
-| Gateway WS Go (`ws-gateway/`) existe no `main` desde `3e5e8cd`, mas **não está plugado em `Caddyfile`/`deploy`** — o Node continua sendo o realtime vivo | `ws-gateway/`, `deploy/Caddyfile` | 🟡 decisão pendente |
+| Gateway WS Go (`ws-gateway/`) **plugado no `deploy/`** (Caddy com upstream próprio para `/realtime*`, os três compose com o serviço, flag `WS_BACKEND` e o gate `WS_DISPATCH`, que impede o dispatcher sem dono de existir) — o Node continua sendo o realtime vivo, por decisão: o corte ainda não foi marcado | `ws-gateway/`, `deploy/Caddyfile`, `deploy/docker-compose*.yml`, `deploy/.env.example`, `docs/agent-deploy.md` | 🟡 porte pronto; corte pendente |
 | `docker-compose.yml/.local.yml/.dev.yml` dividem os volumes `pdv_postgres_data`, `pdv_backend_uploads`, `pdv_caddy_data` — subir o stack de dev aplicaria migrations no **banco de produção** | `deploy/docker-compose*.yml` | 🟠 se virar multi-tenant |
 | `backend/data.db{,-shm,-wal}` (resíduo SQLite) versionados no git | `backend/` | 🟡 higiene |
 | `backup.sh`: sem retenção/rotação, sem verificação, sem manifesto; dumps ficam no mesmo disco | `deploy/backup.sh` | 🟡 operação |
@@ -87,7 +91,19 @@ roll completo é restaurar esse dump. Janela de segundos para 1 loja.
 
 1. Merge da PR #59 (docs do plano) para a `main`.
 2. Executar §6.0 (unificar migrations + redeploy limpo) — branch própria + PR.
-3. Decidir sobre o gateway WS Go: quando vira o realtime vivo? O particionamento por tenant
-   do §3.3 do `docs/15` vale para **ambos** os gateways enquanto coexistem.
+3. Decidir sobre o gateway WS Go: **quando** ele vira o realtime vivo. O **como**
+   já está decidido e implementado nesta branch: opt-in por flag (`WS_BACKEND`,
+   default `node`), serviço atrás de `profiles: ["ws-gateway"]`, upstream próprio
+   no Caddy (`PDV_WS_UPSTREAM`) e rollback quente, sem deploy e sem recriar o
+   proxy. O que falta é a **data** — isso é decisão de produção, não de código.
+   Enquanto não houver corte, é o gate `WS_DISPATCH` (desligado por padrão,
+   default-deny, dentro do processo) que impede um container de pé fora do
+   `/realtime` de engolir evento de quem está no Node — o `profiles:` sozinho
+   segura o `up` do dia a dia, mas **não** a janela de subir o container antes
+   do Caddy virar. `./switch.sh --status` cruza gate × upstream × container e
+   marca os dois estados silenciosos como `[INCONSISTENTE]`.
+   Detalhes em `docs/agent-deploy.md` §"Gateway WebSocket em Go" e
+   `deploy/README.md` §"Gateway WebSocket em Go". O particionamento por tenant do
+   §3.3 do `docs/15` vale para **ambos** os gateways enquanto coexistem.
 4. Responder às 7 decisões do §3 deste doc (donos/negócio).
 5. Começar Fase 0–1 do multi-tenant só depois de 1–2.

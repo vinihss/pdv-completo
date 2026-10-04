@@ -18,6 +18,11 @@
 //	WS_JWT_SECRET    o mesmo JWT_SECRET do backend (fallback: JWT_SECRET)
 //	DATABASE_URL     postgres do backend — sem ele o WS sobe mas nenhum evento
 //	                 é publicado (útil para subir lado a lado na migração)
+//	WS_DISPATCH      liga a publicação do outbox. DESLIGADO por padrão e
+//	                 default-deny (só 1/true/yes/on ligam): o gateway só publica
+//	                 quando é o dono do /realtime, e quem decide isso é o Caddy,
+//	                 não este processo. Ligar no deploy em que o Caddy passa a
+//	                 apontar /realtime para o gateway (ver internal/outbox/gate.go)
 package main
 
 import (
@@ -25,11 +30,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -44,10 +51,15 @@ import (
 
 // server é tudo que os handlers precisam. Passar por struct em vez de usar
 // variáveis de package deixa o roteamento testável sem subir servidor.
+//
+// O banco entra por `health`, não por um `*sql.DB` cru, porque o /health não
+// pode falar com o pool na request (ver healthProbe). O dispatcher do outbox
+// continua recebendo o `*sql.DB` direto, em main, porque ele precisa de mais
+// que um ping.
 type server struct {
 	hub     *connmanager.Manager
 	verify  func(token string) (*auth.User, error)
-	db      *sql.DB
+	health  *healthProbe
 	started time.Time
 	version string
 }
@@ -55,7 +67,7 @@ type server struct {
 // upgrader é compartilhado. `CheckOrigin` é o ponto mais sensível de um gateway
 // WS: o browser não manda Origin Same-Origin que o default do gorilla aceita.
 // O token JWT no subprotocol é o que autentica de fato — um site terceiro que
-// gotten um token vazado ainda assim só consegue assinar os rooms que o token
+// consiga um token vazado ainda assim só consegue assinar os rooms que o token
 // permite (ver roommanager.CanJoin). Aceitar a origem é o que fecha o resto
 // (CSWSH: site do atacante forçando a conexão com o cookie/token da vítima).
 //
@@ -96,19 +108,44 @@ func main() {
 	}
 
 	// O dispatcher sobe junto, não sob demanda: evento que ninguém publica é o
-	// gateway de pé, saudável e mudo.
+	// gateway de pé, saudável e mudo. Ele ser INATIVO por gate (WS_DISPATCH) é
+	// um estado legítimo e anunciado — de propósito, e não por omissão (ver
+	// internal/outbox/gate.go).
+	//
+	// `pool` vive no escopo de main, e não dentro do `if`, por causa do
+	// shutdown: o `database/sql` segura conexão TCP e não devolve nenhuma no fim
+	// do processo, então quem abre é quem fecha.
+	var pool *sql.DB
 	var dispatcher *outbox.Dispatcher
 	if databaseURL != "" {
-		pool, err := db.Connect(databaseURL)
+		var err error
+		pool, err = db.Connect(databaseURL)
 		if err != nil {
 			// Sem banco o gateway ainda serve as conexões (o plano de rollback é
 			// voltar o Caddy para o backend com o gateway vivo). Falhar o boot
-			// aqui tiraria a возможность de rollback sem derrubar o deploy.
+			// aqui tiraria a possibilidade de rollback sem derrubar o deploy.
+			// `db.Connect` já devolveu nil, mas o Close do shutdown é
+			// condicional a pool != nil justamente por isso.
 			log.Printf("[gateway] AVISO: sem DATABASE_URL acessível (%v) — eventos NÃO serão publicados", err)
 		} else {
-			srv.db = pool
+			// O probe de /health nasce do pool que JÁ respondeu um Ping (Connect
+			// só devolve o pool depois de pingar). Esse sucesso é real e com
+			// horário real, e é ele que impede o /health de responder degraded
+			// nos primeiros milissegundos depois do boot.
+			srv.health = newHealthProbe(pool, time.Now())
 			dispatcher = outbox.New(pool, srv.hub)
-			log.Println("[gateway] dispatcher do outbox conectado")
+			// Só anuncia "conectado" quando o dispatcher vai mesmo publicar.
+			//
+			// Com o gate desligado este é o estado NORMAL enquanto o Node é o
+			// dono do /realtime, e dizer "conectado" seria mentir: `Run` volta
+			// sem criar ticker e nada é publicado. Quem explica esse caso é o
+			// próprio dispatcher, em `Run` → `logInactive()`, no log seguinte —
+			// com a env, o valor lido e o passo do deploy em que ela deve ser
+			// ligada. Repetir aqui só produziria dois logs do mesmo fato em
+			// palavras diferentes.
+			if outbox.DispatchEnabled() {
+				log.Println("[gateway] dispatcher do outbox conectado (WS_DISPATCH ligado) — eventos serão publicados")
+			}
 		}
 	} else {
 		log.Println("[gateway] AVISO: DATABASE_URL ausente — eventos NÃO serão publicados")
@@ -126,6 +163,11 @@ func main() {
 
 	if dispatcher != nil {
 		go dispatcher.Run(ctx)
+	}
+	// Mesmo prazo de vida do dispatcher: o probe do /health é o que decide se
+	// esta instância pode receber tráfego, então ele para junto com o processo.
+	if srv.health != nil {
+		go srv.health.run(ctx)
 	}
 
 	httpServer := &http.Server{
@@ -150,14 +192,58 @@ func main() {
 
 	// Ordem importa: para de aceitar conexão nova, fecha as abertas (com frame de
 	// close, para o client reconectar em outro lugar em vez de esperar o
-	// backoff), e só então sai. O `defer pool.Close()` abaixo cobre o banco.
+	// backoff), e só então o banco.
+	//
+	// O pool vai por último porque é o único recurso que o resto do processo
+	// ainda pode estar pedindo: o laço do dispatcher está no mesmo ctx já
+	// cancelado, mas um ciclo em andamento segura transação e advisory lock até
+	// o fim. Fechar o banco antes das conexões inverteria a ordem e cortaria o
+	// dispatcher no meio de um lote.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("[gateway] shutdown não limpo: %v", err)
 	}
 	srv.hub.Close()
+	fechaPool(pool, poolCloseTimeout)
 	log.Println("[gateway] encerrado")
+}
+
+// poolCloseTimeout é quanto o shutdown espera o pool fechar antes de desistir.
+// Curto de propósito: o objetivo é devolver a conexão, não esperar por um banco
+// que talvez não volte (ver fechaPool).
+const poolCloseTimeout = 2 * time.Second
+
+// fechaPool devolve as conexões do pool na saída do processo.
+//
+// Existe porque o `database/sql` não devolve conexão nenhuma sozinho: o que a
+// chamada faz é marcar o pool como fechado e fechar as conexões ociosas, e é o
+// servidor do Postgres que precisa disso para liberar backend e sessão.
+//
+// A espera é limitada de propósito, e não por superfluidade: o `Close` do driver
+// acontece DENTRO do `Close` do pool, e o do lib/pq escreve no socket — contra
+// um banco congelado essa escrita não tem prazo nenhum (o `database/sql` não
+// põe deadline em fechamento de conexão). Sem teto, fechar o pool seria mais um
+// caminho de shutdown pendurado atrás de um banco que não responde, e esperar
+// não compra coisa nenhuma: o SO fecha o resto assim que o processo sai.
+func fechaPool(pool *sql.DB, timeout time.Duration) {
+	if pool == nil {
+		return // sem DATABASE_URL, ou Connect falhou: não há o que fechar
+	}
+
+	fechou := make(chan struct{})
+	go func() {
+		defer close(fechou)
+		if err := pool.Close(); err != nil {
+			log.Printf("[gateway] pool não fechou limpo: %v", err)
+		}
+	}()
+
+	select {
+	case <-fechou:
+	case <-time.After(timeout):
+		log.Printf("[gateway] pool não fechou em %v (banco travado) — saindo mesmo assim", timeout)
+	}
 }
 
 // handleRealtime é a rota autenticada. Paridade com `app.get("/realtime")` de
@@ -299,8 +385,22 @@ func upgrade(w http.ResponseWriter, r *http.Request, subprotocol string) (*webso
 
 // handleHealth é o portão do switch blue/green (docs/agent-deploy.md): o que
 // responde 503 é o que impede o reload do Caddy. Então o healthcheck pergunta
-// ao banco — gateway de pé e unable a publicar evento é exatamente o estado
+// ao banco — gateway de pé e incapaz de publicar evento é exatamente o estado
 // que não pode virar tráfego.
+//
+// O que este handler NÃO faz é falar com o banco. Ele só lê o último resultado
+// que o healthProbe já deixou guardado, e essa é a única forma de o prazo de
+// resposta ser uma garantia e não uma intenção: `sql.DB.PingContext` pode
+// bloquear para sempre mesmo com contexto com deadline, então qualquer versão
+// deste handler que coloque um ping no caminho da request herda esse "para
+// sempre" — e o `http.Server` não tem ReadTimeout/WriteTimeout como rede de
+// segurança (ver o comentário na configuração do servidor), porque depois do
+// upgrade WebSocket o gorilla faz hijack e a conexão escapa do server.
+//
+// Os consumidores já são métricos e é por isso que o prazo não pode ser
+// negociável: `deploy/switch.sh` e `deploy/probe-availability.sh` chamam com
+// `curl -fsS -m 2`, e o healthcheck do Docker usa `timeout: 5s`. Ler um mutex
+// custa microssegundos, então sobra uma folga de duas ordens de grandeza.
 func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	conns, users := s.hub.Counts()
 	body := map[string]any{
@@ -309,19 +409,280 @@ func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"uptimeSeconds": int(time.Since(s.started).Seconds()),
 		"connections":   conns,
 		"users":         users,
-		"outboxEnabled": s.db != nil,
+		// `outboxEnabled` responde DUAS coisas, e as duas importam: existe pool
+		// (é o mesmo `s.health != nil` do resto do handler — o probe nasce junto
+		// com o pool, então nil significa "sem banco", como antes) E o gate
+		// `WS_DISPATCH` está ligado.
+		//
+		// O gate é lido a cada chamada, e não só no boot, porque é assim que o
+		// dispatcher decide: `PollOnce` reavalia `DispatchEnabled` a cada ciclo
+		// (internal/outbox/outbox.go). As duas leituras vêm da mesma função, então
+		// este campo não pode discordar do que o dispatcher está fazendo.
+		//
+		// Sem o gate, este campo mentia justamente no estado que não pode virar
+		// tráfego: pool de pé, banco respondendo, `outboxEnabled:true`, healthcheck
+		// verde — e nenhum evento publicado, porque `Run` nem chegou a criar
+		// ticker. `outboxEnabled:true` agora quer dizer o que o nome diz.
+		//
+		// E o inverso é deliberado: com o gate desligado o /health continua
+		// 200. Gate desligado é o modo NORMAL de subida lado a lado (o dono do
+		// /realtime é o Node, e o gateway só serve as conexões que o Caddy ainda
+		// não mandou para lá) — degradar esse estado quebraria o
+		// docker compose --profile ws-gateway e o plano de rollback. Quem tem de
+		// conferir a posse é o `switch.sh`, que lê a env (deploy/switch.sh).
+		"outboxEnabled": s.health != nil && outbox.DispatchEnabled(),
 	}
 	code := http.StatusOK
-	if s.db != nil {
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
-		if err := s.db.PingContext(ctx); err != nil {
+	if s.health != nil {
+		v := s.health.check()
+		// `null` enquanto o banco nunca respondeu, e não 0: 0 diria "respondeu
+		// agora", que é o oposto do que este endpoint está tentando dizer.
+		if v.lastOK.IsZero() {
+			body["databaseLastOkSeconds"] = nil
+		} else {
+			body["databaseLastOkSeconds"] = int(v.lastOKAge.Seconds())
+		}
+		if !v.ok {
 			body["status"] = "degraded"
-			body["databaseError"] = err.Error()
+			body["databaseError"] = v.dbErrorText()
 			code = http.StatusServiceUnavailable
 		}
 	}
 	writeJSON(w, code, body)
+}
+
+// dbPinger é o único pedaço de `*sql.DB` que o probe de saúde usa. A troca por
+// interface existe por causa de um teste: para provar que o /health responde
+// com o banco travado é preciso um pinger que trava de propósito e que ignora
+// o prazo do contexto (é o que o lib/pq faz), e não dá para montar isso com um
+// `*sql.DB` sem subir um Postgres de verdade. `*sql.DB` satisfaz a interface,
+// então a produção continua usando o pool de verdade e nada mais muda.
+type dbPinger interface {
+	PingContext(ctx context.Context) error
+}
+
+// Prazos do probe. São constantes aqui e campos em healthProbe (o construtor
+// copia estes valores) porque os testes encolhem tudo para milissegundos em vez
+// de dormir segundos por caso.
+const (
+	// healthPollInterval é de quanto em quanto o fundo pergunta ao banco.
+	//
+	// Antes cada requisição de /health perguntava — a carga no banco seguia a
+	// frequência de quem sonda (Docker a cada 3s, switch.sh a cada 0.5s durante
+	// um deploy, probe-availability.sh bem mais). Fixar a cadência desacopla os
+	// dois: o banco leva 1 pergunta por segundo por instância, não importa
+	// quantos clientes estén apertando o endpoint.
+	healthPollInterval = 1 * time.Second
+
+	// healthProbeTimeout é o orçamento passado ao driver em cada pergunta.
+	//
+	// Ele NÃO é o que garante o prazo do /health, e é importante não confundir
+	// os dois: o lib/pq respeita o contexto só no caminho de cancelamento, e o
+	// cancelamento é entregue numa conexão TCP nova (pq.(*conn).cancel), que
+	// contra um servidor congelado trava tanto quanto a query original. O
+	// orçamento serve para o driver marcar a conexão do pool como ruim e o pool
+	// não ficar reciclando uma conexão morta. O prazo que decide o /health é
+	// healthStaleAfter, porque esse não depende do driver obedecer.
+	healthProbeTimeout = 1 * time.Second
+
+	// healthStaleAfter é a idade máxima de um "ok" ainda considerado verdade.
+	//
+	// Congelar o banco não muda nenhum campo do estado: só faz o tempo passar.
+	// E é o tempo que decide — passados 3s sem um ping novo, o último "ok" é
+	// história e o /health responde 503 sem esperar por mais nada. Esse é o
+	// caminho que transforma "banco travado" em "503 dentro do prazo" em vez
+	// de "nunca responde". Três segundos é menor que um ciclo do healthcheck do
+	// Docker (interval 3s + timeout 5s em deploy/docker-compose.yml), então
+	// uma travada aparece no /health antes do Docker desistir.
+	healthStaleAfter = 3 * time.Second
+
+	// healthMaxInFlight é quantas perguntas podem estar em andamento ao mesmo
+	// tempo.
+	//
+	// Uma pergunta que travou não volta nunca — é o defeito que este código
+	// existe para contornar. Sem teto, cada sondagem deixaria uma goroutine e
+	// uma conexão do pool presas para sempre, e o pool do gateway tem 25
+	// conexões: em ~75s de banco travado (2 a cada 3s) o /health esgotaria o
+	// pool e levaria junto o dispatcher do outbox, que é justamente o que
+	// este endpoint existe para proteger. Com o teto o pior caso é 2 goroutines
+	// e 2 conexões presas, para sempre, e o dispatcher continua com as 23 que
+	// sobram.
+	//
+	// Com o teto cheio o fundo para de perguntar em vez de acumular. O
+	// destravamento não depende de perguntar: as perguntas presas voltam a
+	// responder assim que o banco volta, e a próxima pergunta já é uma conexão
+	// nova. O pior caso de uma rede que engole pacote sem nunca devolver RST
+	// é ficar em 503 para sempre — e isso é honesto, porque esse banco está
+	// realmente fora de alcance.
+	healthMaxInFlight = 2
+)
+
+// probeState é o resultado do último probe CONCLUÍDO. Só a mudança de `ok` vem
+// de um ping que voltou — congelar o banco não mexe em nenhum campo daqui.
+type probeState struct {
+	ok      bool      // o último probe concluído deu certo
+	lastOK  time.Time // quando o último ping bom terminou; zero se nunca houve
+	lastErr error     // erro do último probe que falhou; nil se nunca falhou
+}
+
+// healthProbe pergunta ao banco em background e guarda o último resultado. O
+// handler do /health só lê esse estado, e por isso nunca bloqueia.
+//
+// A pergunta sai numa goroutine à parte, e é o que mantém a garantia de duas
+// formas ao mesmo tempo: o handler nunca espera por um driver que pode não
+// voltar, e o número de perguntas presas é limitado por healthMaxInFlight em
+// vez de crescer com a frequência de quem sonda.
+type healthProbe struct {
+	db dbPinger
+
+	// poll, timeout, staleAfter e maxInFlight carregam os valores das
+	// constantes acima; o construtor os preenche e os testes os encolhem.
+	poll        time.Duration
+	timeout     time.Duration
+	staleAfter  time.Duration
+	maxInFlight int
+
+	mu       sync.Mutex
+	st       probeState
+	inFlight []time.Time // início de cada tentativa em andamento, em ordem
+}
+
+// newHealthProbe cria o probe a partir de um pool que já respondeu um ping
+// (`db.Connect` pinga antes de devolver o pool). `connectedAt` é o horário
+// desse ping: semê-lo como último "ok" evita o 503 sem sentido logo depois do
+// boot, e continua sendo verdade — o banco respondeu, há um instante.
+func newHealthProbe(db dbPinger, connectedAt time.Time) *healthProbe {
+	return &healthProbe{
+		db:          db,
+		poll:        healthPollInterval,
+		timeout:     healthProbeTimeout,
+		staleAfter:  healthStaleAfter,
+		maxInFlight: healthMaxInFlight,
+		st:          probeState{ok: true, lastOK: connectedAt},
+	}
+}
+
+// healthVerdict é a leitura do estado já com o prazo aplicado: o handler não
+// decide nada, ele só traduz.
+type healthVerdict struct {
+	ok         bool          // pode responder 200
+	dbErr      error         // erro do último probe que falhou; nil se nunca houve
+	lastOK     time.Time     // zero se o banco nunca respondeu
+	lastOKAge  time.Duration // idade do último "ok"; sem sentido se lastOK é zero
+	probingFor time.Duration // há quanto tempo começou a tentativa em andamento
+	inFlight   int           // tentativas em andamento
+}
+
+// check devolve o estado corrente. É só leitura de mutex — nunca toca no banco,
+// e por isso tem prazo de microssegundos em vez de "sem prazo".
+func (p *healthProbe) check() healthVerdict {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	v := healthVerdict{dbErr: p.st.lastErr, inFlight: len(p.inFlight)}
+	if !p.st.lastOK.IsZero() {
+		v.lastOK = p.st.lastOK
+		v.lastOKAge = time.Since(p.st.lastOK)
+	}
+	// O mais antigo da fila é o que interessa: é há quanto tempo o fundo está
+	// sem resposta nenhuma.
+	if n := len(p.inFlight); n > 0 {
+		v.probingFor = time.Since(p.inFlight[0])
+	}
+	// Um "ok" só vale enquanto for fresco. Congelar o banco não muda nenhum
+	// campo do estado, só o tempo passa — então é o tempo que tem de decidir,
+	// e não o driver. É esta linha, e só ela, que garante que o /health nunca
+	// responda 200 mentindo.
+	v.ok = p.st.ok && v.lastOKAge <= p.staleAfter
+	return v
+}
+
+// dbErrorText explica o 503.
+//
+// Errar e calar são estados diferentes e a providência é diferente, então o
+// texto separa: erro do driver significa banco recusando ou derrubado (o que
+// o pool resolve sozinho); silêncio significa banco travado ou rede engolida,
+// em que o driver simplesmente nunca volta.
+func (v healthVerdict) dbErrorText() string {
+	if v.dbErr != nil {
+		return v.dbErr.Error()
+	}
+	if !v.lastOK.IsZero() {
+		return fmt.Sprintf("banco sem responder: último ping bom foi há %.1fs, %d tentativa(s) em andamento há %.1fs",
+			v.lastOKAge.Seconds(), v.inFlight, v.probingFor.Seconds())
+	}
+	return fmt.Sprintf("banco sem responder: %d tentativa(s) em andamento, nenhum ping voltou", v.inFlight)
+}
+
+// run é o laço de fundo. Sai junto com o ctx do processo.
+func (p *healthProbe) run(ctx context.Context) {
+	p.probe(ctx) // sem esperar o primeiro tick: senão o primeiro /health
+	// depois do boot encontraria o estado "nunca respondeu" e responderia 503
+	t := time.NewTicker(p.poll)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			p.probe(ctx)
+		}
+	}
+}
+
+// probe é uma ida ao banco.
+func (p *healthProbe) probe(ctx context.Context) {
+	p.mu.Lock()
+	if len(p.inFlight) >= p.maxInFlight {
+		// Já há perguntas presas demais. Não empilha: o teto existe para o
+		// /health não virar o que derruba o pool.
+		//
+		// Isso NÃO trava a recuperação. Medido contra um Postgres de verdade
+		// com `docker pause`: a pergunta presa voltou sozinha ~1,2s depois do
+		// unpause (o socket tem dado recebido pelo kernel é lido assim que o
+		// servidor volta), e voltando ela libera o lugar. O pior caso de um
+		// banco que engole pacote sem nunca devolver RST é ficar em 503 para
+		// sempre — e isso é honesto, porque esse banco está fora de alcance.
+		p.mu.Unlock()
+		return
+	}
+	p.inFlight = append(p.inFlight, time.Now())
+	p.mu.Unlock()
+
+	// O ping roda FORA do mutex: trancar durante a consulta devolveria o mesmo
+	// defeito que o handler tinha, só que agora no lugar errado.
+	pingCtx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+	err := p.db.PingContext(pingCtx)
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.releaseLocked()
+	if ctx.Err() != nil {
+		// Shutdown no meio da pergunta: o cancelamento é da morte do processo,
+		// não do banco. Registrar isso derrubaria o /health na janela de saída.
+		return
+	}
+	if err != nil {
+		p.st.ok = false
+		p.st.lastErr = err
+		return
+	}
+	p.st.ok = true
+	p.st.lastErr = nil
+	p.st.lastOK = time.Now()
+}
+
+// releaseLocked devolve o lugar da tentativa. Com o mutex já tomado.
+//
+// Remove a mais antiga em vez da última: a ordem em que as perguntas voltam
+// não é a ordem em que foram feitas (a primeira, com o pool vazio, espera um
+// dial; a seguinte pode usar uma conexão ociosa e responder antes), e é a
+// mais antiga que define "há quanto tempo estou preso".
+func (p *healthProbe) releaseLocked() {
+	if len(p.inFlight) > 0 {
+		p.inFlight = p.inFlight[1:]
+	}
 }
 
 func writeJSON(w http.ResponseWriter, code int, body any) {

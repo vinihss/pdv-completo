@@ -42,6 +42,15 @@ services:
       - DOMAIN=${DOMAIN}
       - PDV_CADDY_CONFIG=/srv/pdv-deploy/Caddyfile
       - PDV_UPSTREAM_STATE=/srv/pdv-deploy/state/active-upstream
+      # Qual implementação serve o /realtime* (`node` = a atual, no backend;
+      # `go` = o gateway em Go de ../ws-gateway). O caddy-assemble.sh
+      # traduz isso no upstream `PDV_WS_UPSTREAM` da Caddyfile.
+      #
+      # O `.env` NÃO é lido pelo container em tempo de reload: variável de
+      # ambiente só entra no boot dele. Quem troca o destino do realtime sem
+      # recriar o proxy (e sem os 1-3s de queda do recreate) é a linha
+      # PDV_WS_UPSTREAM no ponteiro state/active-upstream — ver .env.example.
+      - WS_BACKEND=${WS_BACKEND:-node}
     volumes:
       # O diretório `deploy/` inteiro, só-leitura: é dele que saem a
       # Caddyfile, o caddy-assemble.sh e o ponteiro de upstream (o único
@@ -152,6 +161,129 @@ services:
     extends:
       service: frontend
     profiles: ["canary"]
+
+  # ---------- Gateway WebSocket em Go (opt-in) ----------
+  # Servidor WS do PDV escrito em Go: serve `/realtime`, `/realtime/public`
+  # e `/health`, e publica o que o backend grava em `outbox_event`. Mesmo
+  # handshake, mesmas rooms e mesmo token do `WsGateway` do Node — quem não
+  # muda é o app. Não escreve nada no banco, então não tem migration e não
+  # tem estado em disco.
+  #
+  # ---------- Por que está atrás de `profiles` ----------
+  # O dispatcher do gateway disputa com o do Node o MESMO advisory lock
+  # (`pdv:outbox:owner`, backend/src/infra/locks.ts) e marca o evento como
+  # publicado mesmo com ZERO assinantes na room. Um gateway de pé que não
+  # está no caminho do `/realtime` ganha metade dos ciclos e engole os
+  # eventos realtime de quem está no Node — sem erro em log nenhum, só a
+  # tela do salão que não atualiza. Ou seja: subir este container não é
+  # inofensivo como "só mais um serviço parado". Ele sobe junto com a flag
+  # `WS_BACKEND=go` (README §"Gateway WebSocket em Go"), e o Caddy não
+  # depende dele de propósito: o rollback pro Node tem que funcionar com o
+  # gateway quebrado ou parado.
+  #
+  # O `profiles:` segura o `up` do dia a dia, e só isso. Ele NÃO fecha a
+  # janela perigosa: subir o container para preparar a virada faz o gateway
+  # disputar o lock com o Node antes do Caddy virar, e é justamente aí que
+  # ele parece inofensivo (ninguém conectado nele). Quem fecha essa janela
+  # é o gate `WS_DISPATCH` (ver `environment` abaixo e
+  # `ws-gateway/internal/outbox/gate.go`): desligado, o dispatcher do
+  # gateway simplesmente não existe, e o `profile` volta a ser só convenção
+  # de inicialização. Por isso os dois andam juntos — o profile é a
+  # convenção, o gate é a garantia.
+  ws-gateway:
+    build:
+      context: ../ws-gateway
+      dockerfile: ${WS_DOCKERFILE:-Dockerfile}
+    image: ${WS_GATEWAY_IMAGE:-pdv-ws-gateway:local}
+    profiles: ["ws-gateway"]
+    restart: unless-stopped
+    environment:
+      # Mesmo banco e mesmo `outbox_event` do backend — o gateway não tem
+      # schema próprio, é só um leitor da fila que o backend grava.
+      #
+      # `?sslmode=disable` no DEFAULT (e só no default): o driver do gateway é o
+      # lib/pq, que assume `sslmode=require` quando a DSN não diz nada, e o
+      # `postgres` deste compose não tem TLS — sem o parâmetro o `db.Connect`
+      # falha com "pq: SSL is not enabled on the server" e o gateway sobe SEM
+      # pool: `/health` 200, `outboxEnabled:false`, log de aviso, e nenhum
+      # evento sai. Medido. Quem aponta `DATABASE_URL` no `.env` (Postgres
+      # externo, com ou sem TLS) escolhe o próprio parâmetro, porque aí a DSN
+      # inteira vem de fora.
+      - DATABASE_URL=${DATABASE_URL:-postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}?sslmode=disable}
+      - PORT=8080
+      # `JWT_SECRET` e NÃO `WS_JWT_SECRET`: o binário aceita os dois (o
+      # primeiro com fallback para o segundo), mas passar só um garante que
+      # os dois processos não podem divergir. Divergindo, a falha é o pior
+      # caso possível — o browser leva 401 no handshake, o WebSocket morre
+      # em silêncio e o app entra em loop de reconexão sem mensagem nenhuma
+      # no servidor além do log do gateway.
+      - JWT_SECRET=${JWT_SECRET}
+      # Vazio (default) = aceita qualquer origem; atrás do Caddy é o certo,
+      # porque quem autentica o realtime é o JWT no subprotocol. Ver
+      # .env.example antes de preencher.
+      - WS_ALLOWED_ORIGINS=${WS_ALLOWED_ORIGINS:-}
+      # Gate de posse do realtime: desligado (vazio) por padrão, e o gateway
+      # NÃO despacha `outbox_event` — ele serve as conexões e não come a fila
+      # de quem ainda está conectado no Node. Só `1|true|yes|on` ligam.
+      #
+      # Repassar isto aqui não é opcional: sem a linha, a variável chega
+      # VAZIA no container (o `docker compose run/up` só injeta o que está
+      # declarado), o gate fica desligado para sempre e `WS_BACKEND=go` vira
+      # no-op silencioso — o Caddy aponta /realtime para o gateway, o
+      # handshake passa, o `join` é aceito e NENHUM evento chega, sem erro em
+      # lugar nenhum. O sino do salão só volta a tocar no F5 seguinte.
+      #
+      # Ligue junto com a virada do proxy (README §"Como ligar"), nunca
+      # antes: ligado cedo, o gateway passa a disputar o advisory lock
+      # `pdv:outbox:owner` com o Node e a ganhar metade dos ciclos, marcando
+      # `published = true` de evento que o Node ainda precisa entregar a quem
+      # está conectado lá. O `profiles:` abaixo segura o `up` normal, não essa
+      # janela — o gate é que fecha.
+      - WS_DISPATCH=${WS_DISPATCH:-}
+      # Só aparece no /health ("version"). A pipeline ainda não exporta
+      # GIT_SHA, então em produção vem "dev" — quando exportar, dá para
+      # confirmar pelo /health qual build do gateway está no ar.
+      - GIT_SHA=${GIT_SHA:-}
+    # ---------- O /health e o que ele realmente porta ----------
+    # O /health responde 503 quando o banco deixa de responder, e a diferença
+    # que importa é a do banco CONGELADO: lá o TCP está aberto e nada responde,
+    # um `PingContext` nunca volta, e antes desta versão o endpoint pendurava
+    # sem responder — sem prazo. Agora um probe de fundo pergunta a 1s (no máx.
+    # 2 perguntas em andamento) e o handler só lê o resultado; um "ok" mais
+    # velho que 3s deixa de valer, então é o tempo, não o driver, que degrada.
+    # Medido com Postgres de verdade: banco travado → 503 em ~1-3ms, destravado
+    # → 200 sozinho, sem restart.
+    #
+    # Sem `DATABASE_URL` o /health responde 200, e isso é decisão: o rollback
+    # do realtime é voltar o Caddy para o Node com o gateway vivo, e com o
+    # dispatcher desligado pelo `WS_DISPATCH` o gateway mudo é o modo normal de
+    # subida lado a lado, não um estado degradado. Degradar esse caso quebraria
+    # o `--profile ws-gateway` e o caminho de rollback.
+    #
+    # O portão real do deploy continua sendo o /health do BACKEND: o `switch.sh`
+    # não espera este serviço (o `wait_healthy` cobre backend e frontend) e o
+    # Caddy não roteia `/health` para cá. A imagem é alpine (busybox tem wget,
+    # não curl).
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"]
+      # `retries: 20` com `interval: 3s` é o que segura o ruído: um banco
+      # congelado vira 503 em ~3s, mas o container só fica `unhealthy` depois de
+      # ~60s de 503 seguidos (medido: t+63s), e volta a `healthy` sozinho quando
+      # o banco destrava — o probe de fundo retoma e o próximo ok fecha a janela.
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 3s
+    # O binário trata o SIGTERM com um drain de até 10s (fecha as conexões
+    # com frame de close antes de sair), então a janela precisa ser MAIOR que
+    # isso — abaixo de 10s o SIGKILL corta o drain no meio e o cliente só
+    # descobre pela queda, em vez de reconectar para outro lugar.
+    stop_grace_period: 15s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Não expõe porta pro host — só o Caddy fala com ele, na rede interna
+    # do compose, como o backend.
 
   # Banco oficial. Sem profile: sobe sempre, e o backend espera o healthcheck.
   # (Postgres externo? ajuste DATABASE_URL no .env e use --no-deps, senão o

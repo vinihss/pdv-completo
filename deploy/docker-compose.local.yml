@@ -26,6 +26,10 @@ services:
       - DOMAIN=localhost
       - PDV_CADDY_CONFIG=/srv/pdv-deploy/Caddyfile.local
       - PDV_UPSTREAM_STATE=/srv/pdv-deploy/state/active-upstream
+      # `node` = realtime no backend (default); `go` = gateway em Go. Mesmo
+      # tradutor do compose de produção (caddy-assemble.sh), e é por rodar
+      # aqui que o switch com WS_BACKEND=go deve ser testado antes do VPS.
+      - WS_BACKEND=${WS_BACKEND:-node}
     volumes:
       - ./:/srv/pdv-deploy:ro
       - caddy_data:/data
@@ -96,6 +100,48 @@ services:
     extends:
       service: frontend
     profiles: ["canary"]
+
+  # ---------- Gateway WebSocket em Go (opt-in) ----------
+  # Mesmo serviço do compose de produção, e o mesmo `profile`: o dispatcher
+  # dele disputa o lock `pdv:outbox:owner` com o do Node e marca evento como
+  # publicado mesmo sem assinante, então um gateway de pé fora do caminho do
+  # `/realtime` engole evento dos clients que estão no Node. Só sobe com
+  # `--profile ws-gateway`, junto com a flag `WS_BACKEND=go`.
+  #
+  # O `profile` segura o `up` normal, não a janela: subir o container para
+  # preparar a virada já o faz disputar o lock com o Node antes do Caddy
+  # virar. Quem fecha essa janela é o gate `WS_DISPATCH` (default-deny,
+  # desligado) — ver `environment` e README §"Gateway WebSocket em Go".
+  ws-gateway:
+    build:
+      context: ../ws-gateway
+      dockerfile: ${WS_DOCKERFILE:-Dockerfile}
+    image: ${WS_GATEWAY_IMAGE:-pdv-ws-gateway:local}
+    profiles: ["ws-gateway"]
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}
+      - PORT=8080
+      - JWT_SECRET=${JWT_SECRET}
+      - WS_ALLOWED_ORIGINS=${WS_ALLOWED_ORIGINS:-}
+      # Gate de posse do realtime, desligado por padrão. Repassar a linha é o
+      # que faz a variável existir dentro do container: sem ela o gateway
+      # recebe `WS_DISPATCH` vazio, o dispatcher não existe e `WS_BACKEND=go`
+      # vira no-op silencioso (handshake passa, nenhum evento chega, sem erro
+      # em lugar nenhum). Só ligue junto com a virada do proxy, nunca antes.
+      - WS_DISPATCH=${WS_DISPATCH:-}
+      - GIT_SHA=${GIT_SHA:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 3s
+    stop_grace_period: 15s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Não expõe porta pro host — só o Caddy fala com ele, via rede interna
 
   # Banco oficial (mesmo nome de volume do compose de produção, para o
   # mesmo banco ser reaproveitado entre as duas formas de subir).

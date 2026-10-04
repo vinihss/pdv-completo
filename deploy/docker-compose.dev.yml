@@ -11,6 +11,18 @@ services:
       - "${PDV_PORT:-80}:80"
     environment:
       - DOMAIN=localhost
+      # O Caddy deste stack NÃO roda o caddy-assemble.sh (a config é
+      # montada direto de Caddyfile.dev), então a flag `WS_BACKEND` do .env
+      # não é traduzida aqui: quem aponta o /realtime* para o gateway em Go
+      # é PDV_WS_UPSTREAM, direto.
+      #
+      # O default é `backend:3000` e NÃO vazio de propósito: variável de
+      # ambiente DEFINIDA e vazia não cai no default do `{$VAR:...}` da
+      # Caddyfile — o `caddy adapt` sai com um reverse_proxy sem NENHUM
+      # upstream e o `caddy validate` não reclama. Todo /realtime* morreria
+      # em runtime. (O `caddy-assemble.sh` trata vazio como ausente; o
+      # compose não pode, então o default do portão vai aqui.)
+      - PDV_WS_UPSTREAM=${PDV_WS_UPSTREAM:-backend:3000}
     volumes:
       - ./Caddyfile.dev:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -60,6 +72,55 @@ services:
       - ../frontend/package-lock.json:/app/package-lock.json
       - /app/node_modules
     # vite dev server com HMR — só o Caddy acessa
+
+  # ---------- Gateway WebSocket em Go (opt-in) ----------
+  # Mesmo serviço dos outros stacks, e o mesmo `profile`: o dispatcher dele
+  # disputa o lock `pdv:outbox:owner` com o do Node e marca evento como
+  # publicado mesmo sem assinante, então um gateway de pé fora do caminho do
+  # /realtime engole evento de quem está no Node. Só sobe com
+  # `--profile ws-gateway`.
+  #
+  # O `profile` segura o `up` normal, não a janela: subir o container para
+  # preparar a virada já o faz disputar o lock com o Node antes do Caddy
+  # virar. Quem fecha essa janela é o gate `WS_DISPATCH` (default-deny,
+  # desligado) — ver `environment` e README §"Gateway WebSocket em Go".
+  # Aqui em dev o `WS_BACKEND` nem é traduzido pelo caddy-assemble.sh (o
+  # Caddyfile.dev lê PDV_WS_UPSTREAM direto), mas o gate vale igual: ligar
+  # `WS_DISPATCH` aqui e esquecer de apontar o proxy dá o mesmo silêncio.
+  #
+  # Sem hot reload (é binário): para testar mudança no gateway aqui é
+  # `up -d --build ws-gateway`, ao contrário do backend/frontend que
+  # refletem o código por bind mount.
+  ws-gateway:
+    build:
+      context: ../ws-gateway
+      dockerfile: ${WS_DOCKERFILE:-Dockerfile}
+    image: ${WS_GATEWAY_IMAGE:-pdv-ws-gateway:local}
+    profiles: ["ws-gateway"]
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}
+      - PORT=8080
+      - JWT_SECRET=${JWT_SECRET}
+      - WS_ALLOWED_ORIGINS=${WS_ALLOWED_ORIGINS:-}
+      # Gate de posse do realtime, desligado por padrão. Repassar a linha é o
+      # que faz a variável existir dentro do container: sem ela o gateway
+      # recebe `WS_DISPATCH` vazio, o dispatcher não existe e o proxy apontado
+      # para ele vira no-op silencioso (handshake passa, nenhum evento chega,
+      # sem erro em lugar nenhum). Só ligue junto com a virada do proxy.
+      - WS_DISPATCH=${WS_DISPATCH:-}
+      - GIT_SHA=${GIT_SHA:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 3s
+    stop_grace_period: 15s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Sem porta exposta — o Caddy é quem fala com ele (via PDV_WS_UPSTREAM)
 
   # Banco oficial — mesmo volume do compose de produção.
   postgres:

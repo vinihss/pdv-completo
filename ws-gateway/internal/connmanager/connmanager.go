@@ -12,6 +12,12 @@
 //     (select/default): se a fila está cheia, a conexão está morta na prática — o
 //     Node.js fazia `socket.send()` síncrono e segurava todos os outros. Aqui a
 //     Slow Client Drop fecha só ela, e o client reconecta pelo backoff dele.
+//   - O fim da vida de uma conexão é um SINAL, não o fechamento da fila. `send`
+//     nunca é fechado: fechar um canal que outra goroutine envia é data race e
+//     pode virar panic "send on closed channel" — e panic em goroutine derruba o
+//     processo inteiro, levando junto as conexões dos outros clientes. Quem
+//     sinaliza o fim é `closed`, que ninguém envia: os senders consultam, a
+//     writePump sai por ele.
 package connmanager
 
 import (
@@ -27,7 +33,7 @@ import (
 const (
 	// writeWait é o prazo de uma escrita. Passou disso, o peer não está lendo.
 	writeWait = 10 * time.Second
-	// pongWait é o quanto tolerate sem heartbeat antes de considerar a conexão
+	// pongWait é o quanto se tolera sem heartbeat antes de considerar a conexão
 	// morta. O Node.js NÃO tinha ping/pong — a queda só era percebida no TCP.
 	// Aqui a conexão morta é liberada em ~1min em vez de vazar room até o
 	// processo reiniciar.
@@ -47,8 +53,11 @@ type Conn struct {
 	Role   string
 
 	socket *websocket.Conn
-	// send é consumida só pela writePump. Fechada em Close, o que encerra o
-	// websocket de forma limpa (frame de close) em vez de largar o socket.
+	// send é a fila, consumida só pela writePump, e NUNCA é fechada. Fechá-la
+	// seria o sinal mais curto de "acabou", mas `close(chan)` num canal que
+	// outros enviam é data race — e, pior, pode virar panic "send on closed
+	// channel" dentro do broadcast, derrubando o processo. Quem sinaliza o fim
+	// é `closed`, que só é fechado (uma vez, pelo `closeOnce`) e nunca recebe.
 	send chan []byte
 	// rooms é do usuário desta conexão; guardado sob o lock do Manager, nunca
 	// tocado pela writePump.
@@ -105,7 +114,9 @@ func (m *Manager) Add(socket *websocket.Conn, userID, role string) *Conn {
 	return c
 }
 
-// Remove tira a conexão do registro e fecha o socket. Idempotente.
+// Remove tira a conexão do registro e sinaliza o fim (a writePump fecha o
+// socket). Idempotente: quem chega depois do primeiro `Remove` só repete a
+// tentativa de fechar, que o `closeOnce` absorve.
 func (m *Manager) Remove(c *Conn) {
 	if c == nil {
 		return
@@ -151,17 +162,56 @@ func (m *Manager) Rooms(c *Conn) []string {
 	return out
 }
 
+// pushResult é o desfecho de um push na fila de uma conexão.
+type pushResult int
+
+const (
+	// pushOK: o frame entrou na fila e a writePump vai escrevê-lo.
+	pushOK pushResult = iota
+	// pushClosed: a conexão já foi encerrada. Não há mais writePump drenando a
+	// fila, então empilhar aqui só enche o buffer e converte uma conexão morta
+	// em "fila cheia" no log.
+	pushClosed
+	// pushFull: a fila está cheia e o cliente não está consumindo — Slow Client
+	// Drop.
+	pushFull
+)
+
+// offer empurra o payload na fila sem bloquear: com a fila cheia ele desiste na
+// hora, nunca segura o broadcast. É o ÚNICO ponto do pacote que envia em `send`,
+// e por isso o único lugar onde a garantia "ninguém fecha `send`" precisa ser
+// respeitada.
+//
+// O teste de `closed` vem ANTES do push, e não como caso do mesmo select: um
+// select escolhe ao acaso entre os casos prontos, então uma conexão encerrada com
+// espaço na fila ora seria contada como entregue, ora cairia no `default` de
+// "fila cheia" — que derrubaria de novo, e registraria no log, uma conexão que
+// já tinha acabado.
+func (c *Conn) offer(payload []byte) pushResult {
+	if c.encerrada() {
+		return pushClosed
+	}
+	select {
+	case c.send <- payload:
+		return pushOK
+	default:
+		return pushFull
+	}
+}
+
 // Send empurra um frame para uma conexão específica (respostas de `sync.request`,
 // `join.denied`). Não bloqueia: se a fila está cheia, a conexão é encerrada.
 func (m *Manager) Send(c *Conn, payload []byte) {
-	select {
-	case c.send <- payload:
-	case <-c.closed:
-	default:
+	switch c.offer(payload) {
+	case pushOK:
+		return
+	case pushFull:
 		// Fila cheia: cliente não está consumindo. Não vale segurar o broadcast.
 		log.Printf("[hub] fila cheia, encerrando conexão lenta %s (%s)", c.ID, c.UserID)
-		m.Remove(c)
 	}
+	// `pushClosed` cai aqui sem log: a conexão já foi encerrada, e o `Remove` é
+	// idempotente — ele só confirma que ela saiu do registro.
+	m.Remove(c)
 }
 
 // BroadcastToRoom entrega um frame já serializado a todas as conexões que
@@ -185,12 +235,15 @@ func (m *Manager) BroadcastToRoom(room string, payload []byte) int {
 	// sofre upgrade de RLock→Lock).
 	delivered := 0
 	for _, c := range targets {
-		select {
-		case c.send <- payload:
+		switch c.offer(payload) {
+		case pushOK:
 			delivered++
-		case <-c.closed:
-		default:
+		case pushFull:
 			log.Printf("[hub] fila cheia no broadcast para %s, encerrando %s", room, c.ID)
+			m.Remove(c)
+		case pushClosed:
+			// Encerrada entre a cópia e aqui: `Remove` idempotente, e sem log —
+			// "fila cheia" seria mentira, não sobrou ninguém lendo esta fila.
 			m.Remove(c)
 		}
 	}
@@ -209,11 +262,13 @@ func (m *Manager) BroadcastToUser(userID string, payload []byte) int {
 
 	delivered := 0
 	for _, c := range targets {
-		select {
-		case c.send <- payload:
+		switch c.offer(payload) {
+		case pushOK:
 			delivered++
-		case <-c.closed:
 		default:
+			// Fim ou fila cheia levam ao mesmo `Remove`, que engole os dois e é
+			// idempotente. Sem log aqui (como antes): o destino é um usuário, e o
+			// diagnóstico de fila cheia já sai do `Send` e do `BroadcastToRoom`.
 			m.Remove(c)
 		}
 	}
@@ -227,7 +282,14 @@ func (m *Manager) Counts() (conns, users int) {
 	return len(m.conns), len(m.users)
 }
 
-// Close encerra todas as conexões. Usado no shutdown.
+// Close encerra todas as conexões. Usado no shutdown, com o dispatcher do outbox
+// ainda publicando.
+//
+// Mesma disciplina do broadcast: a lista sai sob o lock e o encerramento de cada
+// conexão acontece fora dele — o `Remove` reentra no mesmo lock, então segurá-lo
+// aqui seria reentrância e deadlock imediato. E um `BroadcastToRoom` que pegou a
+// conexão no snapshot antes do `Close` não depende de sorte: `offer` devolve
+// `pushClosed` e o `Remove` idempotente resolve.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	all := make([]*Conn, 0, len(m.conns))
@@ -241,19 +303,39 @@ func (m *Manager) Close() {
 	}
 }
 
-// Close encerra a conexão: manda o frame de close uma vez e aborta o socket.
-// Idempotente — quem chama (readPump, send-cheio, shutdown) pode ser mais de um.
+// Close encerra a conexão: sinaliza o fim e deixa a writePump mandar o frame de
+// close e derrubar o socket. Idempotente — quem chama (readPump, fila cheia,
+// shutdown) pode ser mais de um, e o `closeOnce` faz só um deles chegar ao
+// `close`. Não toca no socket: só a writePump escreve nele, e o gorilla não
+// permite escrita concorrente.
+//
+// `send` NÃO é fechado, e essa é a decisão que elimina a corrida. Fechar um
+// canal pode ser feito por um lado enquanto outro envia no mesmo canal, e isso
+// é data race — com chance de virar panic "send on closed channel" dentro de uma
+// goroutine, que derruba o processo e leva junto as conexões dos outros clientes.
+// Fechar só `closed` dá o mesmo sinal sem o perigo: quem envia já pergunta por
+// ele (`offer`) e a writePump sai por ele (`writePump`).
 func (c *Conn) Close() {
 	c.closeOnce.Do(func() {
 		close(c.closed)
-		// Fechar `send` sinaliza o fim para a writePump, que manda o close frame
-		// e fecha o socket. Fechar `closed` antes garante que ninguém mais
-		// escreva na fila depois do fim.
-		close(c.send)
 	})
 }
 
-// writePump é a ÚNICA a escrever no socket.
+// encerrada diz se o fim da conexão já foi sinalizado. Só para quem decide se
+// ainda vale trabalhar nela: `closed` é fechado uma única vez e nunca recebe,
+// então o teste é seguro sem lock — ao contrário de `send`, que por isso nunca é
+// fechado.
+func (c *Conn) encerrada() bool {
+	select {
+	case <-c.closed:
+		return true
+	default:
+		return false
+	}
+}
+
+// writePump é a ÚNICA a escrever no socket, e cada socket tem exatamente uma.
+// Nada aqui pode passar a escrever em paralelo: é a razão de a fila existir.
 func (c *Conn) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
@@ -261,33 +343,65 @@ func (c *Conn) writePump() {
 		c.socket.Close()
 	}()
 
+pump:
 	for {
+		// `closed` é consultado antes de cada espera para ter PRIORIDADE sobre o
+		// backlog: um select escolhe ao acaso entre os casos prontos, e um frame
+		// entregue depois do fim seria uma escrita no socket de uma conexão que
+		// já não existe.
 		select {
-		case payload, ok := <-c.send:
-			if !ok {
-				// Fim da fila: handshake de close e desliga.
-				_ = c.socket.WriteControl(
-					websocket.CloseMessage,
-					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
-					time.Now().Add(writeWait),
-				)
+		case <-c.closed:
+			break pump
+		default:
+		}
+
+		select {
+		case payload := <-c.send:
+			// Reconfirma o fim: o close pode ter caído entre o select acima e o
+			// receive, e a partir daí a conexão não aceita mais frame nenhum.
+			if c.encerrada() {
+				break pump
+			}
+			if !c.writeFrame(payload) {
 				return
 			}
-			if err := c.socket.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
-				return
-			}
-			if err := c.socket.WriteMessage(websocket.TextMessage, payload); err != nil {
-				return
-			}
+		case <-c.closed:
+			break pump
 		case <-ticker.C:
-			if err := c.socket.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
-				return
-			}
-			if err := c.socket.WriteMessage(websocket.PingMessage, nil); err != nil {
+			if !c.writePing() {
 				return
 			}
 		}
 	}
+
+	// Fim da conexão: close frame para o cliente reconectar pelo backoff dele em
+	// vez de esperar o timeout, e desliga. A fila que sobrou é descartada — quem
+	// não estava lendo não a quer, e o `defer` acima fecha o socket de qualquer
+	// jeito. Descartar também é o que impede o close frame de ficar atrás de
+	// 256 frames num cliente lento.
+	_ = c.socket.WriteControl(
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+		time.Now().Add(writeWait),
+	)
+}
+
+// writeFrame escreve um frame de dados. Devolve false no primeiro erro: o peer
+// sumiu (ou o prazo estourou) e a pump não tem mais o que fazer.
+func (c *Conn) writeFrame(payload []byte) bool {
+	if err := c.socket.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+		return false
+	}
+	return c.socket.WriteMessage(websocket.TextMessage, payload) == nil
+}
+
+// writePing é o heartbeat, e sai do mesmo lugar por motivo mais forte: ping
+// concorrente com um frame de dados já corromperia o frame.
+func (c *Conn) writePing() bool {
+	if err := c.socket.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+		return false
+	}
+	return c.socket.WriteMessage(websocket.PingMessage, nil) == nil
 }
 
 // ApplyReadDeadline arma o deadline de leitura e o handler de pong que o
