@@ -213,6 +213,22 @@ func (s *Server) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// (6) Gravação.
+	//
+	// A checagem de `s.inbox == nil` NÃO é paranoia, é o que impede um PANIC.
+	// O `main` só cria o Store quando o pool conectou, e passa um `*inbox.Store`
+	// nil para o parâmetro da interface: em Go isso é uma interface NÃO-nil com
+	// ponteiro nil dentro, que passa por `s.inbox == nil` e estoura no primeiro
+	// `s.db`. Sem esta linha, um webhook com assinatura válida num serviço sem
+	// banco derruba a conexão com panic — e o sintoma seria o Pagar.me reenviando
+	// para sempre contra um serviço que responde 503 no /health e "só falha às
+	// vezes" no webhook, que é o pior par possível para diagnosticar.
+	if s.inbox == nil {
+		log.Println("[server] webhook do pagarme sem inbox (o processo booted sem DATABASE_URL utilizável) — recusando (503)")
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable",
+			"sem banco: não consegui gravar o evento, o gateway deve reenviar")
+		return
+	}
+
 	rowID, isNew, err := s.inbox.Record(r.Context(), raw, &payload)
 	if err != nil {
 		// `ErrNoEventID` já foi barrado acima; se chegar aqui é porque outro

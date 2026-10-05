@@ -195,7 +195,13 @@ func assina(body []byte) string {
 }
 
 // novoServer sobe um servidor real com o mux do serviço.
-func novoServer(t *testing.T, store *fakeStore, secret string, health *HealthProbe) (*httptest.Server, *Client) {
+//
+// O parâmetro do store é a INTERFACE, e não `*fakeStore`, por causa do caso
+// `TestWebhookSemInboxDevolve503SemPanic`: passar um `*fakeStore` nil aqui
+// produziria uma interface NÃO-nil com ponteiro nil dentro, que é exatamente o
+// que o `main` tem que evitar ao montar o Store real. Tipar o parâmetro como a
+// interface faz `nil` aqui significar a mesma coisa que significa lá.
+func novoServer(t *testing.T, store InboxStore, secret string, health *HealthProbe) (*httptest.Server, *Client) {
 	t.Helper()
 	s := New(secret, store, health, "teste")
 	srv := httptest.NewServer(s.Rotas())
@@ -710,6 +716,59 @@ func TestHealth503SemPool(t *testing.T) {
 	}
 	if m["databaseError"] == nil {
 		t.Error("databaseError ausente: o 503 precisa dizer por quê")
+	}
+}
+
+// O mesmo estado, pelo caminho do webhook: 503 e NENHUM panic.
+//
+// Este caso foi encontrado por um smoke test com o binário de verdade, não por
+// leitura. O `main` só cria o `*inbox.Store` quando o pool conectou, e passa o
+// ponteiro nil para o parâmetro da interface — que em Go é uma interface NÃO-nil
+// com ponteiro nil dentro. Uma checagem `s.inbox == nil` no `main` não pega isso,
+// e dentro do handler o `s.db` estoura num `nil pointer dereference` que derruba a
+// conexão SEM resposta: o Pagar.me reenvia para sempre, o `/health` diz 503 e o
+// webhook "às vezes funciona" (só quando a assinatura é inválida, que desvia antes
+// do store).
+//
+// Com a guarda, o serviço sem banco responde 503 consistente em TODO webhook, e o
+// gateway reenvia para uma tentativa que talvez volte a funcionar quando o banco
+// subir — que é o comportamento correto.
+func TestWebhookSemInboxDevolve503SemPanic(t *testing.T) {
+	_, c := novoServer(t, nil, secretKey, nil) // store NULO: booted sem banco
+	calaLog(t)
+
+	body := `{"id":"evt_1","type":"order.paid","data":{"id":"or_1"}}`
+	res := c.postAssinado(t, "/webhooks/pagarme", body)
+
+	if res.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, quer 503 (sem inbox o evento não pode ser gravado, e o gateway deve reenviar)", res.StatusCode)
+	}
+	if codigo := erroDe(t, res); codigo != "service_unavailable" {
+		t.Errorf("error.code = %q, quer service_unavailable", codigo)
+	}
+
+	// E o servidor tem que continuar de pé: um panic em um request derruba a
+	// CONEXÃO, não o processo, então o sintoma seguinte seria reconexão do gateway
+	// sem nenhuma mensagem de erro além do stack trace no log.
+	res2 := c.postAssinado(t, "/webhooks/pagarme", body)
+	if res2.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("segundo request = %d, quer 503: o servidor caiu no primeiro", res2.StatusCode)
+	}
+}
+
+// E com o store não-nil mas o health degradado (banco travado): o `Record` é quem
+// falha, e o 503 continua certo. Este é o caminho que o `fakeStore` com `falha`
+// cobre nos outros testes; aqui o ponto é que a resposta é a mesma nos dois
+// estados, para que o operador não tenha que distinguir "sem banco" de "banco
+// travado" lendo o status.
+func TestWebhookComBancoTravadoDevolve503(t *testing.T) {
+	store := &fakeStore{falha: errors.New("pq: server closed the connection unexpectedly")}
+	_, c := novoServer(t, store, secretKey, probeSaudavel())
+	calaLog(t)
+
+	res := c.postAssinado(t, "/webhooks/pagarme", `{"id":"evt_1","data":{"id":"or_1"}}`)
+	if res.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, quer 503 (banco travado)", res.StatusCode)
 	}
 }
 

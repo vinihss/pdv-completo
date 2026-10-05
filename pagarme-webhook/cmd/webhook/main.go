@@ -115,10 +115,18 @@ func main() {
 		}
 	}
 
-	// O Store da inbox só existe com pool: sem ele o `Record` falharia, e o
-	// webhook já responde 503 pelo caminho do erro — que é o mesmo desfecho sem
-	// inventar um caminho de erro novo.
-	var store *inbox.Store
+	// O Store da inbox só existe com pool: sem ele não há onde gravar, e o webhook
+	// responde 503 — que é o desfecho certo, porque o Pagar.me reenvia.
+	//
+	// A variável é do tipo da INTERFACE, e não `*inbox.Store`, por um motivo que
+	// custa uma leitura e evita um panic: passar um `*inbox.Store` nil para um
+	// parâmetro de interface produz uma interface NÃO-nil com ponteiro nil dentro.
+	// Aí o `s.inbox == nil` do handler passa, e o primeiro `s.db` estoura com
+	// `nil pointer dereference` — derrubando a conexão do webhook SEM resposta
+	// nenhuma, enquanto o `/health` segue dizendo 503. Encontrado por smoke test do
+	// binário de verdade, e o teste que trava isso é
+	// `TestWebhookSemInboxDevolve503SemPanic`.
+	var store server.InboxStore
 	if pool != nil {
 		store = inbox.NewStore(pool, time.Now)
 	}
@@ -219,7 +227,7 @@ func main() {
 // respondendo, `/health` 200 e nenhuma confirmação de pagamento — e o operador não
 // tem onde olhar. A ordem é a da cadeia de pré-requisitos (banco → store → gate →
 // token → credencial) e cada mensagem diz o que fazer, não só o que faltou.
-func motivoDoDrainDesligado(pool *sql.DB, store *inbox.Store, gate bool, node *nodeapi.Client, pg *gateway.Client) string {
+func motivoDoDrainDesligado(pool *sql.DB, store server.InboxStore, gate bool, node *nodeapi.Client, pg *gateway.Client) string {
 	switch {
 	case pool == nil:
 		return "sem banco: este processo booted sem DATABASE_URL utilizável, e sem banco não há o que drenar"
