@@ -58,7 +58,7 @@ describe("storage: porta + serving de /uploads", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toBe("image/png");
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
-    expect(res.headers["cache-control"]).toBe("public, max-age=31536000, immutable");
+    expect(res.headers["cache-control"]).toBe("no-cache");
     expect(res.rawPayload.equals(PNG)).toBe(true);
   });
 
