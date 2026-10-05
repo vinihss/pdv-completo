@@ -97,7 +97,7 @@ roll completo é restaurar esse dump. Janela de segundos para 1 loja.
 |---|---|---|
 | Credenciais | `config/env.ts:88-90` (`IFOOD_CLIENT_ID/SECRET`, `IFOOD_MERCHANT_ID`) | globais em env |
 | Estado | `integrations/ifood/state.ts:1-45`, `schema.ts:545` (`ifood_state.key/value`) | global no DB, PK só `key` |
-| Worker de polling | `worker.ts:72-104`, iniciado uma única vez em `server.ts:199` | 1 merchant no processo todo |
+| Worker de polling | `worker.ts:72-104`, iniciado uma única vez em `server.ts:198` | 1 merchant no processo todo |
 | Toggle por loja | `store_settings.ifood_enabled` (`schema.ts:152`) | por loja ✅ |
 | Flag por produto | `product.ifood_enabled` + `ifoodSku` (`schema.ts:152-153`) | por produto ✅ |
 
@@ -136,8 +136,10 @@ fases 0–2 do multi-tenant.
 | `docker-compose.yml/.local.yml/.dev.yml` dividem os volumes `pdv_postgres_data`, `pdv_backend_uploads`, `pdv_caddy_data` — subir o stack de dev aplicaria migrations no **banco de produção** | `deploy/docker-compose*.yml` | 🟠 se virar multi-tenant |
 | `backend/data.db{,-shm,-wal}` (resíduo SQLite) versionados no git | `backend/` | 🟡 higiene |
 | `backup.sh`: sem retenção/rotação, sem verificação, sem manifesto; dumps ficam no mesmo disco | `deploy/backup.sh` | 🟡 operação |
-| `/internal/caddy-on-demand-tls` aceita qualquer `^[a-z0-9-]+\.labolabe\.tech$` — scanner pode estourar o rate limit do Let's Encrypt | `backend/src/http/server.ts:121-125` | 🟡 |
+| `/internal/caddy-on-demand-tls` aceita qualquer `^[a-z0-9-]+\.labolabe\.tech$` — scanner pode estourar o rate limit do Let's Encrypt | `backend/src/http/server.ts:120-124` | 🟡 |
 | `CORS_ORIGIN` enumerado não escala com N subdomínios + origens Tauri | `deploy/.env.example:18`, `server.ts:61-71` | 🟠 com N lojas |
+| `ws-gateway/GO-GATEWAY-PLAN.md` **não tem fase de multi-tenant** — as fases do plano são só a migração Node→Go (paralelo, cutover, remoção), e nenhuma delas cita tenant/subdomínio/schema. O gateway Go segue com `search_path` default (`internal/db/connect.go:31`), rooms por string (`internal/connmanager/connmanager.go:261-293`) e lock de outbox global (`internal/outbox/outbox.go:33`) | `ws-gateway/GO-GATEWAY-PLAN.md`, `docs/15-multi-tenant-schema.md` §3.3 | 🟡 bloqueia o corte do gateway se o multi-tenant entrar antes |
+| Container `pdv-test-db` exposto em **`0.0.0.0:55432`** no host (confirmado com `docker ps` e `docker inspect`: `HostIp: ""`, sem labels de compose, credenciais `pdv:pdv_test_pw`/db `pdv_test`) — Postgres de **teste** alcançável da internet num VPS de IP público. Os composes publicam em `127.0.0.1` por padrão (`deploy/docker-compose.yml:308-321`), então este bind veio de fora deles | host de produção (bind), `deploy/docker-compose*.yml:150-151,174-175` | 🔴 segurança operacional — trocar o bind/derrubar o container |
 | `audit_log`/`stock_movement` **nunca são podados** (maintenance só limpa 4 tabelas) — crescimento sem limite | `backend/src/infra/maintenance.ts` | 🟡 |
 
 ---
