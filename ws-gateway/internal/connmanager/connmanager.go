@@ -71,6 +71,14 @@ type Conn struct {
 type Manager struct {
 	mu    sync.RWMutex
 	conns map[string]*Conn
+	// closed é setado uma única vez por `Close` e nunca mais volta: depois disso o
+	// manager está morto de facto. A checagem existe para matar a corrida do
+	// handshake em voo — `httpServer.Shutdown` para de aceitar upgrades novos,
+	// mas um handler que já passou do upgrade ainda pode chamar `Add` a qualquer
+	// momento. Sem ela, essa conexão seria registrada DEPOIS da varredura do
+	// `Close`, e ninguém a removeria: socket vivo com `writePump` rodando além
+	// do fim do hub.
+	closed bool
 	// users mapeia userID→{connID→conn} como SET, não slice. Com slice, o
 	// broadcast ao usuário removeria duplicatas na primeira limpeza e perderia
 	// conexões — a versão anterior indexava o room por UserID e fazia exatamente
@@ -91,7 +99,17 @@ func New() *Manager {
 //
 // `socket` já vem upgraded pelo handler; o Manager assume a posse e fecha em
 // Remove/Close.
+//
+// Depois de `Close` devolve `nil`: o manager morto não assume posse de socket
+// nenhum. `nil` significa "manager morto, o socket é seu para fechar" — o
+// caller NÃO deve tratar como registro feito, e nenhuma writePump é subida
+// nesse caminho.
 func (m *Manager) Add(socket *websocket.Conn, userID, role string) *Conn {
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return nil
+	}
 	c := &Conn{
 		ID:     newConnID(),
 		UserID: userID,
@@ -101,8 +119,6 @@ func (m *Manager) Add(socket *websocket.Conn, userID, role string) *Conn {
 		rooms:  make(map[string]bool),
 		closed: make(chan struct{}),
 	}
-
-	m.mu.Lock()
 	m.conns[c.ID] = c
 	if m.users[userID] == nil {
 		m.users[userID] = make(map[string]*Conn)
@@ -138,15 +154,25 @@ func (m *Manager) Remove(c *Conn) {
 
 // Join assina um room. Idempotente por room.
 func (m *Manager) Join(c *Conn, room string) {
+	if c == nil {
+		return
+	}
 	m.mu.Lock()
-	c.rooms[room] = true
+	if !m.closed {
+		c.rooms[room] = true
+	}
 	m.mu.Unlock()
 }
 
 // Leave cancela a assinatura.
 func (m *Manager) Leave(c *Conn, room string) {
+	if c == nil {
+		return
+	}
 	m.mu.Lock()
-	delete(c.rooms, room)
+	if !m.closed {
+		delete(c.rooms, room)
+	}
 	m.mu.Unlock()
 }
 
@@ -155,6 +181,9 @@ func (m *Manager) Leave(c *Conn, room string) {
 func (m *Manager) Rooms(c *Conn) []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	if m.closed || c == nil {
+		return nil
+	}
 	out := make([]string, 0, len(c.rooms))
 	for room := range c.rooms {
 		out = append(out, room)
@@ -202,6 +231,15 @@ func (c *Conn) offer(payload []byte) pushResult {
 // Send empurra um frame para uma conexão específica (respostas de `sync.request`,
 // `join.denied`). Não bloqueia: se a fila está cheia, a conexão é encerrada.
 func (m *Manager) Send(c *Conn, payload []byte) {
+	if c == nil {
+		return
+	}
+	m.mu.RLock()
+	closed := m.closed
+	m.mu.RUnlock()
+	if closed {
+		return
+	}
 	switch c.offer(payload) {
 	case pushOK:
 		return
@@ -222,6 +260,10 @@ func (m *Manager) Send(c *Conn, payload []byte) {
 // recuperado pelo reload por REST do client, redelivery não existe.
 func (m *Manager) BroadcastToRoom(room string, payload []byte) int {
 	m.mu.RLock()
+	if m.closed {
+		m.mu.RUnlock()
+		return 0
+	}
 	targets := make([]*Conn, 0, 8)
 	for _, c := range m.conns {
 		if c.rooms[room] {
@@ -254,6 +296,10 @@ func (m *Manager) BroadcastToRoom(room string, payload []byte) int {
 // todos os aparelhos).
 func (m *Manager) BroadcastToUser(userID string, payload []byte) int {
 	m.mu.RLock()
+	if m.closed {
+		m.mu.RUnlock()
+		return 0
+	}
 	targets := make([]*Conn, 0, 4)
 	for _, c := range m.users[userID] {
 		targets = append(targets, c)
@@ -279,6 +325,9 @@ func (m *Manager) BroadcastToUser(userID string, payload []byte) int {
 func (m *Manager) Counts() (conns, users int) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	if m.closed {
+		return 0, 0
+	}
 	return len(m.conns), len(m.users)
 }
 
@@ -292,6 +341,11 @@ func (m *Manager) Counts() (conns, users int) {
 // `pushClosed` e o `Remove` idempotente resolve.
 func (m *Manager) Close() {
 	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return
+	}
+	m.closed = true
 	all := make([]*Conn, 0, len(m.conns))
 	for _, c := range m.conns {
 		all = append(all, c)
