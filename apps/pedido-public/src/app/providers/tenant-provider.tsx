@@ -1,6 +1,12 @@
-import { createContext, useContext, ReactNode } from 'react'
+import { createContext, useContext } from 'react'
+import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { publicApi } from '@/shared/api/public-client'
+// Relativo, e não `@/`: o alias `@/` pertence ao `frontend/src` (é de lá que
+// vem a página do cardápio, e o código herdado inteiro depende desse mapeamento
+// para resolver `@/entities/*` e `@/shared/*`). Usar `@/` para um arquivo que
+// é deste app jogaria a resolução em `frontend/src/shared/api/public-client`,
+// que não existe. Dentro de `src/` deste app, o caminho é relativo.
+import { publicApi } from '../../shared/api/public-client'
 
 export type Tenant = {
   storeId: string
@@ -25,7 +31,18 @@ const TenantContext = createContext<TenantContextType>({
   error: null,
 })
 
-export function TenantProvider({ children }: ReactNode) {
+type TenantProviderProps = {
+  children: ReactNode
+}
+
+// A assinatura era `({ children }: ReactNode)` — `ReactNode` é o tipo do
+// FILHO, não o do objeto de props, então a desestruturação pegava uma
+// propriedade `children` que esse tipo não tem. O efeito em cascata era o erro
+// mais confuso do build: `TenantProvider` acabava aceitando `ReactNode` como
+// props, e o `<TenantProvider>{children}</TenantProvider>` em `AppProviders`
+// virava "atribua `{ children: ... }` para `IntrinsicAttributes & ReactNode`",
+// que aponta para o provider errado.
+export function TenantProvider({ children }: TenantProviderProps) {
   const hostname = window.location.hostname
 
   const host =

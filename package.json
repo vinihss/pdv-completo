@@ -14,14 +14,9 @@
   },
   "scripts": {
     "tauri": "tauri",
-    "dev:pedido": "npm run dev --workspace=@pdv/pedido-public",
-    "build:pedido": "npm run build --workspace=@pdv/pedido-public",
-    "preview:pedido": "npm run preview --workspace=@pdv/pedido-public",
+    "dev:pedido": "npm --prefix apps/pedido-public run dev",
+    "build:pedido": "npm --prefix apps/pedido-public run build",
+    "preview:pedido": "npm --prefix apps/pedido-public run preview",
     "deploy:pedido": "./deploy/deploy-pedido-public.sh"
-  },
-  "workspaces": [
-    "frontend",
-    "backend",
-    "apps/*"
-  ]
+  }
 }

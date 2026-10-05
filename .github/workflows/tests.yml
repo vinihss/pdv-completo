@@ -27,11 +27,18 @@ name: Testes (backend + frontend)
 # Renomear um dos lados sem renomear o outro quebra o deploy no push da
 # próxima tag.
 #
-# O mesmo vale para os jobs de serviço: `test-ws-gateway` aparece como
-# `tests / test-ws-gateway` no PR (o job chamador se chama `tests`), e
-# `test-pagarme-webhook` como `tests / test-pagarme-webhook` — é esse nome que um
+# O mesmo vale para os jobs de serviço e para o app público: `test-ws-gateway`
+# aparece como `tests / test-ws-gateway` no PR (o job chamador se chama
+# `tests`), `test-pagarme-webhook` como `tests / test-pagarme-webhook` e
+# `test-pedido-public` como `tests / test-pedido-public` — é esse nome que um
 # ruleset por check precisaria. Não há ruleset exigindo os checks de teste por
-# nome hoje — se um dia houver, os nomes novos entram na regra junto com os outros.
+# nome hoje — se um dia houver, os nomes novos entram na regra junto com os
+# outros.
+#
+# O número de jobs NÃO é um número fixo, e é o `ci-pr.yml` que explica por quê:
+# acrescentar um job aqui cria o check sozinho nos DOIS chamadores, sem tocar
+# em nenhum deles. A lista de suítes mora neste arquivo — que é justamente o
+# ponto do reusable workflow.
 # ============================================================
 
 on:
@@ -82,6 +89,30 @@ jobs:
           npm run build
           npm run test
 
+  # `test-frontend` NÃO compila o app público de pedidos (apps/pedido-public),
+  # e a decisão é deliberada:
+  #
+  # O app público tem build próprio (`tsc -b && vite build`) e lockfile próprio.
+  # Rodar esse build aqui custaria um segundo `npm ci` de ~75 pacotes neste job
+  # e, mais importante,ARIA AO MESMO PASSO um segundo `npm ci` num diretório
+  # IRMÃO — que é a classe exata de defeito que o PR #85 introduziu ao declarar
+  # `workspaces` na raiz: o `npm ci` do frontend passou a ser resolvido contra
+  # o lockfile da raiz, o `vite@6` que o app público quer foi hoisted para
+  # `node_modules/` e o `vitest` do frontend passou a resolver esse `vite` no
+  # lugar do `vite@8`. O `@vitejs/plugin-react@6` configura o JSX automático
+  # pela chave `oxc`, que o Vite 6 não conhece, e a suíte inteira morreu com
+  # `ReferenceError: React is not defined` (44 arquivos, 57 testes).
+  #
+  # Coupar os dois `npm ci` NESTE job não é o problema — o problema é o
+  # `--workspaces` implícito, que faz o npm atravessar a árvore. Em jobs
+  # separados, cada `npm ci` resolve contra o SEU lockfile, no SEU diretório, e
+  # nenhum interfere no outro. É por isso que o lockfile do app público é
+  # versionado e não há `workspaces` na raiz.
+  #
+  # Onde o build do app público é verificado: o job `test-pedido-public` abaixo
+  # (mesmo padrão de um job por suíte, sem `needs`, para não acoplar o frontend
+  # a esse app) e o `Dockerfile` da própria imagem, que roda `npm ci` nos dois
+  # diretórios e o build no stage de build.
   test-frontend:
     runs-on: ubuntu-latest
     steps:
@@ -97,6 +128,31 @@ jobs:
           npm run lint
           npm run build
           npm run test
+
+  # O app público de pedidos (apps/pedido-public) — build de produção em job
+  # próprio, separado do `test-frontend` pelo motivo exposto acima.
+  #
+  # `npm ci` roda em `apps/pedido-public/` e NADA mais: o alias `@/` deste app
+  # aponta para `frontend/src`, e o Vite resolve as dependências bare do código
+  # compartilhado a partir do PRÓPRIO diretório do importador — por isso o
+  # `npm ci` do frontend também é necessário (é o que o `Dockerfile` faz, nos
+  # dois diretórios). Aqui o que se prova é o que este job é dono de validar: o
+  # `tsc -b` do código TypeScript novo (`src/app/**`) e o `vite build` do
+  # bundle. Um `npm ci` do frontend aqui dentro não traria prova nova — e é
+  # justamente o ensaio que derrubou o PR #85.
+  test-pedido-public:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/pedido-public/package-lock.json
+      - working-directory: apps/pedido-public
+        run: |
+          npm ci
+          npm run build
 
   # O gateway WebSocket em Go (ws-gateway/). Módulo Go independente, com as
   # próprias dependências — não entra no `npm ci` do backend nem no do frontend,

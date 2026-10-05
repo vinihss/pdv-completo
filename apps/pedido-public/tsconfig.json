@@ -1,10 +1,54 @@
 {
-  "extends": "../../frontend/tsconfig.app.json",
   "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    // `bundler` (e não `node`) porque é o que o Vite faz: o import é resolvido
+    // pelo bundler, e `moduleResolution: bundler` é o que deixa este projeto
+    // aceitar os `.jsx` do frontend importados pela página do cardápio.
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* O app público é TypeScript (`src/app/*.tsx`), mas a página que ele serve
+     * NÃO é: `frontend/` é um projeto JavaScript — não existe
+     * `frontend/tsconfig.app.json`, só um `jsconfig.json`, e todo o código
+     * herdado é `.js`/`.jsx`. Sem `allowJs` o compilador não enxerga
+     * `@/pages/customer-menu` (o alias resolve para
+     * `frontend/src/pages/customer-menu/index.js`) e o `tsc -b` morre com
+     * "Could not find a declaration file". `checkJs: false` (o default) mantém
+     * esses arquivos fora da checagem: o `tsc` deste projeto existe para
+     * proteger o código NOVO, e não para reprovar o `.jsx` de seis anos que
+     * ele apenas reexporta. */
+    "allowJs": true,
+    "checkJs": false,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+
     "baseUrl": ".",
     "paths": {
       "@/*": ["../../frontend/src/*"]
-    }
+    },
+
+    /* O `tsc -b` do `npm run build` guardaria o incremental na raiz do projeto
+     * (`tsconfig.tsbuildinfo`) sem isto. Ele também ficaria INVALIDADO a cada
+     * `npm ci`, porque o `tsBuildInfoFile` não acompanha o `node_modules` — e um
+     * cache velho mandando o build para o caminho errado é exatamente a classe
+     * de verde-mentiroso que este gate não deve aceitar. Em `node_modules/.tmp`
+     * (como o `tsconfig.node.json` deste app já faz), um `npm ci` o apaga junto
+     * com o resto. */
+    "incremental": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo"
   },
   "include": ["src"]
 }
