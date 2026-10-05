@@ -8,7 +8,6 @@ echo "==> Buildando pedido-public..."
 npm run build:pedido
 
 echo "==> Sincronizando dist para servidor..."
-DIST="apps/pedido-public/dist/"
 RSYNC_FLAGS=(-avz --delete)
 DIST_DIR="apps/pedido-public/dist/"
 REMOTE_USER="${PEDIDO_DEPLOY_USER:-pdv}"
