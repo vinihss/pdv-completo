@@ -1,0 +1,218 @@
+name: Auditoria de Deploy
+
+# ============================================================
+# O OUTRO PORTÃO QUE FALHA EM SILÊNCIO
+# ============================================================
+# A tag do Semantic Release só acorda o `deploy-on-tag.yml` se o
+# `release.yml` publicar a tag com um PAT (`SEMANTIC_RELEASE_TOKEN`).
+# Sem o PAT, o `release.yml` cai no fallback para `GITHUB_TOKEN` e a
+# trava anti-recursão do GitHub segura: evento criado com o token do
+# próprio Actions NÃO dispara workflow. Resultado: run VERDE, tag e
+# release publicadas, produção parada — e nada no repositório que diga
+# que isso é um erro.
+#
+# MEDIDO NESTE REPO (reincidente, e não é caso antigo):
+#   v1.25.0, v1.25.1 e v1.25.2 -> publicaram tag+release, ZERO runs do
+#   deploy-on-tag.yml; produção parada por ~20h (a v1.25.3 só saiu porque
+#   alguém Published a tag à mão). E o MESMO aconteceu de novo com
+#   v1.26.0 e v1.26.1, que publicaram sem nenhum run de deploy.
+#
+# ESTE WORKFLOW É A DETECÇÃO. O conserto é o PAT, que só o dono do
+# repositório pode criar (a mensagem de falha traz o comando) — mas o
+# conserto que depende de gente lembrar de conferir não é conserto, é
+# sorte. Aqui a auditoria pergunta todo dia: a tag mais recente de
+# backend chegou em produção?
+#
+# Só detecção, de propósito. NÃO chama o deploy: um workflow que
+# "conserta" o deploy por conta própria esconde o defeito (o PAT
+# faltando) atrás de um verde. O viés do repo é o oposto — na dúvida,
+# gritar. E o `deploy-on-tag.yml` segue sendo a ÚNICA definição de
+# deploy (ver o bloco de `release.yml` sobre a alternativa rejeitada).
+#
+# Sem action de terceiro: `actions/checkout` e shell + `gh` (que já vem
+# no runner), como manda a regra do repo — dependência externa de Action
+# é superfície de supply chain.
+# ============================================================
+on:
+  schedule:
+    # 04:23 em Brasília (UTC-3). Minuto fora do redondo de propósito:
+    # o GitHub agenda por UTC e concentra o topo da hora.
+    - cron: '23 7 * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Auditar ESTA tag em vez da mais recente (diagnóstico)'
+        required: false
+        type: string
+
+# `contents: read` para ler as tags no checkout; `actions: read` para listar
+# os runs. Nada de escrita: este workflow não publica nada.
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: auditoria-deploy
+  cancel-in-progress: false
+
+jobs:
+  tag-em-producao:
+    name: A tag mais recente chegou em produção?
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # fetch-depth: 0 é OBRIGATÓRIO pelo mesmo motivo do `tag-info` no
+          # `deploy-on-tag.yml`: sem histórico completo, `git describe
+          # --tags` não tem com o que casar e a auditoria sai sem tag nenhuma.
+          fetch-depth: 0
+
+      - name: Auditar a tag de backend mais recente
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_PEDIDA: ${{ inputs.tag }}
+        run: |
+          set -Eeuo pipefail
+
+          # --------------------------------------------------------------
+          # A LINHA DA TAG — COPIADA DO `tag-info`, NÃO INVENTADA AQUI
+          # --------------------------------------------------------------
+          # `MATCH` e `EXCLUDE` são as mesmas strings do job `tag-info` do
+          # `deploy-on-tag.yml`: `v*.*.*` para a linha backend e `v1.4.*` no
+          # exclude porque a família do app usou `v1.4.x` até a separação de
+          # prefixo (#27). O glob `v*.*.*` NÃO casa `app-v1.4.2` (exige `v` no
+          # primeiro caractere), então a linha do instalador fica de fora
+          # sozinha — não por uma lista de exclusão paralela aqui, mas pela
+          # MESMA chave que decide o que é linha de backend no deploy.
+          MATCH='v*.*.*'
+          EXCLUDE='v1.4.*'
+
+          TAG="${TAG_PEDIDA:-}"
+          if [[ -n "$TAG" ]]; then
+            # Disparo manual com tag: só para diagnóstico. O agendado sempre
+            # audita a mais recente, que é a que pode ter ficado sem deploy.
+            if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error title=Tag fora do formato::'${TAG}' não é uma tag de backend no formato vX.Y.Z (a linha do instalador é 'app-vX.Y.Z' e não faz deploy de backend)."
+              exit 1
+            fi
+            # Tag informada que não existe: sem este teste, a consulta de runs
+            # voltaria vazia e o job cairia no caso de "tag publicada sem
+            # deploy" — acusando um deploy que nunca foi possível, porque a
+            # tag não existe. Ruído que aponta para o defeito errado.
+            if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+              echo "::error title=Tag inexistente::'${TAG}' não existe neste repositório (nada para auditar). Tags de backend: $(git tag --list "$MATCH" --sort=-v:refname | head -5 | tr '\n' ' ')"
+              exit 1
+            fi
+            echo "[auditoria] tag informada no disparo manual: ${TAG}"
+            echo "[auditoria] o agendamento diário audita a tag mais recente, não esta."
+          else
+            TAG="$(git describe --tags --abbrev=0 --match "$MATCH" --exclude "$EXCLUDE" 2>/dev/null || true)"
+          fi
+
+          if [[ -z "$TAG" ]]; then
+            # Repositório sem tag nenhuma ainda: não há o que auditar e não é
+            # erro. Falhar aqui seria gritar sem motivo.
+            echo "::notice title=Nenhuma tag de backend::Não existe tag '${MATCH}' neste repositório ainda — nada para auditar."
+            exit 0
+          fi
+
+          DATA_TAG="$(git for-each-ref --format='%(creatordate:iso-strict)' "refs/tags/${TAG}" | head -1)"
+          SHA_TAG="$(git rev-list -n1 "$TAG" 2>/dev/null | cut -c1-7 || true)"
+          echo "[auditoria] tag de backend mais recente: ${TAG} (publicada em ${DATA_TAG:-data desconhecida}, commit ${SHA_TAG:-?})"
+
+          # Os runs do `deploy-on-tag.yml` FILTRADOS por branch = a tag. O
+          # `head_branch` de um run disparado por push de tag é o nome da tag,
+          # que é o que amarra "publicou a tag" a "tentou o deploy".
+          if ! RUNS="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-on-tag.yml/runs?branch=${TAG}&per_page=100" \
+            | jq '[.workflow_runs[] | select(.event == "push")]')"; then
+            # Falha de leitura NÃO pode virar "não há run": um erro de API
+            # lido como lista vazia acusaria um deploy que nunca foi
+            # testado. Sai vermelho dizendo o que houve.
+            echo "::error title=Não consegui ler os runs::A consulta dos runs do 'Deploy on Tag' para ${TAG} falhou (API ou permissão de actions:read). Não é possível afirmar se a tag chegou em produção — este job falha em vez de adivinhar."
+            exit 1
+          fi
+
+          # Só `push` conta. Um `workflow_dispatch` futuro no deploy seria o
+          # humano consertando na mão — e não pode valer como "o automatismo
+          # chegou em produção".
+          TOTAL="$(printf '%s' "$RUNS" | jq 'length')"
+          OK="$(printf '%s' "$RUNS" | jq '[.[] | select(.status == "completed" and .conclusion == "success")] | length')"
+          ANDAMENTO="$(printf '%s' "$RUNS" | jq '[.[] | select(.status != "completed")] | length')"
+          RUINS="$(printf '%s' "$RUNS" | jq '[.[] | select(.status == "completed" and .conclusion != "success")] | length')"
+          URL_RUN="$(printf '%s' "$RUNS" | jq -r '[.[] | select(.status == "completed" and .conclusion != "success")][0].html_url // ""')"
+          URL_OK="$(printf '%s' "$RUNS" | jq -r '[.[] | select(.status == "completed" and .conclusion == "success")][0].html_url // ""')"
+
+          if [[ "$OK" -gt 0 ]]; then
+            echo "::notice title=Deploy conferido::A tag ${TAG} (publicada em ${DATA_TAG:-?}) tem run de deploy CONCLUÍDO COM SUCESSO: ${URL_OK}"
+            if [[ "$RUINS" -gt 0 ]]; then
+              echo "::warning title=Houve tentativa falha antes::${RUINS} run(s) de deploy para ${TAG} terminaram sem sucesso antes do que deu certo. O que vale é que a tag chegou: ${URL_OK}"
+            fi
+            exit 0
+          fi
+
+          # --------------------------------------------------------------
+          # CASO 1 — o run AINDA ESTÁ RODANDO.
+          # Falso positivo clássico de auditoria de pipeline: o run existe,
+          # está em `queued`/`in_progress`, e o job diz "não chegou em
+          # produção". Aqui é aviso e SAÍDA 0. Só o tag-ready conta como falha
+          # (run que terminou sem sucesso ou run que nunca nasceu).
+          # --------------------------------------------------------------
+          if [[ "$ANDAMENTO" -gt 0 ]]; then
+            echo "::notice title=Deploy ainda rodando::A tag ${TAG} tem ${ANDAMENTO} run(s) do deploy em andamento. Ainda não é falha — só falha quando o run acabar sem sucesso. ($(printf '%s' "$RUNS" | jq -r '[.[] | select(.status != "completed")][0].html_url'))"
+            exit 0
+          fi
+
+          # --------------------------------------------------------------
+          # CASO 2 — HOUVER RUN, MAS NENHUM TERMINOU BEM.
+          # Aqui o defeito é do deploy, não da tag. Aponta o run, porque a
+          # causa pode ser healthcheck, migration, SSH — e o log desse run é
+          # onde a resposta está.
+          # --------------------------------------------------------------
+          if [[ "$TOTAL" -gt 0 ]]; then
+            echo "::error title=Deploy da tag falhou::A tag ${TAG} (publicada em ${DATA_TAG:-?}, commit ${SHA_TAG:-?}) disparou ${TOTAL} run(s) do deploy e NENHUM terminou com sucesso. Run: ${URL_RUN:-ver 'Deploy on Tag' na aba Actions}. O log desse run é onde está a causa (testes, healthcheck, migration ou SSH) — este workflow só afirma que a tag não chegou em produção."
+            exit 1
+          fi
+
+          # --------------------------------------------------------------
+          # CASO 3 — O CASO REAL DESTE REPO: tag publicada, ZERO runs.
+          # Não é falha do deploy (o deploy nunca foi chamado): é a trava
+          # anti-recursão do GitHub, porque a tag foi publicada com o
+          # `GITHUB_TOKEN` — isto é, sem o PAT no repositório.
+          # --------------------------------------------------------------
+          echo
+          echo "  ===== TAG PUBLICADA, PRODUÇÃO PARADA ====="
+          echo
+          echo "  A tag ${TAG} foi publicada em ${DATA_TAG:-data desconhecida} (commit ${SHA_TAG:-?})"
+          echo "  e NÃO existe NENHUM run do 'Deploy on Tag' para ela."
+          echo
+          echo "  O release.yml rodou, ficou verde, e publicou tag e release. O que"
+          echo "  não aconteceu foi o deploy: o GitHub NÃO dispara workflow a partir"
+          echo "  de um evento criado com o GITHUB_TOKEN (trava anti-recursão), e o"
+          echo "  SEMANTIC_RELEASE_TOKEN (PAT) não existe neste repositório — o"
+          echo "  release.yml está caindo no fallback de propósito, então degrada em"
+          echo "  silêncio em vez de quebrar o versionamento."
+          echo
+          echo "  COMO CONFERIR"
+          echo "    gh secret list --repo ${GITHUB_REPOSITORY} | grep SEMANTIC_RELEASE_TOKEN"
+          echo "    gh run list --workflow deploy-on-tag.yml --branch ${TAG}"
+          echo
+          echo "  COMO CONSERTAR (uma vez, no dono do repositório)"
+          echo "    gh secret set SEMANTIC_RELEASE_TOKEN --repo ${GITHUB_REPOSITORY}"
+          echo "  O PAT é fine-grained, escopo 'contents: write', só neste repositório."
+          echo
+          echo "  ENQUANTO ISSO, PARA PUBLICAR ESTA TAG AGORA"
+          echo "    gh api -X DELETE repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}"
+          echo "    git push origin ${TAG}"
+          echo "  (apaga a ref e re-pusha com credencial de usuário, que o GitHub conta"
+          echo "  como evento de usuário e dispara o deploy. Requer a tag existindo"
+          echo "  localmente.)"
+          echo
+          echo "  Os dois portões que impedem isso de se repetir: o job 'Validar título"
+          echo "  da PR' do .github/workflows/pr-checks.yml (o título do PR é a mensagem"
+          echo "  do squash, e título fora de Conventional Commits = merge sem tag) e"
+          echo "  este workflow (tag sem deploy). Detalhes em docs/agent-deploy.md."
+          echo
+
+          echo "::error title=Tag publicada sem deploy::A tag ${TAG} foi publicada em ${DATA_TAG:-?} e não tem run do 'Deploy on Tag': a release existe, a produção não mudou. Causa provável: SEMANTIC_RELEASE_TOKEN (PAT) ausente — o release.yml publicou a tag com o GITHUB_TOKEN e o GitHub não dispara workflows a partir dele. Detalhe e comando no log deste job."
+          exit 1
