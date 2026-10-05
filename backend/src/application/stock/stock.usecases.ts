@@ -26,7 +26,7 @@ export const INVENTORY_ROOM = "inventory";
 
 export type StockMovementType = "sale" | "refund" | "purchase" | "adjustment";
 
-// ---------- Custo médio móvel (0017) ----------
+// ---------- Custo médio móvel (baseline 0001) ----------
 // A média é um REPLAY do ledger sobre os eventos de valoração (quantity_delta >
 // 0 com unit_cost): avg_n = (avg_prev*qty_prev + unit_cost*delta) / (qty_prev +
 // delta). Vendas/refunds e ajuste negativo mudam quantidade, não a média;

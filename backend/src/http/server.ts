@@ -24,11 +24,14 @@ import { courierRoutes } from "./routes/courier.routes.js";
 import { deliveryManagerRoutes } from "./routes/delivery-manager.routes.js";
 import { whatsappWebhookRoutes } from "./routes/whatsapp-webhook.routes.js";
 import { ifoodRoutes } from "./routes/ifood.routes.js";
+import { paymentRoutes } from "./routes/payment.routes.js";
+import { pagarmeWebhookRoutes } from "./routes/pagarme-webhook.routes.js";
 import { whatsappRoutes } from "./routes/whatsapp.routes.js";
 import { printRoutes } from "./routes/print.routes.js";
 import { alertRoutes } from "./routes/alert.routes.js";
 import { uploadsRoutes } from "./routes/uploads.routes.js";
 import { startIfoodSync } from "../integrations/ifood/worker.js";
+import { startPagarmeWorkers } from "../integrations/pagarme/worker.js";
 import { getStoreSettingsUsecase } from "../application/store-settings.usecases.js";
 
 // Monta o app Fastify com todas as rotas/plugins, sem escutar. Exportado
@@ -133,6 +136,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(deliveryManagerRoutes);
   await app.register(whatsappWebhookRoutes);
   await app.register(ifoodRoutes);
+  await app.register(paymentRoutes);
+  // Webhook do Pagar.me: SEM autenticação (quem se prova é a assinatura), então
+  // fica registrado à parte do paymentRoutes, que exige sessão.
+  await app.register(pagarmeWebhookRoutes);
   await app.register(whatsappRoutes);
   await app.register(printRoutes);
   await app.register(alertRoutes);
@@ -196,6 +203,9 @@ async function main() {
   const stopDispatcher = startOutboxDispatcher();
   const stopMaintenance = startMaintenanceJobs();
   const ifoodSync = startIfoodSync(); // no-op quando sem IFOOD_SYNC_ENABLED/credenciais
+  // Inbox do webhook do Pagar.me + reconciliação. no-op sem PAGARME_ENABLED /
+  // PAGARME_SECRET_KEY.
+  const pagarmeWorkers = startPagarmeWorkers();
 
   await app.listen({ port: config.port, host: "0.0.0.0" });
   app.log.info(`PDV backend rodando em modo ${config.deploymentMode} na porta ${config.port}`);
@@ -204,6 +214,7 @@ async function main() {
     stopDispatcher();
     stopMaintenance();
     ifoodSync.stop();
+    pagarmeWorkers.stop();
     await app.close();
     process.exit(0);
   };

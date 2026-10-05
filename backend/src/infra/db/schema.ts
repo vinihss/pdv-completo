@@ -11,6 +11,9 @@ import {
   uniqueIndex,
   check,
 } from "drizzle-orm/pg-core";
+// `import type`: apaga em tempo de compilação, então não cria dependência de
+// runtime entre infra e domain (o dominio continua sem saber que o banco existe).
+import type { PaymentEventStatus } from "../../domain/payment.js";
 
 // ============================================================
 // Schema Postgres — banco OFICIAL do PDV (o SQLite foi removido).
@@ -93,7 +96,7 @@ export const customers = pgTable(
     name: text("name").notNull(),
     phone: text("phone"),
     email: text("email"),
-    // Perfil completo (0008). Os três guardam o valor CRU, sem máscara — a
+    // Perfil completo (baseline 0001). Os três guardam o valor CRU, sem máscara — a
     // apresentação é do frontend, o banco é a fonte: `photo_path` só o
     // basename (`<id>.<ext>`), `cpf` os 11 dígitos, `notes` o texto livre.
     photoPath: text("photo_path"),
@@ -154,12 +157,12 @@ export const products = pgTable(
     // Vitrine da página pública (/pedido) — migration 0020. Curadoria pura:
     // o produto continua na sua categoria.
     featured: boolean("featured").notNull().default(false),
-    // Estoque (0016): config do produto — o saldo em si fica no ledger
+    // Estoque (baseline 0001): config do produto — o saldo em si fica no ledger
     // stock_movement (soma dos deltas), nunca coluna cacheada.
     costPrice: real("cost_price").notNull().default(0), // custo unitário (margem)
     lowStockThreshold: real("low_stock_threshold").notNull().default(0),
     trackStock: boolean("track_stock").notNull().default(false),
-    unit: text("unit").notNull().default("un"), // unidade de medida (0017)
+    unit: text("unit").notNull().default("un"), // unidade de medida (baseline 0001)
     active: boolean("active").notNull().default(true),
     createdAt: text("created_at").notNull().default(isoNow),
     updatedAt: text("updated_at").notNull().default(isoNow),
@@ -270,7 +273,7 @@ export const suppliers = pgTable("supplier", {
   updatedAt: text("updated_at").notNull().default(isoNow),
 });
 
-// Documento de entrada de mercadoria (0017) — multi-item, com fornecedor,
+// Documento de entrada de mercadoria (baseline 0001) — multi-item, com fornecedor,
 // nº de nota (informativo, sem integração fiscal), data e total.
 export const purchases = pgTable("purchase", {
   id: id(),
@@ -316,7 +319,7 @@ export const purchaseItems = pgTable(
   (t) => [index("idx_purchase_item_purchase").on(t.purchaseId)],
 );
 
-// Ledger de estoque (0016): fonte da verdade do saldo — soma dos deltas por
+// Ledger de estoque (baseline 0001): fonte da verdade do saldo — soma dos deltas por
 // produto. 'sale' no lançamento da comanda, 'refund' no estorno (item
 // removido / comanda cancelada), 'purchase'/'adjustment' manuais do gerente.
 //
@@ -449,10 +452,13 @@ export const storeSettings = pgTable("store_settings", {
   kitchenEnabled: boolean("kitchen_enabled").notNull().default(true),
   usesDelivery: boolean("uses_delivery").notNull().default(true),
   ifoodIntegrationEnabled: boolean("ifood_integration_enabled").notNull().default(false),
-  // Integração WhatsApp (0007): master switch do painel em Configurações.
+  // Integração WhatsApp (baseline 0001): master switch do painel em Configurações.
   whatsappIntegrationEnabled: boolean("whatsapp_integration_enabled").notNull().default(false),
-  inventoryEnabled: boolean("inventory_enabled").notNull().default(false), // estoque (0016)
-  purchaseEnabled: boolean("purchase_enabled").notNull().default(false), // compras + custo médio (0017)
+  // Pagar.me V5 (0002): mesmo desenho do toggle do WhatsApp — a cobrança no
+  // gateway é opt-in por loja e nada acontece enquanto estiver false.
+  pagarmeEnabled: boolean("pagarme_enabled").notNull().default(false),
+  inventoryEnabled: boolean("inventory_enabled").notNull().default(false), // estoque (baseline 0001)
+  purchaseEnabled: boolean("purchase_enabled").notNull().default(false), // compras + custo médio (baseline 0001)
   // Impressão térmica (daemon local, 0003): master switch + auto-print.
   printerEnabled: boolean("printer_enabled").notNull().default(false),
   printerAutoPrint: boolean("printer_auto_print").notNull().default(false),
@@ -557,8 +563,9 @@ export const customerAddresses = pgTable(
       .notNull()
       .references(() => customers.id, { onDelete: "cascade" }),
     label: text("label"),
-    // CEP é opcional e nullable: entrou depois (0005) e os endereços já
-    // gravados não têm o dado. Guardado com os 8 dígitos crus, sem máscara.
+    // CEP é opcional e nullable (baseline 0001): entrou depois da tabela e os
+    // endereços já gravados não têm o dado. Guardado com os 8 dígitos crus,
+    // sem máscara.
     cep: text("cep"),
     street: text("street").notNull(),
     number: text("number").notNull(),
@@ -581,7 +588,7 @@ export const whatsappConversations = pgTable("whatsapp_conversation", {
   cartItems: text("cart_items").notNull().default("[]"), // JSON string
   customerName: text("customer_name"),
   deliveryAddress: text("delivery_address"),
-  // Rastreabilidade (0002): a WABA de onde a conversa veio. Não é parte
+  // Rastreabilidade (baseline 0001): a WABA de onde a conversa veio. Não é parte
   // do PK porque há UMA conexão ativa por instalação — enforced no banco
   // por uq_whatsapp_single_active. Nullable porque a coluna entrou depois.
   wabaId: text("waba_id"),
@@ -614,7 +621,7 @@ export const deliveries = pgTable(
   (t) => [index("idx_delivery_status").on(t.status), index("idx_delivery_courier").on(t.courierId)],
 );
 
-// Carrinho server-side do cliente (0019) — continuação do pedido sem
+// Carrinho server-side do cliente (baseline 0001) — continuação do pedido sem
 // localStorage, chaveado pelo telefone.
 export const customerCarts = pgTable(
   "customer_cart",
@@ -639,7 +646,7 @@ export const geocodingCache = pgTable(
 );
 
 // ============================================================
-// Embedded Signup / WhatsApp Cloud API (0002) — ver
+// Embedded Signup / WhatsApp Cloud API (baseline 0001) — ver
 // docs/10-whatsapp-embedded-signup.md
 // ============================================================
 
@@ -707,4 +714,175 @@ export const whatsappInboundMessages = pgTable(
     createdAt: text("created_at").notNull().default(isoNow),
   },
   (t) => [index("idx_whatsapp_inbound_waba").on(t.wabaId)],
+);
+
+// ============================================================
+// Pagar.me V5 (0002) — ver migrations/0002_pagarme.sql
+// ============================================================
+
+// ## `payment` NÃO é `order_payment` — a armadilha nº1 deste bloco
+//
+// As duas tabelas são "pagamento" e não têm a mesma cara:
+//
+//   - `order_payment`  LINHA REGISTRADA PELA PESSOA. O garçom/gerente/caixa
+//                      anota "recebi 47,50 em dinheiro, trocou 12,50" e marca
+//                      `confirmed`. É a FONTE DA VERDADE DO CAIXA
+//                      (cashPaymentsBetween, application/cash-flow) e dos
+//                      relatórios de venda (application/report): o fechamento
+//                      da comanda exige ≥1 linha, todas confirmed, com a soma
+//                      batendo com o total. Ela existe mesmo sem gateway —
+//                      é o que o PDV já faz no balcão.
+//   - `payment`        COBRANÇA NO GATEWAY. Uma linha por tentativa de cobrar
+//                      no Pagar.me, com os ids externos (or_/ch_/pay_) e o QR
+//                      da cobrança. É a "Payment" da API, e responde "o
+//                      dinheiro do Pagar.me entrou?" — não "quem registrou o
+//                      recebimento aqui?".
+//
+// Por que coexistem, e por que uma NÃO substitui a outra:
+//
+//   1. Answer != registro. O Pagar.me saber que o Pix foi pago não diz que o
+//      caixa local tem o dinheiro conferido: o `order_payment` confirmed é o
+//      que a gaveta soma. Unificar as duas obrigaria o webhook a escrever no
+//      caixa — e aí quem confirmaria a venda seria um evento externo, sem
+//      ninguém no balcão por perto.
+//   2. Uma comanda pode ter N cobranças (o `attempt`) e continuar aberta; o
+//      `order_payment` é a composição do pagamento na hora de fechar.
+//   3. `order_payment.method` é o enum do balcão (cash/card/pix/other) e
+//      `payment.method` é só o que o gateway faz (pix/credit_card). Forçar um
+//      no outro aproximaria dois vocabulários que só se cruzam em 'pix'.
+//
+// Regra prática: pagamento de gateway NUNCA escreve em `order_payment`, e
+// `order_payment` NUNCA é lido para saber o estado de uma cobrança.
+//
+// ## Status em TEXT, não pgEnum
+//
+// `status` (aqui e em `payment_event`) é TEXT pelo mesmo motivo de
+// `whatsapp_inbound_message.type`: o valor vem do EXTERNO e a doc do Pagar.me
+// não o enumera. Um enum quebraria no primeiro status novo que o gateway
+// inventar, e quebrar aqui é perder dinheiro — o mapper devolve `null` para
+// valor desconhecido e quem chama decide (reconciliação/alerta), em vez de
+// gravar um status inventado. Os status do PDV são minúsculos (pending,
+// processing, paid, failed, canceled, partially_refunded, refunded) porque
+// todo enum deste repo é minúsculo — a spec escrevia em SCREAMING_CASE e a
+// tradução acontece no mapper.
+
+// A cobrança. `amount` e `refunded_amount` em REAIS (o resto do schema
+// também), com os centavos só existindo na borda do gateway (mapper.ts).
+export const payments = pgTable(
+  "payment",
+  {
+    id: id(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    // Tentativa 1, 2, 3... Um segundo Pix do mesmo cliente é OUTRA cobrança,
+    // não a reescrita da primeira.
+    attempt: integer("attempt").notNull().default(1),
+    provider: text("provider").notNull(), // 'pagarme'
+    // String, nunca número: o V5 prefixa por tipo (or_ pedido, ch_ charge,
+    // pay_ pagamento) e o webhook casa pelo id, não pelo prefixo.
+    providerOrderId: text("provider_order_id"),
+    providerChargeId: text("provider_charge_id"),
+    providerPaymentId: text("provider_payment_id"),
+    method: text("method").notNull(), // 'pix' | 'credit_card'
+    amount: real("amount").notNull(),
+    currency: text("currency").notNull().default("BRL"),
+    status: text("status").notNull().default("pending"),
+    refundedAmount: real("refunded_amount").notNull().default(0),
+    failureReason: text("failure_reason"),
+    // QR do GATEWAY — distinto do BR Code local gerado no client a partir da
+    // chave da loja (docs/11-pix-pendencias.md). Nullable de propósito: a doc
+    // oficial não mostra onde o QR vem no corpo da criação (ver mapper.ts),
+    // então o preenchimento depende do webhook/reconciliação.
+    qrCode: text("qr_code"),
+    qrCodeBase64: text("qr_code_base64"),
+    qrCodeUrl: text("qr_code_url"),
+    pixTxid: text("pix_txid"),
+    pixExpiresAt: text("pix_expires_at"),
+    paidAt: text("paid_at"),
+    canceledAt: text("canceled_at"),
+    metadata: text("metadata").notNull().default("{}"), // JSON string
+    createdAt: text("created_at").notNull().default(isoNow),
+    updatedAt: text("updated_at").notNull().default(isoNow),
+  },
+  (t) => [
+    index("idx_payment_order").on(t.orderId),
+    index("idx_payment_status").on(t.status),
+    index("idx_payment_provider_payment_id").on(t.providerPaymentId),
+    // Duas cobranças para a MESMA tentativa são impossíveis no banco. O
+    // `withIdempotency` resolve o retry do mesmo request; este índice
+    // resolve dois requests diferentes convergindo para a mesma tentativa.
+    // É o que faz o papel da tabela `payment_operations` que a spec pedia.
+    uniqueIndex("uq_payment_order_attempt").on(t.orderId, t.attempt),
+    check("chk_payment_amount", sql`${t.amount} > 0`),
+    check(
+      "chk_payment_refunded",
+      sql`${t.refundedAmount} >= 0 AND ${t.refundedAmount} <= ${t.amount}`,
+    ),
+  ],
+);
+
+// Inbox do webhook: gravada ANTES do 200 (o gateway reenvia o mesmo evento
+// enquanto não receber resposta), processada depois por worker com advisory
+// lock — mesmo desenho de `ifood_event`, sem broker (o repo não tem nenhum).
+// `payment_id` é SET NULL e não CASCADE: o evento é a prova do que o gateway
+// mandou e o worker ainda precisa dele depois que a cobrança some.
+export const paymentEvents = pgTable(
+  "payment_event",
+  {
+    id: id(),
+    // Ordem de inserção: `created_at` é texto com precisão de ms e dois
+    // eventos no mesmo ms empatariam num ORDER BY só por ele (mesma razão do
+    // `seq` de outbox_event).
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+    provider: text("provider").notNull(),
+    eventId: text("event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    paymentId: text("payment_id").references(() => payments.id, { onDelete: "set null" }),
+    providerOrderId: text("provider_order_id"),
+    providerPaymentId: text("provider_payment_id"),
+    payload: text("payload").notNull(), // JSON string cru, como o gateway mandou
+    // O union vem do domínio (`PaymentEventStatus`) em vez de uma lista repetida
+    // aqui: a coluna continua `text` no Postgres (logo, SEM migration), mas o
+    // tipo amarra os 6 pontos de escrita do inbox e os 4 de leitura (`eq()`
+    // deriva o lado direito da coluna) num lugar só. Sem isto, um typo —
+    // `"proccessed"` numa escrita, ou num `eq()` — compila e só quebra em
+    // silêncio: a escrita deixa o evento invisível para o worker, e o `eq()`
+    // faz a fila de retry travar sem erro nem log.
+    status: text("status").$type<PaymentEventStatus>().notNull().default("received"),
+    attempts: integer("attempts").notNull().default(0),
+    processedAt: text("processed_at"),
+    errorMessage: text("error_message"),
+    nextAttemptAt: text("next_attempt_at"), // null = elegível agora
+    createdAt: text("created_at").notNull().default(isoNow),
+  },
+  (t) => [
+    // A idempotência do webhook: reenvio do mesmo event_id colide aqui.
+    uniqueIndex("uq_payment_event_provider_event_id").on(t.provider, t.eventId),
+    index("idx_payment_event_status_next").on(t.status, t.nextAttemptAt),
+    index("idx_payment_event_payment").on(t.paymentId),
+  ],
+);
+
+// Um estorno por pedido (parcial ou integral). A linha é escrita ANTES da
+// chamada ao gateway: se a resposta se perder, o próximo ciclo reconcilia por
+// status em vez de o processo "lembrar" o que pediu.
+export const paymentRefunds = pgTable(
+  "payment_refund",
+  {
+    id: id(),
+    paymentId: text("payment_id")
+      .notNull()
+      .references(() => payments.id, { onDelete: "cascade" }),
+    amount: real("amount").notNull(),
+    providerRefundId: text("provider_refund_id"),
+    status: text("status").notNull().default("requested"),
+    reason: text("reason"),
+    requestedBy: text("requested_by").references(() => users.id),
+    requestedAt: text("requested_at"),
+    settledAt: text("settled_at"),
+    createdAt: text("created_at").notNull().default(isoNow),
+    updatedAt: text("updated_at").notNull().default(isoNow),
+  },
+  (t) => [index("idx_payment_refund_payment").on(t.paymentId), check("chk_payment_refund_amount", sql`${t.amount} > 0`)],
 );

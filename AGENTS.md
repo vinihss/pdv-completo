@@ -49,6 +49,8 @@ ws-gateway/ Gateway WebSocket em Go (módulo Go independente, como o `printer/`)
 | `docs/16-pendencias.md` | Pendências do planejamento multi-tenant + intenção de unificar migrations numa única baseline |
 | `docs/17-runbook-unificacao-migrations.md` | Runbook do cutover para o baseline único de migrations (com validação de backup) |
 | `docs/18-ifood-por-loja.md` | iFood por tenant: estado atual, delta necessário, riscos (sem implementação) |
+| `docs/19-pagarme.md` | Camada de pagamentos Pagar.me V5: arquitetura, webhook, reconciliação, decisões e pendências |
+| `docs/20-pagarme-pendencias.md` | Pendências da integração Pagar.me V5: o que falta, risco e prioridade |
 | `ws-gateway/GO-GATEWAY-PLAN.md` | Gateway WebSocket em Go: arquitetura, rooms, outbox, fases de migração e o checklist de implantação. Mora junto do código (fora de `docs/`) porque é spec de um componente, não do produto inteiro |
 
 ### Guias para agentes
@@ -58,7 +60,7 @@ ws-gateway/ Gateway WebSocket em Go (módulo Go independente, como o `printer/`)
 | `docs/agent-backend.md` | Convenções backend: camadas, transações, migrations, estoque, alertas, impressão |
 | `docs/agent-frontend.md` | Convenções frontend: FSD, camadas, componentes, overlays, menu, Tauri |
 | `docs/agent-deploy.md` | Deploy azul/verde: switch, healthcheck, regras, backup |
-| `docs/agent-testing.md` | Como rodar testes: backend (17 suítes), frontend (34 suítes), printer |
+| `docs/agent-testing.md` | Como rodar testes: backend (20 suítes), frontend (34 suítes), printer |
 | `docs/agent-api-index.md` | Índice de todos os endpoints da API, agrupados por domínio |
 | `docs/agent-glossary.md` | Glossário de termos do domínio (BR Code, FSD, blue/green, …) |
 | `docs/agent-backend-map.md` | Mapa arquivo→conteúdo do backend (onde mexer para cada assunto) |
@@ -167,7 +169,7 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `npm run seed` | backend | seed de dev (usuários/PINs fictícios) |
 | `npm run seed:prod` | backend | seed de primeiro deploy (sem dados fictícios) |
 | `npm run db:migrate` | backend | aplica `migrations/*.sql` (também roda no boot em modo local) |
-| `npm run test` | backend | vitest 5, 18 suítes (`backend/test/*.test.ts`; Postgres dedicado `pdv_test`) |
+| `npm run test` | backend | vitest 5, 20 suítes (`backend/test/*.test.ts`; Postgres dedicado `pdv_test`) |
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
 | `npm run test` | frontend | vitest (jsdom + Testing Library; 44 arquivos de suíte) |

@@ -234,6 +234,20 @@ em cada caso). "autenticado" ≠ "público": rota sem token nenhum é só a de
 |---|---|---|---|
 | POST | `/webhooks/whatsapp` | público | Webhook da Meta (assinatura verificada) |
 | GET | `/webhooks/whatsapp` | público | Verificação de assinatura do webhook |
+| POST | `/webhooks/pagarme` | público | Webhook do Pagar.me V5 (assinatura verificada; grava a inbox antes do 200) |
+
+## Cobrança no Pagar.me (`payment`)
+
+Cobrança no gateway — tabela `payment`, distinta de `order_payment` (que é a
+linha registrada pela pessoa). Detalhe em `docs/19-pagarme.md`.
+
+| Método | Path | Papel | Descrição |
+|---|---|---|---|
+| POST | `/orders/:id/payments` | cashier, manager | Criar cobrança (`pix`/`credit_card`; idempotente por `correlationId`) |
+| GET | `/orders/:id/payments` | cashier, manager, waiter | Listar tentativas da comanda |
+| GET | `/payments/:paymentId` | cashier, manager, waiter | Detalhe da cobrança |
+| POST | `/payments/:paymentId/cancel` | cashier, manager | Cancelar cobrança pendente |
+| POST | `/payments/:paymentId/refund` | manager | Estorno parcial ou integral |
 
 ## Realtime (WebSocket)
 

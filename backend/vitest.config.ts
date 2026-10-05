@@ -51,6 +51,16 @@ export default defineConfig({
       // `config` é snapshot no load do módulo, então a URL precisa estar
       // resolvida antes de qualquer import.
       PRINTER_DAEMON_URL: `http://127.0.0.1:${PRINTER_STUB_PORT}`,
+
+      // ---- Pagar.me V5 ----
+      // `config` é snapshot no load do módulo, então a secret key precisa estar
+      // aqui para o webhook validar assinatura nos testes. O gateway em si é
+      // substituído por um dublê via setPaymentGatewayForTests — nenhuma rede
+      // externa é chamada.
+      PAGARME_ENABLED: "true",
+      PAGARME_SECRET_KEY: "sk_test_pagarme_secret_de_teste",
+      PAGARME_BASE_URL: "http://127.0.0.1:3998",
+      PAGARME_RECONCILIATION_INTERVAL_MS: "600000",
     },
   },
 });
