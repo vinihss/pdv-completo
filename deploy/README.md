@@ -80,7 +80,13 @@ Depois de criar/alterar, é só recarregar o Caddy — ele pega os certificados
 sozinho, sem reiniciar containers:
 
 ```bash
-docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+# Pelo caddy-assemble.sh, e NÃO um `caddy reload` direto: quem resolve os
+# upstreams (o ponteiro e a flag WS_BACKEND) é o script, e um reload
+# cru pula essa resolução — o /realtime* voltaria sozinho para o backend
+# Node, sem erro em lugar nenhum. (O caminho `/etc/caddy/Caddyfile` do
+# comando antigo também não existe neste stack: a config é montada em
+# /srv/pdv-deploy/Caddyfile.)
+docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload
 ```
 
 > ⚠️ **O `umamisushiarte.com.br` e o `www` compartilham um único certificado**
@@ -317,7 +323,7 @@ Configure em **Settings → Secrets and variables → Actions**:
 - `HOSTINGER_USER` (usuário SSH)
 - `HOSTINGER_SSH_KEY` (chave privada OpenSSH/PEM)
 - `HOSTINGER_APP_PATH` (caminho absoluto do clone no VPS, ex.: `/opt/pdv-completo`)
-- `HOSTINGER_KNOWN_HOSTS` (opcional, recomendado)
+- `HOSTINGER_SSH_FINGERPRINT` (opcional, recomendado; `SHA256:...` do host — ver abaixo)
 - `TAURI_SIGNING_PRIVATE_KEY` (chave Ed25519 do auto-update — ver abaixo)
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (senha dessa chave)
 - `UPDATE_BASE_URL` (opcional; padrão `https://app.umamisushiarte.com.br`)
@@ -380,7 +386,7 @@ Guarde a chave e a senha **fora do repositório e fora do runner**: quem perde
 não consegue mais assinar versão nenhuma, e o app fica preso na versão em
 disco. Detalhes e o caminho completo em `docs/11-desktop-instalador.md` §6.
 
-### Chave SSH e known_hosts (sem expor segredo)
+### Chave SSH do deploy (sem expor segredo)
 
 No seu computador local:
 
@@ -394,14 +400,34 @@ ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/pdv_hostinger_deploy
    `HOSTINGER_SSH_KEY`.
 3. **Nunca** comite chave privada no repositório.
 
-Para o `known_hosts`:
+### Verificação da host key do SSH (fingerprint)
+
+No seu computador local:
 
 ```bash
-ssh-keyscan -p 22 -H SEU_HOST_OU_IP
+ssh-keyscan -p 22 SEU_HOST_OU_IP | ssh-keygen -lf -
 ```
 
-Copie a saída para o secret `HOSTINGER_KNOWN_HOSTS`. Se ele não for informado,
-o workflow gera `known_hosts` com `ssh-keyscan` durante a execução.
+Cada linha é um tipo de chave. O `ssh-action` confere a chave que o cliente
+SSH dele realmente negocia, cuja preferência é `ecdsa-sha2-nistp256` >
+`rsa-sha2-256/512` > `ssh-rsa` > `ssh-ed25519` — **não** use a linha
+`ed25519`. Copie o `SHA256:...` da linha `ecdsa-sha2-nistp256` para o secret
+`HOSTINGER_SSH_FINGERPRINT`.
+
+Sem esse secret o deploy funciona igual, mas **não confere a host key**: quem
+estiver no meio da rede e se fizer passar pelo servidor recebe a chave privada
+de produção. Com ele, um valor errado derruba o job no handshake (antes de
+qualquer comando rodar) com `ssh: host key fingerprint mismatch`.
+
+O mesmo secret vale para a **publicação do instalador**
+(`.github/workflows/build-desktop.yml`): lá a verificação cobre os três steps
+de appleboy do job `publish` (o `mkdir`, o `scp` e o ajuste de layout), e não
+só o `deploy` — sem o secret, nenhuma das duas rotas confere a host key.
+
+> ⚠️ `HOSTINGER_KNOWN_HOSTS` **não verifica nada**: `known_hosts` não é um
+> input do `appleboy/ssh-action@v1`, então a action o ignora — avisando
+> "Unexpected input(s) 'known_hosts'" no log — e o deploy segue. O secret
+> pode ser removido do repositório; ele não substitui o fingerprint.
 
 ### Setup inicial do VPS para uso da pipeline
 
@@ -696,6 +722,12 @@ docker compose up -d --build --remove-orphans
 #     a seção "Caddyfile não atualiza sozinho").
 docker exec "$(docker compose ps -q caddy)" sh /srv/pdv-deploy/caddy-assemble.sh reload
 
+# 3c. Se o gateway WebSocket em Go é quem serve o /realtime (WS_BACKEND=go),
+#     o `up --build` acima NÃO o reconstrói: o serviço está atrás de
+#     `--profile ws-gateway` e o gateway não entra no rodízio do switch.
+docker compose --profile ws-gateway build ws-gateway \
+  && docker compose --profile ws-gateway up -d --no-deps ws-gateway
+
 # 4. Valida
 curl -s http://localhost:80/health
 # → {"status":"ok","database":"connected"}
@@ -762,6 +794,12 @@ imagem (`extends`, não cópia):
 |---|---|---|
 | backend | `backend` | `backend-next` (profile `canary`) |
 | frontend | `frontend` | `frontend-next` (profile `canary`) |
+| ws-gateway (Go) | `ws-gateway` | **não tem** — ver §"Gateway WebSocket em Go" |
+
+O gateway em Go é a única exceção, e por decisão: ele é stateless (sem
+migration, sem volume, sem estado em disco), então não há o que drenar
+numa troca — recriar o container derrubaria as conexões abertas do mesmo
+jeito que o `stream_close_delay` segura as do backend.
 
 ```
 1. build da imagem nova ............ nada em produção é tocado
@@ -876,6 +914,301 @@ O switch mantém **duas** cópias do backend e do frontend em pé por alguns
 minutos. Medido no VPS: backend ≈ 200MB, frontend ≈ 10MB, Postgres ≈ 100MB.
 Com 2,8Gi disponíveis, sobra folga.
 
+## Gateway WebSocket em Go (opt-in)
+
+O realtime (`/realtime*`) tem **duas implementações**: o `WsGateway` +
+`outbox-dispatcher` do backend Node (o que está no ar) e o gateway escrito
+em Go, em `ws-gateway/`. O gateway serve as mesmas rotas, com o mesmo
+handshake, as mesmas rooms e o mesmo token — quem não muda é o app.
+
+**Hoje o realtime vivo é o do Node.** O gateway existe no compose, atrás de
+`profile`, e só entra no caminho se você mandar. A troca é o que este
+runbook descreve; o motivo de ser opt-in está em §"Por que ele não sobe
+sozinho".
+
+### O serviço no compose
+
+| | |
+|---|---|
+| serviço | `ws-gateway` (nos três compose: produção, local e dev) |
+| imagem | `${WS_GATEWAY_IMAGE:-pdv-ws-gateway:local}`, build de `../ws-gateway` |
+| porta | 8080 **dentro** da rede do compose — sem `ports:`, só o Caddy fala com ele |
+| quando sobe | só com `--profile ws-gateway` (é o que o mantém fora do `up` normal) |
+| ambiente | `DATABASE_URL` (o mesmo do backend), `JWT_SECRET` (o mesmo), `PORT=8080`, `WS_DISPATCH` (**o gate de posse do realtime; desligado por padrão**), `WS_ALLOWED_ORIGINS` (vazio = qualquer origem), `GIT_SHA` (aparece no `/health`) |
+| portão | `/health` responde **503** quando o banco deixa de responder — inclusive travado, sem erro do driver — e **200** sem `DATABASE_URL`; healthcheck do compose por `wget` |
+| volume | nenhum — não tem estado em disco |
+
+Ele **não escreve nada no banco**: só lê `outbox_event`, que o backend
+continua gravando dentro da transação da escrita. Por isso não tem
+migration, não tem schema próprio e não aparece em nenhum passo de migration
+do deploy.
+
+> `GIT_SHA` só aparece no `/health` (campo `version`). A pipeline ainda não
+> exporta essa variável, então em produção vem `dev`; quando alguém exportar,
+> dá para confirmar pelo `/health` qual build do gateway está no ar.
+
+> `WS_DISPATCH` decide se o gateway pode publicar `outbox_event`, e ela só entra
+> no container no `up`/`recreate` dele. O que ela é e quando ligar está no
+> `.env.example` e no §"Como ligar" abaixo; o `./switch.sh --status` mostra o
+> estado a qualquer momento, e o `/health` corrobora (ver §"O contrato do
+> `/health`").
+
+### O contrato do `/health`
+
+O `/health` do gateway é interno do container dele — o Caddy **não** roteia
+`/health` para lá (ver `Caddyfile` e §"O que o `switch.sh` faz"). Ele existe
+para responder à pergunta que só o gateway consegue responder: *ele publica
+evento agora?* O que devolve:
+
+| campo | significado |
+|---|---|
+| `status` | `ok` ou `degraded` — e `degraded` sempre vem acompanhado de 503 |
+| `outboxEnabled` | **pool de banco E gate `WS_DISPATCH` ligado no processo**. `true` = o dispatcher está despachando de verdade |
+| `databaseLastOkSeconds` | há quantos segundos terminou o último ping bom ao banco. `null` se o banco nunca respondeu desde o boot |
+| `databaseError` | só no 503: o erro do driver (banco recusando/derrubado) ou o texto de banco sem responder, com a idade do último ok bom e quantas tentativas estão em andamento |
+| `version`, `uptimeSeconds`, `connections`, `users` | build (`GIT_SHA`), tempo de vida, conexões e usuários no hub |
+
+**O prazo é o ponto.** O handler não fala com o banco: um `PingContext` pode
+pendurar para sempre mesmo com contexto com deadline, e o `http.Server` não tem
+`ReadTimeout`/`WriteTimeout` que segurem isso (depois do upgrade a conexão
+WebSocket escapa do server no hijack). Quem pergunta é um probe de fundo, a 1s,
+com no máximo 2 perguntas em andamento; o handler só lê o último resultado. Um
+"ok" mais velho que 3s deixa de valer, e é o **tempo** — não o driver — que
+degrada a resposta.
+
+Comportamento medido com Postgres de verdade (imagem real; banco congelado com
+`docker pause`, que deixa o TCP aberto sem nada responder):
+
+| cenário | resposta |
+|---|---|
+| banco respondendo | 200 em ~1–9ms |
+| **banco travado** | **503 em ~3ms** (tempo de resposta do handler, medido com `curl`) — antes pendurava sem responder. O que leva ~3s é o **começo** do 503, não a resposta |
+| banco inalcançável (recusando conexão) | 503, com o erro do driver em `databaseError` |
+| travado por até 3s | ainda 200 (o último ping bom tinha 1–2s); 503 a partir de 3s |
+| destravado | volta a 200 sozinho, sem restart — o ping preso volta quando o banco volta |
+| **sem `DATABASE_URL`** | **200**, e sem `databaseLastOkSeconds` nem `databaseError` |
+
+O texto do 503 separa "banco recusando" de "banco sem responder", porque a
+providência é outra: no primeiro o pool se recupera sozinho; no segundo não há
+erro para repetir, e o que o texto traz é a idade do último ok bom e quantas
+tentativas estão presas.
+
+O healthcheck do compose (`wget`, `interval: 3s`, `retries: 20`) só vira
+`unhealthy` depois de ~60s de 503 seguidos — medido: `unhealthy` em t+63s de
+banco congelado, e `healthy` de novo sozinho depois do `unpause`. Ele não
+reprova deploy nenhum: o `switch.sh` não espera o gateway (`wait_healthy` cobre
+backend e frontend) e a rota `/health` pública é a do backend.
+
+**Sem `DATABASE_URL` o 200 é decisão, não acidente.** O gateway sem banco não
+tem o que depurar: ele sobe sem pool, registra um aviso no log e serve as
+conexões — e o rollback do realtime é justamente voltar o Caddy para o Node
+**com o gateway vivo** (falhar o boot tiraria o rollback sem derrubar o deploy).
+E, com o dispatcher desligado pelo gate, "gateway de pé e mudo" é o **modo
+normal** de subida lado a lado, não um estado degradado: degradar esse caso
+quebraria o `docker compose --profile ws-gateway` e o caminho de rollback.
+Quem tem de conferir a posse do realtime é o `./switch.sh --status`, que cruza o
+gate com o upstream.
+
+### Quem serve o `/realtime*`
+
+O Caddy tem um upstream só para essa rota, resolvido dentro do container por
+`caddy-assemble.sh`:
+
+```
+PDV_WS_UPSTREAM   →   /realtime*   (Caddyfile)
+       ↑
+   quem decide, nesta ordem:
+   1. linha PDV_WS_UPSTREAM em state/active-upstream   (emergência)
+   2. WS_BACKEND=go no ambiente do container do Caddy  (a decisão do .env)
+   3. senão: o mesmo valor de PDV_BACKEND_UPSTREAM      (acompanha o switch)
+```
+
+O item 3 é o que mantém o modo `node` com o comportamento de hoje: o
+realtime gira junto com o azul/verde do backend. Um literal `backend:3000`
+ali quebraria o WS no primeiro switch, porque o switch para a instância
+antiga no passo 5.
+
+Para ver quem está no ar agora:
+
+```bash
+./switch.sh --status | head -1
+# Caddy aponta para: backend=backend frontend=frontend realtime=ws-gateway:8080
+
+# e o log do container do Caddy, que é onde a resolução acontece:
+docker compose logs caddy | grep "upstream ativo" | tail -1
+```
+
+### Por que ele não sobe sozinho
+
+Não é cautela por hábito: **o dispatcher do gateway disputa com o do Node o
+mesmo advisory lock** (`pdv:outbox:owner`, em
+`backend/src/infra/locks.ts`) e **marca o evento como publicado mesmo com
+zero assinantes na room**. O lock garante que só um publica por ciclo — ele
+não garante que seja o certo.
+
+Então um gateway de pé que **não** está no caminho do `/realtime` ganha
+metade dos ciclos, engole os eventos realtime de quem está conectado no Node
+e marca como publicado. O sintoma é o pior possível: nenhum erro em log
+nenhum, só a tela do salão que não atualiza (o bell não toca, a comanda não
+aparece sozinha) — e o `useRealtime` só recompõe o estado na reconexão, ou
+seja, quando alguém dá F5.
+
+> **Medido** com a imagem real (`ws-gateway/Dockerfile`) contra um Postgres
+> de teste, com o gateway de pé e **zero** clientes WS: a linha `probe-1` do
+> `outbox_event` foi de `published=false` para `published=true` em menos de
+> 2s (o poll do dispatcher é de 200ms), sem nenhum assinante na room. É por
+> isso que o serviço não é simplesmente "mais um container parado".
+
+Por isso o serviço está atrás de `profile`, e a flag `WS_BACKEND=go` e o
+`--profile ws-gateway` andam **juntos**: subir o container sem virar o proxy
+é justamente o estado perigoso.
+
+> A parte "só despachar quando é o dono do `/realtime`" **já está feita**, e não
+> pelo `profile`: é o gate `WS_DISPATCH` (`ws-gateway/internal/outbox/gate.go`),
+> dentro do processo — desligado, o dispatcher do gateway nem existe, que é o
+> que fecha a janela perigosa de subir o container antes do Caddy virar. O que
+> o `profile` segura é o outro lado (o `up` do dia a dia não cria o container),
+> e tirá-lo continua sendo decisão de corte, não de código — pendência em
+> `ws-gateway/GO-GATEWAY-PLAN.md`.
+
+### Como ligar (a ordem importa)
+
+```bash
+cd /opt/pdv-completo/deploy
+
+# 1. o gateway PRIMEIRO, e só ele. Sem o container no ar, todo handshake
+#    leva 502: o app abre normal (REST funciona) e o realtime fica mudo.
+docker compose --profile ws-gateway up -d --build ws-gateway
+
+# 2. o gate, no .env — WS_DISPATCH=1. Ele só entra no container no `up`
+#    dele, então isto é um segundo `up` do gateway, e é o passo que faz o
+#    `/health` seguinte dizer `outboxEnabled:true`. Sem ele o proxy pode
+#    apontar para o gateway e nenhum evento chegar (ver .env.example).
+docker compose --profile ws-gateway up -d ws-gateway
+
+# 3. portão: o /health tem que responder 200 E com o dispatcher ligado.
+#    `outboxEnabled:false` = gateway de pé e mudo (o estado que não pode
+#    virar tráfego). As duas causas são `WS_DISPATCH` desligado no container ou
+#    DATABASE_URL ausente — o `./switch.sh --status` diz qual das duas é.
+docker compose exec caddy wget -qO- http://ws-gateway:8080/health
+# {"status":"ok","version":"dev","uptimeSeconds":12,"connections":0,"users":0,
+#  "databaseLastOkSeconds":0,"outboxEnabled":true}
+
+# 4. a decisão que sobrevive a deploy, no .env:
+#    WS_BACKEND=go
+
+# 5. e o caminho quente: aponta o proxy sem recriar o container do Caddy
+#    (recreate custa os 1-3s de queda que o switch existe para evitar).
+printf 'PDV_WS_UPSTREAM=ws-gateway:8080\n' >> state/active-upstream
+docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload
+```
+
+Os passos 2 e 5 são o mesmo instante lógico: o gate liga **junto** com a
+virada do proxy, porque cada um dos dois errados sozinho é o defeito medido
+(gate ligado com proxy no Node = o gateway engole evento de quem está conectado
+lá; proxy no gateway com gate desligado = ninguém recebe nada). Por isso o
+passo 3 é o portão entre os dois.
+
+O passo 4 é o que sobrevive aos deploys; o passo 5 é o que vale na hora. A
+linha `PDV_WS_UPSTREAM` do ponteiro é descartada pelo `switch.sh` no deploy
+seguinte (ele reescreve o arquivo inteiro) — de propósito, para que um
+override de emergência não vire configuração permanente em silêncio.
+
+> Se o passo 3 mostrar `outboxEnabled:false` mesmo com `WS_DISPATCH=1` no `.env`,
+> olhe o log do container antes de caçar outra coisa: `AVISO: sem DATABASE_URL
+> acessível (pq: SSL is not enabled on the server)` é o lib/pq recusando o
+> Postgres por falta de `?sslmode=disable` na DSN, e o gateway sobe sem pool
+> (o `/health` segue 200, sem `databaseLastOkSeconds`). O padrão do serviço já
+> traz o parâmetro; se você sobrescreveu `DATABASE_URL` no `.env`, ele é seu.
+
+O `stream_close_delay 5m` continua valendo em `/realtime*` (é a mesma rota,
+só mudou o upstream): o `reload` não derruba as telas do salão. O que muda
+agora é o destino — quem reconecta nesse instante volta pelo backoff do
+client e ressincroniza por REST, como já acontece no drain do switch.
+
+### Como desligar (rollback do realtime)
+
+O caminho de volta é **um `sed`, uma linha de ponteiro e um reload** — sem
+deploy e sem recriar container:
+
+```bash
+cd /opt/pdv-completo/deploy
+
+# 1. tira a linha de emergência do ponteiro
+grep -v '^PDV_WS_UPSTREAM=' state/active-upstream > /tmp/up && cat /tmp/up > state/active-upstream
+
+# 2. e garante que o .env não traz o gateway de volta no próximo recreate
+#    do Caddy
+sed -i 's/^WS_BACKEND=.*/WS_BACKEND=node/' .env
+
+# 3. e desliga o gate. É este passo que fecha a janela, não o proxy: com
+#    WS_DISPATCH=1 deixado no .env, o próximo `up --profile ws-gateway`
+#    (deploy, reinstância, alguém testando) sobe o gateway publicando com o
+#    proxy já no Node — o estado que engole evento de quem está conectado lá.
+sed -i 's/^WS_DISPATCH=.*/# WS_DISPATCH=/' .env
+docker compose --profile ws-gateway up -d --no-deps ws-gateway   # só se ele estiver de pé
+
+docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload
+docker compose logs caddy | grep "upstream ativo" | tail -1   # conferindo
+./switch.sh --status                                         # o verito do gate
+```
+
+O gateway pode continuar de pé nesse meio-tempo (o rollback aqui é do proxy,
+não do container), mas **desligue-o** se não for voltar atrás:
+
+```bash
+docker compose --profile ws-gateway stop ws-gateway
+```
+
+Gateway parado não derruba nada (o `/realtime*` já está no Node); gateway de
+pé com o proxy apontado para ele é o estado que engole evento, como §"Por
+que ele não sobe sozinho" explica.
+
+### O que o `switch.sh` faz (e não faz) com o gateway
+
+**Não faz**: não reconstrói a imagem dele (o build do switch é
+`backend frontend`), não recria o container e não o inclui no rodízio
+azul/verde. A decisão está escrita no cabeçalho do `switch.sh`.
+
+**Faz**: mostra o gateway no `--status` (o `realtime=` na primeira linha e o
+container na tabela) e, quando o gateway é quem serve o realtime, avisa no
+fim do switch que aquela imagem **não** foi atualizada por aquele deploy,
+com o comando para publicar:
+
+```bash
+cd /opt/pdv-completo/deploy
+docker compose --profile ws-gateway build ws-gateway \
+  && docker compose --profile ws-gateway up -d --no-deps ws-gateway
+```
+
+Esse restart derruba as conexões WS abertas (o `stream_close_delay` segura
+as conexões no *reload*, não no *stop* do upstream) — quem reconecta leva
+~250ms de backoff e ressincroniza por REST. Rode-o em janela em que isso não
+atrapalhe, ou logo depois de um switch.
+
+O `probe-availability.sh` não muda: ele aperta `${URL}/health`, que o Caddy
+roteia para o backend, então o gateway nunca entra no caminho da medição. A
+rota `/health` do Caddy continua apontando para `PDV_BACKEND_UPSTREAM` de
+propósito — se passasse a medir o gateway, um 503 do gateway reprovaria um
+deploy em que o backend está perfeitamente saudável.
+
+### No stack local e no dev
+
+- **local** (`docker-compose.local.yml`): idêntico ao de produção, e o Caddy
+  roda o mesmo `caddy-assemble.sh` — então `WS_BACKEND=go` funciona igual. É
+  o lugar de testar um switch com o gateway no ar antes do VPS.
+- **dev** (`docker-compose.dev.yml`): o Caddy **não** roda o
+  `caddy-assemble.sh` (a config é montada direto do `Caddyfile.dev`), então a
+  flag `WS_BACKEND` não é traduzida lá. Defina `PDV_WS_UPSTREAM` direto:
+
+  ```bash
+  # deploy/.env
+  PDV_WS_UPSTREAM=ws-gateway:8080
+  ```
+
+  E suba o gateway com `--profile ws-gateway`. Sem hot reload (é binário):
+  `up -d --build ws-gateway` a cada mudança em `ws-gateway/`.
+
 ## Rollback simples
 
 Se precisar voltar para um commit anterior (por exemplo, após um deploy
@@ -893,6 +1226,13 @@ O `switch` garante o mesmo portão do deploy: se a versão antiga não ficar
 healthy, o proxy não é tocado e o job falha.
 
 Depois ajuste a `main` no GitHub para evitar redeploy do commit ruim.
+
+Esse rollback é do **código**. Se o problema for só o realtime (telas do
+salão que não atualizam), o rollback é bem mais barato e **não precisa de
+deploy nenhum**: uma linha no `state/active-upstream` e um `caddy reload`
+(§"Gateway WebSocket em Go", em "Como desligar"). Vale tentar isso primeiro
+quando o REST está normal e só o WS está estranho — é o mesmo critério que
+o `switch.sh` usa para abortar um deploy ruim.
 
 ### Cuidados com backup do Postgres
 

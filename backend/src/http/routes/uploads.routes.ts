@@ -24,19 +24,24 @@ import {
  */
 const uploadsRoutes = async (app: FastifyInstance) => {
   /**
-   * Cache: foto de produto/cliente/usuário tem nome derivado do id (uuid), então
-   * a URL muda quando a extensão muda → `immutable`. Logo é sobrescrito no lugar
-   * (nome fixo `logo.<ext>`) → sempre revalidar.
+   * Cache: o nome do arquivo é ESTÁVEL e o conteúdo pode mudar na mesma URL
+   * → por isso `no-cache` em todos os kinds. O raciocínio antigo ("o nome
+   * vem de um uuid, então é imutável") está errado: o uuid é do recurso
+   * LÓGICO (id do produto, do cliente, do usuário), não do conteúdo.
+   * Reenviar a foto do mesmo produto/cliente/usuário regrava o mesmo
+   * `<uuid>.<ext>`; o logo troca o conteúdo em `logo.<ext>` a cada save.
+   * Com `immutable`, um browser que já cacheou a URL NUNCA revalidaria e
+   * só mostraria o novo depois de hard reload.
    *
-   * ⚠️ Consequência conhecida: reenviar a foto **com a mesma extensão** regrava o
-   * mesmo nome, e um browser que já cacheou com `immutable` só mostra a nova
-   * depois de hard reload. Se isso incomodar, o conserto é `no-cache` nos três
-   * kinds (revalidação por ETag: ~304 em vez de bytes) — uma linha neste mapa.
+   * O mecanismo de revalidação barato segue ativo: `no-cache` exige
+   * revalidar a cada uso, e o ETag fraco (tamanho+mtime) devolve 304
+   * quando o conteúdo não mudou — a resposta é "revalide sempre, mas a
+   * revalidação custa quase nada".
    */
   const CACHE_BY_KIND: Record<StorageKind, string> = {
-    product: "public, max-age=31536000, immutable",
-    customer: "public, max-age=31536000, immutable",
-    user: "public, max-age=31536000, immutable",
+    product: "no-cache",
+    customer: "no-cache",
+    user: "no-cache",
     logo: "no-cache",
   };
 

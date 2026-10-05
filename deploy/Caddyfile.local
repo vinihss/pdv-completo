@@ -15,8 +15,14 @@
 	}
 
 	# WebSocket em tempo real
+	#
+	# Upstream próprio (`PDV_WS_UPSTREAM`): o realtime pode ser o `WsGateway`
+	# do Node (default) ou o gateway em Go (`ws-gateway/`). Quem decide é o
+	# caddy-assemble.sh, que resolve `WS_BACKEND` (default `node`) e o
+	# ponteiro `state/active-upstream` — o mesmo caminho do backend, então o
+	# switch azul/verde continua valendo para o WS em modo `node`.
 	handle /realtime* {
-		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000} {
+		reverse_proxy {$PDV_WS_UPSTREAM:backend:3000} {
 			# ---------- Deploy sem downtime ----------
 			# O Caddy fecha TODOS os WebSockets em qualquer reload de config,
 			# inclusive em rota que não mudou (limitação documentada em

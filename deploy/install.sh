@@ -76,6 +76,9 @@ done
 [ -w updates ] || err "deploy/updates sem permissão de escrita. Se o Docker o criou como root: sudo chown \"\$(id -u):\$(id -g)\" updates"
 
 # ---------- 3. Subir containers ----------
+# O gateway WebSocket em Go NÃO entra aqui: está atrás do profile
+# `ws-gateway`, e é a instalação padrão que ele fique de fora (o realtime
+# vivo é o do backend Node — ver README §"Gateway WebSocket em Go").
 log "Subindo containers (caddy + backend + frontend + postgres)..."
 docker compose -f docker-compose.yml up -d --build --remove-orphans
 
