@@ -231,9 +231,10 @@ gh api -X DELETE repos/OWNER/REPO/rulesets/ID
 ### Tag continua sendo o gate de deploy
 
 O deploy **não** é disparado por push na `main`: `.github/workflows/deploy-on-tag.yml`
-roda em `push: tags: v*.*.*`. Publicar versão é `./bump-version.sh <versão>`
-+ `git push origin v<versão>`, e isso funciona de qualquer branch — é por isso
-que `pre-push` deixa tag passar.
+roda em `push: tags: v*.*.*` (backend) e `app-v*.*.*` (app). O versionamento é
+automático via Semantic Release no merge da `main` — a tag nasce sozinha.
+`./bump-version.sh` é fallback de emergência (deprecated), não o caminho normal —
+é por isso que o `pre-push` deixa tag passar.
 
 ## Regras críticas
 
@@ -280,8 +281,8 @@ que `pre-push` deixa tag passar.
 - **Hooks versionados** em `.githooks/`: precisam de `git config core.hooksPath .githooks` após clone novo
 - Hook é **freio, não tranca** (`--no-verify` contorna); a garantia é o ruleset no GitHub
 - **`rm` de worktree não apaga branch não mergeada** — publicar ou `branch -D` consciously
-- **Tag é o gate de deploy**: produção é disparada **apenas** por push de tag `v*.*.*` (workflow `deploy-on-tag.yml`). Com o Semantic Release, a **tag deixa de ser manual e passa a ser automática e consistente**, sem alterar esse gate.
-- **Deploy contínuo híbrido**: merge na `main` → valida em **staging** (healthcheck + smoke). Produção → só via **Release/Tag** automático (criado pelo Semantic Release).
+- **Tag é o gate de deploy**: produção é disparada **apenas** por push de tag `v*.*.*` (backend) ou `app-v*.*.*` (app) (workflow `deploy-on-tag.yml`). A tag é criada automaticamente pelo Semantic Release no merge da `main`.
+- **Fluxo real**: merge na `main` → CI de PR (`ci-pr.yml`/`tests.yml`) valida; produção → só via tag automática do Semantic Release (`deploy-on-tag.yml`).
 - **A tag do Semantic Release só acorda o deploy se o `release.yml` usar o PAT** (`SEMANTIC_RELEASE_TOKEN`, escopo `contents: write`): o GitHub não dispara workflows a partir de eventos criados com `GITHUB_TOKEN`. Sem o secret, o `release.yml` cai no fallback e publica a tag do mesmo jeito — **o versionamento continua, o deploy não sai** (foi o que segurou produção parada entre `v1.18.0` e `v1.21.0`). Detalhe em `deploy/README.md` § Quem cria a tag.
 
 ### Deploy (resumo)

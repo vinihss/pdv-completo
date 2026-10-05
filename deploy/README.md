@@ -226,7 +226,7 @@ mas o `switch.sh` já aplica a config nova por `reload` como parte do deploy.
 
 O repositório possui o workflow **`.github/workflows/deploy-on-tag.yml`** com:
 
-- gatilho em **push de tags** no formato `v*.*.*` (ex.: `v1.2.0`);
+- gatilho em **push de tags** nos formatos `v*.*.*` (backend, ex.: `v1.2.0`) e `app-v*.*.*` (app, ex.: `app-v1.0.0`);
 - validações antes do deploy:
   - backend: `npm ci`, `npm run build`, `npm run test`;
   - frontend: `npm ci`, `npm run lint`, `npm run build`, `npm run test`;

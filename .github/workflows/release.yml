@@ -42,7 +42,7 @@ jobs:
       # `GITHUB_TOKEN` (o token do próprio Actions) NÃO dispara outros
       # workflows. O push da tag que o semantic-release faz ao publicar
       # entra por essa porta e, com `GITHUB_TOKEN`, não acorda o
-      # `deploy-on-tag.yml` — que escuta `on: push: tags: ['v*.*.*']`.
+      # `deploy-on-tag.yml` — que escuta `on: push: tags: ['v*.*.*', 'app-v*.*.*']`.
       # Nenhum run fica vermelho: o Release dá verde, a tag e a release
       # aparecem no repositório, e produção simplesmente não muda. É um
       # portão que falha em silêncio, que é a pior categoria de bug de
