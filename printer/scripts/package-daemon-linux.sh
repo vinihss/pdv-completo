@@ -1,102 +1,114 @@
 #!/usr/bin/env bash
 # printer/scripts/package-daemon-linux.sh
-# Gera pacote .tar.gz para Linux (amd64) contendo:
-#   - binário compilado (pdv-printer-daemon)
-#   - scripts/install-linux.sh
-#   - templates/
-#   - docs/ (CUPLINUX.md, WEB_AUTOMATIC_PRINT.md, Revisão do daemon de impressão.md)
-#   - README.md (versão atualizada)
-#   - config.example.json
-#   - README.md (atualizado com instruções de instalação)
-#   - README.md (atualizado com seção de instalação rápida)
+#
+# Gera o pacote de entrega do daemon para Linux (amd64):
+#
+#   printer/artifacts/pdv-printer-daemon-<versão>-linux-amd64.tar.gz
+#   printer/artifacts/pdv-printer-daemon-<versão>-linux-amd64.tar.gz.sha256
+#
+# O pacote leva o binário JÁ COMPILADO: a máquina de destino não precisa de Go.
+# Quem instala é o `install-linux.sh`, que roda a partir do diretório descompactado.
 #
 # Uso:
 #   bash printer/scripts/package-daemon-linux.sh [versão]
 # Exemplo: bash printer/scripts/package-daemon-linux.sh 1.1.0
 #
-# O script compila o binário (se não existir), cria os arquivos necessários,
-# e empacota em printer/artifacts/pdv-printer-daemon-<versão>-linux-amd64.tar.gz.
-#
-# O binário é compilado com:
-#   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o pdv-printer-daemon
-#
-# O script é idempotente e limpa a pasta de build antes de compilar.
+# Idempotente: o tar é reescrito a cada execução, o diretório intermediário é
+# removido antes de ser recriado.
 set -euo pipefail
 
-# Parse version argument (optional)
-VERSION="${1:-v1.0.0}"
-ARTIFACTS_DIR="$(cd "$(dirname "$0")/.." && pwd)/artifacts"
+VERSION="${1:-v0.0.0-dev}"
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PRINTER_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
+DAEMON_DIR="$PRINTER_DIR/daemon"
+ARTIFACTS_DIR="$PRINTER_DIR/artifacts"
+
+TARBALL="pdv-printer-daemon-$VERSION-linux-amd64.tar.gz"
+
+if ! command -v go >/dev/null 2>&1; then
+  echo "ERRO: Go é necessário para COMPILAR o pacote (não para instalá-lo)." >&2
+  exit 1
+fi
+
 mkdir -p "$ARTIFACTS_DIR"
 
-# Diretórios principais
-DAEMON_DIR="$(cd "$(dirname "$0")/../daemon" && pwd)"
-SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
-DOCS_DIR="$(cd "$(dirname "$0")/../docs" && pwd)"
-ROOT_DIR="$(pwd)"
-
 # -----------------------------------------------------------------
-# 1. Compilar o binário (se não existir)
+# 1. Compilar o binário
 # -----------------------------------------------------------------
-BINARY_NAME="pdv-printer-daemon"
-BINARY_PATH="$ARTIFACTS_DIR/$BINARY_NAME"
+echo "==> Compilando o daemon (CGO_ENABLED=0 GOOS=linux GOARCH=amd64)"
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT
 
-if [[ ! -f "$BINARY_PATH" ]]; then
-  echo "=== Compilando binário (sem Go no destino) ==="
+BINARY="$STAGE/$VERSION/pdv-printer-daemon"
+mkdir -p "$(dirname "$BINARY")"
+(
   cd "$DAEMON_DIR"
-  go build -trimpath -ldflags='-s -w' -o "$BINARY_PATH" .
-  if [[ ! -f "$BINARY_PATH" ]]; then
-    echo "ERRO: falha ao compilar $BINARY_NAME"
-    exit 1
-  }
-  echo "Binário compilado: $BINARY_PATH"
-else
-  echo "Binário já existe: $BINARY_PATH"
+  CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -trimpath -ldflags='-s -w' -o "$BINARY" .
+)
+[[ -f "$BINARY" ]] || { echo "ERRO: go build não produziu o binário." >&2; exit 1; }
+echo "    $(du -h "$BINARY" | cut -f1)  pdv-printer-daemon"
+
+# -----------------------------------------------------------------
+# 2. Montar a árvore do pacote
+# -----------------------------------------------------------------
+PKG="$STAGE/pkg"
+mkdir -p "$PKG/daemon"
+
+cp "$BINARY" "$PKG/daemon/pdv-printer-daemon"
+cp -r "$DAEMON_DIR/templates" "$PKG/daemon/templates"
+cp "$DAEMON_DIR/config.example.json" "$PKG/daemon/config.example.json"
+
+# O instalador precisa estar junto do binário: o install-linux.sh compila a
+# partir de "$ROOT/daemon" quando não acha o binário pronto, e usa
+# "$ROOT/daemon/templates" como origem dos templates.
+mkdir -p "$PKG/scripts"
+cp "$SCRIPTS_DIR/install-linux.sh" "$PKG/scripts/install-linux.sh"
+chmod +x "$PKG/scripts/install-linux.sh"
+
+cp "$PRINTER_DIR/README.md" "$PKG/README.md"
+cp "$PRINTER_DIR/MANIFEST.txt" "$PKG/MANIFEST.txt"
+
+if [[ -d "$PRINTER_DIR/docs" ]]; then
+  cp -r "$PRINTER_DIR/docs" "$PKG/docs"
 fi
 
 # -----------------------------------------------------------------
-# 2. Preparar diretório de pacote
+# 3. Empacotar +_checksum_
 # -----------------------------------------------------------------
-TMP_DIR="$(mktemp -d)"
-PACKAGE_DIR="$ARTIFACTS_DIR/pdv-printer-daemon-$VERSION-linux-amd64"
-rm -rf "$PACKAGE_DIR"
+echo "==> Empacotando"
+tar -czf "$ARTIFACTS_DIR/$TARBALL" -C "$PKG" .
 
-# Copiar binário
-cp -f "$BINARY_PATH" "$PACKAGE_DIR/"
-
-# Copiar scripts e docs
-cp -r "$SCRIPTS_DIR" "$PACKAGE_DIR/"
-cp -r "$DOCS_DIR" "$PACKAGE_DIR/"
-cp -f "$ROOT/daemon/README.md" "$PACKAGE_DIR/"
-
-# Copiar config.example.json (não versionado)
-cp -f "$ROOT/daemon/config.example.json" "$PACKAGE_DIR/"
-
-# Copiar templates (não versionados)
-cp -r "$ROOT/daemon/templates" "$PACKAGE_DIR/"
+(
+  cd "$ARTIFACTS_DIR"
+  sha256sum "$TARBALL" > "$TARBALL.sha256"
+)
 
 # -----------------------------------------------------------------
-# 5. Empacotar
+# 4. Verificar o pacote gerado
 # -----------------------------------------------------------------
-cd "$ARTIFACTS_DIR"
-tar -czf "pdv-printer-daemon-$VERSION-linux-amd64.tar.gz" -C "$PACKAGE_DIR" .
+echo "==> Verificando"
+tar -tzf "$ARTIFACTS_DIR/$TARBALL" >/dev/null   # gzip íntegro
+(
+  cd "$ARTIFACTS_DIR"
+  sha256sum -c "$TARBALL.sha256" >/dev/null
+) || { echo "ERRO: checksum do pacote não confere." >&2; exit 1; }
 
-# -----------------------------------------------------------------
-# 6. Verificação rápida
-# -----------------------------------------------------------------
-echo "=== Verificando pacote ==="
-tar -tzf "pdv-printer-daemon-$VERSION-linux-amd64.tar.gz" | sort | head -20 | head -5
-echo "=== Verificando assinatura (se .sha256 existir) ==="
-if [[ -f "$ARTIFACTS_DIR/pdv-printer-daemon-$VERSION-linux-amd64.tar.gz.sha256" ]]; then
-  sha256sum -c "pdv-printer-daemon-$VERSION-linux-amd64.tar.gz.sha256" 2>/dev/null || {
-    echo "⚠️  Assinatura inválida (falta ou invalida)."
-    exit 1
-  }
-  echo "✅ Assinatura válida"
-fi
+# O binário tem de estar lá dentro: um pacote sem ele instala um serviço que
+# não sobe, e isso só apareceria no caixa. O `tar -tzf` emite com prefixo `./`,
+# então o padrão casa as duas formas.
+tar -tzf "$ARTIFACTS_DIR/$TARBALL" | grep -qE '^\./?daemon/pdv-printer-daemon$' \
+  || { echo "ERRO: o pacote saiu sem o binário do daemon." >&2; exit 1; }
 
-echo "=== Pacote criado: pdv-printer-daemon-$VERSION-linux-amd64.tar.gz ==="
-echo "Descompacte para testar:"
-echo "  tar -xzf pdv-printer-daemon-$VERSION-linux-amd64.tar.gz -C /tmp/pdv-test"
-echo "cd /tmp/pdv-test && ./scripts/install-linux.sh"
-echo "E depois: sudo ./scripts/install-linux.sh"
-exit 0
+echo "    conteúdo:"
+tar -tzf "$ARTIFACTS_DIR/$TARBALL" | sed 's/^/      /'
+
+echo
+echo "Pacote pronto:"
+echo "  $ARTIFACTS_DIR/$TARBALL  ($(du -h "$ARTIFACTS_DIR/$TARBALL" | cut -f1))"
+echo "  $ARTIFACTS_DIR/$TARBALL.sha256"
+echo
+echo "Instalar na máquina de destino (sem Go, sem sudo para extrair):"
+echo "  sha256sum -c $TARBALL.sha256"
+echo "  tar -xzf $TARBALL -C /opt/pdv-printer --strip-components=1"
+echo "  sudo /opt/pdv-printer/scripts/install-linux.sh"
