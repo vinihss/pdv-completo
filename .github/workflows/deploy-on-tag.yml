@@ -1,5 +1,8 @@
 name: Deploy on Tag
 
+permissions:
+  contents: read
+
 on:
   push:
     tags:
@@ -94,22 +97,24 @@ jobs:
 
           # A linha da tag. O `--match` abaixo usa a MESMA chave: é isto que
           # impede a auditoria de comparar uma tag de app contra uma tag de
-          # backend (os globs são disjuntos — `v1.0.*` NÃO casa `app-v1.4.2`,
+          # backend (os globs são disjuntos — `v*.*.*` NÃO casa `app-v1.4.2`,
           # porque o padrão exige `v` no primeiro caractere).
           #
-          # `MATCH` da linha backend é `v1.0.*`, e não `v*.*.*`: a família do
-          # app usou `v1.4.x` até a separação de prefixo (#27), e o glob largo
-          # casava essas tags de app como se fossem de backend. Com `v*.*.*` a
-          # auditoria da linha backend mediu `v1.4.1..HEAD` (PREV=v1.4.1) e
-          # reprovou por mudança de app que eralegitima.
+          # `MATCH` da linha backend é `v*.*.*`, com `EXCLUDE='v1.4.*'`: a
+          # família do app usou `v1.4.x` até a separação de prefixo (#27), e
+          # sem o exclude essas tags legadas de app seriam casadas como se
+          # fossem de backend. As tags de app novas já usam o prefixo `app-v`,
+          # que o glob `v*.*.*` não casa.
           if [[ "$TAG" == app-v* ]]; then
             IS_APP=true
             IS_BACKEND=false
             MATCH='app-v*.*.*'
+            EXCLUDE='__none__'
           else
             IS_APP=false
             IS_BACKEND=true
-            MATCH='v1.0.*'
+            MATCH='v*.*.*'
+            EXCLUDE='v1.4.*'
           fi
 
           # Tag anterior DA MESMA LINHA, e só entre ancestrais: `HEAD^` como
@@ -117,7 +122,7 @@ jobs:
           # está de fato na história deste tag. Isto importa porque `v1.0.16`
           # NÃO é ancestral de `main` — comparar contra ela diffaria duas
           # histórias divergentes e a resposta seria aleatória.
-          PREV="$(git describe --tags --abbrev=0 --match "$MATCH" HEAD^ 2>/dev/null || true)"
+          PREV="$(git describe --tags --abbrev=0 --match "$MATCH" --exclude "$EXCLUDE" HEAD^ 2>/dev/null || true)"
 
           # ==========================================================
           # ESCOPO DO APP — o que de fato entra no artefato instalado.

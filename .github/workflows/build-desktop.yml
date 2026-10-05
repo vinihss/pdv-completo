@@ -6,7 +6,8 @@ name: Instalador Windows (Tauri)
 # Duas portas de entrada, uma só definição de build:
 #
 #   1. `workflow_call` — chamada pelo job `build-desktop` de
-#      deploy-on-tag.yml, que é quem roda a cada tag `v*.*.*` e publica
+#      deploy-on-tag.yml, que é quem roda a cada tag `v*.*.*` (backend) e
+#      `app-v*.*.*` (app) e publica
 #      o manifesto do auto-update junto com o deploy do backend.
 #   2. `workflow_dispatch` — "gera só o instalador, agora": útil para
 #      repetir o build de uma versão já publicada, conferir que o runner

@@ -339,6 +339,65 @@ e cada webhook 503.
 
 ---
 
+## Como rodar localmente
+
+Módulo Go independente (não entra no `npm ci` do backend nem do frontend), com
+`go 1.25.0` e uma única dependência, o `lib/pq`.
+
+```bash
+cd pagarme-webhook
+gofmt -l .        # tem que sair vazio — o CI falha o job se sair algo
+go vet ./...
+go test -count=1 ./...
+```
+
+### A suíte fica verde sem banco — confira o número de SKIP
+
+Duas suítes precisam de Postgres de verdade: o `Record` da `inbox` (o dedupe é
+`ON CONFLICT` sobre índice UNIQUE — mock não prova) e o `DrainOnce`/`ReconcileOnce`
+da `queue` (advisory lock, `status`, `attempts`, DLQ). São **38 testes**, e o helper
+`testDB` de cada pacote faz `t.Skip` quando a env falta.
+
+```bash
+# sem a env: 38 pulam, 190 passam e go test SAI 0 — falso-verde garantido
+go test -v -count=1 ./... | grep -c 'SKIP'    # => 38
+
+# com a env: 0 pulos
+PAGARME_TEST_DATABASE_URL='postgres://pdv:pdv_test_pw@localhost:55432/pdv_test?sslmode=disable' \
+  go test -v -count=1 -race ./... | grep -c 'SKIP'   # => 0
+```
+
+O banco tem que ser **dedicado** (nada do worker do Node apontando para o mesmo
+`pdv_test`), e o `?sslmode=disable` é obrigatório pelo mesmo motivo do compose
+acima: sem ele os 38 pulam com `pq: SSL is not enabled on the server` — env setada,
+banco de pé, suíte verde e nada exercitado. Dentro do módulo não há o que
+coordenar: cada `testDB` cria um **schema novo por execução** e o derruba no
+`t.Cleanup`, então nada é apagado e a suíte pode rodar em paralelo.
+
+O job `test-pagarme-webhook` do `.github/workflows/tests.yml` é quem garante o `0`:
+ele sobe o Postgres e **falha o job se algum teste pulou**. Ver
+`docs/agent-testing.md` § *Serviço Pagar.me (Go)* para a cobertura por arquivo.
+
+### Subir o serviço
+
+```bash
+PORT=8080 \
+DATABASE_URL='postgres://pdv:pdv@localhost:5432/pdv_test?sslmode=disable' \
+PAGARME_SECRET_KEY='<a mesma do Node>' \
+  go run ./cmd/webhook
+```
+
+Sem `DATABASE_URL` ou sem `PAGARME_SECRET_KEY` o processo **sobe de propósito**, em
+vez de morrer: o `/health` responde 503 degradado e o log diz por quê, porque o
+rollback deste serviço é o inverso do gateway WS (basta o Caddy voltar a apontar
+`/webhooks/pagarme` para o Node, e o worker dele reassume a fila sozinho). O
+primeiro sinal de erro é o `/health`, não a saída do processo.
+
+Com `PAGARME_DRAIN` desligado — o default-deny — o drain não sobe e nada é aplicado
+ao Node; ligue para exercitar o ciclo.
+
+---
+
 ## `/health`
 
 Portão do deploy, e o `switch.sh` **não** espera este serviço (o `wait_healthy`
