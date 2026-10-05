@@ -8,7 +8,7 @@ import {
   failDeliveryUsecase,
 } from "../../application/self-service/delivery.usecases.js";
 
-// "cancelled" (0018) entra no filtro: o entregador precisa conseguir listar
+// "cancelled" (baseline 0001) entra no filtro: o entregador precisa conseguir listar
 // o histórico do que foi cancelado no meio da rota.
 const statusEnum = z.enum(["awaiting_courier", "out_for_delivery", "delivered", "failed", "cancelled"]);
 const failSchema = z.object({ reason: z.string().min(1) });

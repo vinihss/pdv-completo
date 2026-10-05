@@ -242,7 +242,7 @@ const customerSchema = z.object({
   name: z.string().min(1),
   phone: z.string().optional().nullable(),
   email: z.string().optional().nullable(),
-  // CPF e observações (0008). Válidos como string aqui e normalizados no
+  // CPF e observações (baseline 0001). Válidos como string aqui e normalizados no
   // usecase: quem manda é o cliente_http, e o arquivo do CPF pode vir com
   // máscara ("529.982.247-25") — o backend guarda os 11 dígitos crus.
   cpf: z.string().optional().nullable(),
@@ -257,7 +257,7 @@ const addressCreateSchema = z.object({
   complement: z.string().optional().nullable(),
   neighborhood: z.string().min(1),
   city: z.string().min(1),
-  // UF (0006) — a rota pública de endereço já aceitava e devolvia; o cadastro
+  // UF (baseline 0001) — a rota pública de endereço já aceitava e devolvia; o cadastro
   // manual ficava sem o campo, então o mesmo cliente saía com UF ou sem
   // dependendo de qual tela o cadastrou.
   state: z.string().optional().nullable(),
@@ -265,7 +265,7 @@ const addressCreateSchema = z.object({
   isDefault: z.boolean().optional(),
 });
 
-// Compras (0017) — documento multi-item.
+// Compras (baseline 0001) — documento multi-item.
 const supplierCreateSchema = z.object({ name: z.string().min(1), phone: z.string().optional().nullable(), taxId: z.string().optional().nullable() });
 const supplierUpdateSchema = z.object({
   name: z.string().min(1).optional(),
@@ -600,7 +600,7 @@ export async function miscRoutes(app: FastifyInstance) {
     }).then((r) => r.body);
   });
 
-  // ---------- Fornecedores (0017) ----------
+  // ---------- Fornecedores (baseline 0001) ----------
   app.get("/suppliers", { preHandler: requireRole("manager") }, async (req) => {
     const q = req.query as { active_only?: string; limit?: string; offset?: string };
     return listSuppliersUsecase({
@@ -647,7 +647,7 @@ export async function miscRoutes(app: FastifyInstance) {
     return getPurchaseUsecase(id);
   });
 
-  // ---------- Valorização do estoque (0017) ----------
+  // ---------- Valorização do estoque (baseline 0001) ----------
   app.get("/inventory/value", { preHandler: requireRole("manager") }, async (req) => {
     const q = req.query as { q?: string; low_only?: string; limit?: string; offset?: string };
     return inventoryValuationUsecase({
