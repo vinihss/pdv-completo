@@ -140,8 +140,7 @@ func TestRunAbortaComSHA256DivergenteSemTocarNoExecutavel(t *testing.T) {
 	// O manifesto anuncia um digest que não é o do arquivo servido: é o
 	// exatamente o cenário de canal adulterado.
 	manifest := manifestFor([]byte("outro-conteudo-qualquer"), "1.1.0", "", "")
-	server := httptest.NewServer(updateFixture(t, manifest, []byte(baixado)))
-	defer server.Close()
+	server := updateServer(t, &manifest, []byte(baixado))
 
 	target := fakeTarget(t, current)
 	tempDir := t.TempDir()
@@ -190,10 +189,9 @@ func TestRunAbortaComAssinaturaInvalidaSemTocarNoExecutavel(t *testing.T) {
 
 	manifest := manifestFor(payload, "1.1.0", "", "")
 	manifest.MinisignPublicKey = goodPub
-	manifest.MinisignSignature = base64.StdEncoding.EncodeToString([]byte(goodSig))
+	manifest.MinisignSignature = goodSig
 
-	server := httptest.NewServer(updateFixture(t, manifest, payload))
-	defer server.Close()
+	server := updateServer(t, &manifest, payload)
 
 	target := fakeTarget(t, current)
 	tempDir := t.TempDir()
@@ -240,10 +238,9 @@ func TestRunHappyPathTrocouOExecutavel(t *testing.T) {
 
 	manifest := manifestFor(payload, "1.1.0", "", "")
 	manifest.MinisignPublicKey = pub
-	manifest.MinisignSignature = base64.StdEncoding.EncodeToString([]byte(sig))
+	manifest.MinisignSignature = sig
 
-	server := httptest.NewServer(updateFixture(t, manifest, payload))
-	defer server.Close()
+	server := updateServer(t, &manifest, payload)
 
 	target := fakeTarget(t, "EXECUTAVEL-EM-USO-v1.0.0")
 	tempDir := t.TempDir()
@@ -284,8 +281,7 @@ func TestRunSemChaveConfiguradaAceitaManifestoSemAssinatura(t *testing.T) {
 	payload := []byte("binario-sem-assinatura")
 	manifest := manifestFor(payload, "1.1.0", "", "")
 
-	server := httptest.NewServer(updateFixture(t, manifest, payload))
-	defer server.Close()
+	server := updateServer(t, &manifest, payload)
 
 	target := fakeTarget(t, "EXECUTAVEL-EM-USO-v1.0.0")
 	tempDir := t.TempDir()
@@ -334,8 +330,7 @@ func TestRunComChaveConfiguradaAbortaSemAssinatura(t *testing.T) {
 	manifest := manifestFor(payload, "1.1.0", "", "")
 	manifest.MinisignPublicKey = pub // publica chave, mas esquece a assinatura
 
-	server := httptest.NewServer(updateFixture(t, manifest, payload))
-	defer server.Close()
+	server := updateServer(t, &manifest, payload)
 
 	target := fakeTarget(t, "EXECUTAVEL-EM-USO-v1.0.0")
 	tempDir := t.TempDir()
@@ -434,16 +429,102 @@ func TestRunDesabilitadoNaoFazNada(t *testing.T) {
 	}
 }
 
+// servirCorpo devolve um handler que escreve exatamente `total` bytes, para estourar maxBinaryBytes sem alocar
+// 100 MiB no heap do teste (o handler e o cliente rodam em goroutines
+// diferentes: um corpo de 100 MiB escrito de uma vez seguraria os dois).
+func servirCorpo(t *testing.T, total int) http.Handler {
+	t.Helper()
+	const bloco = 1 << 20
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		restante := total
+		buf := make([]byte, bloco)
+		for restante > 0 {
+			n := bloco
+			if restante < n {
+				n = restante
+			}
+			if _, err := w.Write(buf[:n]); err != nil {
+				return
+			}
+			restante -= n
+		}
+	})
+}
+
 func TestDownloadToTempBarraBinarioAcimaDoTeto(t *testing.T) {
-	// Barato de simular com limite artificial não é opção (maxBinaryBytes é
-	// constante de compilação); o que se fixa aqui é o comportamento do
-	// LimitReader: ele devolve N+1 e a comparação tem de ser por ">".
-	reader := strings.NewReader("conteudo")
-	got, err := io.ReadAll(io.LimitReader(reader, maxManifestBytes+1))
+	// maxBinaryBytes é constante de compilação (100 MiB), então "acima do teto"
+	// só sai de verdade: o corpo estourado vem pelo HTTP e o que se prova é o
+	// que downloadToTemp faz com ele.
+
+	// 1) Acima do teto: erro e NENHUM arquivo sobrevivendo no tempDir. O
+	//    LimitReader para em maxBinaryBytes+1 e a comparação tem de ser por ">",
+	//    senão um artefato de exatamente 100 MiB seria aceito e um de 100 MiB+1
+	//    seria tratado como limite.
+	server := httptest.NewServer(servirCorpo(t, maxBinaryBytes+2))
+	defer server.Close()
+
+	tempDir := t.TempDir()
+	u := &updater{client: server.Client(), tempDir: tempDir}
+
+	if _, err := u.downloadToTemp(context.Background(), server.URL+"/artefato"); err == nil {
+		t.Fatal("binário acima do teto deveria ser recusado")
+	} else if !strings.Contains(err.Error(), "maior que") {
+		t.Fatalf("erro não diz que estourou o teto: %v", err)
+	}
+	tempDirVazio(t, tempDir) // o parcial também é removido, não só o caminho do erro
+
+	// 2) Exatamente no teto: aceito. É o par do ">": maxBinaryBytes tem de
+	//    passar, senão o limite é uma bytes a menos do que o comentário diz.
+	server2 := httptest.NewServer(servirCorpo(t, maxBinaryBytes))
+	defer server2.Close()
+
+	tempDir2 := t.TempDir()
+	u2 := &updater{client: server2.Client(), tempDir: tempDir2}
+
+	path, err := u2.downloadToTemp(context.Background(), server2.URL+"/artefato")
+	if err != nil {
+		t.Fatalf("binário exatamente no teto deveria passar: %v", err)
+	}
+	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != maxManifestBytes+1 {
+	if info.Size() != maxBinaryBytes {
+		t.Fatalf("tamanho no disco = %d, quero %d", info.Size(), maxBinaryBytes)
+	}
+	os.Remove(path)
+
+	// 3) Corpo pequeno: tem de chegar inteiro. LimitReader devolve
+	//    min(N, o que o reader tem) — é por isso que a asserção antiga, que
+	//    esperava N+1 de um reader de 8 bytes, não podia passar.
+	server3 := httptest.NewServer(servirCorpo(t, 8))
+	defer server3.Close()
+
+	tempDir3 := t.TempDir()
+	u3 := &updater{client: server3.Client(), tempDir: tempDir3}
+
+	path3, err := u3.downloadToTemp(context.Background(), server3.URL+"/artefato")
+	if err != nil {
+		t.Fatalf("corpo pequeno rejeitado: %v", err)
+	}
+	got, err := os.ReadFile(path3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 8 {
+		t.Fatalf("corpo pequeno truncado: %d bytes", len(got))
+	}
+	os.Remove(path3)
+
+	// 4) O invariante do LimitReader que a comparação com ">" depende:
+	//    N+1 só sai de um reader que TEM mais de N bytes.
+	reader := strings.NewReader(strings.Repeat("x", maxBinaryBytes+2))
+	got, err = io.ReadAll(io.LimitReader(reader, maxBinaryBytes+1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != maxBinaryBytes+1 {
 		t.Fatalf("LimitReader deveria devolver o limite+1, devolveu %d", len(got))
 	}
 }
@@ -563,7 +644,7 @@ func TestVerifyArtifactAceitaAssinaturaValida(t *testing.T) {
 
 	manifest := manifestFor(payload, "1.1.0", "", "")
 	manifest.MinisignPublicKey = pub
-	manifest.MinisignSignature = base64.StdEncoding.EncodeToString([]byte(sig))
+	manifest.MinisignSignature = sig
 
 	result, err := verifyArtifact(writeTemp(t, payload), manifest, UpdateConfig{MinisignPublicKey: pub})
 	if err != nil {
@@ -579,12 +660,15 @@ func TestVerifyArtifactAceitaAssinaturaValida(t *testing.T) {
 
 func TestVerifyArtifactRejeitaHashEDepoisAssinatura(t *testing.T) {
 	payload := []byte("binario-novo")
-	_, pub, sig := signedManifest(t, payload, "1.1.0")
+	// A privada é preciso: para provar "assinatura de outro conteúdo" o teste
+	// precisa assinar outro payload COM a mesma chave do manifesto, senão não
+	// está testando a divergência do conteúdo e sim a da chave.
+	priv, pub, sig := signedManifest(t, payload, "1.1.0")
 
 	t.Run("hash divergente", func(t *testing.T) {
 		manifest := manifestFor([]byte("outro"), "1.1.0", "", "")
 		manifest.MinisignPublicKey = pub
-		manifest.MinisignSignature = base64.StdEncoding.EncodeToString([]byte(sig))
+		manifest.MinisignSignature = sig
 		_, err := verifyArtifact(writeTemp(t, payload), manifest, UpdateConfig{MinisignPublicKey: pub})
 		if err == nil || !strings.Contains(err.Error(), "checksum") {
 			t.Fatalf("hash divergente deveria abortar: %v", err)
@@ -596,7 +680,7 @@ func TestVerifyArtifactRejeitaHashEDepoisAssinatura(t *testing.T) {
 		// quem assina poderia produzir isto, e o hash não prova procedência.
 		manifest := manifestFor(payload, "1.1.0", "", "")
 		manifest.MinisignPublicKey = pub
-		manifest.MinisignSignature = signText(t, mustPrivate(t, pub), []byte("outro payload"))
+		manifest.MinisignSignature = signText(t, priv, []byte("outro payload"))
 		_, err := verifyArtifact(writeTemp(t, payload), manifest, UpdateConfig{MinisignPublicKey: pub})
 		if err == nil {
 			t.Fatal("assinatura de outro payload deveria abortar")
@@ -605,7 +689,7 @@ func TestVerifyArtifactRejeitaHashEDepoisAssinatura(t *testing.T) {
 
 	t.Run("chave da config inválida", func(t *testing.T) {
 		manifest := manifestFor(payload, "1.1.0", "", "")
-		manifest.MinisignSignature = base64.StdEncoding.EncodeToString([]byte(sig))
+		manifest.MinisignSignature = sig
 		_, err := verifyArtifact(writeTemp(t, payload), manifest, UpdateConfig{MinisignPublicKey: "nao-e-chave"})
 		if err == nil || !strings.Contains(err.Error(), "minisign_public_key") {
 			t.Fatalf("chave inválida deveria abortar: %v", err)
@@ -639,6 +723,13 @@ func TestVerifyArtifactAceitaAssinaturaPrecalculada(t *testing.T) {
 
 	// NewReader().SignWithComments é o caminho pré-calculado (HashEdDSA).
 	reader := minisign.NewReader(strings.NewReader(string(payload)))
+	// NewReader só vai accumulando o digest do que é lido: SignWithComments
+	// assina o snapshot do hash, então sem drenar o reader aqui ele assina o
+	// digest da string vazia e a verificação falha por um motivo que não é
+	// "HashEdDSA não é suportado".
+	if _, err := io.Copy(io.Discard, reader); err != nil {
+		t.Fatal(err)
+	}
 	raw := reader.SignWithComments(priv, "timestamp:0", "test")
 
 	manifest := manifestFor(payload, "1.1.0", "", "")
@@ -731,11 +822,11 @@ func TestRestartCommandPorPlataforma(t *testing.T) {
 	// O nome antigo (PDVDaemon) nunca existiu no SCM: o serviço é
 	// PDVPrinterDaemon (service_windows.go e install-windows.ps1). Com o
 	// nome errado, `net stop` falhava e o restart nunca acontecia.
-	if !strings.Contains(args[2], updateWindowsService) {
-		t.Fatalf("windows: linha sem o nome real do serviço: %q", args[2])
+	if !strings.Contains(args[1], updateWindowsService) {
+		t.Fatalf("windows: linha sem o nome real do serviço: %q", args[1])
 	}
-	if !strings.Contains(args[2], "net stop") || !strings.Contains(args[2], "net start") {
-		t.Fatalf("windows: stop e start precisam ser sequenciais: %q", args[2])
+	if !strings.Contains(args[1], "net stop") || !strings.Contains(args[1], "net start") {
+		t.Fatalf("windows: stop e start precisam ser sequenciais: %q", args[1])
 	}
 
 	name, args, err = restartCommand("linux")
@@ -824,24 +915,38 @@ func TestNormalizeVersionToleraPrefoV(t *testing.T) {
 // Helpers.
 // ---------------------------------------------------------------------------
 
-// updateFixture serve o manifesto em /latest.json e o artefato em qualquer
-// outro path. Servir de verdade (em vez de stubar o cliente) é o que exercita
-// o LimitReader e o StatusCode do caminho de download.
-func updateFixture(t *testing.T, manifest UpdateManifest, payload []byte) http.Handler {
+// updateServer sobe o servidor e só DEPOIS aponta o manifesto para ele.
+//
+// A ordem importa: o download que o updater faz sai de decision.URL, que vem do
+// manifesto. Um helper que marshal-sse o manifesto na construção apontaria o
+// download para um "https://exemplo/..." que não existe, e a URL vazia (o que a
+// assinatura daqui usava antes) morre ainda mais cedo, em selectArtifactURL:
+// "manifesto da versão X não traz artefato para linux". Nos dois casos o teste
+// falhava antes de exercitar o que ele existe para exercitar.
+//
+// Os dois campos de URL são preenchidos porque cada teste fixa goos no literal
+// do updater (hoje "linux") em vez de runtime.GOOS — de propósito, para a suíte
+// não depender da máquina. Preencher ambos mantém o teste íntegro se alguém
+// trocar esse goos por runtime.GOOS depois. O nome do artefato carrega o GOARCH
+// de verdade só para o manifesto ficar com cara de latest.json de release.
+func updateServer(t *testing.T, manifest *UpdateManifest, payload []byte) *httptest.Server {
 	t.Helper()
-	body, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatal(err)
+	if manifest == nil {
+		t.Fatal("updateServer: manifesto nil")
 	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/latest.json" {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write(body)
+			_ = json.NewEncoder(w).Encode(manifest)
 			return
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
 		_, _ = w.Write(payload)
-	})
+	}))
+	t.Cleanup(srv.Close)
+	manifest.URLLinuxAMD64 = srv.URL + "/pdv-printer-daemon-linux-" + runtime.GOARCH
+	manifest.URLWindowsAMD64 = srv.URL + "/pdv-printer-daemon-windows-" + runtime.GOARCH + ".exe"
+	return srv
 }
 
 func writeTemp(t *testing.T, payload []byte) string {
@@ -859,15 +964,4 @@ func mustErr(t *testing.T, _ string, err error) string {
 		t.Fatal("esperava erro")
 	}
 	return err.Error()
-}
-
-func mustPrivate(t *testing.T, pubText string) minisign.PrivateKey {
-	t.Helper()
-	var pub minisign.PublicKey
-	if err := pub.UnmarshalText([]byte(pubText)); err != nil {
-		t.Fatal(err)
-	}
-	_ = pub
-	t.Fatal("helper não usado")
-	return minisign.PrivateKey{}
 }
