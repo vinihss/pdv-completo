@@ -272,6 +272,12 @@ func (s *server) handleRealtime(w http.ResponseWriter, r *http.Request) {
 	}
 
 	registered := s.hub.Add(conn, user.ID, user.Role)
+	if registered == nil {
+		// Manager morto (shutdown em curso): o socket é nosso para fechar, e o
+		// processo está "não aceito" — sem readLoop, sem writePump, sem room.
+		conn.Close()
+		return
+	}
 	defer s.hub.Remove(registered)
 
 	// Rooms do perfil já no handshake — o client não precisa pedir nada para
@@ -308,6 +314,10 @@ func (s *server) handleRealtimePublic(w http.ResponseWriter, r *http.Request) {
 
 	// Sem identidade: userID/role vazios e nenhum room inicial.
 	registered := s.hub.Add(conn, "", "")
+	if registered == nil {
+		conn.Close()
+		return
+	}
 	defer s.hub.Remove(registered)
 
 	readLoop(s, registered, func(msg clientMessage) {

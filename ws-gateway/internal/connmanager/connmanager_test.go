@@ -697,3 +697,89 @@ func TestWritePumpNaoEscreveFrameDepoisDoFim(t *testing.T) {
 		t.Errorf("a pump escreveu %d frame(s) de dados depois do fim: %v", len(frames), frames)
 	}
 }
+
+// `Close` marca o manager como morto de facto: a ordem "para de aceitar, depois
+// fecha" do shutdown diminui a janela, mas um handshake em voo ainda pode chamar
+// `Add` depois do varredura. Se o registro acontecesse, ninguém removeria essa
+// conexão — /health reportaria 1 para sempre e a writePump viveria além do hub.
+func TestAddDepoisDeCloseDevolveNilENaoRegistra(t *testing.T) {
+	servidor, cliente := socketPuro(t)
+	defer cliente.Close()
+
+	hub := New()
+	hub.Close()
+
+	if c := hub.Add(servidor, userA, "waiter"); c != nil {
+		t.Errorf("Add depois de Close devolveu %v, quer nil", c)
+	}
+	if conexoes, usuarios := hub.Counts(); conexoes != 0 || usuarios != 0 {
+		t.Errorf("Add depois de Close deixou registro: %d conexões/%d usuários", conexoes, usuarios)
+	}
+	servidor.Close() // o socket é nosso para fechar — o manager não o assumiu
+}
+
+// Close é idempotente: a segunda chamada é no-op, sem panic nem varredura de
+// novo (já não há mais conexões para varre).
+func TestCloseDuasVezesENoOp(t *testing.T) {
+	h := newHarness(t)
+	h.dial(t, userA, "kitchen-display")
+
+	h.hub.Close()
+	h.hub.Close()
+
+	if conexoes, usuarios := h.hub.Counts(); conexoes != 0 || usuarios != 0 {
+		t.Errorf("depois de Close duplo: %d conexões/%d usuários, quer 0/0", conexoes, usuarios)
+	}
+}
+
+// Depois do fim, broadcast não conta entrega: as filas já estão mortas (os
+// `offer` devolveriam pushClosed), e contar seria mentira no relatório do
+// dispatcher. Sem targets, sem goroutine nova.
+func TestBroadcastDepoisDeCloseEntregaZero(t *testing.T) {
+	h := newHarness(t)
+	h.dial(t, userA, "kitchen-display")
+
+	h.hub.Close()
+
+	if got := h.hub.BroadcastToRoom("kitchen-display", []byte(`{"type":"x"}`)); got != 0 {
+		t.Errorf("BroadcastToRoom depois de Close entregou %d, quer 0", got)
+	}
+	if got := h.hub.BroadcastToUser(userA, []byte(`{"type":"x"}`)); got != 0 {
+		t.Errorf("BroadcastToUser depois de Close entregou %d, quer 0", got)
+	}
+}
+
+// Add concorrente com Close, repetido sob -race: o registro não pode sobreviver
+// ao fechamento. Ou o Add ganhou (e o Close o encontra e remove) ou o Close
+// ganhou (e o Add devolve nil). O que NÃO pode existir é conn registrada com o
+// manager já morto e ninguém a ter removido.
+func TestAddConcorrenteComCloseNaoVazaConexao(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		hub := New()
+		servidor, cliente := socketPuro(t)
+
+		var wg sync.WaitGroup
+		var c *Conn
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			c = hub.Add(servidor, userA, "waiter")
+		}()
+		go func() {
+			defer wg.Done()
+			hub.Close()
+		}()
+		wg.Wait()
+
+		if c != nil {
+			// O Add ganhou: o Close precisa ter visto a conn no varredura — ou ela
+			// foi removida por ele, ou... não. Se ficou registrada, é vazamento.
+			if conexoes, _ := hub.Counts(); conexoes != 0 {
+				t.Fatalf("iteração %d: Add ganhou da Close mas a conn segue registrada", i)
+			}
+		} else {
+			servidor.Close()
+		}
+		cliente.Close()
+	}
+}
