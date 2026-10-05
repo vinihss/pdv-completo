@@ -40,6 +40,10 @@ export const LOCKS = {
   maintenance: "pdv:maintenance:owner",
   /** Polling da iFood Order API: quem busca eventos e ACK. */
   ifoodWorker: "pdv:ifood:worker",
+  /** Processa a inbox de webhook do Pagar.me (payment_event pendente). */
+  paymentWorker: "pdv:payment:worker",
+  /** Relê no gateway as cobranças que nenhum webhook confirmou. */
+  paymentReconciliation: "pdv:payment:reconciliation",
 } as const;
 
 export type LockName = (typeof LOCKS)[keyof typeof LOCKS];

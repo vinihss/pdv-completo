@@ -97,4 +97,25 @@ export const config = {
   // envia TCP pra impressora. O backend só chama a API local. Em Docker, o
   // container do backend alcança o daemon via host_gateway ou sidecar.
   printerDaemonUrl: process.env.PRINTER_DAEMON_URL ?? "http://127.0.0.1:8080",
+  // ---------- Pagar.me V5 (gateway de cobrança) ----------
+  // Mesma política do WhatsApp/iFood: NADA aqui derruba o boot. A cobrança no
+  // gateway só é inicializável quando o gerente liga o toggle
+  // (store_settings.pagarme_enabled) E a credencial existe — instalação que
+  // não usa Pagar.me continua subindo sem PAGARME_SECRET_KEY.
+  //
+  // A secret key é SEGREDO DO BACKEND e nunca vai para o frontend: no V5 a
+  // autenticação é HTTP Basic (Authorization: Basic base64(secretKey + ":")),
+  // então quem a tem pode criar cobranças, consultar e estornar. O browser só
+  // recebe `pagarme_public_key`, quando a fase B precisar montar o token de
+  // cartão no client (PCI: PAN/CVV nunca passam pelo backend — ver
+  // mapper.ts/buildCreateOrderBody). Ela NÃO está nesta lista de propósito.
+  pagarmeEnabled: process.env.PAGARME_ENABLED === "true",
+  pagarmeBaseUrl: process.env.PAGARME_BASE_URL ?? "https://api.pagar.me/core/v5",
+  pagarmeSecretKey: process.env.PAGARME_SECRET_KEY,
+  // Cadência da reconciliação (worker da fase B): relê as cobranças não
+  // confirmadas por webhook, porque webhook perdido é dinheiro que o PDV
+  // acha que não recebeu. 10min é o padrão documentado — perto o bastante
+  // para o gerente ver o "pendente" virar "pago", longe o bastante para não
+  // martelar a API.
+  pagarmeReconciliationIntervalMs: Number(process.env.PAGARME_RECONCILIATION_INTERVAL_MS ?? 600_000),
 };
