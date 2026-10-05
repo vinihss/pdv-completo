@@ -133,6 +133,8 @@ COMPOSE=(docker compose -f "$COMPOSE_FILE")
 COMPOSE_CMD="docker compose -f ${COMPOSE_FILE}"
 # `--profile ws-gateway` é o que faz o container do gateway existir.
 COMPOSE_CMD="$COMPOSE_CMD --profile ws-gateway"
+# `--profile pagarme-webhook` é o que faz o container do webhook existir.
+COMPOSE_CMD="$COMPOSE_CMD --profile pagarme-webhook"
 # A instalação não sobe as instâncias "-next" (elas só existem durante um
 # switch), então ela usa a compose sem o profile.
 COMPOSE_BASE=("${COMPOSE[@]}")
