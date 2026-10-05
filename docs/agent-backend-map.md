@@ -31,6 +31,8 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | Category | `category.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (categories) |
 | Kitchen Group | `kitchen-group.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (kitchen-groups) |
 | Store Settings | `store-settings.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (store-settings) |
+| Payment | `payment.usecases.ts` | `backend/src/application/payment/` | `payment.routes.ts`, `pagarme-webhook.routes.ts` |
+| Payment (domínio) | `payment.ts` | `backend/src/domain/` | `PaymentGateway`, transições de status, `refundableAmount` |
 
 ## Rotas (HTTP Layer)
 
@@ -50,6 +52,9 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | `whatsapp-webhook.routes.ts` | Webhooks | `/webhooks/whatsapp` |
 | `realtime.routes.ts` | Realtime | `/realtime` (WebSocket) |
 | `ifood.routes.ts` | iFood | `/ifood/status`, `/ifood/catalog-sync` |
+| `payment.routes.ts` | Cobrança (Pagar.me) | `/orders/:id/payments`, `/payments/:paymentId`, `/payments/:paymentId/cancel`, `/payments/:paymentId/refund` |
+| `pagarme-webhook.routes.ts` | Webhooks | `/webhooks/pagarme` (público; assinatura verificada) |
+| `uploads.routes.ts` | Storage | `/uploads/:kind/:filename` |
 
 ## Testes (Suítes)
 
@@ -63,6 +68,9 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | `test/idempotency.test.ts` | Idempotência |
 | `test/maintenance.test.ts` | Outbox + cleanup |
 | `test/order-flow.test.ts` | Comandas + eventos |
+| `test/outbox-dispatcher.test.ts` | Dispatcher do outbox |
+| `test/pagarme.test.ts` | Cobrança no Pagar.me V5 |
+| `test/payment-lines.test.ts` | Linhas de pagamento da comanda |
 | `test/pix-key.test.ts` | Chave Pix |
 | `test/printer.test.ts` | Impressão |
 | `test/profiles.test.ts` | Perfis |
@@ -70,6 +78,7 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | `test/self-service.test.ts` | Página pública |
 | `test/stock.test.ts` | Estoque |
 | `test/team-customers.test.ts` | Clientes + equipe |
+| `test/uploads.test.ts` | Storage por tenant |
 | `test/whatsapp.test.ts` | WhatsApp |
 
 ## Infraestrutura
@@ -94,3 +103,4 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | Google Maps | `backend/src/integrations/maps/` (3 arquivos) |
 | Printer | `backend/src/integrations/printer/` (3 arquivos) |
 | WhatsApp | `backend/src/integrations/whatsapp/` (6 arquivos) |
+| Pagar.me | `backend/src/integrations/pagarme/` (7 arquivos) |

@@ -24,6 +24,7 @@ npm run test
 | `test/maintenance.test.ts` | Outbox corrompido não derruba, cleanup |
 | `test/outbox-dispatcher.test.ts` | Ciclo do dispatcher: publica, teto de 50, ordem `created_at`/`seq`, payload corrompido, dono único por advisory lock |
 | `test/order-flow.test.ts` | Validação de mesa, eventos outbox de fechamento/cancelamento/pagamento/delete |
+| `test/pagarme.test.ts` | Camada Pagar.me V5 (20 testes): transições de status, `refundableAmount`, mapper (case-insensitive, unitário vs total, cartão por `card_token`), assinatura do webhook, criação idempotente, falha do gateway, ponte `order.paid` → `order_payment`, 401 de assinatura, evento ignorado, estorno 422/parcial, reconciliação |
 | `test/payment-lines.test.ts` | Linha de pagamento `confirmed` não some em reenvio do `PUT` (preserva/recusa/reescreve não confirmada) + regressão do P0 do caixa, no `PUT` e no legado |
 | `test/pix-key.test.ts` | Canonicalização de chave Pix (6 testes) |
 | `test/printer.test.ts` | Impressão: 404 vs 503, auto-print, resetState |
@@ -32,6 +33,7 @@ npm run test
 | `test/self-service.test.ts` | Página pública: carrinho, variações, grupos obrigatórios |
 | `test/stock.test.ts` | Ledger de estoque (10 testes): débito, refund, bloqueio, margem |
 | `test/team-customers.test.ts` | Clientes + equipe (28 testes): CRUD, CPF/observações, foto do cliente, comanda aberta, histórico paginado, série do gráfico, PIN |
+| `test/uploads.test.ts` | Storage por tenant (14 testes): serving de `/uploads/:kind/:filename`, logo com `no-cache`, ETag/304, só basename no banco, arquivo só no kind dele, remoção, isolamento entre tenants, traversal barrado, e o `migrate-uploads-layout` (idempotente, `--dry-run`, `--revert`) |
 | `test/whatsapp.test.ts` | WhatsApp: webhooks, dedupe, status (35 testes) |
 
 ### Padrões
