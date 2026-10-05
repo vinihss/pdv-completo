@@ -1431,6 +1431,33 @@ func TestCountDeadLettered(t *testing.T) {
 	}
 }
 
+// `DefinirIntervalo` é o caminho da `PAGARME_RECONCILIATION_INTERVAL_MS`.
+//
+// O caso que importa de verdade é o valor não positivo: `time.NewTicker(0)` é
+// panic imediato, e uma env com typo (`600_000`, `10m`, um espaço a mais) não
+// pode derrubar o processo no boot. O método ignora o valor em vez de passar
+// adiante.
+func TestDefinirIntervalo(t *testing.T) {
+	r := NewReconciler(nil, &fakeAplica{}, &fakeGateway{})
+
+	if got := r.Intervalo(); got != DefaultReconciliationIntervalMS*time.Millisecond {
+		t.Errorf("intervalo default = %v, quer %v", got, DefaultReconciliationIntervalMS*time.Millisecond)
+	}
+
+	r.DefinirIntervalo(90 * time.Second)
+	if got := r.Intervalo(); got != 90*time.Second {
+		t.Errorf("intervalo = %v, quer 90s", got)
+	}
+
+	// Valores que não podem virar um ticker.
+	for _, ruim := range []time.Duration{0, -time.Second, -time.Hour} {
+		r.DefinirIntervalo(ruim)
+		if got := r.Intervalo(); got != 90*time.Second {
+			t.Errorf("DefinirIntervalo(%v) mudou o intervalo para %v: precisa ignorar, senão vira ticker(0) no Run", ruim, got)
+		}
+	}
+}
+
 // O teto de 20 existe porque cada item é uma chamada HTTP com timeout de 15s: sem
 // teto, uma fila grande seguraria o advisory lock por horas.
 func TestReconcileOnceRespeitaOLimite(t *testing.T) {

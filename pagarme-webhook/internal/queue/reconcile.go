@@ -88,6 +88,24 @@ func NewReconciler(db *sql.DB, aplica Aplica, gateway GatewayFinder) *Reconciler
 	}
 }
 
+// DefinirIntervalo ajusta a cadência depois da construção.
+//
+// Existe para o `PAGARME_RECONCILIATION_INTERVAL_MS` chegar do `main` sem que o
+// construtor tenha de ler `os.Getenv` — a mesma separação do `queue.DrainEnabled`,
+// que o `main` decide e não o pacote. Um valor não positivo é ignorado em vez de
+// virar `time.NewTicker(0)`, que é um panic imediato: a env com typo não pode
+// derrubar o processo no boot.
+func (r *Reconciler) DefinirIntervalo(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	r.poll = d
+}
+
+// Intervalo devolve a cadência em uso. Existe para o log de boot e para o teste
+// poderem conferir que a env chegou.
+func (r *Reconciler) Intervalo() time.Duration { return r.poll }
+
 // Run faz a reconciliação até o ctx ser cancelado, no intervalo configurado.
 //
 // Um ciclo no boot antes do primeiro tick, como no drain: sem isso, um webhook

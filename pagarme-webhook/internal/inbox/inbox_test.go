@@ -6,8 +6,12 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"net/url"
 	"os"
 	"regexp"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -48,6 +52,19 @@ func dbConnect(dsn string) (*sql.DB, error) { return db.Connect(dsn) }
 // helpers
 // -----------------------------------------------------------------------------
 
+// testDB abre um pool isolado num schema único desta execução.
+//
+// ## Por que um schema
+//
+// O dedupe é `ON CONFLICT (provider, event_id)` sobre um índice UNIQUE, e o índice
+// é a única coisa que a suíte precisa provar de verdade — um mock devolveria
+// "conflito" quando o teste mandasse, provando exatamente o que o teste mandou.
+//
+// A isolamento precisa ir além de nomes de linha únicos: o `event_id` é único por
+// construção, mas a PK `id` é gerada, e um banco compartilhado com execuções
+// anteriores (ou com a suíte do `internal/queue`, que usa as MESMAS tabelas)
+// acumula linhas. Um schema novo por execução resolve os dois: nenhuma linha de
+// fora é visível e nada é apagado.
 func testDB(t *testing.T) *sql.DB {
 	t.Helper()
 
@@ -56,12 +73,33 @@ func testDB(t *testing.T) *sql.DB {
 		t.Skip("PAGARME_TEST_DATABASE_URL não definida: suíte da inbox (precisa de Postgres) pulada")
 	}
 
-	// `internal/db` em vez de `sql.Open` direto: é o mesmo caminho do binário
-	// (mesmo driver, mesmo ping, mesmos limites de pool) e evita declarar
-	// dependência de lib/pq que só existe para isto.
-	conn, err := dbConnect(dsn)
+	schema := "pagarme_inbox_test_" + schemaSufixo(t)
+
+	// Uma conexão admin (search_path padrão) só para criar e remover o schema.
+	// `t.Cleanup` roda em LIFO, então o fechamento vai PRIMEIRO na lista e é a
+	// ÚLTIMA coisa a rodar — o `DROP` tem que acontecer com a conexão de pé.
+	admin, err := dbConnect(dsn)
 	if err != nil {
 		t.Skipf("Postgres de teste não respondeu (%v): suíte da inbox pulada", err)
+	}
+	t.Cleanup(func() { _ = admin.Close() })
+
+	if _, err := admin.Exec(`CREATE SCHEMA IF NOT EXISTS ` + pqQuoteIdent(schema)); err != nil {
+		t.Fatalf("não consegui criar o schema de teste %s: %v", schema, err)
+	}
+	t.Cleanup(func() {
+		if _, err := admin.Exec(`DROP SCHEMA IF EXISTS ` + pqQuoteIdent(schema) + ` CASCADE`); err != nil {
+			t.Logf("não consegui remover o schema de teste %s: %v", schema, err)
+		}
+	})
+
+	// `options=-c search_path=...` no DSN, e não um `SET search_path` por conexão:
+	// o `database/sql` abre e fecha conexões o tempo todo, e um `search_path` de
+	// sessão morre com a sessão. O `options` é aplicado pelo servidor em CADA
+	// conexão nova, que é o que o pool precisa.
+	conn, err := dbConnect(dsn + "&options=" + url.QueryEscape("-c search_path="+schema))
+	if err != nil {
+		t.Fatalf("não consegui abrir o pool no schema %s: %v", schema, err)
 	}
 	t.Cleanup(func() { conn.Close() })
 
@@ -70,6 +108,25 @@ func testDB(t *testing.T) *sql.DB {
 	}
 	return conn
 }
+
+// pqQuoteIdent protege o nome do schema. O nome é gerado por este arquivo (só
+// hex, underscore e dígitos) e nunca é entrada de usuário, mas um identificador
+// interpolado sem aspas é o tipo de coisa que alguém estende um dia sem perceber.
+func pqQuoteIdent(s string) string {
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+}
+
+// schemaSufixo devolve um sufixo aleatório e único dentro do processo.
+func schemaSufixo(t *testing.T) string {
+	t.Helper()
+	var s [6]byte
+	if _, err := rand.Read(s[:]); err != nil {
+		t.Fatalf("rand falhou: %v", err)
+	}
+	return fmt.Sprintf("%s_%d", hex.EncodeToString(s[:]), atomic.AddInt32(&contadorSchema, 1))
+}
+
+var contadorSchema int32
 
 // criarPaymentEvent é a tabela que o webhook grava, com os mesmos nomes de
 // coluna do backend (backend/migrations/0002_pagarme.sql:121). `IF NOT EXISTS`
