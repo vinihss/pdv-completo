@@ -144,13 +144,10 @@ jobs:
               FONTE="config do repositório"
             fi
           fi
-          if [[ -z "$FONTE_TITULO" ]]; then
-            FONTE_TITULO="$PADRAO_TITULO"
-            FONTE="${FONTE} (padrão medido deste repo)"
-          fi
-          if [[ -z "$FONTE_CORPO" ]]; then
-            FONTE_CORPO="$PADRAO_CORPO"
-            FONTE="${FONTE} (padrão medido deste repo)"
+          if [[ -z "$FONTE_TITULO" || -z "$FONTE_CORPO" ]]; then
+            [[ -z "$FONTE_TITULO" ]] && FONTE_TITULO="$PADRAO_TITULO"
+            [[ -z "$FONTE_CORPO" ]] && FONTE_CORPO="$PADRAO_CORPO"
+            FONTE="${FONTE} + padrão medido deste repo"
           fi
 
           # ----------------------------------------------------------------
