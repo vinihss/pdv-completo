@@ -61,7 +61,15 @@ on:
         required: false
       HOSTINGER_SSH_KEY:
         required: false
-      HOSTINGER_KNOWN_HOSTS:
+      # É o secret que o job `publish` (abaixo) lê no input `fingerprint` das
+      # três actions appleboy. A DECLARAÇÃO aqui não é cosmética: em
+      # `workflow_call` o secret do chamador é a interseção das permissões, e
+      # um secret que não for declarado neste bloco nem chega no workflow
+      # chamado — sem esta linha o `fingerprint` seria vazio mesmo com o
+      # secret cadastrado no repositório. O chamador é o job `build-desktop`
+      # de deploy-on-tag.yml (que é quem passa o valor); no disparo manual
+      # (`workflow_dispatch`) não há chamador e o secret vem direto do repo.
+      HOSTINGER_SSH_FINGERPRINT:
         required: false
       HOSTINGER_APP_PATH:
         required: false
@@ -504,16 +512,52 @@ jobs:
   # (o job release faz isso antes), entao o download por URL do GitHub nunca
   # dependeu do VPS.
   #
-  # Uma limitacao conhecida e NAO corrigida aqui: o secret
-  # HOSTINGER_KNOWN_HOSTS nao e verificado. ssh-action v1 e scp-action v1
-  # nao tem input `known_hosts` (o proprio action avisa "Unexpected input(s)
-  # 'known_hosts'") e o input que eles aceitam para isto e `fingerprint`, que
-  # espera outro formato. Passar o secret num input inexistente da a impressao
-  # de que a chave do host esta sendo conferida, o que e pior do que openly
-  # nao passar. A correcao de verdade e deriving o fingerprint do secret e
-  # passar em `fingerprint`, ou trocar o scp por openssh nativo com o
-  # known_hosts escrito em ~/.ssh. O job `deploy` de deploy-on-tag.yml tem a
-  # mesma lacuna.
+  # A verificacao da host key do SSH esta nos TRES steps de appleboy deste
+  # job (o mkdir, o scp e o ajuste de layout), e nao e mais um buraco. O que
+  # estava aqui era o oposto de protecao: HOSTINGER_KNOWN_HOSTS estava
+  # DECLARADO no bloco `secrets:` do workflow_call e nao era usado em lugar
+  # nenhum do arquivo. Ele nunca verificou nada — `known_hosts` NAO e input
+  # do appleboy/ssh-action@v1 nem do appleboy/scp-action@v1 (cada uma ignora
+  # e segue, avisando so no log: "Unexpected input(s) 'known_hosts', valid
+  # inputs are ['host', 'port', ..., 'fingerprint', ...]"). Um secret
+  # declarado e nao usado e o pior dos dois mundos: a leitura do arquivo era
+  # "a chave do host esta sendo conferida", e em TODA publicacao de instalador
+  # (tag de app ou workflow_dispatch) o `key` de producao ia para o VPS sem
+  # nenhuma conferencia. O aviso silencioso e o que torna isso pior do que
+  # abertamente nao passar.
+  #
+  # O input que verifica e `fingerprint`, e ele existe nas TRES actions
+  # usadas aqui — inclusive no scp-action, com a mesma descricao ("SHA256
+  # fingerprint of the host's public key. If not set, host key verification
+  # is skipped"), ou seja, mesmo formato e mesmo comportamento opt-in. Com o
+  # secret vazio a action cai em `ssh.InsecureIgnoreHostKey()`, que e o
+  # comportamento de hoje: a linha estar presente nao ativa nada sozinha.
+  # ENQUANTO HOSTINGER_SSH_FINGERPRINT NAO EXISTIR NO REPOSITORIO A
+  # VERIFICACAO CONTINUA DESLIGADA — sem regressao, sem deploy quebrado. E o
+  # que passa a proteger a chave de producao no dia em que o secret existir:
+  # cadastrar e a unica coisa que falta, ninguem precisa mexer neste arquivo
+  # de novo (por isso o secret nao virou valor fixo aqui — ele nasce do
+  # `ssh-keyscan` no host, e quem opera o deploy e quem cadastra).
+  #
+  # O valor tem de ser a chave que o cliente SSH destas actions REALMENTE
+  # negocia, e nao a linha que parece a obvio: o `ssh-keyscan` imprime UMA
+  # LINHA POR TIPO de chave e, para o cliente delas (drone-ssh, em Go), a
+  # preferencia e ecdsa-sha2-nistp256 > ecdsa-sha2-384 > ecdsa-sha2-521 >
+  # rsa-sha2-256/512 > ssh-rsa > ssh-ed25519. `ed25519` e a ULTIMA
+  # preferencia, entao colar a linha do ed25519 — a que o
+  # `ssh-keyscan -t ed25519` devolve, e a que parece a obvia — da MISMATCH. O
+  # formato e o "SHA256:..." do `ssh-keygen -lf`, e o valor de referencia
+  # continua sendo o da linha `ecdsa-sha2-nistp256`. O job `deploy` de
+  # deploy-on-tag.yml e a secao "Verificacao da host key do SSH (fingerprint)"
+  # do deploy/README.md registram isto com o mesmo detalhe; se o host trocar
+  # de chave, o que se atualiza em todos os lugares e o secret.
+  #
+  # Errar o valor nao publica nada pela metade: o mismatch acontece NO
+  # HANDSHAKE, antes de qualquer comando remoto, e o custo e um run
+  # vermelho. Isso e o que torna o cadastro valer a pena — o premio e a
+  # chave privada de producao deixar de ir para qualquer coisa que se faca
+  # passar pelo Hostinger no meio da rede, e o preco de errar o SHA256 e
+  # alguns minutos de debug.
   publish:
     needs: release
     if: inputs.publicar_no_servidor
@@ -537,6 +581,10 @@ jobs:
           port: ${{ secrets.HOSTINGER_PORT || '22' }}
           username: ${{ secrets.HOSTINGER_USER }}
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          # `fingerprint` é o input que de fato confere a host key (o
+          # `known_hosts` nunca existiu nestas actions) — ver o bloco do job
+          # acima. Vazio = comportamento de hoje, sem verificação.
+          fingerprint: ${{ secrets.HOSTINGER_SSH_FINGERPRINT }}
           script: |
             set -Eeuo pipefail
             UPDATES="${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates"
@@ -582,6 +630,12 @@ jobs:
           port: ${{ secrets.HOSTINGER_PORT || '22' }}
           username: ${{ secrets.HOSTINGER_USER }}
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          # O `scp-action` tem o mesmo input `fingerprint`, com a mesma
+          # semântica opt-in ("SHA256 fingerprint of the host's public key.
+          # If not set, host key verification is skipped"). É este step que
+          # manda a chave de assinatura e o instalador de produção para o
+          # servidor, então é o que mais precisava da conferência.
+          fingerprint: ${{ secrets.HOSTINGER_SSH_FINGERPRINT }}
           # `source` do scp-action é resolvido a partir do workspace, e não de
           # um working-directory do step (que esta action não tem).
           source: 'bundle/*'
@@ -610,6 +664,10 @@ jobs:
           port: ${{ secrets.HOSTINGER_PORT || '22' }}
           username: ${{ secrets.HOSTINGER_USER }}
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          # Idem: os TRÊS steps de appleboy deste job são conferidos, não
+          # só este. Este é o último comando remoto da publicação — um
+          # fingerprint errado morre no handshake, antes de chegar aqui.
+          fingerprint: ${{ secrets.HOSTINGER_SSH_FINGERPRINT }}
           script: |
             set -Eeuo pipefail
             UPDATES="${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates"
