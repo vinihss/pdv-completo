@@ -381,6 +381,21 @@ não o driver.
 | `GET` no webhook | — | **405** | o Node não checa método e cairia no caminho de "corpo vazio", respondendo 401 — um 401 que não significa nada |
 | `null` como corpo | aceito (zera a struct) | **400** | `json.Unmarshal("null", &struct)` **não dá erro**; um evento cego passaria como "sem id" |
 
+### Defeito encontrado por smoke test (já corrigido, aqui)
+
+O `main` montava o `Server` com um `*inbox.Store` nil quando o pool não conectava.
+Passar um ponteiro nil para um parâmetro de **interface** produz uma interface
+**não-nil** com ponteiro nil dentro: o `s.inbox == nil` do handler passa, e o
+primeiro `s.db` estoura com `nil pointer dereference`.
+
+O sintoma em produção seria: `/health` verde (o healthcheck segura), e o webhook
+falhando **só quando a assinatura é válida** — porque a assinatura inválida desvia
+antes do store. O Pagar.me reenviaria para sempre contra um serviço que parece
+saudável, e o único sinal seria um stack trace no log do container.
+
+Nenhum teste unitário pegou: os dublês da suíte são implementações reais da
+interface. Só o binário de verdade, com `DATABASE_URL` ausente, entra no caminho.
+
 ---
 
 ## Checklist
@@ -399,6 +414,7 @@ não o driver.
 - [x] `/health` com probe de fundo e 503 em banco travado
 - [x] Dockerfile multi-stage, `CGO_ENABLED=0`, usuário sem root, `ca-certificates`
 - [x] Testes: assinatura, inbox, mapper, rotas, fila, contrato com o Node
+- [x] **Smoke test do binário de verdade** contra Postgres real e um stub do endpoint interno: assinatura, dedupe, drain, backoff, DLQ (5 tentativas), retry após destravar, `/health`, gate, e o 503 sem credencial e sem banco. Foi ele que encontrou o panic do item seguinte
 - [x] `.env.example` com o porquê e o momento de ligar
 - [x] `docker-compose.yml` com `profiles`, sem `ports:`, sem volumes, healthcheck, `stop_grace_period`
 - [x] `Caddyfile` com bloco próprio para `/webhooks/pagarme*` (verificado: a ordem **não** é o que decide, o adapter ordena por especificidade)
