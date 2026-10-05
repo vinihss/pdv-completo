@@ -105,29 +105,52 @@ jobs:
           #   squash_merge_commit_title    -> de onde vem a PRIMEIRA LINHA
           #   squash_merge_commit_message  -> de onde vem o CORPO
           #
-          # Estado MEDIDO deste repositório:
+          # Estado MEDIDO deste repositório (2026-10-05, `gh api repos/:owner/:repo`):
           #   squash_merge_commit_title   = COMMIT_OR_PR_TITLE
           #   squash_merge_commit_message = COMMIT_MESSAGES
           #
           # Isto é: com UM commit, a primeira linha do squash é a MENSAGEM
           # DESTE COMMIT (o título da PR nem entra); com DOIS ou mais, é o
-          # título da PR. O corpo vem das mensagens dos commits. Por isso o
-          # título ser Conventional Commit é condição NECESSÁRIA e não
-          # suficiente — e por isso este gate não pode prometer o que a
-          # configuração do repo não promete.
+          # título da PR. Conferido em quatro PRs: #89 (8 commits), #90 (2),
+          # #85 (10) e #92 (2) — nos quatro, a primeira linha do squash foi
+          # o título da PR. Por isso título em Conventional Commits é
+          # condição NECESSÁRIA e não suficiente, e este gate não pode
+          # prometer o que a configuração do repo não promete.
           #
           # A PR pode sobrescrever os dois campos; quando não sobrescreve, os
-          # campos nem aparecem no JSON da PR e vale a configuração do repo.
-          # Por isso a ordem: PR primeiro, repo como padrão.
+          # campos nem vêm no JSON da PR. Ordem: PR primeiro, repo depois.
+          #
+          # E o "repo depois" tem um senão medido: o `github.token` do PR NÃO
+          # enxerga esses dois campos (a API responde null), porque são
+          # metadados de configuração de merge. Por isso há um PADRÃO
+          # declarado aqui, igual ao valor medido — a API só serve para
+          # confirmar quando ela responde. Se um dia alguém mudar a
+          # configuração de squash do repositório, este é o lugar a atualizar
+          # (e o job imprime a fonte que usou, no log).
           # ----------------------------------------------------------------
-          REPO_CFG="$(gh api "repos/${REPO}")"
+          PADRAO_TITULO='COMMIT_OR_PR_TITLE'
+          PADRAO_CORPO='COMMIT_MESSAGES'
+
           FONTE_TITULO="$(printf '%s' "$PR" | jq -r '.squash_merge_commit_title // ""')"
           FONTE_CORPO="$(printf '%s' "$PR" | jq -r '.squash_merge_commit_message // ""')"
+          FONTE="config da PR"
+          if [[ -z "$FONTE_TITULO" || -z "$FONTE_CORPO" ]]; then
+            FONTE_TITULO="$(printf '%s' "$PR" | jq -r '.squash_merge_commit_title // ""')"
+            FONTE_CORPO="$(printf '%s' "$PR" | jq -r '.squash_merge_commit_message // ""')"
+            if [[ -z "$FONTE_TITULO" || -z "$FONTE_CORPO" ]]; then
+              REPO_CFG="$(gh api "repos/${REPO}")"
+              FONTE_TITULO="$(printf '%s' "$REPO_CFG" | jq -r '.squash_merge_commit_title // ""')"
+              FONTE_CORPO="$(printf '%s' "$REPO_CFG" | jq -r '.squash_merge_commit_message // ""')"
+              FONTE="config do repositório"
+            fi
+          fi
           if [[ -z "$FONTE_TITULO" ]]; then
-            FONTE_TITULO="$(printf '%s' "$REPO_CFG" | jq -r '.squash_merge_commit_title // "PR_TITLE"')"
+            FONTE_TITULO="$PADRAO_TITULO"
+            FONTE="${FONTE} (padrão medido deste repo)"
           fi
           if [[ -z "$FONTE_CORPO" ]]; then
-            FONTE_CORPO="$(printf '%s' "$REPO_CFG" | jq -r '.squash_merge_commit_message // "PR_TITLE"')"
+            FONTE_CORPO="$PADRAO_CORPO"
+            FONTE="${FONTE} (padrão medido deste repo)"
           fi
 
           # ----------------------------------------------------------------
@@ -188,7 +211,7 @@ jobs:
               ;;
           esac
 
-          echo "[gate] primeira linha do squash: ${FONTE_TITULO} | corpo: ${FONTE_CORPO} | commits na PR: ${N_COMMITS} | o título governa: ${TITULO_GOVERNA}"
+          echo "[gate] config do squash: ${FONTE_TITULO}/${FONTE_CORPO} (fonte: ${FONTE}) | commits na PR: ${N_COMMITS} | o título governa: ${TITULO_GOVERNA}"
           echo "[gate] título: ${TITULO}"
 
           if [[ ! "$TITULO" =~ $RE ]]; then
