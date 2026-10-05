@@ -51,17 +51,15 @@ export type PaymentStatus =
 
 export type PaymentEventStatus = "received" | "processing" | "processed" | "ignored" | "failed";
 
-export const PAYMENT_STATUSES: readonly PaymentStatus[] = [
-  "pending",
-  "processing",
-  "paid",
-  "failed",
-  "canceled",
-  "partially_refunded",
-  "refunded",
-] as const;
-
-export const PAYMENT_METHODS: readonly PaymentMethod[] = ["pix", "credit_card"] as const;
+// Os unions acima (`PaymentStatus`, `PaymentMethod`) são a fonte da verdade e
+// não têm cópia em array: `PAYMENT_TRANSITIONS` é `Record<PaymentStatus, ...>`,
+// então o compilador já cobra a exaustividade do union de status.
+//
+// Houve aqui uma lista `PAYMENT_STATUSES` com um guard `isPaymentStatus` que
+// nenhum chamador usava — a cópia runtime do union que só pode derivar dele sem
+// ninguém perceber. `mapStatus` (mapper.ts) é `switch` exaustivo e devolve
+// `null` para status desconhecido: hoje nenhum `PaymentStatus` vem de string
+// crua, e por isso o guard não tinha onde ser usado.
 
 /**
  * Transições permitidas (spec §18, com `partially_refunded` acrescentado).
@@ -87,14 +85,6 @@ export const PAYMENT_TRANSITIONS: Record<PaymentStatus, readonly PaymentStatus[]
   canceled: [],
   refunded: [],
 };
-
-export function isPaymentStatus(value: unknown): value is PaymentStatus {
-  return typeof value === "string" && (PAYMENT_STATUSES as readonly string[]).includes(value);
-}
-
-export function isPaymentMethod(value: unknown): value is PaymentMethod {
-  return typeof value === "string" && (PAYMENT_METHODS as readonly string[]).includes(value);
-}
 
 export function canTransition(from: PaymentStatus, to: PaymentStatus): boolean {
   return PAYMENT_TRANSITIONS[from].includes(to);

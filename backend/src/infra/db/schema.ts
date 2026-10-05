@@ -11,6 +11,9 @@ import {
   uniqueIndex,
   check,
 } from "drizzle-orm/pg-core";
+// `import type`: apaga em tempo de compilação, então não cria dependência de
+// runtime entre infra e domain (o dominio continua sem saber que o banco existe).
+import type { PaymentEventStatus } from "../../domain/payment.js";
 
 // ============================================================
 // Schema Postgres — banco OFICIAL do PDV (o SQLite foi removido).
@@ -839,7 +842,14 @@ export const paymentEvents = pgTable(
     providerOrderId: text("provider_order_id"),
     providerPaymentId: text("provider_payment_id"),
     payload: text("payload").notNull(), // JSON string cru, como o gateway mandou
-    status: text("status").notNull().default("received"),
+    // O union vem do domínio (`PaymentEventStatus`) em vez de uma lista repetida
+    // aqui: a coluna continua `text` no Postgres (logo, SEM migration), mas o
+    // tipo amarra os 6 pontos de escrita do inbox e os 4 de leitura (`eq()`
+    // deriva o lado direito da coluna) num lugar só. Sem isto, um typo —
+    // `"proccessed"` numa escrita, ou num `eq()` — compila e só quebra em
+    // silêncio: a escrita deixa o evento invisível para o worker, e o `eq()`
+    // faz a fila de retry travar sem erro nem log.
+    status: text("status").$type<PaymentEventStatus>().notNull().default("received"),
     attempts: integer("attempts").notNull().default(0),
     processedAt: text("processed_at"),
     errorMessage: text("error_message"),
