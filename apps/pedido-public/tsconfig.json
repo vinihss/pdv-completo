@@ -45,8 +45,7 @@
      * `npm ci`, porque o `tsBuildInfoFile` não acompanha o `node_modules` — e um
      * cache velho mandando o build para o caminho errado é exatamente a classe
      * de verde-mentiroso que este gate não deve aceitar. Em `node_modules/.tmp`
-     * (como o `tsconfig.node.json` deste app já faz), um `npm ci` o apaga junto
-     * com o resto. */
+     * um `npm ci` o apaga junto com o resto. */
     "incremental": true,
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo"
   },
