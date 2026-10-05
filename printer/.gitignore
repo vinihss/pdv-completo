@@ -4,3 +4,8 @@ daemon/*.db
 daemon/pdv-printer-daemon
 daemon/pdv-printer-daemon.exe
 scripts/*.exe
+
+# Saída do package-daemon-linux.sh / package-daemon-windows.sh: binários e
+# .tar.gz/.sha256 gerados localmente. O CI sobe isso como artifact
+# (upload-artifact), não como arquivo versionado.
+artifacts/
