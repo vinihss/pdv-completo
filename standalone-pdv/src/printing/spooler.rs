@@ -70,8 +70,13 @@ fn from_pwstr(value: PWSTR) -> String {
 /// Erro do Windows no número. O erro que interessa ("a fila não existe", "sem
 /// permissão", "nenhuma impressora instalada") é só distinguível pelo
 /// `GetLastError`, então trazer o número vale mais que uma frase genérica.
+///
+/// O `.0` não é enfeite: `WIN32_ERROR` é um newtype de `u32` que implementa
+/// `Debug` mas não `Display`, então `{}` não compila — e `{:?}` imprimiria
+/// `WIN32_ERROR(5)` em vez de `5`, que é o número que o operador precisa
+/// olhar no docs da Microsoft.
 fn win_err(op: &str) -> String {
-  format!("{op}: erro {} do Windows", unsafe { GetLastError() })
+  format!("{op}: erro {} do Windows", unsafe { GetLastError().0 })
 }
 
 /// Lista as filas de impressão. Cada fila vem com o `Status` cru, que é o
