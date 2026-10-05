@@ -281,7 +281,14 @@ jobs:
       HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
       HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
       HOSTINGER_SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
-      HOSTINGER_KNOWN_HOSTS: ${{ secrets.HOSTINGER_KNOWN_HOSTS }}
+      # É o secret que o `build-desktop.yml` lê no input `fingerprint` dos
+      # três steps appleboy do job `publish` (ver o bloco de comentário dele).
+      # Passar o nome errado aqui — o que era `HOSTINGER_KNOWN_HOSTS`, que não
+      # verifica nada — deixa o `fingerprint` vazio no workflow chamado sem
+      # erro visível: em `workflow_call` o secret do chamador é a interseção
+      # das permissões, então o que não for declarado no bloco `secrets:` do
+      # `build-desktop.yml` nem chega lá.
+      HOSTINGER_SSH_FINGERPRINT: ${{ secrets.HOSTINGER_SSH_FINGERPRINT }}
       HOSTINGER_APP_PATH: ${{ secrets.HOSTINGER_APP_PATH }}
 
   deploy:

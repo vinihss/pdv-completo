@@ -419,6 +419,11 @@ estiver no meio da rede e se fizer passar pelo servidor recebe a chave privada
 de produção. Com ele, um valor errado derruba o job no handshake (antes de
 qualquer comando rodar) com `ssh: host key fingerprint mismatch`.
 
+O mesmo secret vale para a **publicação do instalador**
+(`.github/workflows/build-desktop.yml`): lá a verificação cobre os três steps
+de appleboy do job `publish` (o `mkdir`, o `scp` e o ajuste de layout), e não
+só o `deploy` — sem o secret, nenhuma das duas rotas confere a host key.
+
 > ⚠️ `HOSTINGER_KNOWN_HOSTS` **não verifica nada**: `known_hosts` não é um
 > input do `appleboy/ssh-action@v1`, então a action o ignora — avisando
 > "Unexpected input(s) 'known_hosts'" no log — e o deploy segue. O secret
