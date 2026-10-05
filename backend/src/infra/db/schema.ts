@@ -93,7 +93,7 @@ export const customers = pgTable(
     name: text("name").notNull(),
     phone: text("phone"),
     email: text("email"),
-    // Perfil completo (0008). Os três guardam o valor CRU, sem máscara — a
+    // Perfil completo (baseline 0001). Os três guardam o valor CRU, sem máscara — a
     // apresentação é do frontend, o banco é a fonte: `photo_path` só o
     // basename (`<id>.<ext>`), `cpf` os 11 dígitos, `notes` o texto livre.
     photoPath: text("photo_path"),
@@ -154,12 +154,12 @@ export const products = pgTable(
     // Vitrine da página pública (/pedido) — migration 0020. Curadoria pura:
     // o produto continua na sua categoria.
     featured: boolean("featured").notNull().default(false),
-    // Estoque (0016): config do produto — o saldo em si fica no ledger
+    // Estoque (baseline 0001): config do produto — o saldo em si fica no ledger
     // stock_movement (soma dos deltas), nunca coluna cacheada.
     costPrice: real("cost_price").notNull().default(0), // custo unitário (margem)
     lowStockThreshold: real("low_stock_threshold").notNull().default(0),
     trackStock: boolean("track_stock").notNull().default(false),
-    unit: text("unit").notNull().default("un"), // unidade de medida (0017)
+    unit: text("unit").notNull().default("un"), // unidade de medida (baseline 0001)
     active: boolean("active").notNull().default(true),
     createdAt: text("created_at").notNull().default(isoNow),
     updatedAt: text("updated_at").notNull().default(isoNow),
@@ -270,7 +270,7 @@ export const suppliers = pgTable("supplier", {
   updatedAt: text("updated_at").notNull().default(isoNow),
 });
 
-// Documento de entrada de mercadoria (0017) — multi-item, com fornecedor,
+// Documento de entrada de mercadoria (baseline 0001) — multi-item, com fornecedor,
 // nº de nota (informativo, sem integração fiscal), data e total.
 export const purchases = pgTable("purchase", {
   id: id(),
@@ -316,7 +316,7 @@ export const purchaseItems = pgTable(
   (t) => [index("idx_purchase_item_purchase").on(t.purchaseId)],
 );
 
-// Ledger de estoque (0016): fonte da verdade do saldo — soma dos deltas por
+// Ledger de estoque (baseline 0001): fonte da verdade do saldo — soma dos deltas por
 // produto. 'sale' no lançamento da comanda, 'refund' no estorno (item
 // removido / comanda cancelada), 'purchase'/'adjustment' manuais do gerente.
 //
@@ -449,13 +449,13 @@ export const storeSettings = pgTable("store_settings", {
   kitchenEnabled: boolean("kitchen_enabled").notNull().default(true),
   usesDelivery: boolean("uses_delivery").notNull().default(true),
   ifoodIntegrationEnabled: boolean("ifood_integration_enabled").notNull().default(false),
-  // Integração WhatsApp (0007): master switch do painel em Configurações.
+  // Integração WhatsApp (baseline 0001): master switch do painel em Configurações.
   whatsappIntegrationEnabled: boolean("whatsapp_integration_enabled").notNull().default(false),
   // Pagar.me V5 (0002): mesmo desenho do toggle do WhatsApp — a cobrança no
   // gateway é opt-in por loja e nada acontece enquanto estiver false.
   pagarmeEnabled: boolean("pagarme_enabled").notNull().default(false),
-  inventoryEnabled: boolean("inventory_enabled").notNull().default(false), // estoque (0016)
-  purchaseEnabled: boolean("purchase_enabled").notNull().default(false), // compras + custo médio (0017)
+  inventoryEnabled: boolean("inventory_enabled").notNull().default(false), // estoque (baseline 0001)
+  purchaseEnabled: boolean("purchase_enabled").notNull().default(false), // compras + custo médio (baseline 0001)
   // Impressão térmica (daemon local, 0003): master switch + auto-print.
   printerEnabled: boolean("printer_enabled").notNull().default(false),
   printerAutoPrint: boolean("printer_auto_print").notNull().default(false),
@@ -560,8 +560,9 @@ export const customerAddresses = pgTable(
       .notNull()
       .references(() => customers.id, { onDelete: "cascade" }),
     label: text("label"),
-    // CEP é opcional e nullable: entrou depois (0005) e os endereços já
-    // gravados não têm o dado. Guardado com os 8 dígitos crus, sem máscara.
+    // CEP é opcional e nullable (baseline 0001): entrou depois da tabela e os
+    // endereços já gravados não têm o dado. Guardado com os 8 dígitos crus,
+    // sem máscara.
     cep: text("cep"),
     street: text("street").notNull(),
     number: text("number").notNull(),
@@ -584,7 +585,7 @@ export const whatsappConversations = pgTable("whatsapp_conversation", {
   cartItems: text("cart_items").notNull().default("[]"), // JSON string
   customerName: text("customer_name"),
   deliveryAddress: text("delivery_address"),
-  // Rastreabilidade (0002): a WABA de onde a conversa veio. Não é parte
+  // Rastreabilidade (baseline 0001): a WABA de onde a conversa veio. Não é parte
   // do PK porque há UMA conexão ativa por instalação — enforced no banco
   // por uq_whatsapp_single_active. Nullable porque a coluna entrou depois.
   wabaId: text("waba_id"),
@@ -617,7 +618,7 @@ export const deliveries = pgTable(
   (t) => [index("idx_delivery_status").on(t.status), index("idx_delivery_courier").on(t.courierId)],
 );
 
-// Carrinho server-side do cliente (0019) — continuação do pedido sem
+// Carrinho server-side do cliente (baseline 0001) — continuação do pedido sem
 // localStorage, chaveado pelo telefone.
 export const customerCarts = pgTable(
   "customer_cart",
@@ -642,7 +643,7 @@ export const geocodingCache = pgTable(
 );
 
 // ============================================================
-// Embedded Signup / WhatsApp Cloud API (0002) — ver
+// Embedded Signup / WhatsApp Cloud API (baseline 0001) — ver
 // docs/10-whatsapp-embedded-signup.md
 // ============================================================
 

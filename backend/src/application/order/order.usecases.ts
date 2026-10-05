@@ -255,7 +255,7 @@ export async function openOrderUsecase(input: {
       tabLabel: input.tabLabel,
     });
 
-    // Alerta do sino (0004). Fica AQUI, e não em cada canal, porque todos os
+    // Alerta do sino (baseline 0001). Fica AQUI, e não em cada canal, porque todos os
     // quatro passam por esta função: balcão (`POST /orders`), self-service
     // (order-intake), iFood (ingest) e qualquer canal novo. Se ficasse em cada
     // chamador, um canal novo nasceria mudo.
