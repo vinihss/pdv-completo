@@ -268,6 +268,71 @@ justamente o cenário de "cliente pagou no gateway mas a fila travou".
 
 ---
 
+## 16. `payments.status` e `payments.method` sem tipo no drizzle
+
+O item 9 (inbox) amarrou `payment_event.status` ao union `PaymentEventStatus`
+via `text("status").$type<PaymentEventStatus>()`. As duas tabelas irmãs ficaram
+para trás:
+
+- `payments.status` — `text("status").notNull().default("pending")`, sem tipo
+- `payments.method` — `text("method").notNull()`, sem tipo
+
+O preço são **dois casts** `as PaymentStatus` em `payment.usecases.ts:511`
+(dentro de `applyCharge`) e `:747` (dentro da reconciliação). O cast
+"engomela" o valor: se o banco tiver um status fora do union, ele entra no
+código tipado como se fosse válido.
+
+**Risco:** baixo hoje, e mais baixo do que parece. `mapStatus`
+(`integrations/pagarme/mapper.ts:43`) é `switch` exaustivo que devolve `null`
+para valor desconhecido, então **nenhum `PaymentStatus` vem de string crua do
+gateway** — o `as` só_laundera o que já foi validado em outro lugar. E a
+reconciliação (`:749`) envolve `canMoveTo` em try/catch, então nem um valor
+corrompido estoura ali. O buraco real é o `payment_event`, que já foi fechado.
+
+**Para resolver:** `text("status").$type<PaymentStatus>()` e
+`text("method").$type<PaymentMethod>()`. Sem migration (só tipo do TS). Isso
+**torna os dois casts erro de compilação** e passa a apontar o que falta —
+provavelmente `mapper.ts` tiver que devolver o union já validado. É o
+fecha-ho que deve ser feito com calma, porque muda o que compila.
+
+---
+
+## 17. Webhook pode regredir `payment.status`; reconciliação não
+
+Achado em leitura de código durante a revisão pós-merge. **Não reproduzi em
+runtime** — vale confirmar antes de agir.
+
+Os dois caminhos que mudam `payment.status` passam por `applyCharge`
+(`payment.usecases.ts:508`), e o comentário de lá afirma que isso "impede os
+dois caminhos de divergirem na regra". Para a **escrita**, sim — é o único
+lugar. Para a **regra de transição, não**:
+
+- `processPaymentEventUsecase` (`:644`, caminho do webhook) chama
+  `applyCharge(tx, row, charge)` **sem nenhuma checagem de transição**. O
+  `applyCharge` (`:508-600`) não chama `assertTransition` nem `canTransition` —
+  o único filtro é `if (alvo === atual) return row`.
+- A reconciliação (`:749`) **sí** filtra: `if (!canMoveTo(atual, charge.status))
+  continue`.
+
+O próprio `applyCharge` documenta a intenção — "Evento velho/atrasado (o
+gateway reenvia depois do estorno): o estado local mais novo ganha" (`:513`) —
+ mas a implementação só trata o caso **igual** (`alvo === atual`), não o caso
+geral "estado local mais novo". Um webhook atrasado com `alvo = "pending"`
+encontra `atual = "paid"`, os dois diferem, e o `pending` é gravado: uma
+cobrança paga volta para pendente. A reconciliação, no mesmo estado, recusaria.
+
+**Não há teste cobrindo a regressão** — busquei por `paid`→`pending`, "regress"
+e "atrasad" em `test/pagarme.test.ts` e não achei nada.
+
+**Para resolver:** decidir se o webhook deve respeitar `PAYMENT_TRANSITIONS`.
+Se sim, `applyCharge` passa a validar `alvo` contra `atual` antes de gravar — o
+que é uma linha, mas precisa decidir o que fazer quando a transição é
+ilegali: recusar, ou aplicar a regra "estado local mais novo ganha" que o
+comentário já promete. Não é conserto mecânico: é escolher entre "ignora
+evento velho" e "erro explícito".
+
+---
+
 ## Resumo do que falta, por prioridade
 
 | Prioridade | Item | Esforço |
