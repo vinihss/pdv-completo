@@ -47,11 +47,19 @@ permissions:
 # mas cobra um input e uma condição para comprar nada. Não é o caminho.)
 #
 # CONSEQUÊNCIA PARA O RULESET: com um chamador, o nome do check é
-# `tests / test-backend` e `tests / test-frontend` (o job chamador chama
-# `tests`, e os jobs de dentro mantêm o nome). Antes eram
+# `tests / <job de dentro>` — hoje `tests / test-backend`,
+# `tests / test-frontend`, `tests / test-pedido-public`,
+# `tests / test-ws-gateway` e `tests / test-pagarme-webhook` (o job chamador
+# chama `tests`, e os jobs de dentro mantêm o nome). Antes eram
 # `test-backend / test-backend` e `test-frontend / test-frontend`. Se
 # houver ruleset exigindo check por nome, ele precisa do nome ATUAL —
 # confirme em `gh pr checks` antes de escrever a regra.
+#
+# `test-pedido-public` entrou depois dos outros e é o terceiro exemplo de que a
+# contagem acima ("2 jobs do tests.yml") não é um número fixo: acrescentei um
+# job ao workflow chamado, este arquivo NÃO mudou, e o terceiro check passou a
+# existir sozinho. É o motivo de a regra ser "um chamador" e não "liste os
+# jobs": a lista é do `tests.yml`, que é o arquivo que muda.
 # ============================================================
 
 on:

@@ -116,7 +116,9 @@ if [[ ! "$LISTING" =~ $RE_DAEMON ]]; then
 fi
 
 echo "    conteúdo:"
-while IFS= read -r linha; do echo "      $linha"; done <<< "$LISTING"
+if [[ -n "$LISTING" ]]; then
+  while IFS= read -r linha; do echo "      $linha"; done <<< "$LISTING"
+fi
 
 echo
 echo "Pacote pronto:"

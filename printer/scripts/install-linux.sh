@@ -174,9 +174,11 @@ FIM
   # daemon que compila e não passa em vet/test não deve virar serviço.
   local saida="$PREFIX/$BIN_NAME"
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    # Nada em $PREFIX no dry-run.
-    saida="$(mktemp -d)/$BIN_NAME"
-    ok "vet + test + build rodariam em $ROOT/daemon"
+    # Nada em $PREFIX no dry-run; o build sai num tmpdir descartado.
+    BUILD_TMP="$(mktemp -d)"
+    trap 'rm -rf "${BUILD_TMP:-}"' EXIT
+    saida="$BUILD_TMP/$BIN_NAME"
+    ok "vet + test + build em $ROOT/daemon (saída em $saida)"
   else
     ok "vet + test + build em $ROOT/daemon"
   fi
