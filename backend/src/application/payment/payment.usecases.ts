@@ -41,9 +41,9 @@
 // Idempotente pelo ponto de vista do dinheiro: se já existe linha confirmada
 // para a comanda com o mesmo valor, não cria outra.
 
-import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { db, type Tx } from "../../infra/db/client.js";
-import { customers, orderItems, orderPayments, orders, paymentEvents, paymentRefunds, payments, products, storeSettings, users } from "../../infra/db/schema.js";
+import { customers, orderItems, orderPayments, orders, paymentEvents, paymentRefunds, payments, products, storeSettings } from "../../infra/db/schema.js";
 import { isUniqueViolation } from "../../infra/db/errors.js";
 import { logAction } from "../../infra/audit-log.js";
 import { SYSTEM_USER_ID } from "../../domain/constants.js";
@@ -60,7 +60,7 @@ import {
   type PaymentStatus,
 } from "../../domain/payment.js";
 import { PagarmeGateway } from "../../integrations/pagarme/gateway.js";
-import { isPagarmeEnabled, pagarmeConfig } from "../../integrations/pagarme/config.js";
+import { isPagarmeEnabled } from "../../integrations/pagarme/config.js";
 import { mapOrderToCharge } from "../../integrations/pagarme/mapper.js";
 import type { PagarmeWebhookPayload } from "../../integrations/pagarme/types.js";
 import { computeOrderTotal } from "../order/order.usecases.js";
