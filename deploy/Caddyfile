@@ -28,8 +28,20 @@
 	}
 
 	# WebSocket em tempo real
+	#
+	# Upstream próprio (`PDV_WS_UPSTREAM`), não o do backend: o realtime tem
+	# DUAS implementações possíveis — o `WsGateway` do Node (o que está no ar)
+	# e o gateway em Go (`ws-gateway/`, ver deploy/README.md §"Gateway
+	# WebSocket em Go"). Quem decide é o `caddy-assemble.sh`, que resolve
+	# `WS_BACKEND` (default `node`) e o ponteiro `state/active-upstream`.
+	# O default deste bloco é o backend Node de propósito: trocar de
+	# implementação não pode virar tráfego por acidente.
+	#
+	# Continua SENDO o mesmo bloco para `/realtime` e `/realtime/public`: se
+	# algum dia precisarem ser separados, o `stream_close_delay` tem que ir
+	# nos dois, senão o reload volta a derrubar as telas do salão.
 	handle /realtime* {
-		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000} {
+		reverse_proxy {$PDV_WS_UPSTREAM:backend:3000} {
 			# ---------- Deploy sem downtime ----------
 			# O Caddy fecha TODOS os WebSockets em qualquer reload de config,
 			# inclusive em rota que não mudou (limitação documentada em
@@ -129,7 +141,13 @@
 		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
 	}
 
-	# Health check direto (útil pra monitoramento externo)
+	# Health check direto (útil pra monitoramento externo).
+	# De PROPÓSITO no backend, e não no upstream de realtime: o
+	# `probe-availability.sh` mede aqui o que o switch fez, e ele não pode
+	# passar a medir o gateway por causa de uma flag — nem o gateway
+	# responder 503 (banco fora) reprovar um deploy em que o backend está
+	# perfeitamente saudável. O `/health` do gateway é interno do container
+	# dele e se verifica por lá mesmo (ver README).
 	handle /health {
 		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
 	}

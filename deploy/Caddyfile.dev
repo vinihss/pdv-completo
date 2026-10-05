@@ -15,8 +15,15 @@
 	}
 
 	# WebSocket em tempo real
+	#
+	# Upstream próprio (`PDV_WS_UPSTREAM`) para poder apontar para o gateway
+	# em Go (`ws-gateway/`). A diferença do resto dos stacks: aqui o Caddy
+	# NÃO roda o `caddy-assemble.sh` (ver docker-compose.dev.yml), então a
+	# flag `WS_BACKEND` do `.env` NÃO é interpretada — defina
+	# `PDV_WS_UPSTREAM=ws-gateway:8080` direto no `.env` para testar o
+	# gateway aqui, senão este bloco fica no backend Node.
 	handle /realtime* {
-		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000} {
+		reverse_proxy {$PDV_WS_UPSTREAM:backend:3000} {
 			# ---------- Deploy sem downtime ----------
 			# O Caddy fecha TODOS os WebSockets em qualquer reload de config,
 			# inclusive em rota que não mudou (limitação documentada em

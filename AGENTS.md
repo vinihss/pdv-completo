@@ -15,7 +15,15 @@ frontend/   App React (Vite) — login, garçom, cozinha, gerente — instaláve
 frontend/src-tauri/  App desktop v1 (Tauri) — desacoplado do web app, em manutenção
 deploy/     Deploy em nuvem: Dockerfiles, Caddy (HTTPS automático), docker-compose
 docs/       Specs originais + guias para agentes
-printer/   Daemon Go para impressão térmica (ESC/POS)
+printer/    Daemon Go para impressão térmica (ESC/POS)
+ws-gateway/ Gateway WebSocket em Go (módulo Go independente, como o `printer/`):
+            mesmo handshake, mesmas rooms e mesmo outbox do backend Node, para
+            substituir o `backend/src/infra/realtime/`. Plugado no `deploy/`
+            (Caddy + os três compose) atrás da flag `WS_BACKEND=go` (default
+            `node`) e de `profiles: ["ws-gateway"]`, e com o gate de posse
+            `WS_DISPATCH` (desligado por padrão) decidindo se o dispatcher
+            publica: subir o stack **não** liga o gateway — o realtime vivo
+            continua sendo o Node (ver `docs/agent-deploy.md`)
 ```
 
 ## Documentos de referência
@@ -41,6 +49,7 @@ printer/   Daemon Go para impressão térmica (ESC/POS)
 | `docs/16-pendencias.md` | Pendências do planejamento multi-tenant + intenção de unificar migrations numa única baseline |
 | `docs/17-runbook-unificacao-migrations.md` | Runbook do cutover para o baseline único de migrations (com validação de backup) |
 | `docs/18-ifood-por-loja.md` | iFood por tenant: estado atual, delta necessário, riscos (sem implementação) |
+| `ws-gateway/GO-GATEWAY-PLAN.md` | Gateway WebSocket em Go: arquitetura, rooms, outbox, fases de migração e o checklist de implantação. Mora junto do código (fora de `docs/`) porque é spec de um componente, não do produto inteiro |
 
 ### Guias para agentes
 
@@ -158,14 +167,16 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `npm run seed` | backend | seed de dev (usuários/PINs fictícios) |
 | `npm run seed:prod` | backend | seed de primeiro deploy (sem dados fictícios) |
 | `npm run db:migrate` | backend | aplica `migrations/*.sql` (também roda no boot em modo local) |
-| `npm run test` | backend | vitest 5, 17 suítes (Postgres dedicado `pdv_test`) |
+| `npm run test` | backend | vitest 5, 18 suítes (`backend/test/*.test.ts`; Postgres dedicado `pdv_test`) |
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
-| `npm run test` | frontend | vitest (jsdom + Testing Library; 34 suítes) |
+| `npm run test` | frontend | vitest (jsdom + Testing Library; 44 arquivos de suíte) |
 | `bash src-tauri/build-app.sh` | frontend | build do app desktop v1 (Tauri); `--release` = entrega (chave de assinatura), `--appimage-docker` = AppImage |
 | `node_modules/.bin/tauri <cmd>` | raiz | CLI do Tauri (na raiz do repo, não em `frontend/node_modules`; rodar com cwd=`frontend/` para o app v1) |
 | `go test ./...` | `printer/daemon` | suíte do daemon |
-| `./switch.sh` | deploy | deploy sem downtime (instância nova + `caddy reload`); `--status`, `--rollback`, `--install`, `--no-build` |
+| `go build ./...` / `go vet ./...` / `go test ./...` | `ws-gateway` | portão do gateway WS: build, vet e suíte (é o que o CI roda, junto com `gofmt -l .`) |
+| `./switch.sh` | deploy | deploy sem downtime (instância nova + `caddy reload`); `--status`, `--rollback`, `--install`, `--no-build`. Não mexe no `ws-gateway` |
+| `docker compose --profile ws-gateway up -d --build ws-gateway` | deploy | sobe **só** o gateway WS em Go — o `up` normal não o cria (está atrás de `profiles`) |
 | `./probe-availability.sh --url <url> --seconds N` | deploy | mede o gap de downtime real (sai != 0 se houve falha) |
 | `./scripts/dev-worktree.sh new <branch>` | raiz | cria o worktree de trabalho em `~/pdv/<branch>` (dentro do clone bare), a partir da `origin/main` já atualizada |
 | `./scripts/dev-worktree.sh list` | raiz | lista os worktrees e a branch de cada um |
@@ -277,6 +288,7 @@ que `pre-push` deixa tag passar.
 - **Sem `lb_retries` no Caddy**: retentativa repetiria POST
 - **`stream_close_delay 5m` em `/realtime*`**: não remover
 - **Migrations expand/contract**: a versão antiga precisa continuar compatível com o schema novo
+- **Realtime tem duas implementações**: quem serve `/realtime*` é `PDV_WS_UPSTREAM`, resolvido por `deploy/caddy-assemble.sh` na ordem *ponteiro* > `WS_BACKEND` > *acompanhar `PDV_BACKEND_UPSTREAM`*. `caddy validate` **não** resolve upstream, então nome de serviço errado passa; o `ws-gateway` fica atrás de `profiles` e fora do rodízio azul/verde. Quem garante que só o dono do `/realtime` publica é o gate `WS_DISPATCH` (default-deny, dentro do processo — o `profiles` sozinho **não** fecha a janela de subir o container antes do Caddy virar), e o `./switch.sh --status` mostra o estado do gate cruzando-o com o upstream (detalhes em `docs/agent-deploy.md`)
 
 ## Critérios de verificação gerais
 

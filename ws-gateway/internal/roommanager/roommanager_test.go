@@ -39,7 +39,7 @@ func TestCanJoin(t *testing.T) {
 		{"alertas do usuário alheio", "waiter", u1, "alerts:user:" + u2, false},
 		{"caixa não escuta alertas de gerente", "cashier", u1, "alerts:manager", false},
 
-		// ---.waiter ---
+		// --- waiter ---
 		{"garçom vê cozinha", "waiter", u1, "kitchen-display", true},
 		{"garçom vê entregas", "waiter", u1, "deliveries", true},
 		{"garçom NÃO vê gaveta de caixa", "waiter", u1, "cash-drawer", false},

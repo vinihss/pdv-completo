@@ -161,9 +161,11 @@ o cliente pede e o que `canJoinRoom` autoriza, sem ganhar nada.
 
 > ⚠️ **Duas implementações enquanto coexistem.** Desde `3e5e8cd` o repo tem um segundo gateway,
 > Go (`ws-gateway/`), destinado a **substituir** a responsabilidade de realtime do Node
-> (`backend/src/infra/realtime/`), mas **ainda não ligado no deploy** — o `Caddyfile` continua
-> mandando `/realtime*` para o backend Node. Ele compartilha o mesmo Postgres + outbox, com a
-> mesma `RoomManager` global e rooms por string, **sem partição por tenant**. Ou seja: o R1 existe
+> (`backend/src/infra/realtime/`). Ele está **plugado no `deploy/`** (serviço `ws-gateway` nos
+> três compose, upstream próprio `PDV_WS_UPSTREAM` no Caddy, flag `WS_BACKEND`), mas **o corte
+> não foi marcado**: sem `WS_BACKEND=go` nem a linha de ponteiro, o `/realtime*` continua indo
+> para o backend Node. Ele compartilha o mesmo Postgres + outbox, com a
+> mesma `RoomManager` global e rooms por string, **sem partição por tenant**. Ou seja: o R2 existe
 > nos **dois** gateways. O particionamento acima vale para **ambos** até o Go virar o caminho vivo
 > de `/realtime*` — quando isso acontecer, o código Node equivalente pode ser removido. O outbox do
 > Go segue a mesma regra do §4.5: iterar os schemas de tenant com advisory lock por tenant.
@@ -674,6 +676,6 @@ que um 404 bem aplicado evita. O painel de provisionamento da plataforma é tool
   `git show 7c259cd^:backend/src/infra/db/provision-tenant.ts`
 - **Plano anterior (RLS, rejeitado):** `feat/multitenant-plan/docs/15-multitenant.md` §2
 - **Diagnóstico do vazamento row-level:** `feat/multitenant-isolamento/docs/15-multi-tenant-gap.md`
-- **Gateway Go (WIP, ainda não plugado no deploy):** `ws-gateway/` + `ws-gateway/GO-GATEWAY-PLAN.md`
+- **Gateway Go (plugado no `deploy/`, corte pendente):** `ws-gateway/` + `ws-gateway/GO-GATEWAY-PLAN.md`
 - **Guard de banco de teste:** `dc17a5a` — `global-setup.ts` aborta se outro processo usa `pdv_test`
   (evita flaky e trava no `DROP SCHEMA public CASCADE` com um dev apontado para o mesmo banco)

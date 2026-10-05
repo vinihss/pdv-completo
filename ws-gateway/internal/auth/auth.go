@@ -26,9 +26,9 @@ var ErrUnauthorized = errors.New("unauthorized")
 // `{ sub, role, storeId?, storeSlug? }` + `exp` de 12h.
 //
 // `sub` NÃO é campo próprio aqui: RegisteredClaims já traz `Subject` com a tag
-// `json:"sub"`. Declarar outro `UserID string \`json:"sub"\“ criaria dois campos
-// com a mesma tag — o encoding/json resolve conflito por profundidade e o
-// perdedor some em silêncio, que é o tipo de bug que só aparece em produção.
+// `json:"sub"`. Declarar outro `UserID string` com a MESMA tag criaria dois
+// campos `sub` no payload — o encoding/json resolve conflito por profundidade e
+// o perdedor some em silêncio, que é o tipo de bug que só aparece em produção.
 type Claims struct {
 	jwt.RegisteredClaims
 	Role      string `json:"role"`
@@ -82,7 +82,7 @@ func Verify(token, secret string) (*User, error) {
 
 // TokenFromHandshake extrai o token do header `Sec-WebSocket-Protocol`.
 //
-// O token vai por SUBCONNECTION e não na query string: query string vaza em log
+// O token vai por SUBPROTOCOL e não na query string: query string vaza em log
 // de proxy, em `Referer` e no histórico. O client faz `new WebSocket(url, [token])`.
 //
 // O Node pega o primeiro offered e recusa o resto (`offered.split(",")[0]`);

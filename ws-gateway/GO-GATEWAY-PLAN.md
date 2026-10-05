@@ -104,6 +104,12 @@ Responsabilidades:
 | `alerts:{role}` | próprio papel | Alerta direcionado |
 | `alertsUserRoomFor:{sub}` | próprio usuário | Alerta direcionado por usuário |
 
+> O nome do room é o que vai no cable, não o nome da função: em
+> `alert.usecases.ts`, `alertsUserRoomFor(sub)` devolve `alerts:user:{sub}` (é
+> `alerts:${alertUserToken(sub)}`, e `alertUserToken` = `user:${id}`). No Go isso
+> é `roommanager.AlertsUserRoomFor(sub)`. A tabela de rooms do `AGENTS.md` não
+> cita o room por usuário — ele entra no handshake de **todos** os perfis.
+
 **Métodos principais:**
 
 - `CanJoin(userRole, userSub, room string) bool` — verifica autorização (mimic da função `canJoinRoom` do Node.js)
@@ -233,15 +239,19 @@ go-ws-gateway/
 └── go.sum
 ```
 
-### Dependências Go
+### Dependências Go (o que o `go.mod` tem)
 
-```go
+```
 require (
-    github.com/gorilla/websocket v1.5.0  # ou stdlib net/http/websocket
-    github.com/dgrijalva/jwt-go/v5 v5.0.0
-    github.com/lib/pq v1.10.8
+    github.com/golang-jwt/jwt/v5   // verificação do JWT (o plano original previa o dgrijalva/jwt-go)
+    github.com/gorilla/websocket    // o handshake e o hijack do WebSocket
+    github.com/lib/pq               // driver do Postgres (indireto, via database/sql)
 )
 ```
+
+> Nenhum módulo de instrumentação. O plano original citava um `pkg/websocket` de wrappers; o que
+> existe é `internal/connmanager` + `internal/roommanager` (ver a nota de nomenclatura no
+> checklist).
 
 ### Points de Integração com o Existemete Node.js Backend
 
@@ -250,17 +260,28 @@ Durante a transição, considerar:
 1. **Banco de dados compartilhado**: O gateway Go usa o mesmo PostgreSQL do Node.js
 2. **Outbox pattern**: O gateway pode assumir o polling do outbox, ou coexistir
 3. **Rotas HTTP existentes**: As rotas HTTP continuam no Node.js backend; apenas o WS é migrado
-4. **Feature flag**: Durante o deploy, usar feature flag para alternar entre WS do Node.js e Go gateway
+4. **Feature flag**: implementada — `WS_BACKEND=node|go` decide quem serve o `/realtime*`, e o
+   gate `WS_DISPATCH` impede o dispatcher sem dono (ver `internal/outbox/gate.go`)
 
 ### Considerações de Deploy
 
-- **Dockerfile**: Build multi-stage com `golang:1.23` + `distroless` ou `alpine`
-- **Porta**: 8080 (ou variável de ambiente `WS_GATEWAY_PORT`)
-- **Dependências de ambiente**:
-  - `DATABASE_URL` (mesmo do Node.js)
-  - `JWT_SECRET` (mesmo do Node.js auth middleware)
-  - `WS_GATEWAY_ORIGIN` (origem permitida para CORS se necessário)
-- **Health check**: `GET /health` que responde `200` se o banco está conectado
+O que o código realmente usa. Esta lista substitui a versão original deste plano, que citava
+nomes de env que nunca existiram (`WS_GATEWAY_PORT`, `WS_GATEWAY_ORIGIN`) e um `golang:1.23`:
+
+- **Dockerfile**: build multi-stage `golang:1.27-alpine` + `alpine` final, com usuário sem root
+- **Porta**: `PORT` (default `8080`)
+- **Variáveis de ambiente** — o `environment` do serviço está nos três compose, e o
+  `deploy/.env.example` é a referência de cada uma:
+  - `DATABASE_URL` (mesmo do Node.js; sem ele o gateway sobe sem pool e não publica nada)
+  - `JWT_SECRET` (mesmo do Node.js; o binário aceita `WS_JWT_SECRET` como fallback, mas o compose
+    passa só um para os dois processos não poderem divergir)
+  - `WS_DISPATCH` — o gate de posse do realtime, **desligado por padrão** e default-deny (só
+    `1`/`true`/`yes`/`on` ligam). É a flag do cutover; o porquê em `gate.go`
+  - `WS_ALLOWED_ORIGINS` (CSV; vazio = qualquer origem, que é o certo atrás do Caddy)
+  - `GIT_SHA` (aparece como `version` no `/health`)
+- **Health check**: `GET /health`. O contrato completo — `outboxEnabled`, o `databaseError` de
+  banco travado, o `databaseLastOkSeconds` e o 200 deliberado sem `DATABASE_URL` — está em
+  `deploy/README.md` §"O contrato do `/health`"
 
 ---
 
@@ -277,7 +298,7 @@ Tabela de conversão para garantir compatibilidade:
 | `inventory` | `inventory` | Igual |
 | `alerts` | `alerts` | Igual |
 | `alerts:${role}` | `alerts:${role}` | Igual |
-| `alertsUserRoomFor:${sub}` | `alertsUserRoomFor:${sub}` | Igual |
+| `alertsUserRoomFor:${sub}` | `alerts:user:${sub}` | Room igual; **nome da função diferente** (é a função do Node que monta o room, ver nota acima) |
 
 A função `canJoinRoom` do Node.js deve ser reescrita em Go com a mesma lógica:
 
@@ -368,30 +389,58 @@ func enqueueEvent(room, eventType, payload interface{}) error {
 
 ## Checklist de Implantação
 
-- [ ] Estrutura de pastas Go criada
-- [ ] Módulo `go.mod` configurado com dependências
-- [ ] `wsConnManager` implementado com thread-safety
-- [ ] `roomManager` com `CanJoinRoom` idêntico ao Node.js
-- [ ] Autenticação JWT via subprotocol
-- [ ] Broadcast para rooms funcionando
-- [ ] Polling do outbox pattern (a cada 200ms)
-- [ ] Health check endpoint
-- [ ] Dockerfile para build e run
-- [ ] Variáveis de ambiente documentadas
-- [ ] Testes unitários para cada componente
-- [ ] Integração com o frontend existente testada
-- [ ] Feature flag para transição gradual
-- [ ] Monitoramento/logs de conexões e errors
+Código pronto e plugado no `deploy/`. As duas caixas que fecharam nesta branch eram do lado de
+deploy (compose/Caddy/switch + a documentação das envs); as que sobraram são as que só se provam
+com o sistema rodando.
+
+- [x] Estrutura de pastas Go criada
+- [x] Módulo `go.mod` configurado com dependências
+- [x] `wsConnManager` implementado com thread-safety
+- [x] `roomManager` com `CanJoinRoom` idêntico ao Node.js
+- [x] Autenticação JWT via subprotocol
+- [x] Broadcast para rooms funcionando
+- [x] Polling do outbox pattern (a cada 200ms)
+- [x] Health check endpoint
+- [x] Dockerfile para build e run
+- [x] Testes unitários para cada componente
+- [x] Variáveis de ambiente documentadas — `DATABASE_URL`, `JWT_SECRET`, `PORT`, `WS_DISPATCH`,
+      `WS_ALLOWED_ORIGINS` e `GIT_SHA` estão no `environment` do serviço nos três compose, e
+      `deploy/.env.example` é a referência de cada uma (o `WS_DISPATCH` tem lá o porquê e o
+      momento de ligar)
+- [x] Feature flag para transição gradual — são três, e andam juntas: `WS_BACKEND=node|go`
+      (a decisão que sobrevive a deploy), `WS_DISPATCH` (o gate de posse do dispatcher, default-deny)
+      e a linha `PDV_WS_UPSTREAM` do ponteiro (o botão quente, descartado no deploy seguinte).
+      Runbook em `deploy/README.md` §"Gateway WebSocket em Go"; diagnóstico em
+      `./switch.sh --status`
+- [ ] Integração com o frontend existente testada — o client não muda uma linha (mesma rota,
+      mesmo handshake, mesmas rooms), mas **ninguém rodou o app contra o gateway**: não há
+      evidência de garçom/cozinha/gerente conectando, e o sintoma de um erro de paridade aqui é
+      o pior possível (app abre normal por REST e o realtime fica mudo, sem erro visível)
+- [ ] Monitoramento/logs de conexões e errors — existe log de conexão (`sub`, `role`, `conn`,
+      `rooms`), de handshake recusado, de upgrade falhado e de origem recusada, e as contagens
+      saem no `/health` (`connections`, `users`). Não existe nada de métricas/alerta, e nenhuma
+      conexão foi observada em ambiente real ainda
+- [ ] Deploy em ambiente de staging — nada subiu em nenhum ambiente real (staging ou produção):
+      o serviço foi validado com stack de teste isolado, o que prova que o gateway funciona, não
+      que ele funciona *lá*
+
+> Nota de nomenclatura: os componentes do plano se chamam `wsConnManager`/`roomManager`, e no
+> código são `connmanager.Manager` e o pacote `roommanager` (que ficou só com a política de
+> rooms — quem guarda conexão é o connmanager). `CanJoinRoom` virou `roommanager.CanJoin`.
 
 ---
 
 ## Próximos Passos
 
-1. Criar o repositório Go módulo
-2. Implementar `wsConnManager` básico
-3. Implementar autenticação JWT
-4. Implementar room management com authorization
-5. Implementar broadcast funcional
-6. Integrar com o banco de dados (polling outbox)
-7. Testar conectividade com o frontend existente
-8. Deploy em ambiente de staging
+O código e o plug no `deploy/` estão prontos — veja o checklist acima. O que sobrou é o que só
+se prova com o sistema rodando, nesta ordem:
+
+1. Subir o gateway em **staging** com `--profile ws-gateway` e medir o comportamento com o Node
+   ainda no ar (`WS_DISPATCH` desligado: o gateway serve conexões e não publica nada). O runbook
+   completo está em `deploy/README.md` §"Como ligar"
+2. Ligar o cutover em staging: `WS_DISPATCH=1` junto com a virada do proxy, e medir conexões e
+   eventos durante a virada — é a única forma de validar a paridade do envelope em tráfego real
+3. Testar a conectividade com o frontend existente ponta a ponta, por perfil (o client não muda;
+   o que muda é para onde o `/realtime*` aponta)
+4. Decidir a **data** do corte em produção. O "como" está decidido; a data é decisão do dono
+   (ver `docs/16-pendencias.md` §5.3)

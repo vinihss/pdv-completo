@@ -7,6 +7,10 @@
 // existia mas ninguém soube — o client ficaria com a tela desatualizada até
 // o próximo reload, sem nenhum sinal de que houve evento perdido. Com outbox, a
 // linha sobrevive e o dispatcher pega na volta.
+//
+// O dispatcher NÃO roda por padrão: ele só publica se `WS_DISPATCH` estiver
+// ligada, porque publicar exige ser o dono do `/realtime` — leia gate.go antes
+// de mexer em qualquer coisa aqui.
 package outbox
 
 import (
@@ -21,7 +25,9 @@ const (
 	// PollMS e BatchSize espelham outbox-dispatcher.ts (POLL_MS=200,
 	// BATCH_SIZE=50). Mesmos números de propósito: mudar aqui e não lá muda a
 	// latência do bell e a pressão no banco, e durante a migração as duas
-	// implementções do dispatcher disputam o mesmo lock do mesmo lote.
+	// implementações do dispatcher disputam o mesmo lock do mesmo lote. O que
+	// segura isso não é o lock: é o perdedor não publicar E o vencedor só
+	// publicar se for o dono do `/realtime` (gate.go e PollOnce).
 	PollMS     = 200
 	BatchSize  = 50
 	lockName   = "pdv:outbox:owner" // ver LOCKS.outboxDispatcher em infra/locks.ts
@@ -53,11 +59,23 @@ func New(db *sql.DB, hub RoomBroadcaster) *Dispatcher {
 
 // Run faz o polling até o ctx ser cancelado.
 //
+// Não roda por padrão: com `WS_DISPATCH` desligado (ver gate.go) ele registra
+// por que está inativo e volta sem tocar no banco. O dispatcher do gateway só
+// pode existir quando este processo é o dono do `/realtime` — o advisory lock
+// do ciclo serializa dispatchers, mas não sabe de Caddy, e um gateway que não
+// é o dono publicando é o gateway engolindo evento de quem está conectado no
+// Node, em silêncio. Ver gate.go para o defeito medido.
+//
 // Nenhum erro de ciclo derruba o processo: o `logger` do Node faz o mesmo
 // (outbox-dispatcher.ts, POLL_MS). Um banco oscilando por 5 segundos não pode
 // levar o realtime junto — o cliente seguiria vendo o gateway vivo e sem
 // evento, que é o pior estado possível (silencioso).
 func (d *Dispatcher) Run(ctx context.Context) {
+	if !DispatchEnabled() {
+		logInactive()
+		return
+	}
+
 	ticker := time.NewTicker(d.poll)
 	defer ticker.Stop()
 
@@ -83,11 +101,30 @@ func (d *Dispatcher) Run(ctx context.Context) {
 
 // PollOnce é um ciclo de publicação. Retorna quantos eventos foram lidos.
 //
+// ## O gate vem antes de tudo
+//
+// Com `WS_DISPATCH` desligado o ciclo não abre transação: quem não é o dono do
+// `/realtime` não escreve nada no outbox. O guard fica aqui, e não só em Run,
+// porque `published = true` é a linha que descarta o evento para sempre e ela é
+// escrita dentro deste ciclo — o invariant precisa ser do caminho que publica,
+// não do laço que o chama (ver gate.go).
+//
+// ## O que o advisory lock garante, e o que não
+//
 // O ciclo inteiro roda dentro do advisory lock de TRANSAÇÃO (`pdv:outbox:owner`):
-// se outro processo — uma instância do Node, ou uma segunda réplica do gateway —
-// já está publicando, este ciclo pula em silêncio em vez de disputar os mesmos 50
-// eventos a cada 200ms. Como o backend tem o MESMO dispatcher ligado durante a
-// migração, os dois disputam o mesmo lock e só um publica por vez.
+// se outro processo já está publicando, este ciclo pula em silêncio em vez de
+// disputar os mesmos 50 eventos a cada 200ms. O que ele garante é MÚTUA
+// EXCLUSÃO — no máximo um dispatcher por ciclo, sem os dois lendo e escrevendo o
+// mesmo lote.
+//
+// O que ele NÃO garante é que quem ganhou seja o dono das conexões
+// WebSocket. O lock mora no banco e o dono do `/realtime` é decidido pelo
+// Caddy: durante a migração os dois dispatchers disputam o mesmo lock, o
+// perdedor salta, e o vencedor marca publicado do mesmo jeito. Se o vencedor for
+// o processo que não tem um único cliente, o evento foi engolido e nem o banco
+// nem o log denunciam. Por isso o lock não basta para coexistir: ele serializa,
+// e o que falta é o gate de posse (`WS_DISPATCH`), que torna o dispatcher sem
+// dono incapaz de existir.
 //
 // `pg_try_advisory_xact_lock` e NUNCA `pg_try_advisory_lock`: o lock de sessão
 // ficaria preso na conexão ociosa do pool (database/sql não faz pin de conexão),
@@ -103,6 +140,12 @@ func (d *Dispatcher) Run(ctx context.Context) {
 // entrega duplicada é o custo aceito de um outbox, e o client recarrega por REST
 // de qualquer forma.)
 func (d *Dispatcher) PollOnce(ctx context.Context) (int, error) {
+	if !DispatchEnabled() {
+		// Sem log: quem chama isto em loop já é o Run, e ele emite a explicação
+		// uma vez no boot. O caminho de log aqui viria inundado a cada 200ms.
+		return 0, nil
+	}
+
 	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -116,8 +159,13 @@ func (d *Dispatcher) PollOnce(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	if !locked {
-		// Réplica não-eleita não é erro: é o desenho. A tentativa é de graça
-		// (`try_`), então custa uma query a cada 200ms.
+		// Lock ocupado não é erro: é o desenho. A tentativa é de graça (`try_`),
+		// então custa uma query a cada 200ms.
+		//
+		// "Perdeu o lock" NÃO é "não é o dono do /realtime": este lock só
+		// serializa dispatchers, e o perdedor volta a tentar no ciclo seguinte.
+		// Quem resolve a posse do realtime é o gate `WS_DISPATCH`, que impede o
+		// dispatcher sem dono de existir (gate.go).
 		return 0, nil
 	}
 
@@ -189,6 +237,13 @@ func (d *Dispatcher) publish(ctx context.Context, tx *sql.Tx, id, typ, room, raw
 	// Retorno ignorado de propósito: zero assinantes não é erro. O dispatcher
 	// marca publicado assim mesmo (o Node também) — o client que precisa do
 	// evento recarrega por REST, e não existe redelivery.
+	//
+	// Isto é seguro por causa do gate, não apesar dele: com `WS_DISPATCH`
+	// ligada, "ninguém assinando" quer dizer "nenhum cliente nesta room agora"
+	// (o garçom entre e o próximo evento cai). O caminho que o torna perigoso é
+	// o inverso — um processo que não é o dono publicando, em que o zero
+	// assinante significa "os clientes estão no outro servidor" e o evento
+	// morre marcado como publicado. Daí o gate existir em gate.go.
 	d.hub.BroadcastToRoom(room, frame)
 	markPublished()
 }
