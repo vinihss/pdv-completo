@@ -92,10 +92,66 @@ jobs:
           PR="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
           TITULO="$(printf '%s' "$PR" | jq -r '.title // ""')"
           CORPO="$(printf '%s' "$PR" | jq -r '.body // ""')"
-          SQUASH_MSG="$(printf '%s' "$PR" | jq -r '.squash_merge_commit_message // ""')"
           N_COMMITS="$(gh pr view "${PR_NUMBER}" --repo "${REPO}" --json commits --jq '.commits | length')"
           AUTO_MERGE="$(gh pr view "${PR_NUMBER}" --repo "${REPO}" \
             --json autoMergeRequest --jq '.autoMergeRequest.enabledAt // ""')"
+
+          # ----------------------------------------------------------------
+          # A CONFIGURAÇÃO DE SQUASH DO REPOSITÓRIO — E ELA ESTÁ NO MEIO
+          # ----------------------------------------------------------------
+          # Não basta o título: é preciso saber de ONDE sai a mensagem do
+          # commit de squash. São dois campos independentes na API do repo:
+          #
+          #   squash_merge_commit_title    -> de onde vem a PRIMEIRA LINHA
+          #   squash_merge_commit_message  -> de onde vem o CORPO
+          #
+          # Estado MEDIDO deste repositório (2026-10-05, `gh api repos/:owner/:repo`):
+          #   squash_merge_commit_title   = COMMIT_OR_PR_TITLE
+          #   squash_merge_commit_message = COMMIT_MESSAGES
+          #
+          # Isto é: com UM commit, a primeira linha do squash é a MENSAGEM
+          # DESTE COMMIT (o título da PR nem entra); com DOIS ou mais, é o
+          # título da PR. Conferido em quatro PRs: #89 (8 commits), #90 (2),
+          # #85 (10) e #92 (2) — nos quatro, a primeira linha do squash foi
+          # o título da PR. Por isso título em Conventional Commits é
+          # condição NECESSÁRIA e não suficiente, e este gate não pode
+          # prometer o que a configuração do repo não promete.
+          #
+          # A PR pode sobrescrever os dois campos; quando não sobrescreve, os
+          # campos nem vêm no JSON da PR. Ordem: PR primeiro, repo depois.
+          #
+          # E o "repo depois" tem um senão medido: o `github.token` do PR NÃO
+          # enxerga esses dois campos (a API responde null), porque são
+          # metadados de configuração de merge. Por isso há um PADRÃO
+          # declarado aqui, igual ao valor medido — a API só serve para
+          # confirmar quando ela responde. Se um dia alguém mudar a
+          # configuração de squash do repositório, este é o lugar a atualizar
+          # (e o job imprime a fonte que usou, no log).
+          # ----------------------------------------------------------------
+          PADRAO_TITULO='COMMIT_OR_PR_TITLE'
+          PADRAO_CORPO='COMMIT_MESSAGES'
+
+          FONTE_TITULO="$(printf '%s' "$PR" | jq -r '.squash_merge_commit_title // ""')"
+          FONTE_CORPO="$(printf '%s' "$PR" | jq -r '.squash_merge_commit_message // ""')"
+          FONTE="config da PR"
+          if [[ -z "$FONTE_TITULO" || -z "$FONTE_CORPO" ]]; then
+            FONTE_TITULO="$(printf '%s' "$PR" | jq -r '.squash_merge_commit_title // ""')"
+            FONTE_CORPO="$(printf '%s' "$PR" | jq -r '.squash_merge_commit_message // ""')"
+            if [[ -z "$FONTE_TITULO" || -z "$FONTE_CORPO" ]]; then
+              REPO_CFG="$(gh api "repos/${REPO}")"
+              FONTE_TITULO="$(printf '%s' "$REPO_CFG" | jq -r '.squash_merge_commit_title // ""')"
+              FONTE_CORPO="$(printf '%s' "$REPO_CFG" | jq -r '.squash_merge_commit_message // ""')"
+              FONTE="config do repositório"
+            fi
+          fi
+          if [[ -z "$FONTE_TITULO" ]]; then
+            FONTE_TITULO="$PADRAO_TITULO"
+            FONTE="${FONTE} (padrão medido deste repo)"
+          fi
+          if [[ -z "$FONTE_CORPO" ]]; then
+            FONTE_CORPO="$PADRAO_CORPO"
+            FONTE="${FONTE} (padrão medido deste repo)"
+          fi
 
           # ----------------------------------------------------------------
           # AS REGRAS, COPIADAS DE ONTEM — não reescritas aqui.
@@ -121,33 +177,26 @@ jobs:
           # medido e explicado no aviso do fim do job.
           RE="^($TIPOS)(\([^()]+\))?(!)?: .+"
 
-          if [[ -z "${TITULO//[[:space:]]/}" ]]; then
-            echo "::error title=Título vazio::A PR #${PR_NUMBER} não tem título. O squash usa o título como mensagem do commit: sem título não há commit Conventional, logo não há tag."
-            exit 1
-          fi
-
           # ----------------------------------------------------------------
           # O TÍTULO REALMENTE VAI PARA O COMMIT SQUASH?
           #
-          # Nem sempre. A mensagem de squash configurada no repositório
-          # decide, e os valores possíveis mudam o que este gate pode
-          # prometer:
+          # Depende de `FONTE_TITULO` (medido acima):
           #
-          #   PR_TITLE                 -> o título sempre governa (o padrão
-          #                                "Pull request title").
-          #   COMMIT_OR_PR_TITLE       -> com 1 commit, vale a mensagem
-          #                                daquele commit; com 2+, vale o
-          #                                título.
-          #   BLANK / mensagens dos commits -> nunca vale o título.
+          #   PR_TITLE           -> o título sempre governa. Com 1 commit
+          #                        ou com 10, a primeira linha do squash é o
+          #                        título da PR.
+          #   COMMIT_OR_PR_TITLE -> com 1 commit, governa a MENSAGEM do
+          #                        commit; com 2+, governa o título da PR.
+          #                        (é o estado atual deste repositório)
           #
           # Quando o título não governa, FALHAR aqui seria alarme falso: a
-          # mensagem real é a do commit, e quem valida a do commit é o job
-          # `commitlint` acima, no MESMO workflow. Nesse caso o gate avisa e
-          # explica, em vez de barrar a PR por uma linha que não vai virar
-          # commit.
+          # linha que vira commit é a mensagem do commit, e quem valida a do
+          # commit é o job `commitlint` acima, no MESMO workflow. Nesse caso
+          # o gate avisa e explica, em vez de barrar a PR por uma linha que
+          # não vai virar commit.
           # ----------------------------------------------------------------
-          case "${SQUASH_MSG^^}" in
-            '' | PR_TITLE)
+          case "${FONTE_TITULO^^}" in
+            PR_TITLE)
               TITULO_GOVERNA=true
               ;;
             COMMIT_OR_PR_TITLE)
@@ -162,33 +211,46 @@ jobs:
               ;;
           esac
 
+          echo "[gate] config do squash: ${FONTE_TITULO}/${FONTE_CORPO} (fonte: ${FONTE}) | commits na PR: ${N_COMMITS} | o título governa: ${TITULO_GOVERNA}"
+          echo "[gate] título: ${TITULO}"
+
           if [[ ! "$TITULO" =~ $RE ]]; then
-            # Mensagem de squash que não é o título: aviso, não barreira.
+            # O título não vira commit: aviso, não barreira.
             if [[ "$TITULO_GOVERNA" == false ]]; then
-              echo "::warning title=Título fora do padrão, mas não é ele que vira commit::A PR #${PR_NUMBER} usa mensagem de squash '${SQUASH_MSG:-<vazio>}' com ${N_COMMITS} commit(s): o commit vai levar a mensagem do(s) commit(s), que o job 'Validate Conventional Commits' deste mesmo workflow já checou. Para o título ser a mensagem do squash — e auditable por este gate — defina a mensagem de squash como 'Pull request title' nas Settings da repo."
+              echo "::warning title=Título fora do padrão, mas não é ele que vira commit::A PR #${PR_NUMBER} tem ${N_COMMITS} commit(s) e a config do repo usa 'squash_merge_commit_title=${FONTE_TITULO}': a primeira linha do commit de squash será a mensagem do commit, não o título da PR. A mensagem do commit já é validada pelo job 'Validate Conventional Commits' deste mesmo workflow. Para o TÍTULO ser a mensagem do squash — e auditável por este gate — mude a config para 'Pull request title' nas Settings do repositório."
               exit 0
             fi
 
+            # Título vazio é caso próprio: o GitHub aceita PR sem título, e
+            # sem título não há nem regex para casar nemConventional Commit
+            # para o release entender.
+            if [[ -z "${TITULO//[[:space:]]/}" ]]; then
+              echo "::error title=Título vazio::A PR #${PR_NUMBER} não tem título, e o título é a primeira linha do commit de squash. Sem ele não há mensagem para o release entender e nenhuma tag sai. Dê um título no formato tipo(escopo): descrição."
+              exit 1
+            fi
+
             # Caso comum de quem já sabe a regra e escreve no lugar errado: o
-            # Conventional Commit está na PRIMEIRA LINHA DO CORPO. O corpo não
-            # vira a mensagem do squash, então isso não salva nada — e é
+            # Conventional Commit está na PRIMEIRA LINHA DO CORPO. O corpo do
+            # PR não entra na mensagem do squash (o corpo do squash vem das
+            # mensagens dos commits, se vier), então isso não salva nada — e é
             # justamente por isso que o erro repete "renomeie o título".
             PRIMEIRA_LINHA_CORPO="$(printf '%s\n' "$CORPO" | grep -m1 -v '^[[:space:]]*$' || true)"
             if [[ -n "$PRIMEIRA_LINHA_CORPO" && "$PRIMEIRA_LINHA_CORPO" =~ $RE ]]; then
               echo "  OBSERVAÇÃO: a primeira linha do CORPO ('${PRIMEIRA_LINHA_CORPO}')"
-              echo "  parece um Conventional Commit, mas o corpo não entra na mensagem"
-              echo "  do squash. O que vale mesmo é o TÍTULO."
+              echo "  parece um Conventional Commit, mas o corpo da PR não entra na"
+              echo "  mensagem do squash. O que vale é o TÍTULO."
               echo
             fi
 
             echo "::error title=Título fora de Conventional Commits::A PR #${PR_NUMBER} precisa de um título no formato tipo(escopo): descrição. O título atual é: ${TITULO}"
             echo
             echo "POR QUE ESTE JOB EXISTE"
-            echo "  O merge squash usa o TÍTULO da PR como mensagem do commit. O"
-            echo "  Semantic Release só publica tag se essa mensagem for um"
-            echo "  Conventional Commit — e quando não é, o run fica VERDE, o"
-            echo "  merge acontece, e nenhuma tag sai. Foi o PR #89: 31 arquivos"
-            echo "  e 5.586 linhas na main, zero release, zero aviso."
+            echo "  Com ${N_COMMITS} commit(s), a primeira linha do commit de squash é"
+            echo "  a MENSAGEM do commit; com 2 ou mais, é o TÍTULO desta PR. Nos dois"
+            echo "  casos o Semantic Release só publica tag se a linha for um"
+            echo "  Conventional Commit — e quando não é, o run fica VERDE, o merge"
+            echo "  acontece, e nenhuma tag sai. Foi o PR #89: 31 arquivos e 5.586"
+            echo "  linhas na main, zero release, zero aviso."
             echo
             echo "COMO RESOLVER (renomeie o título, não o commit)"
             echo "  gh pr edit ${PR_NUMBER} --title 'feat(escopo): descrição'"
@@ -231,23 +293,22 @@ jobs:
           if [[ -n "$BREAKING" ]]; then
             # MEDIDO com o próprio `commit-analyzer` do repo (mesmas
             # releaseRules do .releaserc.json, mesmo preset
-            # conventionalcommits): o `!` no cabeçalho NÃO publica major, e
-            # na verdade não publica NADA —
+            # conventionalcommits): o `!` no cabeçalho NÃO publica major, e na
+            # verdade não publica NADA —
             #   'feat(api)!: quebra a API'  ->  type=null  ->  release=undefined
             # O preset `conventionalcommits` não casa o `!` no headerPattern,
-            # então a linha inteira sai com type=null e nenhuma regra casa. E
-            # o `{ "breaking": true, "release": "major" }` do .releaserc.json só
-            # vale com uma NOTA `BREAKING CHANGE:` no corpo do commit — nota
-            # que o squash pelo título não carrega, porque o título não tem
-            # corpo. Aviso e não barreira: `!` é Conventional Commit válido
-            # (o commitlint aceita), só que aqui ele não faz o que o autor
-            # imagina.
-            echo "::warning title='!' não publica major::'${TITULO}' tem '!', mas neste repo isso NÃO gera tag nenhuma (medido: o commit-analyzer devolve release=undefined para qualquer título com '!', porque o preset conventionalcommits não lê o '!' e o type sai null). Major só sai com uma nota 'BREAKING CHANGE:' no CORPO do commit — e o squash pelo título não traz corpo. Deixe o título como 'feat(escopo): descrição' e registre a incompatibilidade no corpo da PR e no CHANGELOG."
+            # então a linha inteira sai com type=null e nenhuma regra casa.
+            # E o `{ "breaking": true, "release": "major" }` do .releaserc.json
+            # só vale com uma NOTA `BREAKING CHANGE:` — que o analyzer lê do
+            # CORPO do commit.
+            if [[ "$TITULO_GOVERNA" == true ]]; then
+              echo "::warning title='!' não publica major::'${TITULO}' tem '!', mas neste repo isso NÃO gera tag nenhuma (medido: o commit-analyzer devolve release=undefined para qualquer título com '!', porque o preset conventionalcommits não lê o '!' e o type sai null). Major só sai com uma nota 'BREAKING CHANGE:' no CORPO do commit. Deixe o título como 'feat(escopo): descrição' e ponha a incompatibilidade no corpo do commit (o corpo do squash vem de '${FONTE_CORPO}' neste repositório)."
+            fi
             echo
-            echo "  Se a intenção era mesmo breaking: renomeie para"
-            echo "  'feat(escopo): descrição' (aí sai minor, que é o que esta"
-            echo "  mudança de fato é para este repo) e deixe a incompatibilidade"
-            echo "  escrita no corpo da PR."
+            echo "  Detalhe do '!': a nota que dispara o major é 'BREAKING CHANGE:'"
+            echo "  no corpo do COMMIT, não o '!' no cabeçalho. Quem valida o"
+            echo "  cabeçalho do commit é o outro job desta PR; este aviso existe"
+            echo "  porque o '!' no título passa em todo mundo e não publica nada."
             echo
           elif [[ "$TIPO" =~ ^($TIPOS_SEM_TAG)$ ]]; then
             echo "::warning title=Tipo não publica tag::'${TITULO}' é válido como Conventional Commit, mas o .releaserc.json marca '${TIPO}' com \"release\": false — ESTA LINHA NÃO VAI GERAR TAG. Se a intenção era entregar, use feat (minor), fix/perf (patch)."
