@@ -188,4 +188,25 @@ export const Errors = {
   // (`invalid_signature`), porque é exatamente o mesmo caso.
   invalidSignature: () =>
     new AppError("invalid_signature", 401, "Assinatura do webhook inválida."),
+  // ---------- Canal interno com o serviço Go (`pagarme-webhook/`) ----------
+  //
+  // O status destes três NÃO é livre: é a tabela que o drainer Go usa para
+  // decidir entre reenviar com backoff, marcar `ignored` ou jogar na DLQ.
+  // Ver `pagarme-webhook/internal/queue/queue.go:tratarErro`.
+  //
+  // Token do canal interno. 401 (e não 403) para AusENTE e para ERRADO com a
+  // mesma resposta, para não revelar qual dos dois foi. O serviço Go trata
+  // 401/403 como DLQ imediata: repetir com o mesmo token nunca funciona, e o
+  // log dele cita `PAGARME_INTERNAL_TOKEN` — que é a única pista que o
+  // operador tem.
+  invalidInternalToken: () =>
+    new AppError("invalid_internal_token", 401, "Token do canal interno inválido."),
+  // A carga não é aplicável: `charge.status` fora do vocabulário, `charge`
+  // ausente, id do gateway faltando. 422 e NÃO 400/401 de propósito — o Go
+  // distingue 422 (conteúdo inválido, DLQ imediata) de 401 (token, DLQ
+  // imediata) por motivo de diagnóstico, e responder 401 aqui transformaria
+  // um erro de conteúdo em perda permanente de evento com a pista errada no
+  // log. 409 também não serve: aqui não há conflito de estado, é conteúdo.
+  invalidInternalCharge: (reason: string, details?: unknown) =>
+    new AppError("invalid_internal_charge", 422, `Cobrança recusada: ${reason}`, details),
 };

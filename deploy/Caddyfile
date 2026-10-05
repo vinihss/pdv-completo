@@ -186,6 +186,24 @@
 		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
 	}
 
+	# ---------- Canal interno: recusar na borda ----------
+	#
+	# `/internal/*` (o canal com o serviço `pagarme-webhook/`) NÃO é exposto:
+	# o Go fala com o backend Node pela rede interna (`NODE_INTERNAL_URL`,
+	# default `http://backend:3000`), sem passar por aqui.
+	#
+	# Este bloco existe porque, sem ele, o caminho cai no `handle` final e é
+	# servido pelo PWA — o que faria um `/internal/...` da internet devolver o
+	# `index.html` com 200 em vez de recusar. Um 404 explícito é a resposta
+	# honesta e impede que um catch-all futuro (ou um `handle /api/*` mais
+	# amplo) faça proxy disto para a internet por acidente.
+	#
+	# NÃO afeta o `/internal/caddy-on-demand-tls`: o Caddy o consulta com
+	# `ask`, que fala direto com o upstream e não passa pelo roteamento do site.
+	handle /internal/* {
+		respond 404
+	}
+
 	# Resto: frontend estático (PWA)
 	handle {
 		reverse_proxy {$PDV_FRONTEND_UPSTREAM:frontend:80}

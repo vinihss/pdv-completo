@@ -249,6 +249,23 @@ linha registrada pela pessoa). Detalhe em `docs/19-pagarme.md`.
 | POST | `/payments/:paymentId/cancel` | cashier, manager | Cancelar cobrança pendente |
 | POST | `/payments/:paymentId/refund` | manager | Estorno parcial ou integral |
 
+### Canal interno (`pagarme-webhook/`)
+
+Não é API de produto: é o único sentido de comunicação entre o backend Node e o
+serviço Go que drena a inbox. O Go **pergunta**; o Node faz a transação
+(`applyCharge`, `bridgePaidToOrder`, `audit_log`, `outbox_event`). Auth por token
+opaco no header `X-Internal-Token` (alias: `Authorization: Bearer`), comparado em
+tempo constante. Sem `PAGARME_INTERNAL_TOKEN` no servidor, tudo é recusado com 401.
+
+O Caddy **não** expõe `/internal/*` (responde 404): o Go chega pela rede interna,
+via `NODE_INTERNAL_URL`. Os status são contrato — o drainer Go decide entre
+reenviar, `ignored` e DLQ a partir deles (200/401/404/422/5xx).
+
+| Método | Path | Auth | Descrição |
+|---|---|---|---|
+| POST | `/internal/pagarme/events/:eventRowId/apply` | token | Aplica o evento da inbox (`:eventRowId` = `payment_event.id` local) |
+| POST | `/internal/pagarme/charges/apply` | token | Aplica a cobrança relida do gateway (reconciliação) |
+
 ## Realtime (WebSocket)
 
 | Método | Path | Papel | Descrição |

@@ -1,9 +1,9 @@
-import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, afterAll, beforeEach, afterEach, describe, expect, it } from "vitest";
 import crypto from "node:crypto";
 import { api, seedFixture, resetState, closeTestApp, cashier, manager, waiter, FIXTURE, raw } from "./helpers.js";
 import { db } from "../src/infra/db/client.js";
-import { eq } from "drizzle-orm";
-import { payments, paymentEvents, paymentRefunds, orderPayments, storeSettings } from "../src/infra/db/schema.js";
+import { and, eq } from "drizzle-orm";
+import { payments, paymentEvents, paymentRefunds, orderPayments, storeSettings, auditLog } from "../src/infra/db/schema.js";
 import {
   canTransition,
   isTerminal,
@@ -16,6 +16,7 @@ import { mapStatus, mapPaymentMethod, toCents, fromCents, buildCreateOrderBody, 
 import { verifyWebhookSignature } from "../src/integrations/pagarme/webhook-signature.js";
 import { setPaymentGatewayForTests, createPaymentUsecase, requestRefundUsecase, reconcilePendingPaymentsUsecase } from "../src/application/payment/payment.usecases.js";
 import { drainInboxOnce, countDeadLetteredEvents } from "../src/integrations/pagarme/worker.js";
+import { setInternalTokenForTests } from "../src/http/routes/pagarme-internal.routes.js";
 import { PaymentGatewayError, type GatewayCharge, type PaymentGateway } from "../src/domain/payment.js";
 
 const SECRET = "sk_test_pagarme_secret_de_teste";
@@ -498,5 +499,221 @@ describe("inbox — retry com backoff e DLQ (spec §23)", () => {
 
     // E, uma vez na DLQ, o drain não ressuscita o evento.
     expect(await drainInboxOnce()).toBe(0);
+  });
+});
+
+describe("canal interno com o serviço Go (pagarme-webhook)", () => {
+  const TOKEN = "tok_interno_de_teste";
+  const ROTA_EVENTO = "/internal/pagarme/events/";
+  const ROTA_CARGA = "/internal/pagarme/charges/apply";
+
+  beforeAll(() => seedFixture());
+  afterAll(() => closeTestApp());
+  beforeEach(async () => {
+    await resetState();
+    await enablePagarme();
+  });
+  afterEach(() => setInternalTokenForTests(undefined));
+
+  /** POST no canal interno com o header canônico. */
+  const post = (url: string, body: unknown, token: string | null = TOKEN) =>
+    api("post", url, { body, headers: token ? { "x-internal-token": token } : {} });
+
+  /** Cobrança paga no dialeto do Go, apontando para a cobrança local criada. */
+  const chargePago = (orderId: string) => ({
+    providerOrderId: "or_test_123",
+    providerPaymentId: "pay_test_123",
+    status: "paid",
+    amount: 19,
+    paidAmount: 19,
+  });
+
+  /** Cria a cobrança local (pending) e devolve o id. */
+  async function cobrancaPendente() {
+    const gateway = makeGateway();
+    setPaymentGatewayForTests(gateway);
+    const orderId = await openOrderWithItems();
+    const created = await createPaymentUsecase({ orderId, method: "pix" });
+    return { orderId, paymentId: created.id };
+  }
+
+  // ---------- token ----------
+
+  it("sem token é 401", async () => {
+    const res = await post(ROTA_CARGA, { source: "reconciliation", charge: chargePago("x") }, null);
+    expect(res.status).toBe(401);
+  });
+
+  it("token errado é 401 — e a resposta não distingue do ausente", async () => {
+    const errado = await post(ROTA_CARGA, { source: "reconciliation", charge: chargePago("x") }, "token-errado");
+    const ausente = await post(ROTA_CARGA, { source: "reconciliation", charge: chargePago("x") }, null);
+    expect(errado.status).toBe(401);
+    expect(ausente.status).toBe(401);
+    // Mesmo corpo: não diz qual dos dois foi, nem se o token existe.
+    expect(errado.body).toBe(ausente.body);
+  });
+
+  it("token correto é aceito", async () => {
+    await cobrancaPendente();
+    const res = await post(ROTA_CARGA, { source: "reconciliation", charge: chargePago("x") });
+    expect(res.status).toBe(200);
+  });
+
+  it("Authorization: Bearer é aceito como alias do header canônico", async () => {
+    await cobrancaPendente();
+    const res = await api("post", ROTA_CARGA, {
+      body: { source: "reconciliation", charge: chargePago("x") },
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("sem PAGARME_INTERNAL_TOKEN no servidor, recusa com 401 (nunca aceita)", async () => {
+    setInternalTokenForTests(null);
+    await cobrancaPendente();
+    const res = await post(ROTA_CARGA, { source: "reconciliation", charge: chargePago("x") }, "qualquer-coisa");
+    expect(res.status).toBe(401);
+  });
+
+  // ---------- validação ----------
+
+  it("charge.status fora do vocabulário é 422 (e não 500)", async () => {
+    await cobrancaPendente();
+    const res = await post(ROTA_CARGA, {
+      source: "reconciliation",
+      charge: { providerOrderId: "or_test_123", status: "nao_existe", amount: 19 },
+    });
+    expect(res.status).toBe(422);
+    expect(res.json.error.code).toBe("invalid_internal_charge");
+  });
+
+  it("charge ausente é 422, e source inválida é 422", async () => {
+    await cobrancaPendente();
+    expect((await post(ROTA_CARGA, { source: "reconciliation" })).status).toBe(422);
+    expect(
+      (await post(ROTA_CARGA, { source: "outro", charge: chargePago("x") })).status,
+    ).toBe(422);
+  });
+
+  it("paidAmount ausente continua ausente (não vira 0)", async () => {
+    const { paymentId } = await cobrancaPendente();
+    await post(ROTA_CARGA, {
+      source: "reconciliation",
+      // sem `paidAmount`: o `applyCharge` guarda `!= null && > 0`, então
+      // ausente tem de chegar como `undefined`, não como 0.
+      charge: { providerOrderId: "or_test_123", status: "paid", amount: 19 },
+    });
+    const row = await db.query.payments.findFirst({ where: eq(payments.id, paymentId) });
+    expect(row?.status).toBe("paid");
+    expect(row?.amount).toBe(19);
+  });
+
+  // ---------- source escolhe a guarda ----------
+
+  it("source reconciliation recusa paid sobre refunded: 200 com applied:false", async () => {
+    const { paymentId } = await cobrancaPendente();
+    await db.update(payments).set({ status: "refunded" }).where(eq(payments.id, paymentId));
+
+    const res = await post(ROTA_CARGA, { source: "reconciliation", charge: chargePago("x") });
+    expect(res.status).toBe(200);
+    expect(res.json.applied).toBe(false);
+    expect(res.json.reason).toBe("no_transition");
+
+    // O dinheiro não foi revertido: segue refunded.
+    const row = await db.query.payments.findFirst({ where: eq(payments.id, paymentId) });
+    expect(row?.status).toBe("refunded");
+  });
+
+  it("source event grava direto (mesmo estado que o webhook de hoje)", async () => {
+    const { orderId, paymentId } = await cobrancaPendente();
+    const [ev] = await db
+      .insert(paymentEvents)
+      .values({
+        provider: "pagarme",
+        eventId: "evt_int",
+        eventType: "order.paid",
+        payload: "{}",
+        status: "received",
+        createdAt: new Date().toISOString(),
+      })
+      .returning();
+
+    const res = await post(`${ROTA_EVENTO}${ev.id}/apply`, {
+      source: "event",
+      eventType: "order.paid",
+      charge: chargePago(orderId),
+    });
+    expect(res.status).toBe(200);
+    expect(res.json.applied).toBe(true);
+    expect(res.json.status).toBe("paid");
+
+    const row = await db.query.payments.findFirst({ where: eq(payments.id, paymentId) });
+    expect(row?.status).toBe("paid");
+
+    // O evento foi LIGADO à cobrança...
+    const ligado = await db.query.paymentEvents.findFirst({ where: eq(paymentEvents.id, ev.id) });
+    expect(ligado?.paymentId).toBe(paymentId);
+    // ... mas `status`/`attempts`/`next_attempt_at` são do Go, não nossos.
+    expect(ligado?.status).toBe("received");
+    expect(ligado?.attempts).toBe(0);
+    expect(ligado?.nextAttemptAt).toBeNull();
+  });
+
+  it("404 quando não casa com cobrança nenhuma", async () => {
+    await cobrancaPendente();
+    const res = await post(ROTA_CARGA, {
+      source: "reconciliation",
+      charge: { providerOrderId: "or_que_nao_existe", status: "paid", amount: 19 },
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("404 quando a linha da inbox não existe", async () => {
+    await cobrancaPendente();
+    const res = await post(`${ROTA_EVENTO}uuid-que-nao-existe/apply`, {
+      source: "event",
+      charge: chargePago("x"),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  // ---------- idempotência (at-least-once) ----------
+
+  it("at-least-once: reentregar o MESMO evento não duplica order_payment nem audit_log", async () => {
+    const { orderId } = await cobrancaPendente();
+    const [ev] = await db
+      .insert(paymentEvents)
+      .values({
+        provider: "pagarme",
+        eventId: "evt_at_least_once",
+        eventType: "order.paid",
+        payload: "{}",
+        status: "received",
+        createdAt: new Date().toISOString(),
+      })
+      .returning();
+    const corpo = { source: "event", eventType: "order.paid", charge: chargePago(orderId) };
+
+    // A primeira entrega aplica. A segunda é o "a transação do Node commitou,
+    // o bookkeeping do Go falhou" que a entrega at-least-once representa.
+    const primeira = await post(`${ROTA_EVENTO}${ev.id}/apply`, corpo);
+    const segunda = await post(`${ROTA_EVENTO}${ev.id}/apply`, corpo);
+    expect(primeira.status).toBe(200);
+    expect(segunda.status).toBe(200);
+    expect(primeira.json.applied).toBe(true);
+    expect(segunda.json.status).toBe("paid");
+
+    // Uma linha só em `order_payment`: a ponte é idempotente por
+    // `(method, amount)`.
+    const linhas = await db.select().from(orderPayments).where(eq(orderPayments.orderId, orderId));
+    expect(linhas).toHaveLength(1);
+
+    // E UM registro de auditoria: o `logAction` só roda quando o status muda
+    // de fato, e a segunda entrega é `alvo === atual` (no-op no `applyCharge`).
+    const logs = await db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.action, "payment_status_changed"), eq(auditLog.orderId, orderId)));
+    expect(logs).toHaveLength(1);
   });
 });

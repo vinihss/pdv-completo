@@ -26,6 +26,7 @@ import { whatsappWebhookRoutes } from "./routes/whatsapp-webhook.routes.js";
 import { ifoodRoutes } from "./routes/ifood.routes.js";
 import { paymentRoutes } from "./routes/payment.routes.js";
 import { pagarmeWebhookRoutes } from "./routes/pagarme-webhook.routes.js";
+import { pagarmeInternalRoutes } from "./routes/pagarme-internal.routes.js";
 import { whatsappRoutes } from "./routes/whatsapp.routes.js";
 import { printRoutes } from "./routes/print.routes.js";
 import { alertRoutes } from "./routes/alert.routes.js";
@@ -140,6 +141,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Webhook do Pagar.me: SEM autenticação (quem se prova é a assinatura), então
   // fica registrado à parte do paymentRoutes, que exige sessão.
   await app.register(pagarmeWebhookRoutes);
+  // Canal interno com o serviço Go `pagarme-webhook/`: o Go pergunta, o Node
+  // faz a transação. Auth é token de serviço (não JWT), e o Caddy não roteia
+  // `/internal/*` — o Go chega pela rede interna. Ver o doc comment do arquivo.
+  await app.register(pagarmeInternalRoutes);
   await app.register(whatsappRoutes);
   await app.register(printRoutes);
   await app.register(alertRoutes);
