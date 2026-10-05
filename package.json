@@ -13,6 +13,15 @@
     "semantic-release": "^24.2.9"
   },
   "scripts": {
-    "tauri": "tauri"
-  }
+    "tauri": "tauri",
+    "dev:pedido": "npm run dev --workspace=@pdv/pedido-public",
+    "build:pedido": "npm run build --workspace=@pdv/pedido-public",
+    "preview:pedido": "npm run preview --workspace=@pdv/pedido-public",
+    "deploy:pedido": "./deploy/deploy-pedido-public.sh"
+  },
+  "workspaces": [
+    "frontend",
+    "backend",
+    "apps/*"
+  ]
 }

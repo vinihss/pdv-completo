@@ -1,0 +1,262 @@
+# ============================================================
+# Caddy — proxy reverso com HTTPS automático (Let's Encrypt).
+#
+# Domínios:
+#   umamisushiarte.com.br      → redirect para o WhatsApp (link wa.me)
+#   app.umamisushiarte.com.br  → aplicação (backend + frontend)
+#
+# Todos precisam de registro DNS tipo A apontando para o IP do
+# servidor, senão o Let's Encrypt não consegue validar o desafio
+# HTTP-01 e nenhum certificado é emitido (o Caddy fica servindo
+# apenas HTTP). Ver a seção "DNS obrigatório" do deploy/README.md.
+# ============================================================
+
+{
+	on_demand_tls {
+		# O Caddy só emite cert sob demanda se este endpoint liberar o domínio.
+		ask http://{$PDV_BACKEND_UPSTREAM:backend:3000}/internal/caddy-on-demand-tls
+	}
+}
+
+# Rotas da aplicação, compartilhadas pelos sites que servem o PDV.
+# `handle` faz o roteamento por caminho; o resto vai pro frontend.
+(site) {
+	# API REST
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
+	}
+
+	# WebSocket em tempo real
+	#
+	# Upstream próprio (`PDV_WS_UPSTREAM`), não o do backend: o realtime tem
+	# DUAS implementações possíveis — o `WsGateway` do Node (o que está no ar)
+	# e o gateway em Go (`ws-gateway/`, ver deploy/README.md §"Gateway
+	# WebSocket em Go"). Quem decide é o `caddy-assemble.sh`, que resolve
+	# `WS_BACKEND` (default `node`) e o ponteiro `state/active-upstream`.
+	# O default deste bloco é o backend Node de propósito: trocar de
+	# implementação não pode virar tráfego por acidente.
+	#
+	# Continua SENDO o mesmo bloco para `/realtime` e `/realtime/public`: se
+	# algum dia precisarem ser separados, o `stream_close_delay` tem que ir
+	# nos dois, senão o reload volta a derrubar as telas do salão.
+	handle /realtime* {
+		reverse_proxy {$PDV_WS_UPSTREAM:backend:3000} {
+			# ---------- Deploy sem downtime ----------
+			# O Caddy fecha TODOS os WebSockets em qualquer reload de config,
+			# inclusive em rota que não mudou (limitação documentada em
+			# caddyserver/caddy#6420 e #7222). O `stream_close_delay` adia esse
+			# fechamento: quem já estava conectado continua na instância antiga
+			# durante o drain e só se reconecta — com resync via REST — quando
+			# ela é de fato parada. Sem esta linha, todo reload derrubaria
+			# todas as telas do salão.
+			# Não há `lb_retries` aqui nem em /api: o gap de HTTP zero vem da
+			# ordem do switch (a instância nova só entra no proxy depois do
+			# healthcheck), não de retentativa — e repetir POST repetiria
+			# pagamento.
+			stream_close_delay 5m
+		}
+	}
+
+	# Fotos de produto servidas pelo backend
+	handle /uploads/* {
+		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
+	}
+
+	# ---------- Auto-update do app desktop ----------
+	# O app Windows pede o manifesto em
+	#   /updates/desktop/{{target}}/{{arch}}/{{current_version}}
+	# e o plugin (Rust) valida a assinatura Ed25519 antes de baixar. Duas
+	# peças, e a separação é o ponto:
+	#   /updates/desktop/... → sempre o MESMO latest.json (o manifesto da
+	#     versão mais recente). A URL é "dinâmica" só porque o plugin
+	#     interpola a versão atual; o conteúdo não muda por causa disso.
+	#     Assim um app antigo continua enxergando o manifesto novo sem
+	#     republicar um arquivo por versão instalada.
+	#   /updates/files/... → os artefatos (installer .exe, .exe.zip, .sig).
+	#     O .zip é o que o plugin baixa; o .exe fica junto para download
+	#     manual e o .sig para auditoria.
+	# O diretório é populado pelo CI (job build-desktop) via SSH — ver
+	# .github/workflows/deploy-on-tag.yml. Bind mount somente-leitura.
+	#
+	# ⚠️  NÃO mude o prefixo `/updates/desktop/` — é o endpoint que o app v1
+	# (frontend/src-tauri, em produção) tem hardcoded no
+	# `plugins.updater.endpoints`. Mudar quebra o auto-update de tudo que
+	# está instalado.
+	handle /updates/desktop/*/*/* {
+		rewrite * /latest.json
+		file_server {
+			root /srv/pdv-updates
+		}
+	}
+
+	# ---------- Auto-update da família standalone ----------
+	# Os apps novos (PDV Caixa, KDS Cozinha) são crates independentes com
+	# updater próprio. Cada um tem seu manifesto e seus artefatos em um
+	# diretório separado — se PDV e KDS publicassem no mesmo latest.json,
+	# um consumiria o update do outro (o updater do PDV baixaria o
+	# instalador do KDS e instalaria o app errado).
+	#
+	# O PDV pede o manifesto em
+	#   /updates/caixa/desktop/{{target}}/{{arch}}/{{current_version}}
+	# (ver `plugins.updater.endpoints` em standalone-pdv/tauri.conf.json).
+	# O KDS ainda não tem updater, mas o layout já é o mesmo para quando
+	# tiver — o custo de separar agora é zero, o de juntar depois é um
+	# update quebrado em produção.
+	#
+	# O rewrite é relativo ao root (/srv/pdv-updates), então
+	# /caixa/latest.json → deploy/updates/caixa/latest.json no host.
+	handle /updates/caixa/*/*/* {
+		rewrite * /caixa/latest.json
+		file_server {
+			root /srv/pdv-updates
+		}
+	}
+
+	handle /updates/kds/*/*/* {
+		rewrite * /kds/latest.json
+		file_server {
+			root /srv/pdv-updates
+		}
+	}
+
+	# Os artefatos de TODOS os apps (v1 e família) vivem sob
+	# /updates/files/<app>/windows-x86_64/. A regra abaixo já cobre os
+	# subdiretórios: strip_prefix /updates/files + root
+	# /srv/pdv-updates/files → deploy/updates/files/<app>/...
+	handle /updates/files/* {
+		# `file_server` junta o root com o caminho INTEIRO da URL, então sem
+		# tirar o prefixo ele procuraria /srv/pdv-updates/files/updates/files/...
+		# e devolveria 404 (foi o que aconteceu na primeira versão desta rota).
+		uri strip_prefix /updates/files
+		file_server {
+			root /srv/pdv-updates/files
+		}
+	}
+
+	# ---------- Webhook do Pagar.me ----------
+	#
+	# Bloco PRÓPRIO, separado do genérico `/webhooks/*` de baixo, mesmo
+	# aceitando prefixo sobreposto. Motivo: a URL de callback é cadastrada no
+	# painel do Pagar.me e não pode depender de um bloco genérico que qualquer
+	# outro webhook pode reescrever — e o upstream é outro (o serviço em Go,
+	# `pagarme-webhook/`, ou o backend Node).
+	#
+	# ---------- A ordem dos dois blocos NÃO é o que decide ----------
+	#
+	# O `caddyfile` adapter ORDENA as rotas de `handle` por ESPECIFICIDADE
+	# antes de gerar o JSON, então `/webhooks/pagarme*` fica antes de
+	# `/webhooks/*` nas DUAS ordens de escrita. Medido com `caddy adapt` e com um
+	# Caddy de verdade roteando para dois upstreams distintos: escrever o genérico
+	# primeiro não faz o Pagar.me ser capturado pelo genérico.
+	#
+	# O bloco do Pagar.me está acima por LEGIBILIDADE (quem lê procura o
+	# específico primeiro), e o comentário abaixo no genérico aponta para cá.
+	# Confiar na ordem de declaração seria depender de um comportamento que
+	# ninguém testou — e o sintoma de errar a ordem seria o webhook do Pagar.me
+	# respondendo pelo backend Node sem erro em log nenhum, que é o modo de
+	# falha mais barato de detectar tarde demais.
+	#
+	# Upstream próprio (`PDV_PAGARME_UPSTREAM`), resolvido pelo
+	# `caddy-assemble.sh`. O default é o backend Node de propósito: trocar de
+	# implementação não pode virar tráfego por acidente, exatamente como no
+	# `handle /realtime*`.
+	handle /webhooks/pagarme* {
+		reverse_proxy {$PDV_PAGARME_UPSTREAM:backend:3000}
+	}
+
+	# Webhooks da Meta (WhatsApp Cloud API). Fora de /api de propósito: a
+	# URL de callback é cadastrada no painel da Meta e não pode depender do
+	# prefixo que o backend usa na API REST.
+	#
+	# Este é o GENÉRICO, e ele NÃO serve o Pagar.me: o bloco específico acima
+	# existe para isso (ver a nota de ordem por especificidade).
+	handle /webhooks/* {
+		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
+	}
+
+	# Health check direto (útil pra monitoramento externo).
+	# De PROPÓSITO no backend, e não no upstream de realtime: o
+	# `probe-availability.sh` mede aqui o que o switch fez, e ele não pode
+	# passar a medir o gateway por causa de uma flag — nem o gateway
+	# responder 503 (banco fora) reprovar um deploy em que o backend está
+	# perfeitamente saudável. O `/health` do gateway é interno do container
+	# dele e se verifica por lá mesmo (ver README).
+	handle /health {
+		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
+	}
+
+	# ---------- Canal interno: recusar na borda ----------
+	#
+	# `/internal/*` (o canal com o serviço `pagarme-webhook/`) NÃO é exposto:
+	# o Go fala com o backend Node pela rede interna (`NODE_INTERNAL_URL`,
+	# default `http://backend:3000`), sem passar por aqui.
+	#
+	# Este bloco existe porque, sem ele, o caminho cai no `handle` final e é
+	# servido pelo PWA — o que faria um `/internal/...` da internet devolver o
+	# `index.html` com 200 em vez de recusar. Um 404 explícito é a resposta
+	# honesta e impede que um catch-all futuro (ou um `handle /api/*` mais
+	# amplo) faça proxy disto para a internet por acidente.
+	#
+	# NÃO afeta o `/internal/caddy-on-demand-tls`: o Caddy o consulta com
+	# `ask`, que fala direto com o upstream e não passa pelo roteamento do site.
+	handle /internal/* {
+		respond 404
+	}
+
+	# Resto: frontend estático (PWA)
+	handle {
+		reverse_proxy {$PDV_FRONTEND_UPSTREAM:frontend:80}
+	}
+
+	encode gzip
+}
+
+# ---------- Domínio principal: redirect para o WhatsApp ----------
+# Não serve o app: quem digitar o domínio sem `app.` vai direto para o
+# WhatsApp da casa, que é o canal de contato/vendas.
+#
+# O `redir` é de site inteiro: qualquer caminho no domínio raiz
+# (`umamisushiarte.com.br/qualquer-coisa`) cai no MESMO link do WhatsApp, sem
+# precisar repetir a regra por path — e o path da requisição não vaza para o
+# `Location` (verificado com `caddy adapt` e com um Caddy real: `/cardapio` e
+# `/x?utm=1` devolvem o `Location` exato abaixo).
+#
+# SEM `permanent` = 302 temporário, de propósito. O 308 (`permanent`) é cacheado
+# pelo navegador com força: quem já abriu o domínio antes continua indo para o
+# destino antigo mesmo depois do deploy, até limpar o cache. Como o destino foi
+# ajustado de novo agora (Instagram → vitrine → WhatsApp), um 308 já cacheado
+# exigiria que cada cliente limpasse o cache antes de ver a mudança. Deixe 302
+# e valide com curl:
+#   curl -sI https://umamisushiarte.com.br | grep -i location
+# Trocar o número do WhatsApp depois é só editar a linha de `redir` (relembre:
+# precisa de `--force-recreate caddy` ou `caddy reload`). Só considere
+# `permanent` quando o destino estiver definitivo e a mudança for para ficar.
+umamisushiarte.com.br, www.umamisushiarte.com.br {
+	redir https://wa.me/5551997506070?type=phone_number&app_absent=0
+}
+
+# ---------- Subdomínio: a aplicação ----------
+app.umamisushiarte.com.br {
+	import site
+}
+
+# ============================================================
+# ---------- Wildcard *.labolabe.tech ----------
+#
+# TODO subdomínio de *.labolabe.tech cai no mesmo bloco e serve a mesma app.
+#
+# TLS: on-demand — na primeira requisição TLS de um subdomínio novo,
+# o Caddy pede um certificado específico (HTTP-01) e passa a servi-lo.
+# Por isso é OBRIGATÓRIO um registro DNS A coringa `*.labolabe.tech`
+# apontando para este servidor; sem ele o ACME não consegue validar.
+#
+# O wildcard de UMA label: `*.labolabe.tech` cobre `foo.labolabe.tech`,
+# mas não `foo.bar.labolabe.tech`.
+# ============================================================
+*.labolabe.tech {
+	import site
+	tls {
+		on_demand
+	}
+}
