@@ -496,7 +496,10 @@ jobs:
           go-version: '1.25.0'
           cache: true
           cache-dependency-path: printer/daemon/go.sum
-      - name: build, vet e gofmt
+      # O nome do passo cita os dois GOOS de propósito: quando este passo fica
+      # vermelho, a primeira pergunta é se foi o build linux ou o cross-compile
+      # do Windows, e o título é o que o operador lê antes de abrir o log.
+      - name: build, vet e gofmt (linux + GOOS=windows)
         working-directory: printer/daemon
         run: |
           # `go mod download` explícito: o daemon puxa dependências de terceiros
@@ -512,6 +515,48 @@ jobs:
           # `test -z` é o gate. Sem `-w`: formatar no CI esconde o defeito em
           # vez de reprovar o PR, e ninguém vê o diff que o gofmt faria.
           test -z "$(gofmt -l .)" || { gofmt -l .; echo "::error::rode gofmt -w printer/daemon"; exit 1; }
+          # ============================================================
+          # CROSS-COMPILE PARA WINDOWS — a plataforma que o daemon REALMENTE
+          # entrega (o instalador da linha `app-v*` embarca ele como serviço).
+          #
+          # Sem estes dois comandos, `service_windows.go` e `transport_windows.go`
+          # NÃO ERAM COMPILADOS POR NENHUM GATE DESTE JOB. Medido com
+          # `go list`: sob linux entram `service_other.go` + `transport_cups.go`;
+          # sob windows entram `service_windows.go` + `transport_windows.go`. São
+          # arquivos disjuntos — o build linux não os vê, e `go vet` sem GOOS não
+          # os vê. Um erro de digitação no `svc.Handle` ou no
+          # `windows.UTF16PtrFromString` só apareceria no `go build` da imagem de
+          # produção, isto é, depois da tag.
+          #
+          # O `vet` do Windows não é enfeite: ele também troca o CONJUNTO de
+          # arquivos de teste analisados (`go list .TestGoFiles`) — `phase2_test.go`
+          # e `transport_cups_test.go` saem da lista em windows, os outros seis
+          # permanecem — então o passo não é o build linux repetido com outra
+          # variável, é uma segunda passagem de type-check sobre um conjunto
+          # diferente de arquivos.
+          #
+          # RISCO DE VERSÃO (medido, não presumido): o CI fixa `1.25.0` e este
+          # gate foi verificado no `1.25.0` exato via `GOTOOLCHAIN=go1.25.0` —
+          # build, vet, gofmt e suíte verdes nos dois GOOS. O risco estrutural
+          # é baixo e está ao alcance da leitura: os dois arquivos windows-only
+          # não importam `syscall` da stdlib, e sim `golang.org/x/sys/windows` e
+          # `.../windows/svc`, que são MÓDULO com versão fixada no go.mod/go.sum
+          # — idênticos em qualquer toolchain. O único `unsafe` é layout de
+          # struct do próprio x/sys, e o algoritmo de layout do compilador Go não
+          # mudou entre 1.25 e 1.27. E a versão de LINGUAGEM do módulo é 1.25
+          # pelo go.mod, então o compilador 1.27 rodando localmente não aceitaria
+          # por acidente um constructo que o 1.25 do CI rejeitaria.
+          #
+          # ARQUIVO SOLTO: `printer/daemon` é um `package main` só, então
+          # `go build` não descarta o executável — ele ESCREVE
+          # `pdv-printer-daemon.exe` no diretório de trabalho. Em runner efêmero
+          # isso é irrelevante (ninguém commita), mas estes mesmos comandos são
+          # rodados localmente, e o artefato tem de sumir do `git status`.
+          # `printer/.gitignore` (linhas 4-5) cobre `daemon/pdv-printer-daemon` e
+          # `daemon/pdv-printer-daemon.exe`; conferido com `git check-ignore -v`.
+          # ============================================================
+          GOOS=windows go build ./...
+          GOOS=windows go vet ./...
       - name: suíte
         working-directory: printer/daemon
         run: go test -count=1 ./...
