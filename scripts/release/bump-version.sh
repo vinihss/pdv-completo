@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Bump de versão da família standalone.
 #
-#   ./bump-version.sh 0.2.0
+#   bash scripts/release/bump-version.sh 0.2.0
 #
 # Atualiza 2 arquivos:
 #   1. Cargo.toml (raiz)     — [workspace.package] version
@@ -18,11 +18,11 @@
 # no frontend/src-tauri/Cargo.toml quando precisar.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 if [ $# -ne 1 ]; then
   echo "Uso: $0 <nova-versão>" >&2
-  echo "Ex.: $0 0.2.0" >&2
+  echo "Ex.: bash scripts/release/bump-version.sh 0.2.0" >&2
   exit 1
 fi
 

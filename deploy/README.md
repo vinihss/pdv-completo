@@ -284,7 +284,7 @@ em release rascunho, sem assinatura e sem publicar o manifesto. Não é o
 caminho de publicação.
 
 O app v1 (`frontend/src-tauri`, em produção) tem o seu próprio script de
-build: **`frontend/src-tauri/build-app.sh`**. Ele confere a versão do
+build: **`scripts/build/build-app.sh`**. Ele confere a versão do
 `tauri.conf.json` contra o `package.json`, resolve a assinatura (chave de
 entrega vs chave local descartável) e gera o instalador.
 

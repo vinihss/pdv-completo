@@ -16,7 +16,7 @@ pronto.
 >
 > - `frontend/` é só a aplicação web (e o bundle que os apps standalone servem);
 >   o app desktop v1 vive em `frontend/src-tauri/` como **diretório desacoplado**.
-> - **Build manual**: `bash frontend/src-tauri/build-app.sh` (funciona de
+> - **Build manual**: `bash scripts/build/build-app.sh` (funciona de
 >   qualquer diretório — o script resolve os caminhos pela própria localização).
 >   Os scripts `desktop:*` saíram do `frontend/package.json`.
 > - **CLI do Tauri na raiz do repo**: `node_modules/.bin/tauri`
@@ -305,7 +305,7 @@ assinado, monta o `latest.json`, publica por SSH em `deploy/updates/` no
 servidor e anexa o instalador na release do GitHub. O job `deploy` só roda
 depois dele (`needs:`), então o manifesto nunca chega antes do backend no ar.
 **Hoje esse job cobre a família `standalone-*`; o instalador do v1 sai do
-`frontend/src-tauri/build-app.sh`** (ver nota de status no topo).
+`scripts/build/build-app.sh`** (ver nota de status no topo).
 
 ### 6.1.1 Gerar o instalador sem tag (só o instalador)
 
@@ -387,12 +387,12 @@ próprio caminho em `frontend/src-tauri/`):
 
 ```bash
 # build local (instalador do sistema atual; sem sidecar — printer reestruturado)
-bash frontend/src-tauri/build-app.sh
+bash scripts/build/build-app.sh
 
 # caminho de assinatura de ponta a ponta (gera artefato + .sig)
 TAURI_SIGNING_PRIVATE_KEY="$(cat /caminho/seguro/pdv-updater.key)" \
 TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat /caminho/seguro/senha)" \
-  bash frontend/src-tauri/build-app.sh --release --bundles deb
+  bash scripts/build/build-app.sh --release --bundles deb
 ```
 
 O instalador de Windows (NSIS) só sai no Windows; no Linux/macOS use
@@ -409,8 +409,8 @@ novo). O `.deb` sai normal na mesma máquina — só o AppImage é afetado.
 Quando for o caso:
 
 ```bash
-bash frontend/src-tauri/build-app.sh --bundles deb        # .deb nativo, funciona no Arch
-bash frontend/src-tauri/build-app.sh --appimage-docker    # AppImage num debian:bookworm-slim
+bash scripts/build/build-app.sh --bundles deb        # .deb nativo, funciona no Arch
+bash scripts/build/build-app.sh --appimage-docker    # AppImage num debian:bookworm-slim
 ```
 
 A segunda forma empacota num container (imagem `frontend/docker/Dockerfile.desktop`,
@@ -426,7 +426,7 @@ config que desligue isso (`-c` com `pubkey: ""` continua pedindo chave;
 Sem `TAURI_SIGNING_PRIVATE_KEY`, o build local terminava com erro **depois**
 de gerar o instalador.
 
-Por isso o `frontend/src-tauri/build-app.sh` sem `--release` gera uma chave
+Por isso o `scripts/build/build-app.sh` sem `--release` gera uma chave
 descartável em `frontend/src-tauri/.local-signing.key` (ignorada pelo git) e
 avisa: um
 instalador assinado com ela **não** é aceito pelo updater de um app real,
@@ -457,7 +457,7 @@ um sintoma que dá para reproduzir ou um arquivo que não existe.
 |---|---|---|---|
 | 1 | **Guardar a chave e a senha fora do repo.** Hoje estão em `/tmp/opencode/pdv-updater.key` e `.password`, que é temporário. | Sem a privada, nenhuma versão é assinável; sem a senha, o CLI cai num prompt e o build falha. | Copiar os dois arquivos para local durável (gerenciador de senhas + backup offline). Depois, considerar revogar: trocar a chave é gerar par novo, atualizar `plugins.updater.pubkey` e republicar o manifesto. |
 | 2 | **Os secrets de servidor foram cadastrados (29/09); falta só o do host key.** `gh secret list` mostra `HOSTINGER_HOST`, `HOSTINGER_PORT`, `HOSTINGER_USER`, `HOSTINGER_SSH_KEY`, `HOSTINGER_APP_PATH`, `UPDATE_BASE_URL` e os dois `TAURI_SIGNING_*`. Não há `HOSTINGER_SSH_FINGERPRINT`, então a verificação de host key está desligada nas quatro actions (`fingerprint` sem secret é no-op). O `HOSTINGER_KNOWN_HOSTS` existe mas é inerte. | `deploy/README.md` §Secrets | Cadastrar `HOSTINGER_SSH_FINGERPRINT` com o `SHA256:` da linha `ecdsa-sha2-nistp256` de `ssh-keyscan -p 22 HOST \| ssh-keygen -lf -` (a do ed25519 dá mismatch — é a última preferência do cliente). Opcional: remover `HOSTINGER_KNOWN_HOSTS`, que não verifica nada. |
-| 3 | **A primeira tag ainda nao existe.** `frontend/src-tauri/Cargo.toml` e `frontend/package.json` estao em `1.0.2` (iguais entre si, que e o que o `build-app.sh` exige). | O build do v1 falha se o Cargo.toml e o package.json divergirem — de proposito (a conferencia tag x conf no CI nao cobre mais o v1, ver nota de status). | `git tag v1.0.2 && git push origin v1.0.2`, ou gerar so o instalador com `bash frontend/src-tauri/build-app.sh`. |
+| 3 | **A primeira tag ainda nao existe.** `frontend/src-tauri/Cargo.toml` e `frontend/package.json` estao em `1.0.2` (iguais entre si, que e o que o `build-app.sh` exige). | O build do v1 falha se o Cargo.toml e o package.json divergirem — de proposito (a conferencia tag x conf no CI nao cobre mais o v1, ver nota de status). | `git tag v1.0.2 && git push origin v1.0.2`, ou gerar so o instalador com `bash scripts/build/build-app.sh`. |
 | 4 | **Rodar a primeira tag de verdade.** O caminho do manifesto foi provado com Caddy local e diretório falso, nunca contra o VPS. | `deploy/Caddyfile` + volume `./updates` | Apos a primeira publicacao: `curl https://app.umamisushiarte.com.br/updates/desktop/windows/x86_64/0.0.0` tem que devolver o `latest.json` (a versao do URL e ignorada pelo `rewrite` — 0.0.0 so para nao nascer de um app real). |
 
 Detalhe do item 4 que só aparece em produção: `deploy/updates/` fica **untracked**

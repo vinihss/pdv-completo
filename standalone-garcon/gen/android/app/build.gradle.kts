@@ -63,7 +63,7 @@ fun tomlSectionValue(cargoToml: File, section: String, key: String): String? {
 // mas **nada escreve esse arquivo** — sem ele os dois caem no default "1.0"/1
 // e o APK sai mentindo sobre a versão do app (foi o que aconteceu no primeiro
 // build). A fonte de verdade da família é `[workspace.package].version` do
-// Cargo.toml da raiz — é o que o `./bump-version.sh` altera e o que os 4 apps
+// Cargo.toml da raiz — é o que o `scripts/release/bump-version.sh` altera e o que os 4 apps
 // herdam via `version.workspace` — então é de lá que se lê. O tauri.properties
 // segue como primeira escolha, caso uma versão futura da CLI passe a gerá-lo.
 val appVersionName: String =

@@ -21,7 +21,7 @@ docs/       Specs originais (backend, frontend, critérios de aceite)
 
 | Modo | Comando | URL | HTTPS | Hot reload | Uso |
 |---|---|---|---|---|---|
-| **A. Dev local (Node direto)** | `scripts/setup-dev.sh` ou manual | `localhost:5173` | não | sim | Desenvolvimento rápido |
+| **A. Dev local (Node direto)** | `scripts/dev/setup-dev.sh` ou manual | `localhost:5173` | não | sim | Desenvolvimento rápido |
 | **B. Dev Docker** | `docker compose -f deploy/docker-compose.dev.yml up -d` | `localhost` | não | sim | Desenvolvimento com Docker |
 | **C. Local produção-like** | `docker compose -f deploy/docker-compose.local.yml up -d` | `localhost` | não | não | Testar stack completo |
 | **D. Produção em nuvem** | `deploy/switch.sh` | domínio | sim | não | Deploy real |
@@ -35,7 +35,7 @@ Requer Node.js 20+ e PostgreSQL 16.
 ### Setup automatizado
 
 ```bash
-./scripts/setup-dev.sh
+./scripts/dev/setup-dev.sh
 ```
 
 O script verifica dependências, cria `.env`, instala pacotes, sobe o Postgres
@@ -267,14 +267,14 @@ impressoras), ver **`printer/README.md`**.
 
 | Script | Onde | O que faz |
 |---|---|---|
-| `scripts/setup-dev.sh` | raiz | Setup automatizado do modo A (Node direto) |
+| `scripts/dev/setup-dev.sh` | raiz | Setup automatizado do modo A (Node direto) |
 | `deploy/switch.sh` | deploy | Deploy sem downtime (azul/verde) |
 | `deploy/install.sh` | deploy | Instalação inicial no VPS |
 | `deploy/run-cloud.sh` | deploy | Sobe stack em modo cloud (Postgres externo) |
 | `deploy/backup.sh` | deploy | Backup do banco (pg_dump) |
 | `deploy/backup-fetch.sh` | deploy | Download do backup |
 | `deploy/probe-availability.sh` | deploy | Mede downtime real |
-| `frontend/src-tauri/build-app.sh` | `frontend/` | Build do app desktop v1 (Tauri): `--release` para entrega, `--appimage-docker` para AppImage |
+| `scripts/build/build-app.sh` | `frontend/` | Build do app desktop v1 (Tauri): `--release` para entrega, `--appimage-docker` para AppImage |
 | `printer/scripts/install-linux.sh` | printer | Instala daemon como serviço Linux |
 | `printer/scripts/install-windows.ps1` | printer | Instala daemon como serviço Windows |
 

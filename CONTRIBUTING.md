@@ -4,7 +4,7 @@
 
 Este projeto adota **Trunk-Based Development** com integrações frequentes na `main`:
 
-1. **Crie um worktree por branch**: `./scripts/dev-worktree.sh new tipo/descricao-curta`
+1. **Crie um worktree por branch**: `./scripts/dev/dev-worktree.sh new tipo/descricao-curta`
 2. **Use branches de vida curta** (ideal < 1–2 dias). Se passar de 3 dias, divida em PRs menores.
 3. **Abra PR pequeno e focado**. Sempre via worktree, **nunca** commit direto em `main`.
 4. **Integre com frequência** (squash merge) assim que aprovado e verde.
