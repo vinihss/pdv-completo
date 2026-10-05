@@ -277,6 +277,151 @@ Duas coisas que valem registrar porque é fácil supor o contrário:
   não fecha"). Se algum dia alguém "simplificar" tirando o gate por causa do
   `profile`, o serviço volta a poder subir publicando com o proxy no Node.
 
+## Os dois portões que falhavam em silêncio
+
+O sintoma é o mesmo nos dois casos, e é o pior tipo de falha de automação:
+**tudo fica verde e nada acontece**. Merge entra, release publica, e a
+produção não muda — sem run vermelho em lugar nenhum para dizer que falhou.
+
+### Gate A — o título da PR é a mensagem do squash
+
+O merge é **squash** (exigido pelo ruleset da `main`), e o GitHub usa o
+**título da PR** como mensagem do commit. O job de commitlint do
+`pr-checks.yml` valida os **commits da branch** — nunca o título. Um título
+fora de Conventional Commits vira um commit que o `commit-analyzer` não
+entende, e o resultado é merge sem tag.
+
+**MEDIDO (PR #89):** o título `feat/printer` entrou na `main` como
+`aaf4551`, com 31 arquivos e 5.586 linhas, e o log do Semantic Release
+respondeu:
+
+```
+[semantic-release] › ℹ  The commit should not trigger a release
+[semantic-release] › ℹ  Analysis of 1 commits complete: no release
+```
+
+O run do release ficou **verde**. O commitlint reprovou a mesma PR pelo mesmo
+motivo (`⧗ input: printer` / `subject may not be empty`), mas não é gate de
+merge — a PR entrou assim mesmo.
+
+O job **`Validar título da PR (Conventional Commit)`** fecha isso. Ele falha
+com mensagem que diz o que fazer, e **avisa** (sem falhar) nos casos em que o
+título é Conventional Commit válido mas o `.releaserc.json` não publica tag
+com ele.
+
+**De onde sai a mensagem do squash, de verdade.** Não é sempre o título, e o
+job descobre isso na API (`squash_merge_commit_title` /
+`squash_merge_commit_message`, com padrão declarado no job):
+
+| `squash_merge_commit_title` | 1 commit | 2+ commits |
+|---|---|---|
+| `PR_TITLE` | título da PR | título da PR |
+| `COMMIT_OR_PR_TITLE` | mensagem do commit | título da PR |
+
+O estado **medido** deste repositório é `COMMIT_OR_PR_TITLE` +
+`COMMIT_MESSAGES`: com um commit só, quem vira commit é a mensagem dele (e o
+commitlint a valida); com dois ou mais, é o título. O job imprime a
+configuração que usou no log, na linha `[gate] config do squash: ...`.
+
+> O `github.token` do evento `pull_request` **não enxerga** esses dois campos
+> de configuração de merge — a API responde `null`. Por isso o job declara o
+> padrão medido como fallback, e a API só serve para confirmar quando ela
+> responde. Mudar a configuração de squash do repositório significa atualizar
+> esse padrão no job.
+
+**O `!` de breaking não publica major aqui.** Medido com o próprio
+`commit-analyzer` do repo (mesmas `releaseRules` do `.releaserc.json`, mesmo
+preset `conventionalcommits`): `feat(api)!: x` sai com `type=null` e
+`release=undefined`. O preset não casa o `!` no `headerPattern`, então
+**nenhuma** regra casa e nada é publicado. Major exige uma nota
+`BREAKING CHANGE:` no **corpo do commit** — que o commitlint não mede.
+
+**O freeze do auto-merge.** Editar o título **depois** de enfileirar o
+auto-merge **não** muda o commit de squash: o GitHub congela a mensagem na
+hora em que a PR entra na fila. Medido: auto-merge ligado às 22:43:09, título
+editado depois, o squash saiu com o título **antigo** (`fix(printer): ...
+(#90)`). A ordem correta é: cancelar o auto-merge → renomear o título →
+reenfileirar. A mensagem de erro do job lembra disso quando a PR já está na
+fila.
+
+**Para virar barreira de verdade:** hoje o ruleset da `main` só exige
+`tests / test-backend` e `tests / test-frontend`. O gate do título roda e
+aparece na aba de checks, mas **não bloqueia o merge** até alguém adicioná-lo
+aos *required status checks* do ruleset. Mesmo para o `chore`: o aviso é
+visível, não bloqueante.
+
+### Gate B — tag publicada, produção parada
+
+O `release.yml` só acorda o `deploy-on-tag.yml` se publicar a tag com um
+**PAT** (`SEMANTIC_RELEASE_TOKEN`). O GitHub tem uma trava anti-recursão:
+**evento criado com `GITHUB_TOKEN` não dispara workflow**. Sem o PAT, o
+release cai no fallback, publica tag e release do mesmo jeito — e só o deploy
+não sai.
+
+**MEDIDO neste repositório, duas vezes:**
+
+| Tags | Runs do `deploy-on-tag.yml` | Resultado |
+|---|---|---|
+| `v1.25.0`, `v1.25.1`, `v1.25.2` | **zero** | produção parada ~20h |
+| `v1.26.0`, `v1.26.1` | **zero** | continuam sem deploy |
+
+O secret **não existe**: `gh secret list` mostra `HOSTINGER_*`,
+`TAURI_SIGNING_*` e `UPDATE_BASE_URL`, e nenhum `SEMANTIC_RELEASE_TOKEN`.
+
+**`.github/workflows/auditoria-deploy.yml`** é a detecção: diário
+(`schedule`) e na mão (`workflow_dispatch`). Ele pergunta se a tag de backend
+mais recente tem run de deploy **concluído com sucesso**:
+
+- **sem run nenhum** → falha, com o comando do PAT e o caminho de escape;
+- **run em `queued`/`in_progress`** → aviso e saída 0 (auditoria que acusa
+  deploy em andamento é falso positivo);
+- **runs que acabaram sem sucesso** → falha apontando o run, porque aí o
+  defeito é do deploy (healthcheck, migration, SSH), não da tag;
+- **repositório sem tag nenhuma** → aviso e saída 0.
+
+Só detecção, de propósito: um workflow que "conserta" o deploy por conta
+própria esconderia o defeito atrás de um verde. A chave da linha de tag
+(`--match 'v*.*.*' --exclude 'v1.4.*'`) é a **mesma** do job `tag-info` do
+`deploy-on-tag.yml`, copiada — e é ela que já exclui a linha `app-v` do
+instalador.
+
+Rodar na mão (para auditar uma tag específica):
+
+```bash
+gh workflow run auditoria-deploy.yml                    # a mais recente
+gh workflow run auditoria-deploy.yml -f tag=v1.25.3     # diagnóstico
+```
+
+> O `gh workflow run` só funciona **depois** que o arquivo está na branch
+> padrão — o GitHub não faz dispatch de workflow que não existe na `main`.
+
+### O conserto que só o dono do repo pode fazer
+
+Um segredo não pode ser criado de dentro de uma PR. Na mão do dono:
+
+```bash
+gh secret set SEMANTIC_RELEASE_TOKEN --repo <owner>/<repo>
+```
+
+O PAT é **fine-grained**, escopo **`contents: write`**, **só neste
+repositório**, expiração longa. Criar em GitHub → Settings → Developer
+settings → Personal access tokens → Fine-grained. O release precisa escrever
+a tag, criar a release e aplicar o label `released`.
+
+**Por que o `||` do `release.yml` é intencional e não deve virar string
+vazia pura:** sem o PAT, `secrets.SEMANTIC_RELEASE_TOKEN` resolve para
+string vazia e o fallback entrega o `GITHUB_TOKEN` — o versionamento
+automático continua funcionando, e só o deploy não dispara. Se a linha
+virar só `secrets.SEMANTIC_RELEASE_TOKEN`, o primeiro `feat` mergeado depois
+quebra o job por token ausente e o repo **perde o versionamento inteiro**,
+por causa de um secret que ninguém criou. Degradar é aceitável; parar de
+vez, não.
+
+**O bloco `permissions:` do `release.yml` não resolve e não deve ser
+mexido por causa disso:** ele dá escrita ao `GITHUB_TOKEN`, e a trava
+anti-recursão vale para qualquer evento criado com esse token, qualquer que
+seja o escopo. O PAT troca só a env do step.
+
 ## Pendência conhecida
 
 **Um dono só do outbox**: durante o drain (~5s) um cliente cujo WS está na instância antiga pode perder um evento de outbox reivindicado pela nova; o `onReconnect` do `useRealtime` recompõe por REST em ~250ms. Fechar a janela exige **um dono só do outbox** (advisory lock do Postgres para eleger líder, ou `LISTEN/NOTIFY`).
