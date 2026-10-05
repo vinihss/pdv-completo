@@ -13,9 +13,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      // mesmo alias do vite.config.js — sem ele o scan de dependências do
-      // vitest reclama de @inspector/react ao encarar src/main.jsx
-      "@inspector/react": path.resolve(__dirname, "./vendor/inspector-react"),
     },
   },
   test: {
