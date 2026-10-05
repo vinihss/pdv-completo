@@ -94,14 +94,29 @@ tar -tzf "$ARTIFACTS_DIR/$TARBALL" >/dev/null   # gzip íntegro
   sha256sum -c "$TARBALL.sha256" >/dev/null
 ) || { echo "ERRO: checksum do pacote não confere." >&2; exit 1; }
 
-# O binário tem de estar lá dentro: um pacote sem ele instala um serviço que
-# não sobe, e isso só apareceria no caixa. O `tar -tzf` emite com prefixo `./`,
-# então o padrão casa as duas formas.
-tar -tzf "$ARTIFACTS_DIR/$TARBALL" | grep -qE '^\./?daemon/pdv-printer-daemon$' \
-  || { echo "ERRO: o pacote saiu sem o binário do daemon." >&2; exit 1; }
+# O listing vai para uma variável, sem pipeline: `tar -tzf ... | grep -q` é o
+# combo que quebrou o build-daemon no CI. O `grep -q` sai no primeiro match e
+# fecha o pipe, o tar leva SIGPIPE (141) e o `pipefail` transforma isso em
+# falha do script — que então accuse um pacote que está correto. Depende só de
+# a ordem que o `tar` grava os diretórios (readdir), não do tamanho do pacote:
+# com o binário listado primeiro, o grep fecha o pipe com o tar ainda
+# escrevendo e falha sempre; listado por último, o tar já terminou e passa.
+# Uma vez em variável, o teste não tem pipe nenhum: nem `tar | grep`, nem
+# `printf | grep` (esse também morreria de SIGPIPE num listing grande, porque
+# o `grep -q` fecharia o pipe com o printf ainda escrevendo). O `[[ =~ ]]` é do
+# bash puro e casa linha a linha. O `tar -tzf` emite com prefixo `./`, então o
+# padrão casa as duas formas.
+LISTING="$(tar -tzf "$ARTIFACTS_DIR/$TARBALL")"
+NL=$'\n'
+RE_DAEMON="(^|$NL)(\./)?daemon/pdv-printer-daemon($NL|$)"
+
+if [[ ! "$LISTING" =~ $RE_DAEMON ]]; then
+  echo "ERRO: o pacote saiu sem o binário do daemon." >&2
+  exit 1
+fi
 
 echo "    conteúdo:"
-tar -tzf "$ARTIFACTS_DIR/$TARBALL" | sed 's/^/      /'
+while IFS= read -r linha; do echo "      $linha"; done <<< "$LISTING"
 
 echo
 echo "Pacote pronto:"
