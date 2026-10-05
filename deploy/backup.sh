@@ -63,4 +63,4 @@ docker run --rm \
   busybox \
   tar czf "/backup/pdv-${STAMP}-uploads.tar.gz" -C /uploads .
 
-echo "OK: $(ls -lh "$TARGET" "$UPLOADS_TARGET" | awk '{print $5, $NF}')"
+echo "OK: $(du -h "$TARGET" "$UPLOADS_TARGET" | tr '\t' '  ')"

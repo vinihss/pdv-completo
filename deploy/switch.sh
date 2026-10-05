@@ -131,19 +131,6 @@ COMPOSE=(docker compose -f "$COMPOSE_FILE")
 # operador rodar (ver o fim de do_switch). Sem `--profile canary`, que é
 # das instâncias "-next" e não tem relação com o gateway.
 COMPOSE_CMD="docker compose -f ${COMPOSE_FILE}"
-# Arquivos extras (o override do stack de teste local, por exemplo) e nome
-# de projeto: `COMPOSE_PROJECT_NAME` é a variável padrão do próprio compose,
-# então quem precisar de um stack isolado na mesma máquina só a exporta.
-if [ -n "${PDV_COMPOSE_OVERRIDE:-}" ]; then
-  # shellcheck disable=SC2086
-  set -- $PDV_COMPOSE_OVERRIDE
-  for f in "$@"; do
-    [ -f "$f" ] || fail "override inexistente: $f"
-    COMPOSE+=(-f "$f")
-    COMPOSE_CMD="$COMPOSE_CMD -f $f"
-  done
-  unset f
-fi
 # `--profile ws-gateway` é o que faz o container do gateway existir.
 COMPOSE_CMD="$COMPOSE_CMD --profile ws-gateway"
 # A instalação não sobe as instâncias "-next" (elas só existem durante um
@@ -171,6 +158,20 @@ fail() {
   printf '\n[switch] ERRO: %s\n' "$*" >&2
   exit 1
 }
+
+# Arquivos extras (o override do stack de teste local, por exemplo) e nome
+# de projeto: `COMPOSE_PROJECT_NAME` é a variável padrão do próprio compose,
+# então quem precisar de um stack isolado na mesma máquina só a exporta.
+if [ -n "${PDV_COMPOSE_OVERRIDE:-}" ]; then
+  # shellcheck disable=SC2086
+  set -- $PDV_COMPOSE_OVERRIDE
+  for f in "$@"; do
+    [ -f "$f" ] || fail "override inexistente: $f"
+    COMPOSE+=(-f "$f")
+    COMPOSE_CMD="$COMPOSE_CMD -f $f"
+  done
+  unset f
+fi
 
 require_tools() {
   command -v docker >/dev/null 2>&1 || fail "docker não encontrado"
@@ -419,7 +420,7 @@ other_of() {
 write_pointer() {
   local backend_name="$1" frontend_name="$2"
   mkdir -p "$STATE_DIR"
-  if ! { [ -w "$STATE_FILE" ] || [ ! -e "$STATE_FILE" -a -w "$STATE_DIR" ]; }; then
+  if ! { [ -w "$STATE_FILE" ] || { [ ! -e "$STATE_FILE" ] && [ -w "$STATE_DIR" ]; }; }; then
     fail "sem permissão para escrever $STATE_FILE.
    Se ele foi criado pelo Docker (bind mount) como root:
      sudo chown \"\$(id -u):\$(id -g)\" $STATE_DIR $STATE_FILE
@@ -645,8 +646,8 @@ do_switch() {
   # Confere que o proxy responde pela instância nova antes de desligar a
   # antiga: se o reload não pegou, aborta com a antiga ainda de pé.
   if [ -n "$PROBE_URL" ]; then
-    local ok=0 i
-    for i in $(seq 1 20); do
+    local ok=0
+    for _ in $(seq 1 20); do
       if curl -fsS -m 2 "$PROBE_URL/health" >/dev/null 2>&1; then
         ok=1
         break

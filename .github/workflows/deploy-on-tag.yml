@@ -17,6 +17,20 @@ jobs:
   # As CHAVES dos jobs continuam `test-backend`/`test-frontend` porque o
   # `needs:` abaixo resolve pelo nome do job NESTE arquivo, não pelo do
   # workflow chamado.
+  #
+  # E `test-pedido-public` (que existe dentro do `tests.yml` desde o PR #85)
+  # NÃO ganha uma chave aqui de propósito. Cada chave deste arquivo é uma
+  # chamada INTEIRA ao workflow reusable, e o GitHub roda TODOS os jobs de
+  # dentro a cada chamada: acrescentar a chave não "rodaria o build do app
+  # público uma vez a mais", rodaria as três suítes de novo. O build do app
+  # público já roda nestas chamadas, porque o `tests.yml` o tem como job — e o
+  # `deploy` NÃO depende dele: o `switch.sh` não sobe o container
+  # `pedidopublic` (ele é `docker compose up` do serviço, fora do rodízio
+  # azul/verde), então um `needs:` nele não protegeria nada e custaria uma
+  # execução extra de tudo. Se um dia o app público entrar no caminho do
+  # deploy, aí sim ele entra no `needs:` — e o jeito barato de fazer isso sem
+  # triplicar runner é `needs: [tag-info, test-backend]` mais uma condição,
+  # não uma chave nova.
   test-backend:
     uses: ./.github/workflows/tests.yml
 

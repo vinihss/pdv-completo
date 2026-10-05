@@ -41,14 +41,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      // @inspector/react resolvido do diretório versionado em vendor/ (só dev
-      // usa o pacote — produção nem referencia; a resolução passa pelo
-      // main/exports do package.json versionado, uma única vez, sem duplicar
-      // o path).
-      '@inspector/react': path.resolve(
-        __dirname,
-        './vendor/inspector-react',
-      ),
     },
   },
   server: {
