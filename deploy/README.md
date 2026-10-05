@@ -304,15 +304,42 @@ valendo (e é o escape quando o versionamento automático não roda).
 Só que o push da tag do Semantic Release **precisa de um PAT** para acordar
 o `deploy-on-tag.yml`: o GitHub não dispara workflows a partir de eventos
 criados com o `GITHUB_TOKEN` do próprio Actions (trava anti-recursão), e o
-release usava só ele. O sintoma era silencioso — run verde, tag e release
-publicadas, produção parada: entre `v1.18.0` e `v1.21.0` nenhuma tag
-disparou deploy, e a `v1.21.0` só entrou em produção quando a tag foi
-apagada e re-pushada à mão. O `release.yml` agora usa
-`SEMANTIC_RELEASE_TOKEN` com fallback para `GITHUB_TOKEN`: **sem o secret o
-release continua publicando** (o versionamento automático nunca para) e só
-o deploy não dispara — por isso o fallback é deliberado e não deve ser
-removido. O bloco `permissions:` do `release.yml` não resolve o problema
-(a trava vale em qualquer escopo) e não deve ser mexido por causa disso.
+release usava só ele. O sintoma é silencioso — run verde, tag e release
+publicadas, produção parada. Já aconteceu duas vezes: entre `v1.18.0` e
+`v1.21.0` (a `v1.21.0` só entrou quando a tag foi apagada e re-pushada à
+mão) e de novo em `v1.25.0`/`v1.25.1`/`v1.25.2` (~20h parado) e
+`v1.26.0`/`v1.26.1`.
+
+O `release.yml` usa `SEMANTIC_RELEASE_TOKEN` com fallback para `GITHUB_TOKEN`:
+**sem o secret o release continua publicando** (o versionamento automático
+nunca para) e só o deploy não dispara — por isso o fallback é deliberado e não
+deve ser removido. O bloco `permissions:` do `release.yml` não resolve o
+problema (a trava vale em qualquer escopo) e não deve ser mexido por causa
+disso.
+
+**Estado hoje (05/10/2026): o secret ainda não existe.** `gh secret list` não
+mostra `SEMANTIC_RELEASE_TOKEN`, então o release está no caminho degradado e
+`v1.26.0`/`v1.26.1` estão publicadas sem terem chegado em produção. Para
+fechar, no dono do repositório:
+
+```bash
+gh secret set SEMANTIC_RELEASE_TOKEN --repo <owner>/<repo>
+```
+
+Até lá, e para pegar o caso no dia seguinte, o
+`.github/workflows/auditoria-deploy.yml` roda diário perguntando se a tag de
+backend mais recente tem run de deploy concluído com sucesso — e falha, com o
+comando acima no log, quando não tem:
+
+```bash
+gh workflow run auditoria-deploy.yml                  # a tag mais recente
+gh workflow run auditoria-deploy.yml -f tag=v1.25.3   # auditar uma tag só
+```
+
+Publicar uma tag específica à mão (o escape de sempre) continua valendo:
+`git tag vX.Y.Z && git push origin vX.Y.Z`, com a tag já existindo
+localmente. Detalhes dos dois portões em `docs/agent-deploy.md`
+§ "Os dois portões que falhavam em silêncio".
 
 ### Secrets necessários no GitHub Actions
 
