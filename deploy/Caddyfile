@@ -134,9 +134,43 @@
 		}
 	}
 
+	# ---------- Webhook do Pagar.me ----------
+	#
+	# Bloco PRÓPRIO, separado do genérico `/webhooks/*` de baixo, mesmo
+	# aceitando prefixo sobreposto. Motivo: a URL de callback é cadastrada no
+	# painel do Pagar.me e não pode depender de um bloco genérico que qualquer
+	# outro webhook pode reescrever — e o upstream é outro (o serviço em Go,
+	# `pagarme-webhook/`, ou o backend Node).
+	#
+	# ---------- A ordem dos dois blocos NÃO é o que decide ----------
+	#
+	# O `caddyfile` adapter ORDENA as rotas de `handle` por ESPECIFICIDADE
+	# antes de gerar o JSON, então `/webhooks/pagarme*` fica antes de
+	# `/webhooks/*` nas DUAS ordens de escrita. Medido com `caddy adapt` e com um
+	# Caddy de verdade roteando para dois upstreams distintos: escrever o genérico
+	# primeiro não faz o Pagar.me ser capturado pelo genérico.
+	#
+	# O bloco do Pagar.me está acima por LEGIBILIDADE (quem lê procura o
+	# específico primeiro), e o comentário abaixo no genérico aponta para cá.
+	# Confiar na ordem de declaração seria depender de um comportamento que
+	# ninguém testou — e o sintoma de errar a ordem seria o webhook do Pagar.me
+	# respondendo pelo backend Node sem erro em log nenhum, que é o modo de
+	# falha mais barato de detectar tarde demais.
+	#
+	# Upstream próprio (`PDV_PAGARME_UPSTREAM`), resolvido pelo
+	# `caddy-assemble.sh`. O default é o backend Node de propósito: trocar de
+	# implementação não pode virar tráfego por acidente, exatamente como no
+	# `handle /realtime*`.
+	handle /webhooks/pagarme* {
+		reverse_proxy {$PDV_PAGARME_UPSTREAM:backend:3000}
+	}
+
 	# Webhooks da Meta (WhatsApp Cloud API). Fora de /api de propósito: a
 	# URL de callback é cadastrada no painel da Meta e não pode depender do
 	# prefixo que o backend usa na API REST.
+	#
+	# Este é o GENÉRICO, e ele NÃO serve o Pagar.me: o bloco específico acima
+	# existe para isso (ver a nota de ordem por especificidade).
 	handle /webhooks/* {
 		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
 	}
