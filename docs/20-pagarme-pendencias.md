@@ -5,7 +5,7 @@ não foi feito, por que, e qual o risco de cada item ficar parado.
 
 O fluxo principal (criar cobrança → webhook confirma → `order_payment`
 confirmada → comanda fecha) **funciona e está testado** (20 testes em
-`test/pagarme.test.ts`, 258 no total). O que segue é dívida.
+`test/pagarme.test.ts`, 299 no total em 20 suítes). O que segue é dívida.
 
 ---
 
@@ -219,6 +219,55 @@ para isso.
 
 ---
 
+## 15. Duas linhas confirmadas travam o fechamento da comanda
+
+Há **três** lugares que inserem em `order_payment` com `confirmed = true`, e
+só um deles tem guarda:
+
+| Inserter | Guarda |
+|---|---|
+| `bridgePaidToOrder` (`payment.usecases.ts:603`) | sim — mesma linha se já existir confirmada com **mesmo método e mesmo valor** |
+| `setOrderPaymentsUsecase` (`order.usecases.ts:756`) | sim — `planPaymentLines` recusa (`invalidTransition`) qualquer confirmada fora da lista |
+| iFood `status-pushback.ts:92` | **nenhuma** |
+
+`closeOrderUsecase` (`order.usecases.ts:928`) soma **todas** as linhas
+confirmadas da comanda e compara com o total (`moneyEq(paid, total)`). Duas
+linhas confirmadas estouram o total e o fechamento cai em
+`invalidPaymentTotal` — a comanda fica aberta e não há como quitar.
+
+### Cenário que falha de fato
+
+A ordem importa, e as duas ordens não se comportam igual:
+
+1. **Balcão primeiro, webhook depois.** O caixa registra `cash` confirmado; o
+   webhook chega e `bridgePaidToOrder` insere `card` (de `credit_card`). A
+   guarda compara método **e** valor — `cash` ≠ `card` — então **não** pega, e a
+   segunda linha entra. Bug.
+2. **Webhook primeiro, balcão depois.** A linha do gateway já está confirmada;
+   o `PUT` do balcão manda só `cash`. `planPaymentLines` acha a confirmada sem
+   par 1:1 e recusa com `invalidTransition` ("o estorno precisa ser explícito").
+   O caixa é **bloqueado com mensagem clara** — não corrompe a comanda, mas é
+   uma parede sem saída: a única forma de sair é estornar pelo fluxo de caixa.
+
+O iFood (3º inserter) repete o padrão do caso 1: grava confirmada cobrindo o
+total inteiro e não olha o que já existe.
+
+**Risco:** médio. Não é corrupção de dado — é indisponibilidade do fechamento, e
+a reconciliação do Pagar.me pode corrigir o `payment` sem desfazer o
+`order_payment` que o balcão gravou, o que **estenderia** a janela. Raro: exige
+o caixa registrando e o webhook chegando na mesma comanda.
+
+**Para resolver:** decisão de produto antes de qualquer código. As saídas
+possíveis são (a) `bridgePaidToOrder` recusar quando já houver **qualquer**
+linha confirmada, em vez de só quando método e valor batem; (b) o balcão
+deixar de registrar quando existe cobrança viva no gateway; (c) o
+`closeOrderUsecase` absorver a linha extra. (a) é a mais barata e a que
+evita as duas ordens, mas é mudança de fluxo: o cashier perde a possibilidade
+de registrar pagamento manual numa comanda que já tem QR no ar — que é
+justamente o cenário de "cliente pagou no gateway mas a fila travou".
+
+---
+
 ## Resumo do que falta, por prioridade
 
 | Prioridade | Item | Esforço |
@@ -231,6 +280,7 @@ para isso.
 | P2 | Reconciliação de estornos presos (item 6) | baixo |
 | P2 | Cancelamento automático de expiradas (item 13) | baixo |
 | P2 | Notificação WhatsApp no paid (item 14) | baixo |
+| P2 | Linha de pagamento duplicada trava o fechamento (item 15) | médio, **decisão de produto antes de código** |
 | P3 | Métricas/alertas/dashboard (item 7) | alto |
 | P3 | DLQ com retry manual (item 9) | baixo |
 | P3 | Validação de IP do webhook (item 10) | baixo |
