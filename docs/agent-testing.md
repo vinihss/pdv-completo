@@ -11,6 +11,31 @@ npm run test
 
 **Framework**: vitest 5 + PostgreSQL dedicado `pdv_test` (recriado no global setup via `TEST_DATABASE_URL`).
 
+### O banco de teste NÃO está no repo
+
+`pdv_test` é um Postgres **ad-hoc**: precisa ser subido à mão antes da suíte.
+Sem ele, os testes não falham por asserção — falham com `relation
+"store_settings" does not exist`, porque o global setup faz `DROP SCHEMA
+public` e não encontra migration nenhuma para reaplicar. É um sintoma que
+parece bug de código e não é.
+
+```bash
+docker run -d --name pdv-test-db -p 55432:5432 \
+  -e POSTGRES_USER=pdv -e POSTGRES_PASSWORD=pdv_test_pw -e POSTGRES_DB=pdv_test \
+  postgres:16
+
+cd backend && npm run db:migrate   # aplica migrations/*.sql; o global setup
+                                  # também aplica, mas exige o schema legível
+```
+
+A porta **55432** e as credenciais estão fixas em `test/test-db.ts:15`. A URL
+precisa de `?sslmode=disable` quando você apontar para outro banco — sem isso
+o `lib/pq` (usado pelos serviços Go) assume `require` e a conexão falha.
+
+Este banco **não pode ser compartilhado** com um servidor de dev: as suítes
+publicam de verdade e disputam o advisory lock `pdv:payment:worker` e o
+`pdv:outbox:owner`, os mesmos que o backend usa em produção.
+
 ### Suítes (20 arquivos)
 
 | Arquivo | Cobertura |
