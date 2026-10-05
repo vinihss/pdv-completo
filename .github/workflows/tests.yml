@@ -27,11 +27,11 @@ name: Testes (backend + frontend)
 # Renomear um dos lados sem renomear o outro quebra o deploy no push da
 # próxima tag.
 #
-# O mesmo vale para `test-ws-gateway`: o check aparece como
-# `tests / test-ws-gateway` no PR (o job chamador se chama `tests`), e é esse
-# nome que um ruleset por check precisaria. Não há ruleset exigindo os checks
-# de teste por nome hoje — se um dia houver, o nome novo entra na regra junto
-# com os outros dois.
+# O mesmo vale para os jobs de serviço: `test-ws-gateway` aparece como
+# `tests / test-ws-gateway` no PR (o job chamador se chama `tests`), e
+# `test-pagarme-webhook` como `tests / test-pagarme-webhook` — é esse nome que um
+# ruleset por check precisaria. Não há ruleset exigindo os checks de teste por
+# nome hoje — se um dia houver, os nomes novos entram na regra junto com os outros.
 # ============================================================
 
 on:
@@ -262,6 +262,205 @@ jobs:
           fi
 
           echo "nenhum teste pulado: os cinco testes de PollOnce rodaram contra o Postgres do serviço"
+
+  # O serviço Pagar.me em Go (pagarme-webhook/). Módulo Go independente, com as
+  # próprias dependências — não entra no `npm ci` do backend nem no do frontend,
+  # então sem este job o único portão de qualidade do serviço era o `go build` da
+  # imagem Docker em produção, e os 228 testes que o protegem (contando subtestes)
+  # só rodavam na máquina de quem os escreveu.
+  #
+  # `gofmt -l` é o passo incomodo e é o motivo de o job existir: ele imprime o
+  # nome dos arquivos fora de formato e SAI 0 sempre (é um linter de listagem, não
+  # um verificador). Sem o `test -z` logo abaixo, um arquivo mal formatado
+  # passaria verde para sempre — e o resto do repo tem lint no portão
+  # (`npm run lint` no frontend), então a exceção aqui seria uma porta aberta.
+  test-pagarme-webhook:
+    runs-on: ubuntu-latest
+    # Este serviço tem DUAS suítes que precisam de Postgres de verdade, e nenhuma
+    # das duas é substituível por mock:
+    #
+    # 1. A INBOX (`internal/inbox`, 7 testes que pulam): o `Record` grava em
+    #    `payment_event` de verdade, porque o que está em jogo é o `ON CONFLICT`
+    #    (provider, event_id) sobre o índice UNIQUE `uq_payment_event_provider_event_id`.
+    #    Um mock que devolvesse "conflito" quando o teste manda provaria exatamente
+    #    o que o teste mandou. É a proteção contra o dedupe quebrado — e dedupe
+    #    quebrado é o defeito que cobra a mesma cobrança duas vezes, porque o
+    #    Pagar.me reenvia o mesmo evento e o segundo apply chega ao Node.
+    #
+    # 2. O CICLO DO DRAIN (`internal/queue`, 31 testes que pulam): `DrainOnce` e
+    #    `ReconcileOnce` precisam do banco porque disputam o advisory lock
+    #    `pg_try_advisory_xact_lock(hashtext('pdv:payment:worker'))` e mexem em
+    #    `status`/`attempts`/`next_attempt_at` — nenhum mock prova advisory lock,
+    #    transação nem `UPDATE`. Aqui moram as proteções da DLQ
+    #    (`TestDrainOneEstouraATetoEParaNaDLQ`, `TestCountDeadLettered`) e da
+    #    serialização entre instâncias (`TestDrainOncePulaQuandoOutroDrenadorTemOLock`).
+    #
+    # São 38 testes que pulam (`t.Skip` no helper `testDB`) sem
+    # `PAGARME_TEST_DATABASE_URL`, e o `t.Skip` é justamente o modo de falha que
+    # esconde as duas proteções acima. Medido nesta máquina, sem a env:
+    # 38 pulam, 190 passam e a suíte sai VERDE — ou seja, `go test` sozinho é
+    # falso-verde garantido se a env faltar. O que some nesse verde é a proteção
+    # contra dedupe quebrado e a única forma de observar a DLQ.
+    #
+    # Daí as duas decisões abaixo: o serviço de Postgres, sem o qual a suíte roda
+    # pela metade; e o passo "nenhum teste pulado" depois do `go test`, que é a
+    # parte que importa mais que subir o banco.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          # Mesmas credenciais do job `test-backend`, do `test-ws-gateway` e do
+          # default em backend/test/test-db.ts: o banco efêmero do CI e o Postgres
+          # local de desenvolvimento não podem divergir. Copiado dos outros de
+          # propósito — um terceiro conjunto de credenciais aqui passaria
+          # despercebido até alguém apontar a suíte para o banco errado.
+          POSTGRES_USER: pdv
+          POSTGRES_PASSWORD: pdv_test_pw
+          POSTGRES_DB: pdv_test
+        ports:
+          - 55432:5432
+        # Sem healthcheck o `go test` começa antes do Postgres aceitar conexão e
+        # o job falha de forma intermitente, dependendo da carga do runner.
+        # Mesmos intervalos do `test-backend`: o contêiner sobe em paralelo com
+        # o checkout e o `setup-go`, então o healthcheck quase nunca é o gargalo
+        # — ele só impede que a suíte comece com o banco ainda subindo.
+        options: >-
+          --health-cmd "pg_isready -U pdv -d pdv_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Nome diferente do `TEST_DATABASE_URL` do job `test-backend` de propósito:
+      # o serviço não usa o global-setup do vitest, e a suíte Go lê a variável
+      # pelo nome dela (`os.Getenv("PAGARME_TEST_DATABASE_URL")` nos dois helpers
+      # `testDB`). Nada a renomear.
+      #
+      # `sslmode=disable` não é decoração: é o que faz os 38 testes rodarem.
+      # O driver do serviço é o mesmo lib/pq do gateway (`internal/db`), que
+      # assume `sslmode=require` quando a DSN não diz nada, e a imagem
+      # `postgres:16` do serviço não tem SSL — sem este parâmetro os 38 pulam com
+      # "pq: SSL is not enabled on the server" e o job passa verde sem executar
+      # nada (medido: `ok internal/inbox 0.117s`, contra 2,1s rodando). O
+      # `testDB` pula, não falha, nesse caso — que é o pior formato possível:
+      # env setada, banco de pé, suíte verde e 38 testes não exercitados. A DSN
+      # do `test-backend` dispensa o parâmetro porque o driver do Node (`pg`)
+      # negocia para texto puro; host, porta, usuário, senha e banco são os
+      # mesmos nos três jobs.
+      PAGARME_TEST_DATABASE_URL: postgres://pdv:pdv_test_pw@localhost:55432/pdv_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # Mesma versão declarada no go.mod do serviço (`go 1.25.0`).
+          # `go-version` com `check-latest` desligado (default) instala exatamente
+          # esta versão, e o `cache: true` usa o go.sum como chave do cache do
+          # module/build cache — o equivalente ao `cache-dependency-path` do npm
+          # nos jobs acima. Se o go.mod subir, este número sobe junto (o próprio
+          # build falha com "go.mod requires go >= X" se ficarem divergentes).
+          go-version: '1.25.0'
+          cache: true
+          cache-dependency-path: pagarme-webhook/go.sum
+      - working-directory: pagarme-webhook
+        run: |
+          go build ./...
+          go vet ./...
+          test -z "$(gofmt -l .)" || { gofmt -l .; echo "::error::rode gofmt -w ."; exit 1; }
+      # `-v` e o `tee` não são vaidade: `--- SKIP:` é o que o passo
+      # seguinte lê. O `set -o pipefail` é o que impede o `tee` de engolir o
+      # status do `go test` — sem ele, um teste vermelho passaria o passo
+      # (o shell padrão do Actions é `bash -e`, sem pipefail) e o job inteiro
+      # perderia o sinal de falha do `go test`.
+      #
+      # `-race` é o detector de corrida do runtime, e ele está aqui por causa de
+      # uma classe de defeito que a suíte sem ele não pega. Este serviço tem
+      # estado compartilhado em três lugares, e os três dependem do mesmo
+      # detector para dizer se o mutex ainda cobre o campo:
+      #
+      #   - O `HealthProbe` (internal/server/health.go) guarda `st` e `inFlight`
+      #     sob `sync.Mutex`, e o probe roda em goroutine (`go probe.Run(ctx)`)
+      #     enquanto o `/health` lê `st` da goroutine do handler. As suítes
+      #     `TestProbeNaoAcumulaPerguntasPresas` e `TestProbeDestravaDepois` usam
+      #     um `dbPinger` que trava de propósito (é o que o lib/pq faz contra um
+      #     banco congelado) para abrir a janela de corrida de verdade — e leem
+      #     `len(probe.inFlight)` tomando `probe.mu` antes, exatamente a disciplina
+      #     que o `-race` verifica.
+      #   - O `fakeAplica` (`internal/queue`) acumula `chamadas`/`enderecos` sob
+      #     `mu`, e o par de testes do gate (`TestRunComGateDesligado…` /
+      #     `TestRunComGateLigado…`) roda `d.Run(ctx)` em goroutine e depois lê
+      #     `aplica.quantasChamadas()` da goroutine do teste.
+      #   - O `fechaPool` (cmd/webhook/main.go) fecha o pool em goroutine e
+      #     espera num `select` com prazo.
+      #
+      # Sem `-race`, um mutex que pare de cobrir um campo não reprova nada: os
+      # testes continuam verdes e a corrida fica esperando um CI mais lento ou
+      # uma máquina mais cheia para se manifestar. Com `-race` o relatório nomeia
+      # as DUAS goroutines, os DOIS acessos e as linhas — que é o vermelho que
+      # sobrevive a um teste novo.
+      #
+      # O `-race` não muda o formato que o passo de baixo lê: `--- PASS:` e
+      # `--- SKIP:` saem iguais, a ordem dos pacotes é a mesma e a contagem de
+      # pulos continua em zero contra o Postgres do serviço (medido nos dois
+      # ramos do `t.Skip`: env ausente e banco que não responde, com e sem
+      # `sslmode=disable`). Por isso o gate de skip abaixo não precisou de nenhum
+      # ajuste.
+      #
+      # O custo cabe em uma frase, medido em 4 vCPUs: a suíte vai de ~5s para
+      # ~9s. A primeira execução depois deste commit paga ~+4s a mais (13s contra
+      # 9s aqui), porque `-race` gera um build instrumentado SEPARADO e o passo
+      # `go build`/`go vet` acima só aquece o cache sem detector; da segunda em
+      # diante o cache do `setup-go` (que inclui o GOCACHE) já resolve. Requisito
+      # de ambiente: `-race` depende de cgo, e por isso de um compilador C — o
+      # `gcc` das imagens `ubuntu-latest` do GitHub está lá. Sem ele o passo morre
+      # com erro críptico ("-race requires cgo"), que é o jeito que essa
+      # dependência se denuncia.
+      - name: suíte (com o Postgres do serviço)
+        working-directory: pagarme-webhook
+        run: |
+          set -o pipefail
+          go test -v -count=1 -race ./... 2>&1 | tee "$RUNNER_TEMP/pagarme-webhook-test.log"
+      # `go test` sai 0 com `t.Skip`: o verde deste job não distingue "testou" de
+      # "pulou", e é essa distinção que segura as duas proteções de cima. Vale para
+      # o módulo inteiro, não só para os 38 testes de banco: hoje as únicas
+      # chamadas de `t.Skip` do serviço são as duas do helper `testDB`, replicadas
+      # em `internal/inbox` e `internal/queue` — env ausente OU Postgres que não
+      # responde, e as duas precisam virar vermelho aqui. Um `t.Skip` legítimo que
+      # apareça um dia aparece como falha neste passo, com nome e motivo, em vez de
+      # sumir num verde.
+      - name: nenhum teste pulado
+        run: |
+          log="$RUNNER_TEMP/pagarme-webhook-test.log"
+
+          # Log ausente ou vazio NÃO é "nenhum pulo": é o passo anterior não ter
+          # rodado. Sem esta guarda o `grep` abaixo não casaria nada e o job
+          # passaria verde sem ter conferido nada — o silêncio que este passo
+          # existe para impedir.
+          if [ ! -s "$log" ]; then
+            echo "::error::log da suíte ausente ou vazio ($log): o passo de go test não produziu saída"
+            exit 1
+          fi
+
+          # `--- SKIP:` é o formato do `go test -v` (indentado nos subtestes) e
+          # `-B2` traz o motivo do pulo: a linha de log do `t.Skip` fica logo
+          # acima, e é ela que diz qual dos três modos foi — env ausente, banco
+          # que não responde, ou o `sslmode` faltando na DSN.
+          #
+          # Antes do skip, o espelho do mesmo receio: se o `go test` mudar essa
+          # linha um dia, o `grep` de baixo deixa de casar e este passo volta a
+          # ser o verde silencioso que veio para acabar. Um `--- PASS:` no log é
+          # a prova de que o formato é o esperado — e ele existe porque há pacotes
+          # com testes que passam (só `cmd/webhook` e `internal/db` são
+          # `[no test files]`).
+          if ! grep -qE '^[[:space:]]*--- PASS: ' "$log"; then
+            echo "::error::nenhuma linha '--- PASS:' no log da suíte: o gate de skip pode ter parado de casar (formato de saída do go test mudou?)"
+            exit 1
+          fi
+
+          if grep -nE -B2 '^[[:space:]]*--- SKIP: ' "$log"; then
+            echo "::error::teste(s) pulado(s) no pagarme-webhook: a suíte não rodou contra o Postgres. Se PAGARME_TEST_DATABASE_URL sumiu do env do job, aponta para um Postgres que não responde, ou perdeu o '?sslmode=disable' (o lib/pq assume sslmode=require e a imagem postgres:16 do serviço não tem SSL), o serviço fica sem a proteção contra dedupe quebrado na inbox e sem como observar a DLQ do drain"
+            exit 1
+          fi
+
+          echo "nenhum teste pulado: os 38 testes de banco (7 da inbox, 31 do drain) rodaram contra o Postgres do serviço"
 
   # TODO: refazer os testes do printer/daemon (go test ./...) — removidos
   # temporariamente para destravar o build. Ver printer/README.md.

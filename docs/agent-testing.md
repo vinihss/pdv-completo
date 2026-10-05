@@ -179,6 +179,84 @@ WS_GATEWAY_TEST_DATABASE_URL='postgres://pdv:pdv_test_pw@localhost:55432/pdv_tes
 série temporal nem alerta), e o comportamento sob carga real de WS — o máximo de socket testado é
 o de um `httptest.Server` local.
 
+## Serviço Pagar.me (Go)
+
+```bash
+cd pagarme-webhook
+gofmt -l .        # tem que sair vazio
+go vet ./...
+go test -count=1 ./...
+```
+
+**Cobertura** (7 arquivos, 131 funções de teste, 228 casos com subtestes): nada de serviço de pé — o
+`nodeapi` e o `gateway` batem em `httptest.Server` reais — e **banco só em duas suítes**, que
+dependem de `PAGARME_TEST_DATABASE_URL` (ver abaixo).
+
+| Arquivo | Cobertura |
+|---|---|
+| `internal/signature/signature_test.go` | HMAC-SHA1 do cabeçalho do Pagar.me: assinatura válida, tolerância de caixa e de prefixo, e as formas de recusa (`base64` no lugar de hex, caractere não-hex, prefixo no meio, corpo truncado, truncada ao meio), corpo com acentos, bytes arbitrários sem panic, e o segredo sendo mesmo a chave da HMAC |
+| `internal/charge/charge_test.go` | `MapStatus` e os aliases (`canceled`/`cancelled`, caixa e espaço), status desconhecido **não** virando palpite; `order_to_charge` (pago, guarda o id do payload pelo prefixo do topo, resolução de status, amount); `round2` que não perde centavo por `float`; amount como string, objeto e array; varredura de `extractPix`; `event_id`; omissão de campo ausente em vez de zero |
+| `internal/nodeapi/nodeapi_test.go` | Cliente do endpoint interno do Node: POST no caminho do evento e no da cobrança, token no header, corpo do contrato, omissão de campo não enviado, base URL com barra final; **tabela de classificação de erro** (404 ignorado, 4xx retryable, timeout retryable, `applied:false` não é erro, 2xx sem corpo é aplicado, 2xx com corpo inválido é retryable), e a garantia de que o cliente **não** retenta sozinho (a espera é do drain, holding transação) |
+| `internal/gateway/gateway_test.go` | `Find` no Pagar.me: GET no path do pedido, Basic com senha vazia, 404 devolvendo `nil` sem erro, rede e timeout, sem credencial ou sem id, corpo sem id, corpo inválido retryable, base URL com barra final, o mesmo mapper do webhook, e cancelamento de contexto abortando a chamada |
+| `internal/inbox/inbox_test.go` | `Record` gravando em `payment_event` **de verdade** (precisa de Postgres): evento novo, **dedupe no reenvio** e dedupe por par de provider (o `ON CONFLICT` do índice UNIQUE), recusa de evento sem id, `payment_id` nulo, `created_at` no formato do banco, `unknown` quando o type vem ausente. Sem banco: `nowISO` (formato, UTC, layout que não se desloca), `newUUID` v4 e sem repetição, e `truncarError` |
+| `internal/queue/queue_test.go` | Gate do drain (default-deny, e o par `Run` desligado não toca no banco / ligado só volta ao cancelar), backoff e seu teto, `cargaDe`, `textArray` (inclusive válido no Postgres). **Ciclo** (precisa de Postgres): `DrainOnce` processa evento novo, **nunca seleciona `processing`**, ignora terminais, respeita backoff não vencido e pega `failed` com backoff vencido, não pega DLQ, ordena por `seq`, lote de 25, **falha de um não para o lote**, **pula quando outro drenador tem o lock**, a tabela de destino de cada erro, payload inválido vai para a DLQ e **estoura o teto e para na DLQ**, e passa com o lock da reconciliação; `ReconcileOnce` relê pendente e aplica no Node, ignora terminais e cobrança sem order id, gateway desconhecido não é erro, falha de uma não para as outras, `no_transition` não é erro, usa lock diferente do drain e respeita o limite; e `CountDeadLettered` |
+| `internal/server/server_test.go` | HTTP do webhook: 503 sem `PAGARME_SECRET_KEY` (recusando **antes** de parsear), 401 de assinatura inválida vencendo body inválido, 400 de corpo que não é JSON / não é objeto / não é UTF-8 / sem `event_id`, 503 de falha de infraestrutura, 200 + corpo cru no evento novo, **200 `duplicate` no reenvio**, 413 acima do teto (e o limite de bytes aceito logo abaixo), recusa de método ≠ POST, e as rotas. **Saúde**: 200 com credencial e banco, 503 sem pool, 503 com inbox ausente sem panic, 503 com banco travado, 503 quando o banco recusa e quando congela, volta a 200 ao destravar, reflete o gate do drain, e o `HealthProbe` isolado (teto de perguntas presas, destrava depois, ok velho deixa de valer, cancelamento no shutdown não conta como falha) |
+
+**Os 38 testes que precisam de Postgres** (`PAGARME_TEST_DATABASE_URL`) são os de `Record` na
+`inbox` (7) e os de `DrainOnce`/`ReconcileOnce`/`CountDeadLettered` na `queue` (31). O helper
+`testDB` — replicado nos dois pacotes — faz `t.Skip` em dois casos, **env ausente ou o banco não
+respondeu**, e nenhuma outra parte do módulo tem `t.Skip`.
+
+> **A suíte fica VERDE sem banco.** Rodando local sem a env, são **38 SKIP**, 190 passam e
+> `go test` **sai 0**. É falso-verde garantido: o que some nesse verde é a proteção contra **dedupe
+> quebrado** na inbox (o mesmo evento do Pagar.me aplicado duas vezes) e a única forma de
+> **observar a DLQ** do drain. Nenhum dos dois é substituível por mock — o `ON CONFLICT` sobre índice
+> UNIQUE e o `pg_try_advisory_xact_lock` só existem no banco de verdade. Antes de acreditar num
+> verde, confira o número de SKIP (`go test -v | grep -c 'SKIP'`).
+
+Por isso o job `test-pagarme-webhook` sobe um Postgres e, logo depois do `go test`, **falha o job se
+algum teste pulou** — é esse passo, e não o banco, que garante que as duas proteções rodaram:
+
+```yaml
+# .github/workflows/tests.yml, job test-pagarme-webhook
+services:
+  postgres:
+    image: postgres:16              # porta 55432, mesmas credenciais do job test-backend
+env:
+  PAGARME_TEST_DATABASE_URL: postgres://pdv:pdv_test_pw@localhost:55432/pdv_test?sslmode=disable
+# depois do `go test -v | tee $RUNNER_TEMP/pagarme-webhook-test.log`:
+if grep -nE -B2 '^[[:space:]]*--- SKIP: ' "$log"; then exit 1; fi
+```
+
+O `?sslmode=disable` não é decoração: o driver do serviço é o mesmo `lib/pq` do gateway, que assume
+`sslmode=require` quando a DSN não diz nada, e a imagem `postgres:16` do serviço não tem TLS — sem
+o parâmetro os **38** testes pulam com "pq: SSL is not enabled on the server" e o job fica **verde
+sem executar nada**. Pior ainda que a env ausente, porque aqui a env *está* setada e o banco *está*
+de pé: só o driver desiste.
+
+Para rodar a suíte completa localmente, aponte a env para um Postgres **dedicado**. O `testDB` de
+cada pacote cria um **schema novo por execução** (nome aleatório), aponta o `search_path` do pool
+para ele, cria as tabelas ali com `IF NOT EXISTS` e derruba o schema no `t.Cleanup` — não faz
+`TRUNCATE` e não vê linha de fora. Por isso os dois pacotes podem rodar em paralelo no mesmo banco;
+o que não pode é o **worker do Node** apontando para o mesmo banco, porque o `DrainOnce` disputa o
+advisory lock `pdv:payment:worker`.
+
+```bash
+PAGARME_TEST_DATABASE_URL='postgres://pdv:pdv_test_pw@localhost:55432/pdv_test?sslmode=disable' \
+  go test -count=1 -race ./...
+```
+
+O `-race` está no job porque este serviço tem estado compartilhado em três lugares — o `HealthProbe`
+(`st`/`inFlight` sob `sync.Mutex`, lido do handler enquanto o probe roda em goroutine), o `fakeAplica`
+(acumulador com `mu`, lido da goroutine do teste depois de `go d.Run(ctx)`) e o `fechaPool`
+(goroutine + `select` com prazo). Sem `-race` um mutex que pare de cobrir um campo não reprova nada:
+os testes continuam verdes e a corrida fica esperando um CI mais lento para se manifestar.
+
+**O que a suíte ainda NÃO cobre**: o `printer` e o `ws-gateway` (o `Find` bate em `httptest.Server`,
+não no Pagar.me real) e o contrato do `ApplyEvent`/`ApplyCharge` contra um backend Node de verdade —
+o `nodeapi` prova o que o cliente envia e como classifica a resposta, mas o acordo entre os dois
+lados ainda é conferido por smoke.
+
 ## Printer (daemon Go)
 
 ```bash
@@ -226,6 +304,28 @@ go test ./...
 2. Usar `testing` padrão do Go
 3. Para stub de TCP, usar `net.Listen` em porta aleatória
 
+### Serviço Pagar.me
+
+1. Criar arquivo `pagarme-webhook/internal/<pacote>/*_test.go`, no mesmo pacote do código (precisa
+   de acesso a campos privados, como o `fakeAplica` faz). Handler HTTP vai no
+   `internal/server/server_test.go`
+2. Usar `testing` padrão do Go; tabela de casos com `t.Run` para matrizes (o destino de cada erro do
+   Node, os aliases de status, as formas de recusa de assinatura)
+3. Para o cliente do Node e o `Find` do Pagar.me, subir `httptest.Server` real e registrar o
+   mapper/fake — o que está em jogo é o que vai no cabo e como a resposta é classificada
+4. Precisa de banco: usar o helper `testDB` do **mesmo pacote** (`internal/inbox` e `internal/queue`
+   têm o seu; a env é `PAGARME_TEST_DATABASE_URL`), que cria um schema novo por execução, garante
+   as tabelas e faz `t.Skip` se não houver Postgres. **Um `t.Skip` novo derruba o CI** (passo
+   "nenhum teste pulado") — então banco obrigatório em teste novo é decisão consciente, não
+   acidente
+5. Para mexer no gate do drain (`PAGARME_DRAIN`), usar `t.Setenv`; para o caso "a variável **não
+   existe**", usar o helper `semGate(t)` do próprio pacote, que só sabe descer a `os.Unsetenv`
+   dentro de `t.Cleanup`
+6. Para testar prazo, encolher o tempo no teste em vez de dormir: o `HealthProbe` carrega `poll`,
+   `timeout`, `staleAfter` e `maxInFlight` como campos (o construtor copia as constantes), e o
+   `pingerPreso` mostra o padrão de simular um banco congelado
+7. Rodar `gofmt -l .` antes de commitar — o CI falha o job se sair algo
+
 ## Critérios de verificação
 
 Antes de dar qualquer mudança por feita:
@@ -236,13 +336,18 @@ Antes de dar qualquer mudança por feita:
 4. Gateway WS: `cd ws-gateway && gofmt -l . && go vet ./... && go test -count=1 ./...` — com
    `WS_GATEWAY_TEST_DATABASE_URL` apontando para um Postgres, se o que mudou toca o ciclo do
    outbox (sem ela, cinco testes pulam em silêncio e o comando sai 0)
-5. Smoke manual por perfil: login → abrir comanda → lançar itens → (cozinha marca pronto) → garçom entrega → pagar → fechar
-6. Conferir o critério de aceite correspondente em `docs/03-acceptance-criteria.md`
-7. Toda mudança realtime: garantir que o evento chega a um room que o client realmente assina
-8. Toda mudança de schema: novo arquivo `.sql` numerado em `backend/migrations/`
+5. Serviço Pagar.me: `cd pagarme-webhook && gofmt -l . && go vet ./... && go test -count=1 ./...` —
+   com `PAGARME_TEST_DATABASE_URL` apontando para um Postgres **dedicado** sempre que o que mudou
+   toca a inbox ou o drain. Sem ela a suíte **sai 0** com 38 SKIP: confira `go test -v | grep -c SKIP`
+   antes de acreditar no verde
+6. Smoke manual por perfil: login → abrir comanda → lançar itens → (cozinha marca pronto) → garçom entrega → pagar → fechar
+7. Conferir o critério de aceite correspondente em `docs/03-acceptance-criteria.md`
+8. Toda mudança realtime: garantir que o evento chega a um room que o client realmente assina
+9. Toda mudança de schema: novo arquivo `.sql` numerado em `backend/migrations/`
 
-O passo 4 é o mesmo que o job `test-ws-gateway` do `.github/workflows/tests.yml` roda — o
-reusable workflow, não o chamador. O job vai além dele em duas coisas: sobe um Postgres para a
-suíte de `PollOnce` e falha o job se algum teste pulou (é o que transforma "verde com cinco
-SKIP" em vermelho). Mudança no gateway sem esse passo passa o gate de merge e só quebra no
-`go build` da imagem em produção.
+Os passos 4 e 5 são o que os jobs `test-ws-gateway` e `test-pagarme-webhook` do
+`.github/workflows/tests.yml` rodam — o reusable workflow, não o chamador. Os jobs vão além deles
+em duas coisas: sobem um Postgres para a suíte que precisa de banco e **falham o job se algum teste
+poulou** (é o que transforma "verde com cinco SKIP" em vermelho, no caso do gateway, e "verde com
+38 SKIP" em vermelho, no caso do serviço Pagar.me). Mudança em qualquer um dos dois sem esse passo
+passa o gate de merge e só quebra no `go build` da imagem em produção.
