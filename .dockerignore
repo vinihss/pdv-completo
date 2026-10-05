@@ -1,0 +1,23 @@
+# Contexto de build só do app público de pedidos (ver
+# `deploy/docker-compose.yml`: `build.context: ..`). Os outros serviços do
+# compose (backend, ws-gateway, pagarme-webhook) usam o PRÓPRIO diretório como
+# contexto e portanto o `.dockerignore` deles — este arquivo não os afeta.
+#
+# Sem isto o contexto sobe as árvores de `node_modules` dos três pacotes npm
+# (raiz, frontend e backend) e o `apps/pedido-public/node_modules`, ou seja
+# centenas de MB que o Dockerfile nunca copia.
+**/node_modules
+
+# Build do próprio app público e do frontend
+apps/pedido-public/dist
+frontend/dist
+frontend/src-tauri/target
+frontend/src-tauri/binaries
+
+# Secrets e ruído
+**/.env
+**/.env.*
+**/*.log
+.git
+.github
+docs

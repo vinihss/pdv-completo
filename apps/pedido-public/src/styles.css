@@ -1,0 +1,10 @@
+/* O app público serve a MESMA folha de estilo do cardápio interno: a página em
+ * `frontend/src/pages/customer-menu` é compartilhada, e o Tailwind 4 que a
+ * estiliza também precisa entrar no bundle. O caminho é relativo ao arquivo,
+ * por isso os três `..` — `apps/pedido-public/src` → raiz do repo.
+ *
+ * Antes apontava para `frontend/src/app/styles/index.css`, que não existe: o
+ * CSS do frontend vive em `frontend/src/index.css` (o `main.jsx` dele é quem o
+ * importa). Um `@import` de arquivo inexistente não dá aviso — o build saía
+ * verde e a página ia ao ar sem uma única regra de estilo. */
+@import '../../../frontend/src/index.css';
