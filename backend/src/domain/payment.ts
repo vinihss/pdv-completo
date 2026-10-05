@@ -40,14 +40,31 @@ import { Errors } from "./errors.js";
 // 'pix' é a única palavra em comum, e mesmo aí são eixos diferentes.
 export type PaymentMethod = "pix" | "credit_card";
 
-export type PaymentStatus =
-  | "pending"
-  | "processing"
-  | "paid"
-  | "failed"
-  | "canceled"
-  | "partially_refunded"
-  | "refunded";
+/**
+ * O vocabulário de `payment.status`, como FONTE, e o union derivado dela.
+ *
+ * A ordem importa: quando o array era o espelho do union, os dois podiam
+ * divergir em silêncio (um status novo entrava no union e o espelho esquecia).
+ * Aqui é o contrário — `PAYMENT_STATUSES` é a lista, `PaymentStatus` sai dela,
+ * e `PAYMENT_TRANSITIONS` (`Record<PaymentStatus, ...>`) continua cobrando a
+ * exaustividade em tempo de compilação. Uma lista só, sem cópia.
+ *
+ * O array também é o que o `z.enum()` do canal interno consome
+ * (`pagarme-internal.routes.ts`): `charge.status` chega por rede e precisa ser
+ * validado contra ESTE vocabulário, não contra uma segunda lista escrita ao
+ * lado do schema.
+ */
+export const PAYMENT_STATUSES = [
+  "pending",
+  "processing",
+  "paid",
+  "failed",
+  "canceled",
+  "partially_refunded",
+  "refunded",
+] as const;
+
+export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
 export type PaymentEventStatus = "received" | "processing" | "processed" | "ignored" | "failed";
 

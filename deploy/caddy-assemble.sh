@@ -26,6 +26,7 @@ STATE_FILE="${PDV_UPSTREAM_STATE:-/etc/pdv/active-upstream}"
 CONFIG="${PDV_CADDY_CONFIG:-/etc/caddy/Caddyfile}"
 MODE="${1:-run}"
 GATEWAY_UPSTREAM="ws-gateway:8080"
+PAGARME_UPSTREAM="pagarme-webhook:8080"
 
 # ---------- 1. ponteiro de upstream ----------
 # Arquivo de poucas linhas no formato CHAVE=VALOR. Ausente = primeira
@@ -41,7 +42,7 @@ if [ -r "$STATE_FILE" ]; then
   while IFS='=' read -r key value; do
     case "$key" in
       '' | '#'*) continue ;;
-      PDV_BACKEND_UPSTREAM | PDV_FRONTEND_UPSTREAM | PDV_WS_UPSTREAM)
+      PDV_BACKEND_UPSTREAM | PDV_FRONTEND_UPSTREAM | PDV_WS_UPSTREAM | PDV_PAGARME_UPSTREAM)
         [ -n "$value" ] || continue
         export "$key=$value"
         ;;
@@ -82,7 +83,40 @@ if [ -z "${PDV_WS_UPSTREAM:-}" ]; then
   export PDV_WS_UPSTREAM
 fi
 
-echo "[caddy] upstream ativo — backend: ${PDV_BACKEND_UPSTREAM:-backend:3000 (default)} | frontend: ${PDV_FRONTEND_UPSTREAM:-frontend:80 (default)} | realtime: ${PDV_WS_UPSTREAM} (WS_BACKEND=${WS_BACKEND:-node})"
+# ---------- 1c. quem serve o /webhooks/pagarme ----------
+# O webhook do Pagar.me tem duas implementações possíveis (a rota do backend Node,
+# que está no ar, e o serviço em Go de `pagarme-webhook/`) e o Caddy só conhece um
+# upstream. Mesma precedência do /realtime, pelas mesmas Razões:
+#
+#   1. PDV_PAGARME_UPSTREAM no ponteiro — botão de emergência.
+#   2. PAGARME_WEBHOOK_BACKEND=go no ambiente do container — a decisão do .env,
+#      que é o que sobrevive a recreate e a deploy.
+#   3. Sem nada disso, ACOMPANHA o ponteiro do backend.
+#
+# O item 3 é o MESMO motivo do realtime: fixar um literal `backend:3000`
+# quebraria o webhook no primeiro switch, porque o switch para a instância antiga
+# no fim e o /webhooks/pagarme ficaria apontando para um container parado. O
+# sintoma seria o Pagar.me reenviando e ninguém recebendo — silencioso do lado do
+# provedor, que simplesmente desiste.
+#
+# Esta é a ÚNICA diferença de risco em relação ao realtime, e vale a pena dizer:
+# ligar `go` aqui com o serviço de pé mas o `PAGARME_DRAIN` desligado é um estado
+# LEGÍTIMO (grava a inbox, o Node processa). Já ligar `go` com o drain ligado e o
+# endpoint interno do Node ausente manda a fila de confirmação para a DLQ — e por
+# isso o gate é default-deny lá dentro, não uma prática de operação.
+if [ -z "${PDV_PAGARME_UPSTREAM:-}" ]; then
+  case "${PAGARME_WEBHOOK_BACKEND:-node}" in
+    go) PDV_PAGARME_UPSTREAM="$PAGARME_UPSTREAM" ;;
+    node) PDV_PAGARME_UPSTREAM="${PDV_BACKEND_UPSTREAM:-backend:3000}" ;;
+    *)
+      echo "[caddy] PAGARME_WEBHOOK_BACKEND='${PAGARME_WEBHOOK_BACKEND}' não é node nem go — o /webhooks/pagarme fica no backend Node" >&2
+      PDV_PAGARME_UPSTREAM="${PDV_BACKEND_UPSTREAM:-backend:3000}"
+      ;;
+  esac
+  export PDV_PAGARME_UPSTREAM
+fi
+
+echo "[caddy] upstream ativo — backend: ${PDV_BACKEND_UPSTREAM:-backend:3000 (default)} | frontend: ${PDV_FRONTEND_UPSTREAM:-frontend:80 (default)} | realtime: ${PDV_WS_UPSTREAM} (WS_BACKEND=${WS_BACKEND:-node}) | webhook pagarme: ${PDV_PAGARME_UPSTREAM} (PAGARME_WEBHOOK_BACKEND=${PAGARME_WEBHOOK_BACKEND:-node})"
 
 # ---------- 2. validar antes de aplicar ----------
 # Este é o portão de segurança do switch: um nome de serviço errado no

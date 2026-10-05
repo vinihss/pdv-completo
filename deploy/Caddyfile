@@ -134,9 +134,43 @@
 		}
 	}
 
+	# ---------- Webhook do Pagar.me ----------
+	#
+	# Bloco PRÓPRIO, separado do genérico `/webhooks/*` de baixo, mesmo
+	# aceitando prefixo sobreposto. Motivo: a URL de callback é cadastrada no
+	# painel do Pagar.me e não pode depender de um bloco genérico que qualquer
+	# outro webhook pode reescrever — e o upstream é outro (o serviço em Go,
+	# `pagarme-webhook/`, ou o backend Node).
+	#
+	# ---------- A ordem dos dois blocos NÃO é o que decide ----------
+	#
+	# O `caddyfile` adapter ORDENA as rotas de `handle` por ESPECIFICIDADE
+	# antes de gerar o JSON, então `/webhooks/pagarme*` fica antes de
+	# `/webhooks/*` nas DUAS ordens de escrita. Medido com `caddy adapt` e com um
+	# Caddy de verdade roteando para dois upstreams distintos: escrever o genérico
+	# primeiro não faz o Pagar.me ser capturado pelo genérico.
+	#
+	# O bloco do Pagar.me está acima por LEGIBILIDADE (quem lê procura o
+	# específico primeiro), e o comentário abaixo no genérico aponta para cá.
+	# Confiar na ordem de declaração seria depender de um comportamento que
+	# ninguém testou — e o sintoma de errar a ordem seria o webhook do Pagar.me
+	# respondendo pelo backend Node sem erro em log nenhum, que é o modo de
+	# falha mais barato de detectar tarde demais.
+	#
+	# Upstream próprio (`PDV_PAGARME_UPSTREAM`), resolvido pelo
+	# `caddy-assemble.sh`. O default é o backend Node de propósito: trocar de
+	# implementação não pode virar tráfego por acidente, exatamente como no
+	# `handle /realtime*`.
+	handle /webhooks/pagarme* {
+		reverse_proxy {$PDV_PAGARME_UPSTREAM:backend:3000}
+	}
+
 	# Webhooks da Meta (WhatsApp Cloud API). Fora de /api de propósito: a
 	# URL de callback é cadastrada no painel da Meta e não pode depender do
 	# prefixo que o backend usa na API REST.
+	#
+	# Este é o GENÉRICO, e ele NÃO serve o Pagar.me: o bloco específico acima
+	# existe para isso (ver a nota de ordem por especificidade).
 	handle /webhooks/* {
 		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
 	}
@@ -150,6 +184,24 @@
 	# dele e se verifica por lá mesmo (ver README).
 	handle /health {
 		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
+	}
+
+	# ---------- Canal interno: recusar na borda ----------
+	#
+	# `/internal/*` (o canal com o serviço `pagarme-webhook/`) NÃO é exposto:
+	# o Go fala com o backend Node pela rede interna (`NODE_INTERNAL_URL`,
+	# default `http://backend:3000`), sem passar por aqui.
+	#
+	# Este bloco existe porque, sem ele, o caminho cai no `handle` final e é
+	# servido pelo PWA — o que faria um `/internal/...` da internet devolver o
+	# `index.html` com 200 em vez de recusar. Um 404 explícito é a resposta
+	# honesta e impede que um catch-all futuro (ou um `handle /api/*` mais
+	# amplo) faça proxy disto para a internet por acidente.
+	#
+	# NÃO afeta o `/internal/caddy-on-demand-tls`: o Caddy o consulta com
+	# `ask`, que fala direto com o upstream e não passa pelo roteamento do site.
+	handle /internal/* {
+		respond 404
 	}
 
 	# Resto: frontend estático (PWA)

@@ -118,4 +118,10 @@ export const config = {
   // para o gerente ver o "pendente" virar "pago", longe o bastante para não
   // martelar a API.
   pagarmeReconciliationIntervalMs: Number(process.env.PAGARME_RECONCILIATION_INTERVAL_MS ?? 600_000),
+  // Token opaco do endpoint interno `/internal/pagarme/*`, compartilhado com o
+  // serviço Go `pagarme-webhook/`. Ausente = o endpoint RECUSA todo chamado
+  // (401) e o log diz o nome da env: um serviço que sobe sem token e recusa é
+  // diferente de um que sobe e aceita qualquer um. Comparado em tempo constante
+  // e nunca aceito em branco.
+  pagarmeInternalToken: process.env.PAGARME_INTERNAL_TOKEN,
 };

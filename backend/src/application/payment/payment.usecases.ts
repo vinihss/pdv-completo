@@ -483,22 +483,38 @@ export async function recordWebhookEventUsecase(payload: PagarmeWebhookPayload, 
   }
 }
 
-/** Acha a cobrança local a que o evento pertence. `null` = não é nossa. */
-async function resolvePaymentForEvent(event: typeof paymentEvents.$inferSelect): Promise<PaymentRow | null> {
-  const payload = JSON.parse(event.payload) as PagarmeWebhookPayload;
-  const data = payload.data;
-
-  const candidates = [event.providerPaymentId, event.providerOrderId, data?.payments?.find((p) => p?.id)?.id, data?.id].filter(
-    (v): v is string => typeof v === "string" && v.length > 0,
-  );
-
+/**
+ * Acha a cobrança local pelos ids que o GATEWAY usa, sem olhar o payload.
+ *
+ * Ordem de precedência: `provider_payment_id` antes de `provider_order_id`
+ * (o primeiro identifica UMA cobrança, o segundo um pedido que pode ter
+ * tentativa nova). É a mesma ordem que `resolvePaymentForEvent` usava, extraída
+ * para que o canal interno (`applyInternalChargeUsecase`) reaproveite em vez de
+ * reimplementar — e para que nenhuma das duas versões "descubra" o id de jeito
+ * diferente.
+ */
+async function findPaymentByProviderIds(candidates: Array<string | null | undefined>): Promise<PaymentRow | null> {
   for (const candidate of candidates) {
+    if (typeof candidate !== "string" || candidate.length === 0) continue;
     const byPayment = await db.query.payments.findFirst({ where: eq(payments.providerPaymentId, candidate) });
     if (byPayment) return byPayment;
     const byOrder = await db.query.payments.findFirst({ where: eq(payments.providerOrderId, candidate) });
     if (byOrder) return byOrder;
   }
   return null;
+}
+
+/** Acha a cobrança local a que o evento pertence. `null` = não é nossa. */
+async function resolvePaymentForEvent(event: typeof paymentEvents.$inferSelect): Promise<PaymentRow | null> {
+  const payload = JSON.parse(event.payload) as PagarmeWebhookPayload;
+  const data = payload.data;
+
+  return findPaymentByProviderIds([
+    event.providerPaymentId,
+    event.providerOrderId,
+    data?.payments?.find((p) => p?.id)?.id,
+    data?.id,
+  ]);
 }
 
 /**
@@ -693,24 +709,59 @@ export async function processPaymentEventUsecase(eventId: string): Promise<void>
 }
 
 /**
- * Um evento cujo `status` ficou `failed` volta para a fila depois do backoff, com
- * teto de tentativas. Estourado o teto, ele PARA de ser reprocessado (`failed`
- * sem `next_attempt_at`): um evento que quebrou no código vai quebrar em todo
- * retry, e martelar o gateway não conserta — quem resolve é a reconciliação,
- * que relê o estado pelo `GET /orders/{id}`.
+ * Um evento cujo processamento estourou volta para a fila depois do backoff, com
+ * teto de tentativas. Estourado o teto, ele PARA de ser reprocessado e vira DLQ
+ * (`failed` sem `next_attempt_at`): um evento que quebrou no código vai quebrar
+ * em todo retry, e martelar o gateway não conserta — quem resolve é a
+ * reconciliação, que relê o estado pelo `GET /orders/{id}`.
+ *
+ * ## O reenfileirado é `failed`, não `received`
+ *
+ * O drain (`integrations/pagarme/worker.ts`) só seleciona `received` COM
+ * `next_attempt_at` NULL, ou `failed` COM `next_attempt_at` vencido. Gravar
+ * `received` aqui deixava a linha em `received` + `next_attempt_at` preenchido:
+ * nenhum dos dois ramos casa, o retry morria na PRIMEIRA falha, e como
+ * `countDeadLetteredEvents()` só conta `failed` + NULL, o evento não chegava
+ * nem a parecer DLQ — some, sem erro e sem log. `failed` + data futura
+ * satisfaz o segundo ramo, e a DLQ continua sendo o mesmo status, distinguido
+ * só pelo `next_attempt_at`. É a mesma semântica de estado da implementação Go.
+ *
+ * ## Por que o contador é incrementado AQUI
+ *
+ * `processPaymentEventUsecase` incrementa `attempts` dentro da transação que
+ * aplica o efeito (vale para o caminho que dá certo). Quando essa transação
+ * estoura, ela é desfeita por inteiro e o incremento vai com ela — e o
+ * incremento nem chega a acontecer quando a falha é antes dela. Sem este `+ 1`,
+ * `attempts` nunca saía de zero no caminho de falha, `MAX` era inalcançável e o
+ * evento era reprocessado indefinidamente, sem DLQ. Os dois incrementos não se
+ * somam: um commita, o outro é desfeito.
  */
 export async function requeueFailedEventUsecase(eventId: string, errorMessage: string): Promise<void> {
   const event = await db.query.paymentEvents.findFirst({ where: eq(paymentEvents.id, eventId) });
   if (!event) return;
   const MAX = 5;
-  if (event.attempts >= MAX) return;
+  // `attempts` conta as tentativas JÁ feitas; este erro é a tentativa de
+  // número `attempts + 1`.
+  const tentativas = event.attempts + 1;
+  const erro = errorMessage.slice(0, 500);
+
+  if (tentativas >= MAX) {
+    // DLQ: sai da fila e fica à vista. O `next_attempt_at` NULL é exatamente o
+    // que `countDeadLetteredEvents()` conta.
+    await db
+      .update(paymentEvents)
+      .set({ status: "failed", attempts: tentativas, errorMessage: erro, nextAttemptAt: null })
+      .where(eq(paymentEvents.id, eventId));
+    return;
+  }
 
   const backoffMs = Math.min(2 ** event.attempts * 30_000, 15 * 60_000);
   await db
     .update(paymentEvents)
     .set({
-      status: "received",
-      errorMessage: errorMessage.slice(0, 500),
+      status: "failed",
+      attempts: tentativas,
+      errorMessage: erro,
       nextAttemptAt: new Date(Date.now() + backoffMs).toISOString(),
     })
     .where(eq(paymentEvents.id, eventId));
@@ -777,3 +828,99 @@ function canMoveTo(from: PaymentStatus, to: PaymentStatus): boolean {
 }
 
 export { isFullyRefunded };
+
+// ============================================================
+// Canal interno com o serviço Go (`pagarme-webhook/`)
+// ============================================================
+
+/**
+ * De onde veio a cobrança. NÃO é cosmético: escolhe a guarda de transição.
+ *
+ * - `event`: o evento chegou na hora e não há estado intermediário confiável
+ *   para checar, então grava direto (`applyCharge` sem `canMoveTo`) — que é o
+ *   comportamento que `processPaymentEventUsecase` já tem em produção.
+ * - `reconciliation`: a leitura pode estar DIAS atrasada, e aplicar `paid` numa
+ *   cobrança já `refunded` seria reverter dinheiro. Passa por `canMoveTo`.
+ */
+export type InternalChargeSource = "event" | "reconciliation";
+
+export interface InternalChargeResult {
+  /** `false` = uma guarda recusou (só acontece na reconciliação). Não é erro. */
+  applied: boolean;
+  status: PaymentStatus;
+  reason?: string;
+}
+
+/**
+ * Aplica no Node a cobrança que o serviço Go leu do gateway. É o ÚNICO sentido
+ * de comunicação entre os dois, e a regra que explica por que ele existe: o Go
+ * pergunta, o Node faz a transação. `applyCharge`, `bridgePaidToOrder`,
+ * `settleRefunds`, `logAction` e `enqueueEvent` continuam aqui, dentro da mesma
+ * transação de antes — duas implementações da regra financeira em cima do mesmo
+ * banco divergiriam em silêncio.
+ *
+ * ## Idempotência: herda, não reimplementa
+ *
+ * A entrega é at-least-once: a transação aqui pode commitar e o `UPDATE` de
+ * bookkeeping do Go falhar, e ele reenvia. A segurança já existe e é justamente
+ * `applyCharge` (`alvo === atual` é no-op), `bridgePaidToOrder` (não duplica a
+ * linha de `(method, amount)`) e o `logAction` (só roda se o status mudou). Este
+ * usecase não introduz caminho que escape dessas guardas — é por isso que ele
+ * delega em vez de reescrever.
+ *
+ * ## `payment_event.status` NÃO é tocado aqui
+ *
+ * Quem controla `status`, `attempts` e `next_attempt_at` da inbox é o Go, no
+ * drain dele. Este usecase só LIGA o evento à cobrança (`payment_id`,
+ * `provider_order_id`, `provider_payment_id`) quando o caminho é o de evento, e
+ * isso na MESMA transação do `applyCharge` — se a aplicação estourar, o vínculo
+ * também volta, e o Go reenvia. Marcar `processed` daqui seria mentir sobre um
+ * commit que talvez não tenha acontecido.
+ */
+export async function applyInternalChargeUsecase(input: {
+  source: InternalChargeSource;
+  charge: GatewayCharge;
+  /** `payment_event.id`. Só no caminho de evento; ausente na reconciliação. */
+  eventRowId?: string;
+  /** Só para o log de auditoria (vem do envelope do webhook). */
+  eventType?: string;
+}): Promise<InternalChargeResult> {
+  const { charge, source } = input;
+
+  // Recurso endereçado primeiro: no caminho de evento, uma linha de inbox que o
+  // Node não conhece é 404 (o Go marca `ignored` e avisa no log — ver
+  // `queue.go:tratarErro`). Conferir antes da cobrança evita traduzir "linha
+  // sumiu" como "cobrança desconhecida", que são diagnostically diferentes.
+  if (input.eventRowId) {
+    const evento = await db.query.paymentEvents.findFirst({ where: eq(paymentEvents.id, input.eventRowId) });
+    if (!evento) throw Errors.paymentNotFound(input.eventRowId);
+  }
+
+  const row = await findPaymentByProviderIds([charge.providerPaymentId, charge.providerOrderId]);
+  if (!row) throw Errors.paymentNotFound(charge.providerOrderId);
+
+  const atual = row.status as PaymentStatus;
+
+  // Guarda da reconciliação. No caminho de evento NÃO entra: é o comportamento
+  // de `processPaymentEventUsecase`, e trocar isso mudaria o que já está em
+  // produção.
+  if (source === "reconciliation" && !canMoveTo(atual, charge.status)) {
+    return { applied: false, status: atual, reason: "no_transition" };
+  }
+
+  const updated = await db.transaction(async (tx) => {
+    if (input.eventRowId) {
+      await tx
+        .update(paymentEvents)
+        .set({
+          paymentId: row.id,
+          providerOrderId: charge.providerOrderId,
+          providerPaymentId: charge.providerPaymentId ?? null,
+        })
+        .where(eq(paymentEvents.id, input.eventRowId));
+    }
+    return applyCharge(tx, row, charge);
+  });
+
+  return { applied: true, status: updated.status as PaymentStatus };
+}

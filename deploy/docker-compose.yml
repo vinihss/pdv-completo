@@ -51,6 +51,32 @@ services:
       # recriar o proxy (e sem os 1-3s de queda do recreate) é a linha
       # PDV_WS_UPSTREAM no ponteiro state/active-upstream — ver .env.example.
       - WS_BACKEND=${WS_BACKEND:-node}
+      # Quem serve o `POST /webhooks/pagarme`. `node` (default) ou a variável
+      # ausente: a rota do backend Node, como está hoje. Zero mudança em quem
+      # recebe o webhook — este é o estado em que este arquivo nasce e em que a
+      # produção roda.
+      #
+      # `go`: o serviço de `pagarme-webhook/`. O Caddy para de mandar
+      # `/webhooks/pagarme` para o backend e passa a mandar para o container
+      # `pagarme-webhook`.
+      #
+      # Diferente do `/realtime`, aqui o modo de falha de `go` SEM o container de
+      # pé é VISÍVEL: todo webhook leva 502, e o Pagar.me reenvia (o `payload`
+      # dele não se perde, e o Node reassume a fila assim que o Caddy voltar).
+      # Ainda assim, subir o container antes de virar é o jeito de descobrir isso
+      # no meio de um pico de fechamento de expediente.
+      #
+      # A flag é lida pelo CONTAINER do Caddy, e variável de ambiente só entra
+      # quando ele é criado — então trocar o valor aqui só vale no próximo
+      # recreate do Caddy, que não acontece nos deploys normais (o `switch.sh` faz
+      # `caddy reload`, não recreate). O caminho quente é a linha
+      # `PDV_PAGARME_UPSTREAM` no ponteiro (ver README).
+      #
+      # ⚠️  A URL de callback cadastrada no painel do Pagar.me NÃO muda em
+      # nenhum dos dois casos: o path é o mesmo (`/webhooks/pagarme`) e quem
+      # responde muda. Nenhum passo desta migração exige reconfigurar o painel
+      # do provedor — que é o que torna o rollback gratuito.
+      - PAGARME_WEBHOOK_BACKEND=${PAGARME_WEBHOOK_BACKEND:-node}
     volumes:
       # O diretório `deploy/` inteiro, só-leitura: é dele que saem a
       # Caddyfile, o caddy-assemble.sh e o ponteiro de upstream (o único
@@ -284,6 +310,114 @@ services:
         condition: service_healthy
     # Não expõe porta pro host — só o Caddy fala com ele, na rede interna
     # do compose, como o backend.
+
+  # ---------- Webhook do Pagar.me em Go (opt-in) ----------
+  # Recebe `POST /webhooks/pagarme`, grava em `payment_event` e drena a fila
+  # chamando o endpoint interno do backend Node. Não escreve estado de domínio:
+  # quem decide o que um `paid` significa continua sendo o `applyCharge` do Node.
+  #
+  # ---------- Por que está atrás de `profiles` ----------
+  # O drain disputa com o worker do Node o MESMO advisory lock
+  # (`pdv:payment:worker`, backend/src/infra/locks.ts), e os dois entregam ao
+  # MESMO endpoint interno — que é idempotente. Então, ao contrário do
+  # `ws-gateway`, subir este container NÃO é perigoso por si só.
+  #
+  # O que é perigoso é a combinação: subir o container E ligar `PAGARME_DRAIN=1`
+  # antes de o backend Node ter o endpoint interno (ou antes de a
+  # `PAGARME_INTERNAL_TOKEN` bater nos dois lados) faz cada webhook virar um
+  # 401/404, cada retry esgota o teto e a fila INTEIRA vai para a DLQ. O sintoma
+  # é "nenhuma confirmação de pagamento" e nada no log do Pagar.me denuncia que
+  # a culpa é de deploy.
+  #
+  # Por isso os dois andam juntos — o `profiles` é convenção de inicialização e
+  # o `PAGARME_DRAIN` é a garantia. Sem a flag, este processo GRAVA o evento na
+  # inbox (o dedupe acontece, o `/health` fica verde) mas não processa: quem
+  # processa é o worker do Node. Ver `pagarme-webhook/internal/queue/gate.go`.
+  pagarme-webhook:
+    build:
+      context: ../pagarme-webhook
+      dockerfile: ${PAGARME_DOCKERFILE:-Dockerfile}
+    image: ${PAGARME_WEBHOOK_IMAGE:-pdv-pagarme-webhook:local}
+    profiles: ["pagarme-webhook"]
+    restart: unless-stopped
+    environment:
+      # Mesmo banco e mesma `payment_event` do backend — este serviço é o
+      # segundo leitor da fila que o Node já escreve (e, com o drain ligado, o
+      # primeiro a processar).
+      #
+      # `?sslmode=disable` no DEFAULT (e só no default): o driver é o lib/pq, que
+      # assume `sslmode=require` quando a DSN não diz nada, e o `postgres` deste
+      # compose não tem TLS — sem o parâmetro o `db.Connect` falha com "pq: SSL
+      # is not enabled on the server" e o serviço sobe SEM pool: `/health` 503,
+      # log de aviso, e cada webhook responde 503. Medido (mesma armadilha do
+      # `ws-gateway`). Quem aponta `DATABASE_URL` no `.env` escolhe o próprio
+      # parâmetro, porque aí a DSN inteira vem de fora.
+      - DATABASE_URL=${DATABASE_URL:-postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}?sslmode=disable}
+      - PORT=8080
+      # A MESMA do backend. Repassar mesmo vazia é obrigatório: sem a linha
+      # abaixo, a variável chega VAZIA no container (o `docker compose up` só
+      # injeta o que está declarado) e o serviço recusa todo webhook com 503 —
+      # silenciosamente, do ponto de vista do Pagar.me, que só reenvia até desistir.
+      - PAGARME_SECRET_KEY=${PAGARME_SECRET_KEY:-}
+      # Base do gateway. Só muda para sandbox (`https://sdx-api.pagar.me/core/v5`)
+      # ou para um stub de teste.
+      - PAGARME_BASE_URL=${PAGARME_BASE_URL:-https://api.pagar.me/core/v5}
+      # Onde está o backend Node, para o endpoint interno. `backend:3000` é o
+      # default do compose; com blue/green, ajuste para a instância "próxima"
+      # durante o switch ou deixe como está — o drain só perde um ciclo quando a
+      # conexão cai, e volta no ciclo seguinte.
+      - NODE_INTERNAL_URL=${NODE_INTERNAL_URL:-http://backend:3000}
+      # Token opaco do endpoint interno. Ausente = o drain NÃO sobe, e o log de
+      # boot diz o nome da env. Gerar com `openssl rand -hex 32`, o MESMO valor
+      # dos dois lados.
+      - PAGARME_INTERNAL_TOKEN=${PAGARME_INTERNAL_TOKEN:-}
+      # Gate de posse do drain. DESLIGADO por padrão e default-deny (só
+      # `1|true|yes|on` ligam). Só ligar no deploy em que (a) o Caddy aponta
+      # /webhooks/pagarme para este serviço E (b) o backend já responde o
+      # endpoint interno. Ligado antes, a fila de confirmação de pagamento vai
+      # para a DLQ.
+      - PAGARME_DRAIN=${PAGARME_DRAIN:-}
+      # Cadência da reconciliação (10min). Recomeçar em 10min quando a fila
+      # cresce é aceitável; acelerar durante um incidente é o que este número
+      # permite, e a única forma segura de fazer isso.
+      - PAGARME_RECONCILIATION_INTERVAL_MS=${PAGARME_RECONCILIATION_INTERVAL_MS:-600000}
+      # Só aparece no /health ("version"), como no gateway WS.
+      - GIT_SHA=${GIT_SHA:-}
+    # ---------- O /health e o que ele realmente porta ----------
+    # O portão do `switch.sh` NÃO espera este serviço (o `wait_healthy` cobre
+    # backend e frontend) e o Caddy não roteia `/health` para cá: o que porta é o
+    # healthcheck do próprio container, e ele é o que impede o compose de marcar
+    # o serviço como pronto antes de ele conseguir gravar.
+    #
+    # O `/health` responde 503 quando o banco deixa de responder E quando não há
+    # `PAGARME_SECRET_KEY`. O segundo é decisão, e é o contrário do `ws-gateway`
+    # (que responde 200 sem pool para permitir rollback): aqui este serviço recusa
+    # TODO webhook nesses estados, então um 200 mandaria tráfego para um 503 em
+    # cada requisição — que é a pior categoria de falha numa caixa.
+    #
+    # Já o `PAGARME_DRAIN` desligado com o resto saudável é 200: é o estado normal
+    # de subida lado a lado (grava a inbox, o Node processa). A imagem é alpine
+    # (busybox tem wget, não curl).
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 3s
+    # O binário trata o SIGTERM com um drain de até 10s (o `Shutdown` do
+    # `http.Server` espera as requisições em voo antes de fechar o pool), então a
+    # janela precisa ser MAIOR que isso. Um ciclo de drenagem em andamento segura
+    # transação e advisory lock durante chamadas HTTP ao Node, e um SIGKILL no meio
+    # deixa o evento elegível de novo — o que é seguro (o apply é at-least-once) e
+    # desperdício (uma chamada repetida).
+    stop_grace_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Não expõe porta pro host — só o Caddy fala com ele, na rede interna do
+    # compose, como o backend. E sem volumes: não há estado em disco, o que
+    # significa que um container novo pode receber o tráfego no meio de um ciclo
+    # de drain sem perder nada (a fila está no Postgres).
 
   # Banco oficial. Sem profile: sobe sempre, e o backend espera o healthcheck.
   # (Postgres externo? ajuste DATABASE_URL no .env e use --no-deps, senão o

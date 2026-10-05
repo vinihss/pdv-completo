@@ -61,6 +61,11 @@ export default defineConfig({
       PAGARME_SECRET_KEY: "sk_test_pagarme_secret_de_teste",
       PAGARME_BASE_URL: "http://127.0.0.1:3998",
       PAGARME_RECONCILIATION_INTERVAL_MS: "600000",
+      // Token do canal interno com o serviço Go `pagarme-webhook/`.
+      // `config` é snapshot no load do módulo, então a env precisa estar
+      // resolvida aqui; o caso "token NÃO configurado" é coberto por
+      // `setInternalTokenForTests(null)`.
+      PAGARME_INTERNAL_TOKEN: "tok_interno_de_teste",
     },
   },
 });
