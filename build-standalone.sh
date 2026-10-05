@@ -22,6 +22,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$ROOT/scripts/lib/common.sh"
 
 APP=""
 RELEASE=0
@@ -37,8 +38,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$APP" ]; then
-  echo "ERRO: --app é obrigatório (pdv|kds|garcon|entregador)." >&2
-  exit 1
+  die "--app é obrigatório (pdv|kds|garcon|entregador)."
 fi
 
 CRATE_DIR="$ROOT/standalone-$APP"
@@ -48,7 +48,7 @@ LOCAL_KEY="$CRATE_DIR/.local-signing.key"
 BUNDLE_DIR="$CRATE_DIR/target/release/bundle"
 
 for f in "$TAURI_CONF" "$CARGO_TOML"; do
-  [ -f "$f" ] || { echo "ERRO: $f não existe. --app válidos: pdv|kds|garcon|entregador." >&2; exit 1; }
+  [ -f "$f" ] || die "$f não existe. --app válidos: pdv|kds|garcon|entregador."
 done
 
 # A CLI do Tauri mora em node_modules/ na RAIZ do repo (o package.json da raiz
@@ -58,20 +58,20 @@ done
 TAURI_CLI="$ROOT/node_modules/.bin/tauri"
 
 # ---------- 0. Tools ----------
-command -v node >/dev/null || { echo "Node 20+ é necessário." >&2; exit 1; }
+require_cmd node
 
 # 0a. CLI do Tauri na raiz: package.json + package-lock.json do repo.
 if [ ! -x "$TAURI_CLI" ]; then
-  echo "==> CLI do Tauri ausente na raiz, instalando dependências"
+  log "==> CLI do Tauri ausente na raiz, instalando dependências"
   (cd "$ROOT" && npm ci)
 fi
-[ -x "$TAURI_CLI" ] || { echo "ERRO: $TAURI_CLI não existe mesmo após npm ci." >&2; exit 1; }
+[ -x "$TAURI_CLI" ] || die "$TAURI_CLI não existe mesmo após npm ci."
 
 # 0b. Dependências do frontend: o beforeBuildCommand dos confs roda
 # `npm run build:<perfil>` em frontend/ (Vite), então este node_modules continua
 # obrigatório mesmo com a CLI na raiz.
 if [ ! -d "$ROOT/frontend/node_modules" ]; then
-  echo "==> node_modules do frontend ausente, instalando dependências"
+  log "==> node_modules do frontend ausente, instalando dependências"
   (cd "$ROOT/frontend" && npm ci)
 fi
 
@@ -169,10 +169,9 @@ resolve_pkg_version() {
 }
 
 PKG_VERSION="$(resolve_pkg_version "$CARGO_TOML" "$ROOT/Cargo.toml")" || {
-  echo "ERRO: não foi possível resolver a versão a partir de $CARGO_TOML (motivo acima)." >&2
-  exit 1
+  die "não foi possível resolver a versão a partir de $CARGO_TOML (motivo acima)."
 }
-echo "==> Versão: $PKG_VERSION (do Cargo.toml)"
+log "==> Versão: $PKG_VERSION (do Cargo.toml)"
 
 # ---------- 2. Assinatura ----------
 # O empacotador do Tauri 2 assina o artefato de update SEMPRE que
@@ -197,16 +196,17 @@ porque o runner (e este script) nao tem terminal.
 MSG
     exit 1
   fi
-  echo "==> Assinatura: chave e senha presentes"
+  log "==> Assinatura: chave e senha presentes"
 else
   if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
     if [ ! -f "$LOCAL_KEY" ]; then
-      echo "==> Gerando chave de assinatura local (descartavel)"
+      log "==> Gerando chave de assinatura local (descartavel)"
       "$TAURI_CLI" signer generate -w "$LOCAL_KEY" -p "pdv-local-$APP" --force >/dev/null
     fi
-    export TAURI_SIGNING_PRIVATE_KEY="$(cat "$LOCAL_KEY")"
+    TAURI_SIGNING_PRIVATE_KEY="$(cat "$LOCAL_KEY")"
+    export TAURI_SIGNING_PRIVATE_KEY
     export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="pdv-local-$APP"
-    echo "==> Chave local em uso. O instalador deste build NAO atualiza"
+    log "==> Chave local em uso. O instalador deste build NAO atualiza"
     echo "    nenhum app real (a pubkey do conf é outra). Isso é esperado"
     echo "    em build de desenvolvimento."
   fi
@@ -228,10 +228,10 @@ fi
 # script sempre assumiram. O CI faz o mesmo em build-desktop.yml.
 export TAURI_FRONTEND_PATH="$ROOT/frontend"
 
-echo "==> tauri build ${BUNDLES:-todos os alvos} (em $CRATE_DIR)"
+log "==> tauri build ${BUNDLES:-todos os alvos} (em $CRATE_DIR)"
 cd "$CRATE_DIR"
 TAURI_ARGS=()
-[ -n "$BUNDLES" ] && TAURI_ARGS+=($BUNDLES)
+[ -n "$BUNDLES" ] && read -ra TAURI_ARGS <<< "$BUNDLES"
 if [ ${#TAURI_ARGS[@]} -eq 0 ]; then
   "$TAURI_CLI" build
 else
@@ -239,7 +239,7 @@ else
 fi
 
 echo
-echo "==> Artefatos em $BUNDLE_DIR/"
+log "==> Artefatos em $BUNDLE_DIR/"
 find "$BUNDLE_DIR" -maxdepth 2 \( -name '*.exe*' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.sig' -o -name '*.json' \) 2>/dev/null \
   | sed 's|^|    |'
 echo
