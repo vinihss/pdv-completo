@@ -1,13 +1,28 @@
 # 15 — Multi-tenant: um schema PostgreSQL por loja (subdomínio → tenant)
 
-> **Status:** plano (nada implementado).
-> **Data:** 2026-10-04 · **Branch:** `feat/schema`
+> **Status:** **nada do roteiro das fases foi implementado**, exceto a parte de storage da Fase 5.
+> Verificado em 2026-10-04 no HEAD `0cb6c06`:
+> - **Fases 0–4 e 6–8: não iniciadas.** Não existe `public.tenant`, não existe
+>   `backend/migrations/registry/`, não existe `resolveTenant`/`tenant.middleware`, não existe ALS nem
+>   pool por tenant — `backend/src/infra/db/client.ts:10-17` é um `Pool` estático, sem `search_path`.
+> - **Fase 5: parcial** — rodou o bloco de storage (porta + layout por tenant em disco), `d30ec49`
+>   (PR #73). O resto da fase (fan-out do WhatsApp, `/health/tenants`, TLS on-demand via registry,
+>   `printer_daemon_url` por tenant, CORS por registry) segue não iniciado.
+> - **O gateway Go ficou deployável** em `b01000b` (PR #76) — o que §3.3 exige para o particionamento
+>   é o mesmo nos dois (§5.11).
+> - **§6.0 (preparação): executada em produção.** Baseline único `0001_init.sql` em `bf75736`
+>   (PR #64) e cutover rodado (`docs/16:19`, runbook em `docs/17`).
+> **Data:** 2026-10-04 · **Branch:** `feat/new-tenant`
 > **Substitui:** `feat/multitenant-plan/docs/15-multitenant.md` (shared schema + `tenant_id` + RLS),
 > que **rejeitava** schema-por-tenant. Ver §2 — a objeção não se sustenta.
 > **Histórico:** já existiu multi-tenant (row-level, `store_id` em ~22 tabelas) e foi removido em
-> `7c259cd` + `0012_remove_multi_tenant.sql`. Recomeçamos do zero, com outro modelo de isolamento.
-> **Uploads:** decisão de **layout por tenant em disco** registrada em §4.7 (nada implementado — a
-> Fase 5 ainda não rodou; o remendo `logo-<schema>.<ext>` que ela trazia foi superado antes).
+> `7c259cd` (PR #54) + `0012_remove_multi_tenant.sql`. Recomeçamos do zero, com outro modelo de isolamento.
+> **Uploads:** decisão de **layout por tenant em disco** registrada em §4.7 e **implementada** em
+> `d30ec49` (PR #73) — porta `FileStorage` + `LocalDiskStorage`, `<uploadsDir>/<schema>/<kind>/` e a
+> rota `GET /uploads/:kind/:filename` no lugar do `@fastify/static`. Os achados §5.2 e §5.3 estão
+> **FECHADOS** nesse commit; resta a seam `src/infra/storage/tenant.ts:18-20` devolver `public`
+> (é a Fase 2 que a liga no ALS). O remendo `logo-<schema>.<ext>` que a Fase 5 trazia foi superado
+> antes de existir e **não vai entrar**.
 
 ---
 
@@ -15,7 +30,7 @@
 
 > **Um schema PostgreSQL por loja (`tenant_<slug>`), identificado pelo subdomínio no
 > `Host`, com o `db` do Drizzle resolvido por um `AsyncLocalStorage` e um `pg.Pool` dedicado por
-> schema, cujo `search_path` é fixado no *startup packet* — de modo que os 42 arquivos que já
+> schema, cujo `search_path` é fixado no *startup packet* — de modo que os 43 arquivos que já
 > importam o `db` não mudam uma linha.**
 
 A barreira de isolamento é **estrutural** (o pool só conversa com um schema), não convenção
@@ -49,6 +64,14 @@ O plano anterior (`15-multitenant.md` §2.2) rejeitava schema-por-tenant por **u
 
 O outro motivo da rejeição anterior (*"database-por-tenant estoura `max_connections`"*) é
 literalmente sobre **database-por-tenant**, não schema-por-tenant, e não se aplica aqui.
+
+⚠️ **A recusa de RLS não é só preferência: hoje RLS seria *inerte*.** Medido em produção
+(2026-10-04), `SELECT rolname, rolsuper, rolbypassrls FROM pg_roles` devolve **`pdv | t | t`** — o
+app conecta como **superuser**, e superuser **sempre** bypassa row security, inclusive com
+`FORCE ROW LEVEL SECURITY` em cada tabela (ver §8, "Papéis"). Ou seja: adotar RLS hoje daria a
+sensação de isolamento sem barreira nenhuma — exatamente o modo de falha que o histórico do projeto
+já pagou uma vez. Schema-por-tenant não depende do papel: a barreira é o `search_path` do pool (§4.2),
+e `rolsuper` não a atravessa.
 
 O que **ganhamos** trocando RLS por schema:
 - **Rollback de tenant é o restore de um schema** (`pg_restore -n tenant_x`), não um filtro de app.
@@ -159,31 +182,60 @@ o cliente pede e o que `canJoinRoom` autoriza, sem ganhar nada.
 
 `GET /realtime/public` (vitrine, sem token) resolve o tenant pelo `Host` e é particionado igual.
 
-> ⚠️ **Duas implementações enquanto coexistem.** Desde `3e5e8cd` o repo tem um segundo gateway,
-> Go (`ws-gateway/`), destinado a **substituir** a responsabilidade de realtime do Node
-> (`backend/src/infra/realtime/`). Ele está **plugado no `deploy/`** (serviço `ws-gateway` nos
-> três compose, upstream próprio `PDV_WS_UPSTREAM` no Caddy, flag `WS_BACKEND`), mas **o corte
-> não foi marcado**: sem `WS_BACKEND=go` nem a linha de ponteiro, o `/realtime*` continua indo
-> para o backend Node. Ele compartilha o mesmo Postgres + outbox, com a
-> mesma `RoomManager` global e rooms por string, **sem partição por tenant**. Ou seja: o R2 existe
-> nos **dois** gateways. O particionamento acima vale para **ambos** até o Go virar o caminho vivo
-> de `/realtime*` — quando isso acontecer, o código Node equivalente pode ser removido. O outbox do
-> Go segue a mesma regra do §4.5: iterar os schemas de tenant com advisory lock por tenant.
-> O JWT pode carregar `t: <schema>` (§4.5) e o Go lê o mesmo segredo, então a validação espelha o
-> Node sem contrato novo.
+> ⚠️ **Duas implementações enquanto coexistem — e o R1 vale para as duas.** Desde `3e5e8cd` (PR #55)
+> o repo tem um segundo gateway, Go (`ws-gateway/`), destinado a **substituir** a responsabilidade
+> de realtime do Node (`backend/src/infra/realtime/`). Ele está **plugado no `deploy/`** (serviço
+> `ws-gateway` nos três compose, upstream próprio `PDV_WS_UPSTREAM` no Caddy, flag `WS_BACKEND`) e
+> ficou **deployável** em `b01000b` (PR #76), mas **o corte não foi marcado**: sem `WS_BACKEND=go`
+> nem a linha de ponteiro, o `/realtime*` continua indo para o backend Node.
+>
+> **O particionamento por tenant acima é obrigatório nos DOIS enquanto eles coexistirem** — e o
+> gateway Go está hoje **mais longe** que o Node nos três mecanismos, verificado no código:
+>
+> | | `search_path` por tenant | rooms particionadas | lock de outbox por tenant |
+> |---|---|---|---|
+> | Node (`backend/src/infra/realtime/`) | Fase 2 (ALS + pool dedicado, §4.2) | Fase 4 | Fase 4 (`lockName(base, schema)`) |
+> | **Go** (`ws-gateway/`) | ❌ **não existe**: `internal/db/connect.go:31` é um `sql.DB` único com `SetMaxOpenConns(25)` e `search_path` default; nenhum `tenant` no módulo inteiro | ❌ **não existe**: `internal/roommanager/` indexa rooms por string, e `internal/connmanager/connmanager.go:261-293` (`BroadcastToRoom`) entrega a **todas** as conexões que assinam a room, sem filtro de loja | ❌ **não existe**: `internal/outbox/outbox.go:33` trava `pdv:outbox:owner`, um nome só, global |
+>
+> Ou seja: um gateway Go ligado **hoje**, com o Caddy apontando `/realtime*` para ele, vazaria dado
+> financeiro entre lojas nos **três** eixos — e o `GO-GATEWAY-PLAN.md` **não tem fase de
+> multi-tenant** (as fases dele são a migração Node→Go), então nada disso está previsto lá. Isso
+> entra na auditoria em `docs/16-pendencias.md` §4.
+>
+> Quando o Go virar o caminho vivo de `/realtime*`, o código Node equivalente pode ser removido — e
+> o JWT pode carregar `t: <schema>` (§4.5) porque o Go lê o mesmo segredo, então a validação espelha
+> o Node sem contrato novo. Mas o particionamento é **pré-requisito do corte**, não consequência
+> dele.
 
 ---
 
 ## 4. Decisões e o que foi descartado
 
-### 4.1 Como o `db` escopado chega aos 42 arquivos
+### 4.1 Como o `db` escopado chega aos 43 arquivos
 
 | Opção | Custo medido | Veredito |
 |---|---|---|
-| Passar `db`/`Tx` como parâmetro | 42 arquivos + **209 call-sites de use case** em `http/routes` + 67 `db.transaction`. E a onda não para: `withIdempotency(endpoint, …)` recebe um `handler` que fecha sobre o `db` do módulo; `getStoreSettingsUsecase()` (sem argumento, chamada de `/store-info`, do menu público e do self-service) arrastaria 10 arquivos. **12-18 dias** mecânicos, ganho de segurança zero. | ❌ |
+| Passar `db`/`Tx` como parâmetro | 43 arquivos + **209 call-sites de use case** em `http/routes` + 62 `db.transaction` (medido no HEAD `0cb6c06`; o doc dizia 67, número da redação anterior). E a onda não para: `withIdempotency(endpoint, …)` recebe um `handler` que fecha sobre o `db` do módulo; `getStoreSettingsUsecase()` (sem argumento, chamada de `/store-info`, do menu público e do self-service) arrastaria 10 arquivos. **12-18 dias** mecânicos, ganho de segurança zero. | ❌ |
 | Só ALS + proxy sobre o pool único | Resolve o contexto, **não** o isolamento: `pool.connect()` devolve qualquer conexão e um `SET search_path` no checkout vaza. | ❌ |
 | Só `req.db` injetado | Só é alcançável se algo o passar ao use case → é a 1ª opção de novo, com uma camada extra. | ❌ |
-| **ALS (transporte) + pool dedicado por tenant (barreira)** | **0 arquivos alterados** nos 42. O ALS é só o transporte; o pool dedicado é a barreira. | ✅ |
+| **ALS (transporte) + pool dedicado por tenant (barreira)** | **0 arquivos alterados** nos 43. O ALS é só o transporte; o pool dedicado é a barreira. | ✅ |
+
+ℹ️ **Como foram contados os 43 e as 241 (2026-10-04, HEAD `0cb6c06`).** O número que importa é o de
+arquivos que importam **o símbolo `db`**, não o de quem importa algo do módulo:
+
+```
+# arquivos que importam o símbolo `db` (43)
+grep -rlE "import \{[^}]*\bdb\b[^}]*\} from ['\"][^'\"]*db/client" backend/src backend/test backend/scripts
+  28 em src/application/ · 3 em src/http/ · 9 em src/integrations/ · 1 em src/infra/locks.ts
+  + backend/test/helpers.ts + backend/scripts/migrate-uploads-layout.ts
+
+# ocorrências de `db.` (241) — só em src/, que é o que o produto executa
+grep -roE "\bdb\." backend/src | wc -l     # 241  (219 em application/ + http/ + integrations/)
+```
+
+Quem importa o módulo sem o símbolo (`server.ts`, `audit-log.ts`, `outbox-dispatcher.ts`,
+`client.ts` e os testes) não entra na conta dos 43 — para eles o ALS também não muda nada, porque
+não consomem `db`.
 
 O ALS é honesto aqui porque, no schema-por-tenant, o tenant é **inerentemente ambiental**
 (`search_path`) — o ALS representa o conceito, não um atalho. E o acesso sem contexto **lança**
@@ -236,6 +288,10 @@ Escoras (barreiras que não dependem do código):
 - `application_name` por processo (`pdv-backend`, `pdv-backend-next`, `pdv-provision`,
   `pdv-backup`) — hoje a coluna vem vazia e `pg_stat_activity` não distingue nada.
 
+⚠️ **A calibragem do `/health` do gateway Go não é uma dessas escoras.** O teto de 2 perguntas em
+andamento e o `healthStaleAfter` de 3s foram medidos para **um** pool de 25 conexões; com N pools
+eles viram gargalo **antes** de o healthcheck do compose desistir. Ver §5.11.
+
 **Se N passar de ~20**, o passo não é PgBouncer (quebraria o `options` do startup packet): é
 migrar para **pool compartilhado + `SET LOCAL`** com um wrapper `withTenant` que **impeça**
 `db.` fora dele — e isso precisa vir acompanhado de um `grep` no CI barrando `import { db }`
@@ -286,7 +342,7 @@ uploads/public/product/0f9c….webp
 - **O `@fastify/static` sai**: vira rota explícita `GET /uploads/:kind/:filename` que resolve o
   schema do tenant pelo `Host` (o mesmo caminho do ALS, §3.1) e serve de dentro de
   `<uploadsDir>/<schema>/<kind>/`. O schema **não** vai na URL — é por isso que a URL da loja A dá
-  **404** na loja B (§5.3). `deploy/Caddyfile:50` e o volume de `docker-compose.yml:97` seguem
+  **404** na loja B (§5.3). `deploy/Caddyfile:62-64` e o volume de `docker-compose.yml:106` seguem
   iguais: só o backend muda.
 - **As 4 cópias viram uma**: `src/infra/storage/` — porta `FileStorage` (`put`/`get`/`remove`/
   `exists`) + adapter `LocalDiskStorage`, com **uma** função que resolve o schema do tenant
@@ -304,15 +360,65 @@ do schema quebra as duas: o rollback de uma loja passa a arrastar MB de imagens,
 de ser uma instrução (o espaço volta no `VACUUM`, não no `DROP`).
 
 **Por que não S3 agora.** (a) Não compra isolamento sozinho — bucket sem chave-por-tenant +
-validação é o mesmo bug (§5.3) com atraso. (b) Se for presigned URL, o `Caddyfile:50` e o `logoUrl`
+validação é o mesmo bug (§5.3) com atraso. (b) Se for presigned URL, o `Caddyfile:62-64` e o `logoUrl`
 do frontend mudam: não é "só apontar para outro lugar". (c) O volume **já** sobrevive a deploy
-(`docker-compose.yml:97` monta `pdv_backend_uploads` nas duas instâncias) e **já** entra no backup
+(`docker-compose.yml:106` monta `pdv_backend_uploads` nas duas instâncias) e **já** entra no backup
 (`backup.sh:61` pega o volume inteiro) — o problema é o **layout**, não a mídia. Adiar deixa a porta
 pronta: quando S3/R2 entrar, é troca de adapter em `src/infra/storage/`, não reescrita.
 
 > A Fase 5 já trazia o remendo `logo-<schema>.<ext>`. Ele foi **superado** por esta decisão
 > **antes de ser implementado** — de propósito: consertava a §5.2, não fechava a §5.3, e seria
-> jogado fora na mesma fase.
+> jogado fora na mesma fase. Confirmado: o remendo **não** entrou no `d30ec49` (PR #73).
+
+### 4.8 A chave é o `slug` no `Host` — e o Caddy não precisa mudar de rota
+
+> **Decisão do dono (2026-10-04): a identificação do tenant é o `slug` do subdomínio no `Host`, não
+> um token. O `schema_name` sempre vem do registry `public.tenant` (que tem `CHECK`, §3.2), nunca do
+> request.**
+
+**Por que `slug` e não token.** Um token de tenant no `Host`/`X-Tenant` é **capacidade**, não
+identidade: ele precisa ser emitido, distribuído, revogado e guardado pelo cliente, e um bearer
+trocável por engano manda o usuário para a loja errada sem nenhum sinal. O `slug` é **legível**,
+já é o que o usuário digita, e o registry é a única autoridade que decide se ele existe:
+
+| | `slug` no `Host` (escolhido) | token de tenant |
+|---|---|---|
+| **Configuração por loja** | **zero**: o `slug` é o próprio subdomínio que o cliente já digita. `*.labolabe.tech` já existe e casa qualquer loja nova | exige emitir e distribuir o token e ensinar o cliente a enviá-lo; o provisionamento vira duas operações, não uma |
+| **Risco de falsificação** | **baixo e limitado**: o `slug` é público no próprio endereço; o dano é o mesmo de abrir outra aba do próprio site. O `schema_name` nunca vem do request (§3.2) — quem decide é o `Host`, não a URL | **alto**: quem vazar o token de A navega como A; revogação é trabalho extra |
+| **Exposição da lista de clientes** | **não expõe**: subdomínio desconhecido → **404**, e não existe endpoint que enumere lojas (§7). O DNS público ainda denuncia o slug, mas o slug não é segredo | depende do transporte; token em header é invisível no endereço, o que só ajuda se ele for **não-rotacionável** |
+| **Debug** | **ganho**: `curl -H 'Host: slug-b.labolabe.tech'` reproduz qualquer falha; logs e `pg_stat_activity` mostram um `Host` legível | **perda**: cada call-site de log precisa decodificar o token para virar slug |
+
+**Regra de ouro.** `slug` fora de `^[a-z0-9][a-z0-9-]*$` → **404, e NUNCA o default**. O
+`DEFAULT_TENANT_SCHEMA` atende **só** o apex e `localhost` (§3.1) — o caminho de menor segurança é
+o de conveniência, então ele não pode ser o de erro. (E vale notar: `127.0.0.1:5173` **cai em slug
+`127`** — `parts.length ≥ 3` é verdadeiro e `127` casa o regex — então o dev por IP passa a dar
+404 de tenant; é o mesmo 404 que um subdomínio inexistente dá, ver §7.)
+
+**O Caddy não precisa mudar de roteamento.** Isto é o que fecha o §1 ("o que não muda"):
+
+- O wildcard `*.labolabe.tech` **já existe** (`deploy/Caddyfile:205-210`) — uma loja nova não
+  pede DNS, certificado nem rota nova.
+- **Zero `header_up`/`header_down` em todo o `deploy/`** (verificado por grep): o Caddy não reescreve
+  nada, então o `Host` chega **intacto** no backend, que é exatamente o que o `resolveTenant` (§3.1)
+  quer ler. Não há e não será proxy de tenant no edge.
+- **O backend não é exposto no host**: o serviço `backend` (`deploy/docker-compose.yml:73`) não tem
+  `ports:` nem `expose:`; o único serviço que publica portas é o Caddy (`80`/`443`,
+  `docker-compose.yml:38-40`). Ou seja, não existe caminho alternativo para o `Host` vir de outro
+  lugar.
+- **O único ponto do Caddy que muda é o `ask` do TLS on-demand** (`deploy/Caddyfile:15-18`): ele
+  continua apontando para `GET /internal/caddy-on-demand-tls`, mas esse endpoint passa a consultar o
+  registry em vez do regex (§5.8).
+
+**Contrafluxo documentado.** Se algum dia o Caddy passar a **injetar** header de tenant
+(`X-Tenant`), as duas condições abaixo são obrigatórias e o desenho quebra sem elas:
+
+1. o header tem que ser **`header_up` incondicional** (valendo para todas as rotas, inclusive as que
+   não têm tenant) — condicional, basta uma rota sem o header para o `resolveTenant` cair no
+   default silenciosamente;
+2. o backend tem que **descartar** qualquer header de tenant **vindo do cliente**. Sem isso, o header
+   injetado é sobrescrevível pelo cliente e o `Host` deixa de ser a autoridade (§4.5) — vira o
+   header-falsificável que a tabela acima rejeita. Enquanto não houver header, essa defesa é
+   estrutural: não existe o que forjar.
 
 ---
 
@@ -320,68 +426,103 @@ pronta: quando S3/R2 entrar, é troca de adapter em `src/infra/storage/`, não r
 
 Cada um foi verificado no código ou reproduzido num Postgres descartável.
 
-### 5.1 🔴 `unaccent` quebra a partir do 2º tenant
+### 5.1 ✅ FECHADO — `unaccent` quebrava a partir do 2º tenant
 
-`0003_profile_fields.sql:11` faz `CREATE EXTENSION IF NOT EXISTS unaccent;` **sem `WITH SCHEMA`**.
-O Postgres instala no **primeiro schema do `search_path`** — ou seja, dentro do schema do
-**tenant 1**. Resultado medido: um tenant novo recebe
-`ERROR: function unaccent(unknown) does not exist`, e `unaccent()` é chamada sem qualifier em
-`customer.usecases.ts:72,74`, `product.usecases.ts:30`, `stock/stock.usecases.ts:182` —
-**toda busca por nome quebra do tenant 2 em diante**.
+**Achado original (mantido como registro).** `0003_profile_fields.sql` fazia
+`CREATE EXTENSION IF NOT EXISTS unaccent;` **sem `WITH SCHEMA`**. O Postgres instala no **primeiro
+schema do `search_path`** — ou seja, dentro do schema do **tenant 1**. Resultado medido: um tenant
+novo recebia `ERROR: function unaccent(unknown) does not exist`, e `unaccent()` é chamada sem
+qualifier em `application/customer.usecases.ts:72,74`, `application/product.usecases.ts:29`,
+`application/stock/stock.usecases.ts:182` — **toda busca por nome quebraria do tenant 2 em diante**.
 
-Correção: o runner do registry instala `unaccent WITH SCHEMA public` **antes** de qualquer
-migration de tenant. Verificado: extensão já instalada em `public` → `CREATE EXTENSION IF NOT
-EXISTS` no schema do tenant vira no-op (`NOTICE: … skipping`), não tenta instalar cópia.
+**Resolvido em `bf75736` (PR #64), pelo §6.0.** O baseline único já traz o fix:
+`backend/migrations/0001_init.sql:27` → `CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public;`
+— exatamente a receita que a §6.0.0 pedia no passo 2.
 
-### 5.2 🔴 `logo.<ext>` colide entre lojas
+Por que o achado apontava um arquivo que **não** roda: o SQL problemático está na cadeia
+**arquivada**, `backend/migrations/archive/0003_profile_fields.sql:11`, que está **fora do glob do
+runner** — `backend/src/infra/db/migrate.ts:37-41` lê só `migrations/*.sql` (`.endsWith(".sql")` +
+sort) e `archive/` é um diretório. Os arquivos da §5.10 ("duplo `0003_` não é bug") não são
+executados desde o cutover.
 
-`store-settings.usecases.ts:190` grava `logo.${ext}` num **diretório único** (`config.uploadsDir`)
-servido por `fastifyStatic`. **Loja B faz upload → sobrescreve `logo.png` → loja A exibe o logo da
-loja B** em todas as telas e na vitrine pública. Determinístico, não colisão teórica.
+Correção que **continua valendo** para quando o registry existir: o runner do registry instala
+`unaccent WITH SCHEMA public` **antes** de qualquer migration de tenant. Verificado: extensão já
+instalada em `public` → `CREATE EXTENSION IF NOT EXISTS` no schema do tenant vira no-op
+(`NOTICE: … skipping`), não tenta instalar cópia.
 
-A correção não é o nome do arquivo, é o **layout**: diretório por tenant
-(`<uploadsDir>/<schema>/<kind>/<arquivo>`, §4.7) + rota de serving que resolve o tenant do `Host`
-e monta `/uploads/<kind>/<arquivo>`. Isso exige que `/uploads/` **deixe de ser isento da resolução
-de tenant**: hoje o `@fastify/static` é registrado no escopo raiz (`server.ts:87-101`,
-`decorateReply: false`) e nunca passa pelo `resolveTenant` (§3.1) — a rota nova é a que resolve.
+### 5.2 ✅ FECHADO — `logo.<ext>` colidia entre lojas
 
-> O remendo `logo-<schema>.<ext>` que a Fase 5 trazia está **superado**: ele conserta esta
-> sobrescrita e **não** a §5.3, e jogaria fora a migração de arquivos na mesma fase.
+**Achado original (mantido).** `store-settings.usecases.ts` gravava `logo.${ext}` num **diretório
+único** (`config.uploadsDir`). **Loja B fazia upload → sobrescrevia `logo.png` → loja A exibia o
+logo da loja B** em todas as telas e na vitrine pública. Determinístico, não colisão teórica.
 
-### 5.3 🔴 `/uploads/*` é público e sem fronteira de tenant — leitura entre lojas
+**Resolvido em `d30ec49` (PR #73).** A correção não foi o nome do arquivo, foi o **layout**
+(`<uploadsDir>/<schema>/<kind>/<arquivo>`, §4.7):
 
-É o outro problema, e é o mais grave **entre os de upload**: **o storage não tem isolamento nenhum** —
-que é exatamente a propriedade que o schema-por-tenant promete vender.
+- porta `FileStorage` + adapter `LocalDiskStorage` (`backend/src/infra/storage/storage.ts`,
+  `local-disk-storage.ts`) — **as 4 implementações duplicadas colapsaram em uma** (o código anterior
+  tinha um `uploadsDir()` e um `removeFile()` próprios em `product`, `store-settings`, `user` e
+  `customer`);
+- o `logo.${ext}` flat **não existe mais**: o destino passou a ser `<uploadsDir>/<schema>/logo/…`;
+- **o `@fastify/static` saiu** de `backend/src/http/server.ts` e de `backend/package.json` — não há
+  mais nenhuma ocorrência; `server.ts:87-96` é hoje só o `initStorage()` + o
+  `register(uploadsRoutes)`.
 
-`server.ts:87-101` registra `@fastify/static` com `root: uploadsDir`, `prefix: "/uploads/"` no
-**escopo raiz**, e por isso **não passa por `authMiddleware`** (que cada plugin de rotas instala via
-`addHook("preHandler")`). O resultado é literal: `https://loja-b.labolabe.tech/uploads/<uuid>.png` — a
-foto de um **cliente da loja A** — **responde 200**.
+### 5.3 ✅ FECHADO — `/uploads/*` era público e sem fronteira de tenant
 
-E não é preciso adivinhar o UUID. A URL aparece no payload de API que o frontend já consome
-(`photoPath`, `imagePath`, `photoUrl`), no `<img src>` da vitrine pública e em log. Quem já é cliente
-da loja A **tem** a URL da loja A; o subdomínio é a única coisa separando as duas, e ele não é
-exigido por nada. Um `302` de `/uploads/x.png` para o `slug-b` já cumpre o papel.
+**Achado original (mantido).** Era o mais grave **entre os de upload**: **o storage não tinha
+isolamento nenhum** — exatamente a propriedade que o schema-por-tenant promete vender.
+O `@fastify/static` era registrado **no escopo raiz**, com `root: uploadsDir` e
+`prefix: "/uploads/"`, e por isso **não passava por `authMiddleware`** (que cada plugin de rotas
+instala via `addHook("preHandler")`). O resultado literal era
+`https://loja-b.labolabe.tech/uploads/<uuid>.png` — a foto de um **cliente da loja A** —
+**respondendo 200**. E não era preciso adivinhar o UUID: a URL aparece no payload de API que o
+frontend já consome (`photoPath`, `imagePath`, `photoUrl`), no `<img src>` da vitrine pública e em
+log. Gravidade: `customer.photo_path` e `user.photo_path` são **dado pessoal** (LGPD).
 
-Gravidade: `customer.photo_path` e `user.photo_path` são **dado pessoal** (LGPD) — ler a foto de um
-cliente de outra loja é incidente de privacidade, não bug de display. E o §8 promete
-`rm -rf uploads/<schema>` na eliminação de tenant: com um diretório flat esse comando **não** é exato,
-apagaria a foto de todas as lojas.
+**Resolvido no mesmo `d30ec49` (PR #73).** Quem serve agora é a rota explícita
+`GET /uploads/:kind/:filename` (`backend/src/http/routes/uploads.routes.ts:51`), que resolve o
+schema pela **seam** (`resolveTenantSchema()`, `backend/src/infra/storage/tenant.ts:18-20`) e lê de
+`<uploads>/<schema>/<kind>/`. O schema **não** vai na URL — por isso a URL da loja A dá **404** na
+loja B por construção. O `@fastify/static` deixou de existir, então a rota pública plana deixou de
+existir junto. E o `rm -rf uploads/<schema>` do §8 (eliminação de tenant) passou a ser **exato**,
+que era o outro lado do mesmo achado.
 
-**A mitigação do §5.2 não resolve**: `logo-<schema>.<ext>` continua sendo um diretório flat servido
-pela mesma rota pública — a foto de cliente de A continua legível em B. Só o **layout por tenant com
-rota que resolve o tenant do `Host`** fecha os dois problemas de uma vez (§4.7).
+**Pendência que sobra (é a Fase 2, não esta).** A seam `backend/src/infra/storage/tenant.ts:18-20`
+ainda devolve `process.env.DEFAULT_TENANT_SCHEMA ?? "public"` — correto enquanto há uma loja só, e
+o comportamento está fixado em teste (`backend/test/uploads.test.ts:203-211`). Quando a Fase 2 ligar
+o ALS, a troca é **só o corpo dessa função**; a rota e os use cases não mudam.
 
 ### 5.4 🔴 `WsGateway` singleton com rooms globais
 
 Vazamento de dado financeiro entre lojas (§3.3).
 
-### 5.5 🟠 `pdv:server` no web é uma fuga entre tenants
+### 5.5 🟠 `pdv:server` no web vaza imagem entre tenants (e **não** troca de API)
 
-O modal "Servidor" do login (`LoginPage.jsx:219-232`) é editável **no navegador** e salva a URL em
-`localStorage["pdv:server"]`, que passa a valer para `assetUrl()` e `fetchTag()`. Em
-`slug-a.labolabe.tech` o usuário cola `https://slug-b.labolabe.tech` e passa a falar com a loja B.
-Fechar por `isDesktop()`.
+O modal "Servidor" do login (`frontend/src/pages/login/LoginPage.jsx:219-232`) é editável **no
+navegador** e salva a URL em `localStorage["pdv:server"]`
+(`frontend/src/shared/lib/server.js:12`).
+
+**Correção de uma afirmação anterior deste doc:** colar `https://slug-b.labolabe.tech` **não** faz o
+app "falar com a loja B". O `pdv:server` alimenta exatamente **dois** consumidores, ambos no
+`server.js`: `assetUrl()` (`:98-102`) e `fetchTag()` (`:73-82`). Ele **não** alcança
+`apiBase()` (`frontend/src/shared/lib/appConfig.js:76-78`) nem `wsEndpoint()` (`:94-106`), porque
+`setAppConfig()` só roda com valor no **desktop** — `loadAppConfig()` retorna `null` no web
+(`frontend/src/app/providers/app-config/api.js:8-11`) e o provider publica `null`
+(`frontend/src/app/providers/app-config/AppConfigProvider.jsx:26-28`). No web, portanto, REST e
+realtime seguem na mesma origem, e trocar o `pdv:server` **não** troca de loja.
+
+O risco real é mais estreito, e continua valendo:
+- **imagem cross-origin**: `assetUrl()` prefixes a base salva, então o `<img src>` de produto, logo,
+  cliente ou usuário passa a buscar na **outra** loja. Vazamento de dado de cliente pela vitrine e
+  pelos avatares — e a imagem nem é checada pelo CORS.
+- **`fetchTag()` engole erro**: o `catch` (`:79-81`) devolve `null` sem sinalizar, então a tela de
+  login mostra "sem tag" em vez de "endereço errado" — falha silenciosa na configuração.
+
+Fechar por `isDesktop()` continua certo, **por outro motivo**: o `pdv:server` é uma configuração
+**por dispositivo** do app desktop (para apontar o app a um servidor remoto). No web ele não tem
+função nenhuma — a origem **é** o servidor. (E note: `apiUrl`/`wsUrl` do `server.js` não são
+importados por ninguém no app hoje; `apiBase`/`wsEndpoint` é que são.)
 
 ### 5.6 🟠 `/health` não pode resolver schema de tenant
 
@@ -401,7 +542,7 @@ dados. `deploy/reset.sh:45` apaga **todo** volume `pdv_*`, incluindo o de produ�
 
 ### 5.8 🟡 `/internal/caddy-on-demand-tls` emite certificado para qualquer subdomínio
 
-`server.ts:121-125` valida só `^[a-z0-9-]+\.labolabe\.tech$`. Um scanner de subdomínios pode
+`server.ts:120-124` valida só `^[a-z0-9-]+\.labolabe\.tech$` (o regex em `:122`). Um scanner de subdomínios pode
 estourar o **limite de taxa do Let's Encrypt** (5 duplicados/semana) e travar o on-demand de um
 tenant real. Trocar o regex por consulta ao registry (permitindo `suspended`, recusando
 desconhecido).
@@ -425,6 +566,28 @@ registry (cache 60s). ~30 linhas em `server.ts`.
 - **Frontend não precisa mudar** (§7).
 - **`backend/data.db{,-shm,-wal}`** estão versionados no git — resíduo do SQLite removido.
   Candidato a remoção.
+
+### 5.11 🟠 A probe de banco do `/health` do gateway Go foi calibrada para **um** pool
+
+Achado de 2026-10-04, na esteira de `b01000b` (PR #76). Não é bug hoje — é uma **calibração que a
+Fase 2 (pool dedicado por tenant, §4.3) invalida**.
+
+O `/health` do gateway Go não pergunta ao banco a cada chamada: há uma probe com cadência fixa,
+`healthPollInterval = 1s`, `healthProbeTimeout = 1s` e um teto de concorrência,
+**`healthMaxInFlight = 2`** (`ws-gateway/cmd/gateway/main.go:485,496,527`), Consumida por
+`handleHealth` (`:414-462`), que responde 503 quando o último "ok" passa de
+**`healthStaleAfter = 3s`** (`:507`). Esse teto foi dimensionado para **um pool de 25 conexões**
+(`ws-gateway/internal/db/connect.go:31`, `SetMaxOpenConns(25)`): o pior caso é 2 conexões presas
+para sempre e as 23 restantes seguem com o dispatcher do outbox — que é justamente o que o endpoint
+existe para proteger.
+
+Ao migrar para **N pools por tenant**, esse "2" deixa de ser folga e vira **gargalo**: `healthMaxInFlight`
+é global do processo, então ele não escala com N, e o `3s` de `healthStaleAfter` — calibrado contra
+o healthcheck do container (`interval: 3s` + `timeout: 5s` + `retries: 20`,
+`deploy/docker-compose.yml:267-276`) para o gateway **degradar antes de o compose desistir** — passa
+a competir com o número de schemas que o probe precisa cobrir. Nenhum dos dois números sobe sozinho
+com o pool dedicado. Auditoria em `docs/16-pendencias.md` §4 (o `GO-GATEWAY-PLAN.md` não tem fase
+de multi-tenant).
 
 ---
 
@@ -559,27 +722,64 @@ até o passo 11.
 
 ---
 
-## 7. Frontend: 3 arquivos
+## 7. Frontend: 3 arquivos de runtime — mais os que o dev e o desktop exigem
 
-O frontend já fala **só com a própria origem** (`appConfig.js`: `apiBase()` → `/api`;
-`wsEndpoint()` → `window.location.host`). O histórico prova: os 7 commits do multi-tenant anterior
-**não tocaram nenhuma linha de `frontend/`**.
+O frontend já fala **só com a própria origem** — `frontend/src/shared/lib/appConfig.js`:
+`apiBase()` (`:76-78`) → `/api`; `wsEndpoint()` (`:94-106`) → `window.location.host`. O histórico
+prova: os 7 commits do multi-tenant anterior **não tocaram nenhuma linha de `frontend/`**.
+
+⚠️ **São duas configurações, não uma** — e o doc anterior só citava a primeira:
+
+| Config | Onde | Consumidores | No web |
+|---|---|---|---|
+| `appConfig` (`apiBase`, `wsEndpoint`, `daemonBase`) | `frontend/src/shared/lib/appConfig.js` | REST, realtime, daemon | **sempre vazia** — `setAppConfig` só recebe valor no **desktop** (`app-config/api.js:8-11`, `AppConfigProvider.jsx:26-28`), então `apiBase()` cai em `/api` |
+| `pdv:server` (`localStorage`) | `frontend/src/shared/lib/server.js:12` | **só** `assetUrl()` (`:98-102`) e `fetchTag()` (`:73-82`) | editável pelo usuário (§5.5) — `apiUrl`/`wsUrl` do arquivo não são importados por ninguém |
 
 | Arquivo | Mudança | Motivo |
 |---|---|---|
-| `frontend/vite.config.js` | `changeOrigin: false` em `/api`, `/uploads`, `/realtime` | hoje o proxy reescreve o `Host` para `127.0.0.1:3000` e **o dev nunca vê o subdomínio** |
-| `frontend/src/pages/login/LoginPage.jsx` | branch no `catch` por `e.code` + gate do modal "Servidor" por `isDesktop()` | hoje um subdomínio inexistente mostra *"Não foi possível conectar ao servidor"* — o 404 `tenant_not_resolved` do §3.1 (§5.5) |
-| `frontend/src/app/router.jsx` | `assetUrl(storeSettings.logoUrl)` | bug pré-existente; com tenancy passa a significar "logo não carrega" |
+| `frontend/vite.config.js` | `changeOrigin: false` em **`/api`** e **`/uploads`** + **`server.allowedHosts`** | hoje o proxy reescreve o `Host` para `127.0.0.1:3000` e **o dev nunca vê o subdomínio** |
+| `frontend/src/pages/login/LoginPage.jsx` | branch no `catch` por `e.code` (nos **dois** `catch`) + gate do modal "Servidor" por `isDesktop()` | hoje um subdomínio inexistente mostra *"Não foi possível conectar ao servidor"* — o 404 `tenant_not_resolved` do §3.1 (§5.5) |
+| `frontend/src/app/router.jsx` | `assetUrl(storeSettings.logoUrl)` | **bug pré-existente do desktop**: a origem do app é `tauri://localhost`, então `src` relativo não resolve. **Não** é "com tenancy o logo passa a não carregar" — é o mesmo bug que o `assetUrl()` do `LoginPage.jsx:175` já evita |
+
+**`/realtime`: não mexer.** `frontend/vite.config.js:62` **não tem** `changeOrigin`, e o default do
+`http-proxy` é `false` — o `Host` **já chega hoje** no backend. Propor `changeOrigin: false` ali é
+**no-op**. A mudança fica só em `/api` (`:58`) e `/uploads` (`:59`), que hoje têm
+`changeOrigin: true`.
+
+**⚠️ O que o §7 anterior esquecia: `server.allowedHosts` é o que estraga o dev primeiro.** A opção
+não existe no `frontend/vite.config.js:54-63` e o default do Vite é `[]`, que libera `localhost`,
+subdomínios de `.localhost` e **endereços IP** — e nada mais. Então o dev server responde
+*"Blocked request"* ao `Host` com subdomínio **antes** do proxy rodar: o sintoma aparece como "não
+conecta" e não aponta para o Vite. E tem um efeito colateral que precisa entrar no plano: com o
+`Host` chegando intacto, **`127.0.0.1:5173` cai no slug `127`** (1ª label de um host com
+`parts.length ≥ 3`, e `127` casa `^[a-z0-9][a-z0-9-]*$`) → **404 de tenant** no dev por IP.
+`localhost:5173` continua funcionando (apex/`localhost` → default, §4.8). Ou seja: o dev por
+`127.0.0.1` deixa de funcionar **sem** dar "Blocked request" (o IP é liberado por padrão), e o
+sintoma que aparece é "tenant não encontrado" — que não lembra do problema.
+
+**Arquivos que este doc não listava e que também mudam** (todos verificados no HEAD `0cb6c06`):
+
+| Arquivo | Mudança | Motivo |
+|---|---|---|
+| `frontend/src/shared/api/http.js:40-42` | logout automático também em 403 | hoje só **401** dispara `onUnauthorized`; um `tenant_mismatch` (403, §4.5) deixa a sessão **órfã**: o token continua na tela e todo request volta 403, sem nunca limpar |
+| `frontend/src/app/providers/auth/AuthProvider.jsx:28-40` | **particionar por loja no desktop** | no **web** as 6 chaves de storage são por origem (subdomínio ⇒ isolado). No **desktop a origem é única** (`tauri://localhost`), então `pdv:session`, `pdv:public-cart`, `pdv:customer-profile`, `pdv:nav:<role>` e `pdv:server` **não** são particionadas por loja: apontar o app para outra loja reaproveita carrinho e perfil do cliente anterior |
+| `frontend/src/app/boot/bootSequence.js:64-70` + `frontend/src/app/boot/BootGate.jsx:81-84` | distinguir 404 de rede | `pingApi` é booleano e o `OFFLINE_COPY` só tem `cloud`/`local`: um **404 de tenant** e um **timeout** viram o mesmo "Sem conexão com o sistema", com dica de "verifique a internet" |
+| `frontend/src/pages/login/LoginPage.test.jsx:10,150,157` e `frontend/src/widgets/app-menu/AppMenu.test.jsx:184-185` | fixtures de `/uploads/u2.png` e `/uploads/u1.png` → `/uploads/<kind>/<arquivo>` | o layout por tenant já está no disco (§4.7, `d30ec49`); as fixtures são o **único** lugar do frontend que fixa o formato antigo |
+| `frontend/src/pages/login/LoginPage.jsx:110-117` | **segundo** `catch`, o do login por PIN | o primeiro `catch` trata erro de rede; este **não**: qualquer `e.code` vira *"PIN incorreto. Tente novamente."* — um `tenant_inactive` (403) apareceria como PIN errado, e o gerente tentaria de novo em vez de procurar a loja certa |
 
 **Não muda:** qualquer URL de API/WS, rooms do realtime (§3.3), contrato de `/auth/users` e
 `/store-info`, FSD, rotas do React Router, PWA/service worker (CacheStorage é **por origem** —
 vazamento entre lojas é impossível com subdomínio), `app.json` dos apps desktop/standalone (já têm
-`api_base`; o subdomínio é só o valor), as 6 chaves de `localStorage`/`sessionStorage` (todas por
-origem), e o bundle (1 build, N subdomínios).
+`api_base`; o subdomínio é só o valor), as 6 chaves de `localStorage`/`sessionStorage`
+(`pdv:session`, `pdv:nav:<role>`, `pdv:public-cart`, `pdv:customer-profile`, `pdv:alert-sound`,
+`pdv:server` — todas por origem **no web**; no desktop ver a linha do `AuthProvider` acima), e o
+bundle (1 build, N subdomínios).
 
-**Uploads também não muda** (§4.7): `imagePath`/`photoPath`/`photoUrl` passam a ter um segmento a
-mais (`/uploads/<kind>/<arquivo>`), mas o frontend só faz `assetUrl(x)` e trata o valor como **URL
-opaca** — nenhum componente conhece o formato, e nenhuma chave de cache depende dele.
+**Uploads: já mudou, e o frontend não sentiu** (`d30ec49`, §4.7). `imagePath`/`photoPath`/`photoUrl`
+passaram a ter um segmento a mais (`/uploads/<kind>/<arquivo>`) e **mesmo assim** o frontend não
+mudou: ele só faz `assetUrl(x)` e trata o valor como **URL opaca** — nenhum componente conhece o
+formato, e nenhuma chave de cache depende dele. Isso é a prova empírica da tese do §4.7 (a porta é
+o que isola, não o chamador).
 
 **Nenhum endpoint de controle novo é necessário** para o app: `/store-info` já devolve o nome/logo/
 cor da loja, e a tela de login já renderiza logo + `merchantName` (`LoginPage.jsx:174-182`).
@@ -602,14 +802,25 @@ que um 404 bem aplicado evita. O painel de provisionamento da plataforma é tool
   schema** — `CREATE SCHEMA` antes, sempre. E `pg_restore -n <schema-errado>` **sai 0 e não
   restaura nada** — sempre validar contagem contra o manifesto. `--clean` **só** em restore total,
   com o backend parado: em restore parcial derrubaria outros tenants.
-- **Provisionamento:** script dedicado dentro do container (`docker compose run --rm`), **não**
-  endpoint HTTP (auth nova, superfície CSRF/DoS, "quem criou a loja X?" fica na auditoria).
-  Idempotente por slug. Fluxo: pré-checagem → `CREATE SCHEMA` + `GRANT` + migrations + `store_settings`
-  + gerente (PIN no log, **uma vez**) → confirmar via `/store-info` → disparar TLS on-demand → dump.
-- **Papéis:** o app hoje conecta como **SUPERUSER** (`rolsuper=t`), o que torna "isolamento por
-  schema" isolamento só nominal. Recomendação: `pdv_dba` (DDL, dono dos schemas) e `pdv_app` (só
-  DML), com `DATABASE_URL` apontando para `pdv_app`. ⚠️ **Bloqueio:** Postgres gerenciado pode não
-  dar `CREATE` no banco → nesse caso o desenho não cabe (ver pergunta Q1).
+- **Provisionamento — hoje não existe nada que crie uma segunda loja.** Registrado para não ler este
+  fluxo como se estivesse pronto: os **dois** seeds gravam `store_settings` como **singleton**
+  (`backend/src/infra/db/seed.ts:51-67` e `backend/src/infra/db/seed-prod.ts:35-50`, ambos com
+  `id: "singleton"`) e **não há `CREATE SCHEMA` em nenhuma migration** (grep em
+  `backend/migrations/` — nem no baseline `0001_init.sql`, nem no `archive/`). Ou seja: o banco tem
+  um schema e um dono, e o caminho descrito abaixo é **válido e continua sendo o alvo**, mas
+  **não implementado**.
+  Quando entrar: script dedicado dentro do container (`docker compose run --rm`), **não** endpoint
+  HTTP (auth nova, superfície CSRF/DoS, "quem criou a loja X?" fica na auditoria). Idempotente por
+  slug. Fluxo: pré-checagem → `CREATE SCHEMA` + `GRANT` + migrations + `store_settings` + gerente
+  (PIN no log, **uma vez**) → confirmar via `/store-info` → disparar TLS on-demand → dump.
+- **Papéis — medido, e é o número que decide a recusa de RLS (§2).** `SELECT rolname, rolsuper,
+  rolbypassrls FROM pg_roles` em produção devolve **`pdv | t | t`**: o app conecta como **superuser**,
+  que **sempre** bypassa RLS, mesmo com `FORCE ROW LEVEL SECURITY` em cada tabela. Ou seja,
+  "isolamento por schema" hoje é isolamento **só nominal** — e o inverso também vale: RLS, se
+  adotada agora, daria a mesma sensação sem barreira nenhuma.
+  Recomendação: `pdv_dba` (DDL, dono dos schemas) e `pdv_app` (só DML), com `DATABASE_URL` apontando
+  para `pdv_app`. ⚠️ **Bloqueio:** Postgres gerenciado pode não dar `CREATE` no banco → nesse caso o
+  desenho não cabe (ver pergunta Q1).
 - **Ciclo de vida:** `suspended` = barra com 403 e **pula os workers**, mas **mantém TLS** (para o
   dono ver a página de suspensão em vez de erro de certificado) e **mantém o backup**. Eliminação =
   `DROP SCHEMA … CASCADE` (atômico e verificável) + `rm -rf uploads/<schema>` + linha em
@@ -625,14 +836,14 @@ que um 404 bem aplicado evita. O painel de provisionamento da plataforma é tool
 | # | Risco | Sev. | Mitigação |
 |---|---|---|---|
 | R1 | **Rooms do realtime cruzam lojas** (§5.4) | 🔴 | Fase 4: gateway particionado. `tenant-isolation.test.ts` com 2 sockets. |
-| R2 | **`unaccent` quebra do tenant 2 em diante** (§5.1) | 🔴 | Registry antes de migration; teste que provisiona 2 tenants e busca por nome em ambos. |
-| R3 | **Logo de uma loja sobrescreve o da outra** (§5.2) | 🔴 | Layout por tenant no disco (§4.7), não nome de arquivo: nada colide porque cada `<schema>/<kind>/` é exclusivo. Teste de upload cruzado. |
-| R4 | **Leitura de upload entre lojas** — `/uploads/*` público e sem fronteira de tenant; a foto de um cliente/usuário de A abre em B. Dado pessoal (LGPD) (§5.3) | 🔴 | Fase 5: sai o `@fastify/static`; rota `GET /uploads/:kind/:filename` que resolve o schema pelo `Host` (§4.7) — o schema não vai na URL, então a URL de A dá 404 em B por construção. `tenant-isolation.test.ts`: mesmo `filename` em 2 tenants → 200 só no dono. |
+| R2 | ~~`unaccent` quebra do tenant 2 em diante~~ (§5.1) | ✅ **resolvido** | **FECHADO em `bf75736` (PR #64)**: o baseline `0001_init.sql:27` já instala `unaccent WITH SCHEMA public`, e a cadeia que tinha o bug foi arquivada (fora do glob do runner). Só a receita do registry continua valendo: registry **antes** de migration de tenant. |
+| R3 | **Logo de uma loja sobrescreve o da outra** (§5.2) | ✅ mitigado | Layout por tenant no disco (§4.7), não nome de arquivo: nada colide porque cada `<schema>/<kind>/` é exclusivo. **Mitigação em `d30ec49` (PR #73)** — ⚠️ mas hoje ela é **inerte**: a seam `backend/src/infra/storage/tenant.ts:16-20` devolve `public`, e **não há duas lojas ainda**. Fecha de verdade quando a Fase 2 ligar a seam no ALS (§4.8). Teste de upload cruzado. |
+| R4 | **Leitura de upload entre lojas** — `/uploads/*` público e sem fronteira de tenant; a foto de um cliente/usuário de A abre em B. Dado pessoal (LGPD) (§5.3) | ✅ mitigado | Layout por tenant + rota `GET /uploads/:kind/:filename` + saída do `@fastify/static` em **`d30ec49` (PR #73)**; o schema não vai na URL, então a URL de A dá 404 em B por construção. ⚠️ **A fronteira ainda é latente**: falta a Fase 2 ligar a seam no ALS (§4.8) — enquanto o schema resolver sempre `public`, não há duas lojas para cruzar e o isolamento real não foi provado. `tenant-isolation.test.ts`: mesmo `filename` em 2 tenants → 200 só no dono. |
 | R5 | **Acesso ao banco sem contexto de tenant** | 🔴 | `requireTenant()` **lança**; `TENANT_STRICT` no ar depois de 1 semana; `grep` no CI. |
-| R6 | `pdv:server` permite trocar de loja no web (§5.5) | 🟠 | Gate por `isDesktop()`. |
+| R6 | `pdv:server` vaza **imagem** entre lojas no web — `assetUrl()` e `fetchTag()` passam a apontar para outra origem, **sem** trocar a API (§5.5) | 🟠 | Gate por `isDesktop()` — no web `pdv:server` não tem função (a origem **é** o servidor) — mais a origem única por subdomínio. |
 | R7 | `/health` falha → switch aborta (§5.6) | 🟠 | `/health` no registry; `/health/tenants` pós-switch. |
 | R8 | Dev aplica migration no banco de produção (§5.7) | 🟠 | Volumes próprios por stack + confirmação no `reset.sh`. **Antes de qualquer código.** |
-| R9 | Estouro de `max_connections` acima de ~20 lojas | 🟠 | `TENANT_POOL_MAX_TOTAL` → 503 explícito; `CONNECTION LIMIT` na role; plano B pronto (§4.3). |
+| R9 | Estouro de `max_connections` acima de ~20 lojas | 🟠 | `TENANT_POOL_MAX_TOTAL` → 503 explícito; `CONNECTION LIMIT` na role; plano B pronto (§4.3). ⚠️ Antes disso: a probe do `/health` do gateway Go (`healthMaxInFlight=2`, `healthStaleAfter=3s`) foi calibrada para **um** pool de 25 e vira gargalo antes (§5.11). |
 | R10 | Cutover perde dado | 🟠 | `EXCEPT` de verificação, `RENAME` (não `DROP`), backup antes e depois, uma release de espera. |
 | R11 | `nextval()` não qualificado + `public` no path = vazão silenciosa | 🟡 | Canário no boot (`current_schema()` == schema do tenant **e** `to_regclass('"order"')` não-nulo); `/health/tenants` reporta. Some quando o `public` for esvaziado (passo 11 do cutover). |
 | R12 | Rollback de migration em N schemas | 🟡 | Expand/contract em 2-3 releases; o **backup pré-deploy do CI já é o mecanismo de rollback** (`pg_restore -n tenant_x`). |
