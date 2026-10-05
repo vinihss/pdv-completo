@@ -28,10 +28,16 @@ name: Testes (backend + frontend)
 # próxima tag.
 #
 # O mesmo vale para os jobs de serviço: `test-ws-gateway` aparece como
-# `tests / test-ws-gateway` no PR (o job chamador se chama `tests`), e
-# `test-pagarme-webhook` como `tests / test-pagarme-webhook` — é esse nome que um
+# `tests / test-ws-gateway` no PR (o job chamador se chama `tests`),
+# `test-pagarme-webhook` como `tests / test-pagarme-webhook` e
+# `test-printer-daemon` como `tests / test-printer-daemon` — é esse nome que um
 # ruleset por check precisaria. Não há ruleset exigindo os checks de teste por
-# nome hoje — se um dia houver, os nomes novos entram na regra junto com os outros.
+# nome hoje — se um dia houver, os nomes novos entram na regra junto com os
+# outros.
+#
+# São QUATRO suítes, quatro jobs, UM chamador. O erro a evitar continua sendo
+# "descompartilhar em N chamadores achando que se economiza runner" — o
+# `workflow_call` roda o workflow chamado INTEIRO, cada vez.
 # ============================================================
 
 on:
@@ -462,7 +468,79 @@ jobs:
 
           echo "nenhum teste pulado: os 38 testes de banco (7 da inbox, 31 do drain) rodaram contra o Postgres do serviço"
 
-  # TODO: refazer os testes do printer/daemon (go test ./...) — removidos
-  # temporariamente para destravar o build. Ver printer/README.md.
-  # Quando voltarem, é AQUI que entra o job (não no caller): os dois
-  # chamadores o ganham de graça, e nenhum gate diverge do outro.
+  # O daemon de impressão (`printer/daemon/`) — o segundo módulo Go do repo.
+  #
+  # Este job é a razão de o `gofmt -l` existir acima dele: o daemon passou
+  # quebrado (sem compilar) tempo demais na `main` porque NADA o verificava.
+  # Nem build, nem vet, nem suíte: `printer/daemon` não entra no `npm ci` do
+  # backend nem do frontend, e o `test-ws-gateway` só cobre `ws-gateway/`. O
+  # único portão que o daemon tinha era o `go build` da imagem de produção —
+  # isto é, o erro só aparecia depois de virar tag. Um `gofmt -l` sem o
+  # `test -z` seria o mesmo furo em forma nova: o `gofmt` imprime e sai 0.
+  #
+  # `-count=1` desliga o cache de resultado do `go test`: sem ele um run pode
+  # reaproveitar o "ok, sem arquivo de teste" cacheado de uma execução em que o
+  # pacote ainda não tinha testes.
+  test-printer-daemon:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # Mesma versão declarada no `go 1.25.0` do go.mod do daemon — a mesma
+          # regra do `test-ws-gateway`. `go-version` sem `check-latest` instala
+          # exatamente esta versão, e o `cache: true` usa o go.sum como chave do
+          # cache de módulos/build (o equivalente ao `cache-dependency-path` do
+          # npm nos jobs Node). Se o go.mod subir, este número sobe junto: o
+          # próprio build morre com "go.mod requires go >= X" se divergirem.
+          go-version: '1.25.0'
+          cache: true
+          cache-dependency-path: printer/daemon/go.sum
+      - name: build, vet e gofmt
+        working-directory: printer/daemon
+        run: |
+          # `go mod download` explícito: o daemon puxa dependências de terceiros
+          # (selfupdate, bbolt, modernc.org/sqlite), então a primeira execução
+          # gasta rede. O `cache: true` do setup-go acima já resolve isso a
+          # partir da segunda, mas o passo deixa a falha de DOWNLOAD
+          # distinguível da falha de COMPILAÇÃO no log — sem ele, as duas saem
+          # como "cannot find package" no mesmo `go build`.
+          go mod download
+          go build ./...
+          go vet ./...
+          # `gofmt -l` é um lister: sai 0 mesmo fora de formato, então o
+          # `test -z` é o gate. Sem `-w`: formatar no CI esconde o defeito em
+          # vez de reprovar o PR, e ninguém vê o diff que o gofmt faria.
+          test -z "$(gofmt -l .)" || { gofmt -l .; echo "::error::rode gofmt -w printer/daemon"; exit 1; }
+      - name: suíte
+        working-directory: printer/daemon
+        run: go test -count=1 ./...
+
+  # ============================================================
+  # POR QUE SEM `-race` AQUI, AO CONTRÁRIO DO `test-ws-gateway`
+  # ============================================================
+  #
+  # O `-race` do gateway não é decoração: ele existe porque a suíte do gateway
+  # tinha uma corrida real (`send on closed channel` em `internal/connmanager`)
+  # que só aparecia em 11 de 20 execuções — uma classe de defeito que o
+  # `-race` Reprova em 20 de 20 e nomeando a causa. Ligado ali, ele compra
+  # determinismo.
+  #
+  # No daemon não há caso conhecido que peça isso: a suíte sobe `httptest.Server`
+  # em portas efêmeras e tem caminhos de retry/backoff sensíveis a tempo.
+  # `-race` nesse terreno troca um vermelho que aponta a CAUSA por um vermelho
+  # que pode ser o próprio `-race` estourando o orçamento de tempo do teste —
+  # ou seja, um gate que reprova sem dizer o que está errado. Regra que vale
+  # para os dois: `-race` só entra quando foi medido verde em execuções
+  # repetidas, nunca porque "parece mais rigoroso".
+  #
+  # O gate de "nenhum teste pulado" do `test-ws-gateway` NÃO é copiado aqui, e
+  # a diferença é de fundo: os `t.Skip` do gateway existem para esconder testes
+  # que protegem uma regressão concreta (o `WS_DISPATCH` desligado), então
+  # pulá-los é exatamente o modo de falha que aquele passo existe para impedir.
+  # Os três do daemon (medidos nesta máquina) são condicionais de plataforma e
+  # legítimos: dois `TestResolveDir` de caminho Windows e
+  # `TestDiscoverPrintersReturnsNotImplementedOutsideWindows`. Copiar o gate
+  # reprovaria a suíte em todo runner Linux, e o passo viraria um teste sobre
+  # o sistema operacional em vez de sobre o daemon.
+  # ============================================================
