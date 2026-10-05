@@ -462,6 +462,19 @@ jobs:
 
           echo "nenhum teste pulado: os 38 testes de banco (7 da inbox, 31 do drain) rodaram contra o Postgres do serviço"
 
+  # Shellcheck como portão: um script com warning (SC2155, SC2206, SC2064...)
+  # passa despercebido no review e vira bug de deploy depois. Rodar sobre todos os
+  # scripts versionados (incluindo .githooks, que não terminam em .sh) mantém a
+  # barra no mesmo nível do `npm run lint` do frontend e do `gofmt -l` dos jobs Go.
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck
+        run: |
+          mapfile -t files < <(git ls-files '*.sh' '.githooks/*')
+          shellcheck --severity=warning "${files[@]}"
+
   # TODO: refazer os testes do printer/daemon (go test ./...) — removidos
   # temporariamente para destravar o build. Ver printer/README.md.
   # Quando voltarem, é AQUI que entra o job (não no caller): os dois

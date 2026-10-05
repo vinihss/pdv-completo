@@ -92,7 +92,8 @@ else
       echo "==> Gerando chave de assinatura local (descartavel)"
       npx tauri signer generate -w "$LOCAL_KEY" -p pdv-local --force >/dev/null
     fi
-    export TAURI_SIGNING_PRIVATE_KEY="$(cat "$LOCAL_KEY")"
+    TAURI_SIGNING_PRIVATE_KEY="$(cat "$LOCAL_KEY")"
+    export TAURI_SIGNING_PRIVATE_KEY
     export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="pdv-local"
     echo "==> Chave local em uso. O instalador deste build NAO atualiza"
     echo "    nenhum app real (a pubkey do conf é outra). Isso é esperado"
@@ -111,7 +112,7 @@ fi
 # isso acontece, `--appimage-docker` empacota num debian:bookworm-slim
 # (glibc 2.36), que é o mesmo AppImage que o CI gera.
 TAURI_ARGS=()
-[ -n "$BUNDLES" ] && TAURI_ARGS+=($BUNDLES)
+[ -n "$BUNDLES" ] && read -ra TAURI_ARGS <<< "$BUNDLES"
 
 if [ "$APPIMAGE_DOCKER" -eq 1 ]; then
   command -v docker >/dev/null || { echo "--appimage-docker precisa de docker" >&2; exit 1; }
