@@ -112,7 +112,7 @@ export ANDROID_NDK_HOME=/opt/android-sdk/ndk/30.0.16248370
 export ANDROID_NDK_ROOT=/opt/android-ndk
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
 export TAURI_FRONTEND_PATH="$PWD/../frontend"   # sem isto o beforeBuildCommand
-                                                # roda no cwd errado (ver build-standalone.sh)
+                                                # roda no cwd errado (ver scripts/build/build-standalone.sh)
 node ../node_modules/@tauri-apps/cli/tauri.js android build --apk -t aarch64 --ci
 ```
 
@@ -185,7 +185,7 @@ depois de publicado o app não pode mudar de chave.
    e **nada escreve esse arquivo** — o default é `1.0`/`1`, e o primeiro build
    saiu com esses valores, divergentes dos `0.1.0` do `Cargo.toml`. O
    `build.gradle.kts` agora lê `[workspace.package].version` da raiz (o que o
-   `./bump-version.sh` altera) e deriva o `versionCode` como
+   `scripts/release/bump-version.sh` altera) e deriva o `versionCode` como
    `major*1_000_000 + minor*1_000 + patch`, crescente a cada release.
 
 ### Ainda não provado

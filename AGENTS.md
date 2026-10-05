@@ -124,15 +124,14 @@ apps standalone servem). Os scripts `desktop:*` saíram do `frontend/package.jso
 agora na **raiz do repo** (`node_modules/.bin/tauri`, `package.json` da raiz).
 
 ```bash
-# a partir de frontend/
-cd frontend
-bash src-tauri/build-app.sh            # build local (instalador; sem sidecar — printer reestruturado)
-bash src-tauri/build-app.sh --release  # build de entrega: exige chave de assinatura
-../node_modules/.bin/tauri dev         # roda o app no desktop (CLI da raiz, cwd = frontend)
+# a partir da raiz
+bash scripts/build/build-app.sh            # build local (instalador; sem sidecar — printer reestruturado)
+bash scripts/build/build-app.sh --release  # build de entrega: exige chave de assinatura
+(cd frontend && ../node_modules/.bin/tauri dev)  # roda o app no desktop
 ```
 
 O script resolve os caminhos pela própria localização, então também vale
-`bash frontend/src-tauri/build-app.sh` a partir da raiz do repo. Não existe mais
+`bash scripts/build/build-app.sh` a partir da raiz do repo. Não existe mais
 `npm run desktop:build` / `npm run desktop:dev`.
 
 ## Perfis de acesso
@@ -143,7 +142,7 @@ O mesmo código cobre 5 perfis, cada um com sua superfície no login e seus pap�
 
 Duas armadilhas que já custaram tempo (detalhe em `docs/11-desktop-instalador.md` §8.1-8.2):
 
-- **AppImage não empacota no Arch** — o `strip` do `linuxdeploy` não conhece a seção `.relr.dyn` das libs do Arch e o build morre with "failed to run linuxdeploy". The `.deb` sai normal; para o AppImage use `bash frontend/src-tauri/build-app.sh --appimage-docker` (empacota num `debian:bookworm-slim`).
+- **AppImage não empacota no Arch** — o `strip` do `linuxdeploy` não conhece a seção `.relr.dyn` das libs do Arch e o build morre with "failed to run linuxdeploy". The `.deb` sai normal; para o AppImage use `bash scripts/build/build-app.sh --appimage-docker` (empacota num `debian:bookworm-slim`).
 - **Build local sempre pede chave de assinatura** — o Tauri 2 assina o artefato de update sempre que `plugins.updater.pubkey` está no conf, e nenhuma flag de `-c` desliga. Sem isso o build local terminava com erro *depois* de gerar o instalador. O script agora gera uma chave descartável em `frontend/src-tauri/.local-signing.key` (fora do git): o instalador sai, o `.sig` existe, e nenhum app real atualiza por ele — entrega continua exigindo `--release` com a chave de verdade.
 
 O app Windows é o alvo: instalador único, config por loja em `%ProgramData%\PDV\app.json` e daemon de impressão instalado como serviço junto. **A lista do que ainda não foi provado (chave da assinatura fora do repo, secrets do deploy ausentes, `installer-hooks.nsh` nunca compilado) está em `docs/11-desktop-instalador.md` §9 — leia antes de chamar algo de "pronto".**
@@ -173,16 +172,16 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
 | `npm run test` | frontend | vitest (jsdom + Testing Library; 44 arquivos de suíte) |
-| `bash src-tauri/build-app.sh` | frontend | build do app desktop v1 (Tauri); `--release` = entrega (chave de assinatura), `--appimage-docker` = AppImage |
+| `bash scripts/build/build-app.sh` | frontend | build do app desktop v1 (Tauri); `--release` = entrega (chave de assinatura), `--appimage-docker` = AppImage |
 | `node_modules/.bin/tauri <cmd>` | raiz | CLI do Tauri (na raiz do repo, não em `frontend/node_modules`; rodar com cwd=`frontend/` para o app v1) |
 | `go test ./...` | `printer/daemon` | suíte do daemon |
 | `go build ./...` / `go vet ./...` / `go test ./...` | `ws-gateway` | portão do gateway WS: build, vet e suíte (é o que o CI roda, junto com `gofmt -l .`) |
 | `./switch.sh` | deploy | deploy sem downtime (instância nova + `caddy reload`); `--status`, `--rollback`, `--install`, `--no-build`. Não mexe no `ws-gateway` |
 | `docker compose --profile ws-gateway up -d --build ws-gateway` | deploy | sobe **só** o gateway WS em Go — o `up` normal não o cria (está atrás de `profiles`) |
 | `./probe-availability.sh --url <url> --seconds N` | deploy | mede o gap de downtime real (sai != 0 se houve falha) |
-| `./scripts/dev-worktree.sh new <branch>` | raiz | cria o worktree de trabalho em `~/pdv/<branch>` (dentro do clone bare), a partir da `origin/main` já atualizada |
-| `./scripts/dev-worktree.sh list` | raiz | lista os worktrees e a branch de cada um |
-| `./scripts/dev-worktree.sh rm <branch>` | raiz | remove o worktree; só apaga a branch se ela já estiver mergeada na `main` |
+| `./scripts/dev/dev-worktree.sh new <branch>` | raiz | cria o worktree de trabalho em `~/pdv/<branch>` (dentro do clone bare), a partir da `origin/main` já atualizada |
+| `./scripts/dev/dev-worktree.sh list` | raiz | lista os worktrees e a branch de cada um |
+| `./scripts/dev/dev-worktree.sh rm <branch>` | raiz | remove o worktree; só apaga a branch se ela já estiver mergeada na `main` |
 | `git config core.hooksPath .githooks` | qualquer | ativa os hooks versionados — **necessário após cada clone novo** |
 
 ## Git: worktree por branch, `main` intocada
@@ -194,9 +193,9 @@ base/coordenação (ler, comparar, abrir o editor). **Todo desenvolvimento acont
 worktree separado**; o clone bare em `~/pdv/.bare` não tem working tree.
 
 ```bash
-./scripts/dev-worktree.sh new feat/minha-branch   # cria ~/pdv/feat/minha-branch
+./scripts/dev/dev-worktree.sh new feat/minha-branch   # cria ~/pdv/feat/minha-branch
 git push -u origin feat/minha-branch && gh pr create --fill
-./scripts/dev-worktree.sh rm feat/minha-branch    # apaga a branch só se já mergeada na main
+./scripts/dev/dev-worktree.sh rm feat/minha-branch    # apaga a branch só se já mergeada na main
 ```
 
 **Nunca commit em `main`.** Fluxo de hotfix urgente é o mesmo: branch própria +
@@ -233,7 +232,7 @@ gh api -X DELETE repos/OWNER/REPO/rulesets/ID
 O deploy **não** é disparado por push na `main`: `.github/workflows/deploy-on-tag.yml`
 roda em `push: tags: v*.*.*` (backend) e `app-v*.*.*` (app). O versionamento é
 automático via Semantic Release no merge da `main` — a tag nasce sozinha.
-`./bump-version.sh` é fallback de emergência (deprecated), não o caminho normal —
+`scripts/release/bump-version.sh` é fallback de emergência (deprecated), não o caminho normal —
 é por isso que o `pre-push` deixa tag passar.
 
 ## Regras críticas
@@ -277,7 +276,7 @@ automático via Semantic Release no merge da `main` — a tag nasce sozinha.
 - **Trunk-Based Development**: branches de vida curta (< 1–2 dias), PRs pequenos e frequentes. Integrar na `main` assim que aprovado e verde.
 - **Conventional Commits obrigatório**: todos os commits devem seguir [Conventional Commits](https://www.conventionalcommits.org/). Validado automaticamente no PR (commitlint).
 - **Versionamento automático**: no merge na `main`, Semantic Release analisa os commits, gera/atualiza `CHANGELOG.md`, cria **tag `vX.Y.Z`** e **GitHub Release** automaticamente (baseado no tipo de mudança: `feat`→minor, `fix/perf`→patch, `BREAKING CHANGE`→major).
-- **Worktree por branch** dentro do clone bare (`~/pdv/<branch>`; `./scripts/dev-worktree.sh new|list|rm`)
+- **Worktree por branch** dentro do clone bare (`~/pdv/<branch>`; `./scripts/dev/dev-worktree.sh new|list|rm`)
 - **Hooks versionados** em `.githooks/`: precisam de `git config core.hooksPath .githooks` após clone novo
 - Hook é **freio, não tranca** (`--no-verify` contorna); a garantia é o ruleset no GitHub
 - **`rm` de worktree não apaga branch não mergeada** — publicar ou `branch -D` consciously

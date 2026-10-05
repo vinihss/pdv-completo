@@ -51,8 +51,8 @@ foram removidos, junto com a devDependency `@tauri-apps/cli` — a CLI agora mor
 raiz do repositório). Build manual do app v1:
 
 ```bash
-bash src-tauri/build-app.sh                  # build local (dev/teste), rode em frontend/
-bash src-tauri/build-app.sh --release        # build de entrega (exige chave de assinatura)
+bash scripts/build/build-app.sh                  # build local (dev/teste)
+bash scripts/build/build-app.sh --release        # build de entrega (exige chave de assinatura)
 ```
 
 Cuidado com o nome: **`build:all` é o app único**, não "os 4". O `all` é o

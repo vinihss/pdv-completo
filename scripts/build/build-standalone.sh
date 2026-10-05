@@ -2,9 +2,9 @@
 # ============================================================
 # Build da família standalone (Tauri) em um comando.
 #
-#   bash build-standalone.sh --app pdv             # build local (dev/teste)
-#   bash build-standalone.sh --app pdv --release   # build de entrega: exige chave
-#   bash build-standalone.sh --app kds --bundles nsis
+#   bash scripts/build/build-standalone.sh --app pdv             # build local (dev/teste)
+#   bash scripts/build/build-standalone.sh --app pdv --release   # build de entrega: exige chave
+#   bash scripts/build/build-standalone.sh --app kds --bundles nsis
 #
 # Os 4 apps da família (pdv, kds, garcon, entregador) são crates
 # independentes na raiz do repo, cada um com seu tauri.conf.json,
@@ -17,12 +17,13 @@
 # confs e o script de sidecar não existe mais (printer reestruturado).
 #
 # O app v1 (frontend/src-tauri, em produção) tem o seu próprio
-# script: frontend/src-tauri/build-app.sh. Este arquivo não o substitui.
+# script: scripts/build/build-app.sh. Este arquivo não o substitui.
 # ============================================================
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT/scripts/lib/common.sh"
+source "$ROOT/scripts/lib/build-tauri.sh"
 
 APP=""
 RELEASE=0
@@ -58,7 +59,7 @@ done
 TAURI_CLI="$ROOT/node_modules/.bin/tauri"
 
 # ---------- 0. Tools ----------
-require_cmd node
+tauri_require_node
 
 # 0a. CLI do Tauri na raiz: package.json + package-lock.json do repo.
 if [ ! -x "$TAURI_CLI" ]; then
@@ -174,43 +175,8 @@ PKG_VERSION="$(resolve_pkg_version "$CARGO_TOML" "$ROOT/Cargo.toml")" || {
 log "==> Versão: $PKG_VERSION (do Cargo.toml)"
 
 # ---------- 2. Assinatura ----------
-# O empacotador do Tauri 2 assina o artefato de update SEMPRE que
-# `plugins.updater.pubkey` está no tauri.conf.json — e não há flag de config
-# que desligue isso. Sem TAURI_SIGNING_PRIVATE_KEY o build local TERMINA
-# COM ERRO, mesmo tendo gerado o instalador.
-#
-# Então o build local gera uma chave descartável na máquina. Ela serve só para
-# o script sair com status 0: um instalador assinado com essa chave NÃO é
-# aceito pelo updater do app, porque a pubkey real está no conf. Entrega
-# sempre com a chave de verdade (--release).
-if [ "$RELEASE" -eq 1 ]; then
-  if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ] || [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
-    cat >&2 <<'MSG'
-ERRO: build de entrega sem chave de assinatura.
-
-    export TAURI_SIGNING_PRIVATE_KEY="$(cat /caminho/seguro/pdv-updater.key)"
-    export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat /caminho/seguro/senha)"
-
-A senha nao e opcional: sem ela o CLI tenta perguntar por prompt e morre,
-porque o runner (e este script) nao tem terminal.
-MSG
-    exit 1
-  fi
-  log "==> Assinatura: chave e senha presentes"
-else
-  if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
-    if [ ! -f "$LOCAL_KEY" ]; then
-      log "==> Gerando chave de assinatura local (descartavel)"
-      "$TAURI_CLI" signer generate -w "$LOCAL_KEY" -p "pdv-local-$APP" --force >/dev/null
-    fi
-    TAURI_SIGNING_PRIVATE_KEY="$(cat "$LOCAL_KEY")"
-    export TAURI_SIGNING_PRIVATE_KEY
-    export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="pdv-local-$APP"
-    log "==> Chave local em uso. O instalador deste build NAO atualiza"
-    echo "    nenhum app real (a pubkey do conf é outra). Isso é esperado"
-    echo "    em build de desenvolvimento."
-  fi
-fi
+# Lógica canônica em scripts/lib/build-tauri.sh (tauri_resolve_signing).
+tauri_resolve_signing "$RELEASE" "$LOCAL_KEY" "pdv-local-$APP"
 
 # ---------- 3. Build ----------
 # O `tauri build` roda o `beforeBuildCommand` do conf antes (que compila o
@@ -230,8 +196,7 @@ export TAURI_FRONTEND_PATH="$ROOT/frontend"
 
 log "==> tauri build ${BUNDLES:-todos os alvos} (em $CRATE_DIR)"
 cd "$CRATE_DIR"
-TAURI_ARGS=()
-[ -n "$BUNDLES" ] && read -ra TAURI_ARGS <<< "$BUNDLES"
+tauri_parse_bundles "$BUNDLES" TAURI_ARGS
 if [ ${#TAURI_ARGS[@]} -eq 0 ]; then
   "$TAURI_CLI" build
 else
@@ -240,12 +205,6 @@ fi
 
 echo
 log "==> Artefatos em $BUNDLE_DIR/"
-find "$BUNDLE_DIR" -maxdepth 2 \( -name '*.exe*' -o -name '*.deb' -o -name '*.AppImage' -o -name '*.sig' -o -name '*.json' \) 2>/dev/null \
-  | sed 's|^|    |'
+tauri_list_artifacts "$BUNDLE_DIR"
 echo
-if [ "$RELEASE" -eq 1 ]; then
-  echo "Para publicar: suba a tag v$PKG_VERSION (o CI assina e publica), ou dispare"
-  echo "o workflow 'Instalador Windows (Tauri)' na aba Actions para gerar so o instalador."
-else
-  echo "Isto NÃO é build de entrega. Para publicar, use --release e a tag."
-fi
+tauri_final_message "$RELEASE" "$PKG_VERSION"

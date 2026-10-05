@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# ============================================================
+# ./pdv — ponto de entrada único para os scripts de apoio.
+#
+#   ./pdv setup                     → scripts/dev/setup-dev.sh
+#   ./pdv worktree <new|list|rm>    → scripts/dev/dev-worktree.sh
+#   ./pdv build standalone [opts]   → scripts/build/build-standalone.sh
+#   ./pdv build app [opts]          → scripts/build/build-app.sh
+#   ./pdv release bump <versão>     → scripts/release/bump-version.sh
+#   ./pdv deploy <switch|backup|probe|install> [opts] → deploy/<script>.sh
+#   ./pdv printer install           → printer/scripts/install-linux.sh
+# ============================================================
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$ROOT/scripts/lib/common.sh"
+
+usage() {
+  cat <<'EOF'
+Uso: ./pdv <domínio> <comando> [args...]
+
+Domínios:
+  setup                         Setup do ambiente de dev
+  worktree <new|list|rm>        Convenção de worktree por branch
+  build standalone [opções]     Build dos apps standalone (Tauri)
+  build app [opções]            Build do app desktop v1 (Tauri)
+  release bump <versão>         Bump de versão da família standalone
+  deploy <switch|backup|probe|install> [opções]  Deploy em nuvem
+  printer install               Instala o daemon de impressão (Linux)
+  -h|--help                     Esta ajuda
+EOF
+}
+
+if [ $# -eq 0 ]; then
+  usage
+  exit 0
+fi
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  setup)
+    shift
+    exec bash "$ROOT/scripts/dev/setup-dev.sh" "$@"
+    ;;
+  worktree)
+    shift
+    exec bash "$ROOT/scripts/dev/dev-worktree.sh" "$@"
+    ;;
+  build)
+    shift
+    case "${1:-}" in
+      standalone) shift; exec bash "$ROOT/scripts/build/build-standalone.sh" "$@" ;;
+      app) shift; exec bash "$ROOT/scripts/build/build-app.sh" "$@" ;;
+      *) die "uso: ./pdv build <standalone|app> [opções]" ;;
+    esac
+    ;;
+  release)
+    shift
+    case "${1:-}" in
+      bump) shift; exec bash "$ROOT/scripts/release/bump-version.sh" "$@" ;;
+      *) die "uso: ./pdv release <bump> <versão>" ;;
+    esac
+    ;;
+  deploy)
+    shift
+    case "${1:-}" in
+      switch) shift; exec bash "$ROOT/deploy/switch.sh" "$@" ;;
+      backup) shift; exec bash "$ROOT/deploy/backup.sh" "$@" ;;
+      probe) shift; exec bash "$ROOT/deploy/probe-availability.sh" "$@" ;;
+      install) shift; exec bash "$ROOT/deploy/install.sh" "$@" ;;
+      *) die "uso: ./pdv deploy <switch|backup|probe|install> [opções]" ;;
+    esac
+    ;;
+  printer)
+    shift
+    case "${1:-}" in
+      install) shift; exec bash "$ROOT/printer/scripts/install-linux.sh" "$@" ;;
+      *) die "uso: ./pdv printer <install>" ;;
+    esac
+    ;;
+  *)
+    die "comando desconhecido: $1 (rode ./pdv --help)"
+    ;;
+esac

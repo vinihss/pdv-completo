@@ -74,7 +74,7 @@ cargo tauri dev                                      # terminal 2
 `0.1.0`, **herdada do workspace**: o `Cargo.toml` deste crate tem
 `version.workspace = true` e o `tauri.conf.json` **não declara** `version` (o
 Tauri lê do `Cargo.toml` do crate). Bump em família inteira:
-`./bump-version.sh <x.y.z>` na raiz — que atualiza o `Cargo.toml` da raiz e o
+`scripts/release/bump-version.sh <x.y.z>` na raiz — que atualiza o `Cargo.toml` da raiz e o
 `frontend/package.json`.
 
 ## Update

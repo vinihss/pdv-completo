@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # ============================================================
 # Build do app desktop (Tauri) em um comando.
-# (Este script mora em `frontend/src-tauri/` — o build desktop ficou fora
+# (Este script mora em `scripts/build/` — o build desktop ficou fora
 # dos npm scripts do frontend.)
 #
-#   bash frontend/src-tauri/build-app.sh                  # build local (dev/teste)
-#   bash frontend/src-tauri/build-app.sh --release        # build de entrega: exige chave
-#   bash frontend/src-tauri/build-app.sh --bundles nsis   # só um tipo de instalador
-#   bash frontend/src-tauri/build-app.sh --appimage-docker  # AppImage via container Debian
+#   bash scripts/build/build-app.sh                  # build local (dev/teste)
+#   bash scripts/build/build-app.sh --release        # build de entrega: exige chave
+#   bash scripts/build/build-app.sh --bundles nsis   # só um tipo de instalador
+#   bash scripts/build/build-app.sh --appimage-docker  # AppImage via container Debian
 #
 # O passo do sidecar do daemon de impressão SAIU deste build: o printer foi
 # reestruturado e `printer/scripts/build-sidecar.sh` não existe mais. O
@@ -16,9 +16,12 @@
 # ============================================================
 set -euo pipefail
 
-# Repo root: este arquivo está em `frontend/src-tauri/`, então sobe 2 níveis.
+# Repo root: este arquivo está em `scripts/build/`, então sobe 2 níveis.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FRONTEND="$ROOT/frontend"
+
+source "$ROOT/scripts/lib/common.sh"
+source "$ROOT/scripts/lib/build-tauri.sh"
 
 RELEASE=0
 BUNDLES=""
@@ -36,7 +39,7 @@ done
 cd "$FRONTEND"
 
 # ---------- 0. Tools ----------
-command -v node >/dev/null || { echo "Node 20+ é necessário." >&2; exit 1; }
+tauri_require_node
 
 if [ ! -d node_modules ]; then
   echo "==> node_modules ausente, instalando dependências"
@@ -60,46 +63,9 @@ fi
 echo "==> Versão: $CONF_VERSION"
 
 # ---------- 2. Assinatura ----------
-# O empacotador do Tauri 2 assina o artefato de update SEMPRE que
-# `plugins.updater.pubkey` está no tauri.conf.json — e não há flag de config
-# que desligue isso (testado: `-c '{"plugins":{"updater":{"pubkey":""}}}'`
-# continua pedindo chave, e `updater:null` morre antes com "failed to get
-# updater configuration"). Sem TAURI_SIGNING_PRIVATE_KEY o build local
-# TERMINA COM ERRO, mesmo tendo gerado o instalador.
-#
-# Então o build local gera uma chave descartável na máquina. Ela serve só para
-# o script sair com status 0: um instalador assinado com essa chave NÃO é
-# aceito pelo updater do app, porque a pubkey real está no conf. Entrega
-# sempre com a chave de verdade (--release).
-if [ "$RELEASE" -eq 1 ]; then
-  if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ] || [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
-    cat >&2 <<'MSG'
-ERRO: build de entrega sem chave de assinatura.
-
-    export TAURI_SIGNING_PRIVATE_KEY="$(cat /caminho/seguro/pdv-updater.key)"
-    export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat /caminho/seguro/senha)"
-
-A senha nao e opcional: sem ela o CLI tenta perguntar por prompt e morre,
-porque o runner (e este script) nao tem terminal.
-MSG
-    exit 1
-  fi
-  echo "==> Assinatura: chave e senha presentes"
-else
-  if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
-    LOCAL_KEY="$FRONTEND/src-tauri/.local-signing.key"
-    if [ ! -f "$LOCAL_KEY" ]; then
-      echo "==> Gerando chave de assinatura local (descartavel)"
-      npx tauri signer generate -w "$LOCAL_KEY" -p pdv-local --force >/dev/null
-    fi
-    TAURI_SIGNING_PRIVATE_KEY="$(cat "$LOCAL_KEY")"
-    export TAURI_SIGNING_PRIVATE_KEY
-    export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="pdv-local"
-    echo "==> Chave local em uso. O instalador deste build NAO atualiza"
-    echo "    nenhum app real (a pubkey do conf é outra). Isso é esperado"
-    echo "    em build de desenvolvimento."
-  fi
-fi
+# Lógica canônica em scripts/lib/build-tauri.sh (tauri_resolve_signing).
+LOCAL_KEY="$FRONTEND/src-tauri/.local-signing.key"
+tauri_resolve_signing "$RELEASE" "$LOCAL_KEY" "pdv-local"
 
 # ---------- 3. Build ----------
 # O `tauri build` roda `npm run build` antes (beforeBuildCommand), então o
@@ -111,8 +77,7 @@ fi
 # Não é problema do projeto, e o `.deb` sai normal na mesma máquina. Quando
 # isso acontece, `--appimage-docker` empacota num debian:bookworm-slim
 # (glibc 2.36), que é o mesmo AppImage que o CI gera.
-TAURI_ARGS=()
-[ -n "$BUNDLES" ] && read -ra TAURI_ARGS <<< "$BUNDLES"
+tauri_parse_bundles "$BUNDLES" TAURI_ARGS
 
 if [ "$APPIMAGE_DOCKER" -eq 1 ]; then
   command -v docker >/dev/null || { echo "--appimage-docker precisa de docker" >&2; exit 1; }
@@ -143,12 +108,6 @@ fi
 
 echo
 echo "==> Artefatos em src-tauri/target/release/bundle/"
-find src-tauri/target/release/bundle -maxdepth 2 -name '*.exe*' -o -maxdepth 2 -name '*.deb' -o -maxdepth 2 -name '*.AppImage' -o -maxdepth 2 -name '*.sig' 2>/dev/null \
-  | sed 's|^|    |'
+tauri_list_artifacts "src-tauri/target/release/bundle"
 echo
-if [ "$RELEASE" -eq 1 ]; then
-  echo "Para publicar: suba a tag v$CONF_VERSION (o CI assina e publica), ou dispare"
-  echo "o workflow 'Instalador Windows (Tauri)' na aba Actions para gerar so o instalador."
-else
-  echo "Isto NÃO é build de entrega. Para publicar, use --release e a tag."
-fi
+tauri_final_message "$RELEASE" "$CONF_VERSION"

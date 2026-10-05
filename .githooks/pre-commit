@@ -52,7 +52,7 @@ mudança passe por revisão e deixe um único commit limpo no histórico.
 
 Como se trabalha (o fluxo normal deste repo):
 
-    ./scripts/dev-worktree.sh new <branch>   # cria ~/pdv/<branch>
+    ./scripts/dev/dev-worktree.sh new <branch>   # cria ~/pdv/<branch>
     # ... editar, commitar ...
     git push -u origin <branch>
     gh pr create --fill                     # revisão -> squash merge na main
