@@ -6,7 +6,8 @@ name: Testes (backend + frontend)
 # Duas portas de entrada, uma só definição de suíte:
 #
 #   1. `ci-pr.yml` — a cada pull_request contra `main`: é o gate de merge.
-#   2. `deploy-on-tag.yml` — a cada tag `v*.*.*`, antes do `deploy` (e antes
+#   2. `deploy-on-tag.yml` — a cada tag `v*.*.*` (backend) e `app-v*.*.*`
+#      (app), antes do `deploy` (e antes
 #      do `build-desktop`, que tem as próprias verificações).
 #
 # Por que não são dois arquivos com os corpos duplicados: a CI de PR e o

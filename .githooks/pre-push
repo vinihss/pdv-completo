@@ -27,9 +27,10 @@
 # POR QUE TAG NUNCA É BLOQUEADA
 # -----------------------------
 # O deploy deste repo NÃO é disparado por push na `main`. O gatilho é a tag:
-# `.github/workflows/deploy-on-tag.yml` roda em `push: tags: v*.*.*`. Ou seja,
-# a publicação acontece por `git push origin v1.0.17`, vindo de qualquer
-# branch. Bloquear `refs/tags/*` aqui quebraria o gate de deploy — e é
+# `.github/workflows/deploy-on-tag.yml` roda em `push: tags: v*.*.*` (backend)
+# e `app-v*.*.*` (app). Ou seja, a publicação acontece por push de tag de
+# versão, vindo de qualquer branch. Bloquear `refs/tags/*` aqui quebraria o
+# gate de deploy — e é
 # exatamente por isso que a comparação abaixo é feita contra a string exata
 # `refs/heads/main`, e não por um padrão que casasse com "main" em qualquer
 # posição (o que pegaria `refs/tags/main` e `refs/heads/maintenance`).
@@ -72,9 +73,10 @@ Como publicar o trabalho:
     gh pr create --fill     # revisão -> squash merge na main
 
 Tag de versão NÃO é bloqueada e continua sendo o gatilho de deploy
-(.github/workflows/deploy-on-tag.yml, \`push: tags: v*.*.*\`). Então
-\`./bump-version.sh <versão>\` + \`git push origin v<versão>\` funciona de
-qualquer branch, como sempre.
+(.github/workflows/deploy-on-tag.yml, \`push: tags: v*.*.*\` (backend) e
+\`app-v*.*.*\` (app)). A tag nasce automaticamente do Semantic Release no
+merge da \`main\`; \`./bump-version.sh\` segue disponível só como fallback
+de emergência (deprecated).
 
 Bypass consciente: git push --no-verify
   Use só quando souber exatamente o que está fazendo. O hook é freio de
