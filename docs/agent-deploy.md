@@ -192,8 +192,8 @@ existe; `PollOnce` também sai antes de abrir transação, e o `Run` registra no
 log por que está inativo. Por isso profile e gate andam juntos: o profile é a
 convenção de inicialização, o gate é a garantia.
 
-As duas metades erradas são as duas falhas silenciosas que o `./switch.sh
---status` existe para fechar, cruzando gate × upstream × container:
+São duas as combinações erradas, e as duas são falhas silenciosas — o que o
+`./switch.sh --status` existe para fechar, cruzando gate × upstream × container:
 
 | estado | o que acontece |
 |---|---|

@@ -120,7 +120,11 @@ services:
     profiles: ["ws-gateway"]
     restart: unless-stopped
     environment:
-      - DATABASE_URL=postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}
+      # `?sslmode=disable` no DEFAULT: o driver do gateway é o lib/pq, que
+      # assume `sslmode=require` quando a DSN não diz nada, e o `postgres`
+      # deste compose não tem TLS — sem o parâmetro o `db.Connect` falha com
+      # "pq: SSL is not enabled on the server" e o gateway sobe SEM pool.
+      - DATABASE_URL=postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}?sslmode=disable
       - PORT=8080
       - JWT_SECRET=${JWT_SECRET}
       - WS_ALLOWED_ORIGINS=${WS_ALLOWED_ORIGINS:-}

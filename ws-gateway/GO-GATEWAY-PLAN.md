@@ -389,8 +389,9 @@ func enqueueEvent(room, eventType, payload interface{}) error {
 
 ## Checklist de Implantação
 
-Código pronto e plugado no `deploy/`. As três primeiras caixas abertas eram do lado de deploy
-(Caddy/compose/switch) e fecharam nesta branch; o que sobra abaixo é o que só se prova rodando.
+Código pronto e plugado no `deploy/`. As duas caixas que fecharam nesta branch eram do lado de
+deploy (compose/Caddy/switch + a documentação das envs); as que sobraram são as que só se provam
+com o sistema rodando.
 
 - [x] Estrutura de pastas Go criada
 - [x] Módulo `go.mod` configurado com dependências

@@ -934,8 +934,8 @@ Comportamento medido com Postgres de verdade (imagem real; banco congelado com
 
 | cenário | resposta |
 |---|---|
-| banco respondendo | 200 em ~1–4ms |
-| **banco travado** | **503 em ~1–3ms** — antes pendurava sem responder |
+| banco respondendo | 200 em ~1–9ms |
+| **banco travado** | **503 em ~3ms** (tempo de resposta do handler, medido com `curl`) — antes pendurava sem responder. O que leva ~3s é o **começo** do 503, não a resposta |
 | banco inalcançável (recusando conexão) | 503, com o erro do driver em `databaseError` |
 | travado por até 3s | ainda 200 (o último ping bom tinha 1–2s); 503 a partir de 3s |
 | destravado | volta a 200 sozinho, sem restart — o ping preso volta quando o banco volta |
@@ -1066,6 +1066,13 @@ O passo 4 é o que sobrevive aos deploys; o passo 5 é o que vale na hora. A
 linha `PDV_WS_UPSTREAM` do ponteiro é descartada pelo `switch.sh` no deploy
 seguinte (ele reescreve o arquivo inteiro) — de propósito, para que um
 override de emergência não vire configuração permanente em silêncio.
+
+> Se o passo 3 mostrar `outboxEnabled:false` mesmo com `WS_DISPATCH=1` no `.env`,
+> olhe o log do container antes de caçar outra coisa: `AVISO: sem DATABASE_URL
+> acessível (pq: SSL is not enabled on the server)` é o lib/pq recusando o
+> Postgres por falta de `?sslmode=disable` na DSN, e o gateway sobe sem pool
+> (o `/health` segue 200, sem `databaseLastOkSeconds`). O padrão do serviço já
+> traz o parâmetro; se você sobrescreveu `DATABASE_URL` no `.env`, ele é seu.
 
 O `stream_close_delay 5m` continua valendo em `/realtime*` (é a mesma rota,
 só mudou o upstream): o `reload` não derruba as telas do salão. O que muda
