@@ -29,7 +29,7 @@ export async function authRoutes(app: FastifyInstance) {
     return rows
       .filter((u) => settings?.kitchenEnabled || u.role !== "kitchen")
       .filter((u) => settings?.usesDelivery !== false || u.role !== "courier")
-      .map((u) => ({ id: u.id, name: u.name, role: u.role, photoPath: photoUrl(u.photoPath) }));
+      .map((u) => ({ id: u.id, name: u.name, role: u.role, photoPath: photoUrl(u.photoPath, "user") }));
   });
 
   app.post("/auth/login", { preHandler: loginRateLimit }, async (req, reply) => {

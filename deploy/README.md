@@ -294,6 +294,26 @@ entrega vs chave local descartável) e gera o instalador.
 2. O workflow roda automaticamente: testes → backup → deploy → health check
 3. Acompanhe na aba **Actions** do repositório
 
+### Quem cria a tag: o `release.yml` (e por que ele precisa de PAT)
+
+Hoje a tag **não precisa ser criada à mão**: o merge na `main` dispara
+**`.github/workflows/release.yml`**, que roda o Semantic Release e publica
+tag, release e changelog. O passo 1 acima é o caminho manual, que continua
+valendo (e é o escape quando o versionamento automático não roda).
+
+Só que o push da tag do Semantic Release **precisa de um PAT** para acordar
+o `deploy-on-tag.yml`: o GitHub não dispara workflows a partir de eventos
+criados com o `GITHUB_TOKEN` do próprio Actions (trava anti-recursão), e o
+release usava só ele. O sintoma era silencioso — run verde, tag e release
+publicadas, produção parada: entre `v1.18.0` e `v1.21.0` nenhuma tag
+disparou deploy, e a `v1.21.0` só entrou em produção quando a tag foi
+apagada e re-pushada à mão. O `release.yml` agora usa
+`SEMANTIC_RELEASE_TOKEN` com fallback para `GITHUB_TOKEN`: **sem o secret o
+release continua publicando** (o versionamento automático nunca para) e só
+o deploy não dispara — por isso o fallback é deliberado e não deve ser
+removido. O bloco `permissions:` do `release.yml` não resolve o problema
+(a trava vale em qualquer escopo) e não deve ser mexido por causa disso.
+
 ### Secrets necessários no GitHub Actions
 
 Configure em **Settings → Secrets and variables → Actions**:
@@ -303,10 +323,17 @@ Configure em **Settings → Secrets and variables → Actions**:
 - `HOSTINGER_USER` (usuário SSH)
 - `HOSTINGER_SSH_KEY` (chave privada OpenSSH/PEM)
 - `HOSTINGER_APP_PATH` (caminho absoluto do clone no VPS, ex.: `/opt/pdv-completo`)
-- `HOSTINGER_KNOWN_HOSTS` (opcional, recomendado)
+- `HOSTINGER_SSH_FINGERPRINT` (opcional, recomendado; `SHA256:...` do host — ver abaixo)
 - `TAURI_SIGNING_PRIVATE_KEY` (chave Ed25519 do auto-update — ver abaixo)
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (senha dessa chave)
 - `UPDATE_BASE_URL` (opcional; padrão `https://app.umamisushiarte.com.br`)
+- `SEMANTIC_RELEASE_TOKEN` (PAT com escopo `contents: write`, só para o
+  `release.yml`; sem ele a tag é publicada mas o deploy **não** dispara —
+  ver a seção acima)
+
+```bash
+gh secret set SEMANTIC_RELEASE_TOKEN --repo <owner>/<repo>
+```
 
 ### Auto-update do app desktop
 
@@ -359,7 +386,7 @@ Guarde a chave e a senha **fora do repositório e fora do runner**: quem perde
 não consegue mais assinar versão nenhuma, e o app fica preso na versão em
 disco. Detalhes e o caminho completo em `docs/11-desktop-instalador.md` §6.
 
-### Chave SSH e known_hosts (sem expor segredo)
+### Chave SSH do deploy (sem expor segredo)
 
 No seu computador local:
 
@@ -373,14 +400,29 @@ ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/pdv_hostinger_deploy
    `HOSTINGER_SSH_KEY`.
 3. **Nunca** comite chave privada no repositório.
 
-Para o `known_hosts`:
+### Verificação da host key do SSH (fingerprint)
+
+No seu computador local:
 
 ```bash
-ssh-keyscan -p 22 -H SEU_HOST_OU_IP
+ssh-keyscan -p 22 SEU_HOST_OU_IP | ssh-keygen -lf -
 ```
 
-Copie a saída para o secret `HOSTINGER_KNOWN_HOSTS`. Se ele não for informado,
-o workflow gera `known_hosts` com `ssh-keyscan` durante a execução.
+Cada linha é um tipo de chave. O `ssh-action` confere a chave que o cliente
+SSH dele realmente negocia, cuja preferência é `ecdsa-sha2-nistp256` >
+`rsa-sha2-256/512` > `ssh-rsa` > `ssh-ed25519` — **não** use a linha
+`ed25519`. Copie o `SHA256:...` da linha `ecdsa-sha2-nistp256` para o secret
+`HOSTINGER_SSH_FINGERPRINT`.
+
+Sem esse secret o deploy funciona igual, mas **não confere a host key**: quem
+estiver no meio da rede e se fizer passar pelo servidor recebe a chave privada
+de produção. Com ele, um valor errado derruba o job no handshake (antes de
+qualquer comando rodar) com `ssh: host key fingerprint mismatch`.
+
+> ⚠️ `HOSTINGER_KNOWN_HOSTS` **não verifica nada**: `known_hosts` não é um
+> input do `appleboy/ssh-action@v1`, então a action o ignora — avisando
+> "Unexpected input(s) 'known_hosts'" no log — e o deploy segue. O secret
+> pode ser removido do repositório; ele não substitui o fingerprint.
 
 ### Setup inicial do VPS para uso da pipeline
 

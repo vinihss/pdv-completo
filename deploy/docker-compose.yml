@@ -297,7 +297,28 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-pdv}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # Não expõe porta pro host — só o backend acessa via rede interna do compose
+    # Publica a porta do Postgres no HOST. Quem roda DENTRO do compose (o
+    # backend) continua falando com o banco pelo nome `postgres` na rede
+    # interna — isto é para quem chega de fora do container: psql/dBeaver do
+    # operador na própria máquina, ferramenta de backup externa, e o
+    # `run-cloud.sh` (que monta a DATABASE_URL apontando para localhost:5432).
+    # A porta da DIREITA é a do container e é fixa em 5432; a da ESQUERDA é a
+    # do host, configurável.
+    #
+    # Bind em 127.0.0.1 (loopback) por padrão, NUNCA 0.0.0.0: este é o compose
+    # de produção e roda num VPS de IP público, então 0.0.0.0:5432 é o banco
+    # inteiro aberto para a internet — senha em brute-force e CVE do Postgres
+    # viram porta de entrada. Loopback já satisfaz "acessível pelo host".
+    # POSTGRES_BIND_ADDRESS=0.0.0.0 só faz sentido para alcançar o banco de
+    # outra máquina da rede (a LAN de casa, por exemplo) — e mesmo assim com
+    # senha forte e firewall. Não é recomendado.
+    #
+    # O resto da armadilha: mesmo em loopback a porta fica alcançável por
+    # qualquer processo e qualquer usuário da máquina do deploy, inclusive o
+    # que roda FORA do compose (shell de dev, script de terceiro, container
+    # solto). Loopback esconde da rede, não da máquina.
+    ports:
+      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pdv} -d ${POSTGRES_DB:-pdv}"]
       interval: 10s

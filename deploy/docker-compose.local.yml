@@ -158,6 +158,21 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-pdv}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Publica a porta do Postgres no HOST, em 127.0.0.1 por padrão (a nota
+    # longa, com o porquê do loopback e o aviso de segurança, está no compose
+    # de produção). O cabeçalho deste arquivo diz que o app é acessado de
+    # outras máquinas da LAN — isso é pelo Caddy, na porta do `PDV_PORT`; o
+    # banco não precisa (e não deve) sair do host. Quem quiser falar com o
+    # Postgres direto usa `psql -h 127.0.0.1` na própria máquina.
+    #
+    # A armadilha da porta do HOST: este serviço usa o mesmo volume
+    # `pdv_postgres_data` do compose de produção, mas a porta 5432 é uma só por
+    # máquina. Com as duas formas de subir ativas (esta e a de produção), a
+    # segunda falha com "address already in use" — não é corrupção de volume, é
+    # o bind. Mude a porta do HOST (POSTGRES_PORT=55432) ou mantenha só uma das
+    # duas stacks no ar.
+    ports:
+      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pdv} -d ${POSTGRES_DB:-pdv}"]
       interval: 10s

@@ -6,6 +6,8 @@
 > que **rejeitava** schema-por-tenant. Ver §2 — a objeção não se sustenta.
 > **Histórico:** já existiu multi-tenant (row-level, `store_id` em ~22 tabelas) e foi removido em
 > `7c259cd` + `0012_remove_multi_tenant.sql`. Recomeçamos do zero, com outro modelo de isolamento.
+> **Uploads:** decisão de **layout por tenant em disco** registrada em §4.7 (nada implementado — a
+> Fase 5 ainda não rodou; o remendo `logo-<schema>.<ext>` que ela trazia foi superado antes).
 
 ---
 
@@ -22,9 +24,11 @@ row-level anterior vazou dados entre lojas precisamente porque o filtro era opci
 ver `feat/multitenant-isolamento/docs/15-multi-tenant-gap.md`: *"qualquer usuário logado em
 `ana-terra` lê produtos, comandas, clientes, usuários, caixa e entregas da Loja Padrão"*.
 
-O que **não** muda: o frontend web (URLs já são relativas), o Caddy (o wildcard `*.labolabe.tech`
-com TLS on-demand já existe), o `backup.sh` (já faz `pg_dump` do banco inteiro), e a forma das
-migrations (SQL puro, numeradas, idempotentes).
+O que **não** muda: o frontend web (URLs já são relativas — e no upload só acrescenta um segmento na
+URL, §4.7/§7), o Caddy (o wildcard `*.labolabe.tech` com TLS on-demand já existe; o
+`handle /uploads/*` continua Reverse-proxyando o backend), o `backup.sh` (já faz `pg_dump` do banco
+inteiro e já pega o volume de uploads), e a forma das migrations (SQL puro, numeradas,
+idempotentes).
 
 ---
 
@@ -142,7 +146,7 @@ falha que `pg` não acusa.
 O `WsGateway` (`infra/realtime/ws-gateway.ts`) é um **singleton de processo** e as rooms são strings
 globais: `kitchen-display`, `cash-drawer`, `deliveries`, `inventory`, `alerts:<role>`. Com N lojas
 no mesmo processo, **o gerente de A ouviria a gaveta de caixa de B** — vazamento de dado financeiro
-entre lojas. É o risco mais grave do desenho (R2 em §5).
+entre lojas. É o risco mais grave do desenho (R1).
 
 Decisão: `Connection` ganha `tenant`; o gateway passa a indexar por tenant
 (`Map<tenant, Set<Connection>>`); `broadcastToRoom(tenant, room, event)` só alcança conexões do
@@ -193,7 +197,7 @@ Dois pareceres divergiram, ambos tecnicamente defensáveis. A decisão:
 
 | Opção | Veredito |
 |---|---|
-| `Pool` dedicado, `options: '-c search_path=tenant_x,public,pg_temp'` | ✅ **Recomendada.** Fixado no *startup packet*: impossível "esquecer de reaplicar", e o pool só fala com aquele schema. `pg_temp` por último elimina o sombreamento (§5.2). Transação herda o `search_path` de graça. |
+| `Pool` dedicado, `options: '-c search_path=tenant_x,public,pg_temp'` | ✅ **Recomendada.** Fixado no *startup packet*: impossível "esquecer de reaplicar", e o pool só fala com aquele schema. `pg_temp` por último elimina o sombreamento (§4.6). Transação herda o `search_path` de graça. |
 | `SET search_path` de sessão em `acquire`/`connect` | ❌ `pg.Pool` não tem hook confiável de *release*. Uma conexão devolvida suja é **o** vazamento clássico, e basta um caminho de erro (timeout) para cruzar dados de loja. |
 | `SET LOCAL search_path` em cada transação, **pool compartilhado** | ⚠️ **Correto e melhor em escala** (conexões não multiplicam por N), mas exige que **todo** acesso esteja dentro de `db.transaction` — e das 241 ocorrências de `db.`, a maioria está fora (`getStoreSettingsUsecase`, `loginUsecase`, `printer.usecases`, `whatsapp/state`). Envolver cada leitura numa transação muda a semântica de concorrência do produto (hoje cada query é sua transação implícita): é regressão escondida, não refatoração. **Guardado como plano B** (§4.3). |
 | Schema-qualified em todas as queries | ❌ Inviável (31 KB de `schema.ts` multiplicado por tenant, gerado em runtime) e não resolve o SQL cru (`load-menu.ts`, `raw.exec` dos testes, os `.sql`). |
@@ -259,6 +263,57 @@ do subdomínio. Nenhum endpoint novo de controle é necessário para o app (§7)
 Sem `pg_temp` explícito no fim, qualquer `CREATE TEMP TABLE` na sessão sombreia a tabela do tenant.
 Reproduzido: temp com 1 linha vs. tabela real com 2 → a query sem qualifier viu **1**.
 
+### 4.7 Uploads: layout por tenant, não o banco nem S3
+
+Hoje há **4 implementações duplicadas** de upload em disco, cada uma com seu próprio
+`uploadsDir()` e seu próprio `removeFile()`: `product.usecases.ts:298-356`,
+`store-settings.usecases.ts:163-217`, `user.usecases.ts:147-175`, `customer.usecases.ts:296-324`.
+E 4 colunas que guardam **só o basename** (`products.image_path`, `store_settings.logo_path`,
+`user.photo_path`, `customer.photo_path`).
+
+Decisão: **porta de storage em disco local, com a chave por tenant**.
+
+```
+<uploadsDir>/<schema>/<kind>/<filename>      kind ∈ product | logo | customer | user
+uploads/public/logo/logo.png
+uploads/public/product/0f9c….webp
+```
+
+- **O banco não muda**: as 4 colunas continuam guardando só o basename, `logo_path` mantém o
+  significado de hoje e **nenhuma migration SQL** é necessária.
+- **A API passa a devolver `/uploads/<kind>/<filename>`** (um segmento a mais). O **frontend não
+  muda**: ele só faz `assetUrl(imagePath)` e trata o valor como URL opaca (§7).
+- **O `@fastify/static` sai**: vira rota explícita `GET /uploads/:kind/:filename` que resolve o
+  schema do tenant pelo `Host` (o mesmo caminho do ALS, §3.1) e serve de dentro de
+  `<uploadsDir>/<schema>/<kind>/`. O schema **não** vai na URL — é por isso que a URL da loja A dá
+  **404** na loja B (§5.3). `deploy/Caddyfile:50` e o volume de `docker-compose.yml:97` seguem
+  iguais: só o backend muda.
+- **As 4 cópias viram uma**: `src/infra/storage/` — porta `FileStorage` (`put`/`get`/`remove`/
+  `exists`) + adapter `LocalDiskStorage`, com **uma** função que resolve o schema do tenant
+  (`resolveTenantSchema`, em `storage/tenant.ts`) — hoje só `DEFAULT_TENANT_SCHEMA ?? "public"`,
+  trocada pela leitura do ALS na Fase 2. É o mesmo formato de **0 arquivos alterados nos 42** que o
+  §4.1 defendeu para o `db`.
+- **Migração do dado em disco**: `backend/scripts/migrate-uploads-layout.ts`
+  (`npm run uploads:migrate-layout`, com `--dry-run` / `--copy` / `--revert`). Lê as 4 colunas para
+  classificar cada arquivo do layout flat — um `<uuid>.png` solto não é classificável por nome — e
+  é idempotente. Nenhuma migration, nenhum UPDATE: a coluna continua com o basename.
+
+**Por que não `bytea` no banco.** O plano vende `pg_restore -n tenant_x` como mecanismo de rollback
+(§2, §8, R12) e `DROP SCHEMA … CASCADE` como eliminação LGPD **atômica** (§2, §8). Binário dentro
+do schema quebra as duas: o rollback de uma loja passa a arrastar MB de imagens, e a eliminação deixa
+de ser uma instrução (o espaço volta no `VACUUM`, não no `DROP`).
+
+**Por que não S3 agora.** (a) Não compra isolamento sozinho — bucket sem chave-por-tenant +
+validação é o mesmo bug (§5.3) com atraso. (b) Se for presigned URL, o `Caddyfile:50` e o `logoUrl`
+do frontend mudam: não é "só apontar para outro lugar". (c) O volume **já** sobrevive a deploy
+(`docker-compose.yml:97` monta `pdv_backend_uploads` nas duas instâncias) e **já** entra no backup
+(`backup.sh:61` pega o volume inteiro) — o problema é o **layout**, não a mídia. Adiar deixa a porta
+pronta: quando S3/R2 entrar, é troca de adapter em `src/infra/storage/`, não reescrita.
+
+> A Fase 5 já trazia o remendo `logo-<schema>.<ext>`. Ele foi **superado** por esta decisão
+> **antes de ser implementado** — de propósito: consertava a §5.2, não fechava a §5.3, e seria
+> jogado fora na mesma fase.
+
 ---
 
 ## 5. Achados que bloqueiam a produção (bugs reais, não hipóteses)
@@ -284,29 +339,58 @@ EXISTS` no schema do tenant vira no-op (`NOTICE: … skipping`), não tenta inst
 servido por `fastifyStatic`. **Loja B faz upload → sobrescreve `logo.png` → loja A exibe o logo da
 loja B** em todas as telas e na vitrine pública. Determinístico, não colisão teórica.
 
-Fixação mínima: `logo-<schema>.<ext>` (zero mudança de rota, zero mudança de frontend).
-Alternativa limpa: `/uploads/<slug>/logo.png` — mas exige que `/uploads/` deixe de ser isento da
-resolução de tenant (hoje `publicPaths` o exclui, senão o logo de A fica legível em B).
+A correção não é o nome do arquivo, é o **layout**: diretório por tenant
+(`<uploadsDir>/<schema>/<kind>/<arquivo>`, §4.7) + rota de serving que resolve o tenant do `Host`
+e monta `/uploads/<kind>/<arquivo>`. Isso exige que `/uploads/` **deixe de ser isento da resolução
+de tenant**: hoje o `@fastify/static` é registrado no escopo raiz (`server.ts:87-101`,
+`decorateReply: false`) e nunca passa pelo `resolveTenant` (§3.1) — a rota nova é a que resolve.
 
-### 5.3 🔴 `WsGateway` singleton com rooms globais
+> O remendo `logo-<schema>.<ext>` que a Fase 5 trazia está **superado**: ele conserta esta
+> sobrescrita e **não** a §5.3, e jogaria fora a migração de arquivos na mesma fase.
 
-Vazamento de dado financeiro entre lojas (§3.3). O mais grave dos três.
+### 5.3 🔴 `/uploads/*` é público e sem fronteira de tenant — leitura entre lojas
 
-### 5.4 🟠 `pdv:server` no web é uma fuga entre tenants
+É o outro problema, e é o mais grave **entre os de upload**: **o storage não tem isolamento nenhum** —
+que é exatamente a propriedade que o schema-por-tenant promete vender.
+
+`server.ts:87-101` registra `@fastify/static` com `root: uploadsDir`, `prefix: "/uploads/"` no
+**escopo raiz**, e por isso **não passa por `authMiddleware`** (que cada plugin de rotas instala via
+`addHook("preHandler")`). O resultado é literal: `https://loja-b.labolabe.tech/uploads/<uuid>.png` — a
+foto de um **cliente da loja A** — **responde 200**.
+
+E não é preciso adivinhar o UUID. A URL aparece no payload de API que o frontend já consome
+(`photoPath`, `imagePath`, `photoUrl`), no `<img src>` da vitrine pública e em log. Quem já é cliente
+da loja A **tem** a URL da loja A; o subdomínio é a única coisa separando as duas, e ele não é
+exigido por nada. Um `302` de `/uploads/x.png` para o `slug-b` já cumpre o papel.
+
+Gravidade: `customer.photo_path` e `user.photo_path` são **dado pessoal** (LGPD) — ler a foto de um
+cliente de outra loja é incidente de privacidade, não bug de display. E o §8 promete
+`rm -rf uploads/<schema>` na eliminação de tenant: com um diretório flat esse comando **não** é exato,
+apagaria a foto de todas as lojas.
+
+**A mitigação do §5.2 não resolve**: `logo-<schema>.<ext>` continua sendo um diretório flat servido
+pela mesma rota pública — a foto de cliente de A continua legível em B. Só o **layout por tenant com
+rota que resolve o tenant do `Host`** fecha os dois problemas de uma vez (§4.7).
+
+### 5.4 🔴 `WsGateway` singleton com rooms globais
+
+Vazamento de dado financeiro entre lojas (§3.3).
+
+### 5.5 🟠 `pdv:server` no web é uma fuga entre tenants
 
 O modal "Servidor" do login (`LoginPage.jsx:219-232`) é editável **no navegador** e salva a URL em
 `localStorage["pdv:server"]`, que passa a valer para `assetUrl()` e `fetchTag()`. Em
 `slug-a.labolabe.tech` o usuário cola `https://slug-b.labolabe.tech` e passa a falar com a loja B.
 Fechar por `isDesktop()`.
 
-### 5.5 🟠 `/health` não pode resolver schema de tenant
+### 5.6 🟠 `/health` não pode resolver schema de tenant
 
 `/health` é o **portão do `switch.sh`** e é martelado a 5 req/s pelo `probe-availability.sh`. Se
 resolver o schema do tenant e ele não estiver provisionado → 503 → deploy abortado.
 `/health` fica **O(1) no registry**; a verificação por tenant vai para `/health/tenants`, que roda
 **depois** do switch e só avisa.
 
-### 5.6 🟠 Os 3 composes dividem os mesmos volumes
+### 5.7 🟠 Os 3 composes dividem os mesmos volumes
 
 `docker-compose.yml`, `.local.yml` e `.dev.yml` declaram todos `pdv_postgres_data`,
 `pdv_backend_uploads`, `pdv_caddy_data`. Consequência **já presente**: subir o stack de dev aplica
@@ -315,20 +399,20 @@ dados. `deploy/reset.sh:45` apaga **todo** volume `pdv_*`, incluindo o de produ�
 → Antes de qualquer código: dar nome próprio ao stack de dev e exigir confirmação por nome no
 `reset.sh`.
 
-### 5.7 🟡 `/internal/caddy-on-demand-tls` emite certificado para qualquer subdomínio
+### 5.8 🟡 `/internal/caddy-on-demand-tls` emite certificado para qualquer subdomínio
 
 `server.ts:121-125` valida só `^[a-z0-9-]+\.labolabe\.tech$`. Um scanner de subdomínios pode
 estourar o **limite de taxa do Let's Encrypt** (5 duplicados/semana) e travar o on-demand de um
 tenant real. Trocar o regex por consulta ao registry (permitindo `suspended`, recusando
 desconhecido).
 
-### 5.8 🟡 `CORS_ORIGIN` enumerado não escala
+### 5.9 🟡 `CORS_ORIGIN` enumerado não escala
 
 `deploy/.env.example:18` lista subdomínios um a um. Cada loja nova = editar `.env` + reiniciar as
 duas instâncias. Recomendação: função `origin` no `@fastify/cors` validando o host contra o
 registry (cache 60s). ~30 linhas em `server.ts`.
 
-### 5.9 ℹ️ Não-bugs (verificados, para não gastar tempo)
+### 5.10 ℹ️ Não-bugs (verificados, para não gastar tempo)
 
 - **Duplo `0003_` não é bug**: `migrate.ts` chaveia por **filename completo** e o sort é
   lexicográfico. Já documentado em `docs/agent-backend.md:63`.
@@ -382,7 +466,8 @@ removidos mas existem como registro), e a `0012_remove_multi_tenant.sql` que **d
    ```
    Em `-Fc` isso funciona contra o banco limpo porque o DDL vem do mesmo dump e casa. As
    `setval()` das sequências vêm junto no `--data-only`.
-7. **Uploads**: extrair o tarball sobre o volume `pdv_backend_uploads` (path flat, igual ao atual).
+7. **Uploads**: extrair o tarball sobre o volume `pdv_backend_uploads` (path flat, igual ao atual —
+   ainda: a migração para o layout por tenant é da Fase 5, §4.7).
 8. **Verificação**: `GET /health` ok; contagens de linhas nas tabelas críticas; smoke por perfil
    (login → abrir comanda → lançar itens → pagar → fechar), conforme `docs/03-acceptance-criteria.md`.
 
@@ -417,7 +502,7 @@ A **preparação §6.0 deve ter acontecido antes** — as fases assumem o baseli
 | **2** | **`db` escopado** | `tenant-context.ts` (ALS), `tenant-db.ts` (Map+LRU), `client.ts` passa a exportar o `Proxy`. `TENANT_STRICT` desligado, ligado após 1 semana em staging. | baixo | 2 d |
 | **3** | **Migrations por schema** | `runMigrations({ schema })`, boot iterando tenants, `provisionTenantSchema()`, `unaccent` em `public`. | médio | 1,5 d |
 | **4** | **Workers, locks, realtime, cache** | Loops por tenant com stagger, `lockName(base, schema)`, gateway particionado, `tenantKey()`. | médio | 2 d |
-| **5** | **Rotas sem subdomínio** | Fan-out do webhook do WhatsApp por `phone_number_id`, `/health/tenants`, on-demand TLS via registry, `logo-<schema>`, `printer_daemon_url` por tenant, CORS por registry. | médio | 2 d |
+| **5** | **Rotas sem subdomínio** | Fan-out do webhook do WhatsApp por `phone_number_id`, `/health/tenants`, on-demand TLS via registry, `printer_daemon_url` por tenant, CORS por registry. **+ porta de storage** (§4.7): `src/infra/storage/` consolidando as 4 cópias duplicadas, layout `<uploadsDir>/<schema>/<kind>/` no disco, rota `GET /uploads/:kind/:filename` que resolve o tenant do `Host` (sai o `@fastify/static`), migração one-shot idempotente dos arquivos do layout flat, API devolvendo `/uploads/<kind>/<filename>`. | médio | 3 d |
 | **6** | **JWT + desligamento do single-tenant** | `t` no payload, `tenant_mismatch`, `TENANT_ROUTING=false` como kill-switch. | médio | 1 d |
 | **7** | **Cutover do dado de produção** | §6.2. **Único ponto de não-retorno.** | **alto** | 1 d + janela |
 | **8** | **Suítes de isolamento** | `tenant-isolation.test.ts` + `tenant-routing.test.ts` (começam na Fase 1). | nenhum | 2 d |
@@ -483,7 +568,7 @@ O frontend já fala **só com a própria origem** (`appConfig.js`: `apiBase()` �
 | Arquivo | Mudança | Motivo |
 |---|---|---|
 | `frontend/vite.config.js` | `changeOrigin: false` em `/api`, `/uploads`, `/realtime` | hoje o proxy reescreve o `Host` para `127.0.0.1:3000` e **o dev nunca vê o subdomínio** |
-| `frontend/src/pages/login/LoginPage.jsx` | branch no `catch` por `e.code` + gate do modal "Servidor" por `isDesktop()` | hoje um subdomínio inexistente mostra *"Não foi possível conectar ao servidor"* (§5.4, §5.5 do frontend) |
+| `frontend/src/pages/login/LoginPage.jsx` | branch no `catch` por `e.code` + gate do modal "Servidor" por `isDesktop()` | hoje um subdomínio inexistente mostra *"Não foi possível conectar ao servidor"* — o 404 `tenant_not_resolved` do §3.1 (§5.5) |
 | `frontend/src/app/router.jsx` | `assetUrl(storeSettings.logoUrl)` | bug pré-existente; com tenancy passa a significar "logo não carrega" |
 
 **Não muda:** qualquer URL de API/WS, rooms do realtime (§3.3), contrato de `/auth/users` e
@@ -491,6 +576,10 @@ O frontend já fala **só com a própria origem** (`appConfig.js`: `apiBase()` �
 vazamento entre lojas é impossível com subdomínio), `app.json` dos apps desktop/standalone (já têm
 `api_base`; o subdomínio é só o valor), as 6 chaves de `localStorage`/`sessionStorage` (todas por
 origem), e o bundle (1 build, N subdomínios).
+
+**Uploads também não muda** (§4.7): `imagePath`/`photoPath`/`photoUrl` passam a ter um segmento a
+mais (`/uploads/<kind>/<arquivo>`), mas o frontend só faz `assetUrl(x)` e trata o valor como **URL
+opaca** — nenhum componente conhece o formato, e nenhuma chave de cache depende dele.
 
 **Nenhum endpoint de controle novo é necessário** para o app: `/store-info` já devolve o nome/logo/
 cor da loja, e a tela de login já renderiza logo + `merchantName` (`LoginPage.jsx:174-182`).
@@ -502,11 +591,13 @@ que um 404 bem aplicado evita. O painel de provisionamento da plataforma é tool
 
 ## 8. Operação
 
-- **Backup:** `deploy/backup.sh` **já cobre** (§5.9). Melhorias de P1: manifesto por dump (lista
-  exata de tenants incluídos + versão de migration de cada um), **detecção de tenant omitido**
-  (exit 1), **retenção** (hoje nunca apaga — `/opt/backups` cresce sem limite), verificação com
-  `pg_restore -l`, e um tar de uploads por tenant. **Não** criar N dumps: 1 arquivo com
-  `pg_restore -n tenant_x` já faz restore cirúrgico.
+- **Backup:** `deploy/backup.sh` **já cobre** (§5.10) — e `backup.sh:61` já pega o volume de uploads
+  inteiro. Melhorias de P1: manifesto por dump (lista exata de tenants incluídos + versão de
+  migration de cada um), **detecção de tenant omitido** (exit 1), **retenção** (hoje nunca apaga —
+  `/opt/backups` cresce sem limite), verificação com `pg_restore -l`, e **restore de uploads por
+  tenant, que o layout por tenant (§4.7) torna trivial**: um `tar` do volume, e o restore de uma
+  loja é extrair `uploads/<schema>/` (nada de varrer diretório compartilhado). **Não** criar N dumps:
+  1 arquivo com `pg_restore -n tenant_x` já faz restore cirúrgico.
 - **Restore de 1 tenant:** ⚠️ `pg_restore -n tenant_x` a partir do dump completo **não cria o
   schema** — `CREATE SCHEMA` antes, sempre. E `pg_restore -n <schema-errado>` **sai 0 e não
   restaura nada** — sempre validar contagem contra o manifesto. `--clean` **só** em restore total,
@@ -521,8 +612,10 @@ que um 404 bem aplicado evita. O painel de provisionamento da plataforma é tool
   dar `CREATE` no banco → nesse caso o desenho não cabe (ver pergunta Q1).
 - **Ciclo de vida:** `suspended` = barra com 403 e **pula os workers**, mas **mantém TLS** (para o
   dono ver a página de suspensão em vez de erro de certificado) e **mantém o backup**. Eliminação =
-  `DROP SCHEMA … CASCADE` (atômico e verificável) + `rm -rf uploads/<slug>` + linha em
-  `tenant_erasure_log`. ⚠️ **A eliminação só é efetiva depois que o backup mais antigo expira** —
+  `DROP SCHEMA … CASCADE` (atômico e verificável) + `rm -rf uploads/<schema>` + linha em
+  `tenant_erasure_log`. ⚠️ **O `rm -rf uploads/<schema>` só é exato porque o layout é por tenant
+  (§4.7)**: com o diretório flat de hoje, ele apagaria a foto de **todas** as lojas — é o outro lado
+  do R4. ⚠️ **A eliminação só é efetiva depois que o backup mais antigo expira** —
   isso precisa estar no contrato de privacidade.
 
 ---
@@ -531,21 +624,22 @@ que um 404 bem aplicado evita. O painel de provisionamento da plataforma é tool
 
 | # | Risco | Sev. | Mitigação |
 |---|---|---|---|
-| R1 | **Rooms do realtime cruzam lojas** (§5.3) | 🔴 | Fase 4: gateway particionado. `tenant-isolation.test.ts` com 2 sockets. |
+| R1 | **Rooms do realtime cruzam lojas** (§5.4) | 🔴 | Fase 4: gateway particionado. `tenant-isolation.test.ts` com 2 sockets. |
 | R2 | **`unaccent` quebra do tenant 2 em diante** (§5.1) | 🔴 | Registry antes de migration; teste que provisiona 2 tenants e busca por nome em ambos. |
-| R3 | **Logo de uma loja sobrescreve o da outra** (§5.2) | 🔴 | `logo-<schema>.<ext>` + teste. |
-| R4 | **Acesso ao banco sem contexto de tenant** | 🔴 | `requireTenant()` **lança**; `TENANT_STRICT` no ar depois de 1 semana; `grep` no CI. |
-| R5 | `pdv:server` permite trocar de loja no web (§5.4) | 🟠 | Gate por `isDesktop()`. |
-| R6 | `/health` falha → switch aborta (§5.5) | 🟠 | `/health` no registry; `/health/tenants` pós-switch. |
-| R7 | Dev aplica migration no banco de produção (§5.6) | 🟠 | Volumes próprios por stack + confirmação no `reset.sh`. **Antes de qualquer código.** |
-| R8 | Estouro de `max_connections` acima de ~20 lojas | 🟠 | `TENANT_POOL_MAX_TOTAL` → 503 explícito; `CONNECTION LIMIT` na role; plano B pronto (§4.3). |
-| R9 | Cutover perde dado | 🟠 | `EXCEPT` de verificação, `RENAME` (não `DROP`), backup antes e depois, uma release de espera. |
-| R10 | `nextval()` não qualificado + `public` no path = vazão silenciosa | 🟡 | Canário no boot (`current_schema()` == schema do tenant **e** `to_regclass('"order"')` não-nulo); `/health/tenants` reporta. Some quando o `public` for esvaziado (passo 11 do cutover). |
-| R11 | Rollback de migration em N schemas | 🟡 | Expand/contract em 2-3 releases; o **backup pré-deploy do CI já é o mecanismo de rollback** (`pg_restore -n tenant_x`). |
-| R12 | Webhook do WhatsApp chega no apex, sem Host | 🟡 | Fan-out de 1 query indexada por tenant (`phone_number_id`), cache 60s. Sem escrita cruzada no registry. |
-| R13 | Limite de taxa do Let's Encrypt estourado | 🟡 | On-demand TLS via registry (§5.7). |
-| R14 | Relatório de gerente passa de `statement_timeout=30s` | 🟡 | P2: override por endpoint. |
-| R15 | `audit_log`/`stock_movement` **nunca são podados** (crescem sem limite;Maintenance só limpa 4 tabelas) | 🟡 | `retention_days` no registry + manutenção por tenant. Origem nº1 de "o banco ficou lento". |
+| R3 | **Logo de uma loja sobrescreve o da outra** (§5.2) | 🔴 | Layout por tenant no disco (§4.7), não nome de arquivo: nada colide porque cada `<schema>/<kind>/` é exclusivo. Teste de upload cruzado. |
+| R4 | **Leitura de upload entre lojas** — `/uploads/*` público e sem fronteira de tenant; a foto de um cliente/usuário de A abre em B. Dado pessoal (LGPD) (§5.3) | 🔴 | Fase 5: sai o `@fastify/static`; rota `GET /uploads/:kind/:filename` que resolve o schema pelo `Host` (§4.7) — o schema não vai na URL, então a URL de A dá 404 em B por construção. `tenant-isolation.test.ts`: mesmo `filename` em 2 tenants → 200 só no dono. |
+| R5 | **Acesso ao banco sem contexto de tenant** | 🔴 | `requireTenant()` **lança**; `TENANT_STRICT` no ar depois de 1 semana; `grep` no CI. |
+| R6 | `pdv:server` permite trocar de loja no web (§5.5) | 🟠 | Gate por `isDesktop()`. |
+| R7 | `/health` falha → switch aborta (§5.6) | 🟠 | `/health` no registry; `/health/tenants` pós-switch. |
+| R8 | Dev aplica migration no banco de produção (§5.7) | 🟠 | Volumes próprios por stack + confirmação no `reset.sh`. **Antes de qualquer código.** |
+| R9 | Estouro de `max_connections` acima de ~20 lojas | 🟠 | `TENANT_POOL_MAX_TOTAL` → 503 explícito; `CONNECTION LIMIT` na role; plano B pronto (§4.3). |
+| R10 | Cutover perde dado | 🟠 | `EXCEPT` de verificação, `RENAME` (não `DROP`), backup antes e depois, uma release de espera. |
+| R11 | `nextval()` não qualificado + `public` no path = vazão silenciosa | 🟡 | Canário no boot (`current_schema()` == schema do tenant **e** `to_regclass('"order"')` não-nulo); `/health/tenants` reporta. Some quando o `public` for esvaziado (passo 11 do cutover). |
+| R12 | Rollback de migration em N schemas | 🟡 | Expand/contract em 2-3 releases; o **backup pré-deploy do CI já é o mecanismo de rollback** (`pg_restore -n tenant_x`). |
+| R13 | Webhook do WhatsApp chega no apex, sem Host | 🟡 | Fan-out de 1 query indexada por tenant (`phone_number_id`), cache 60s. Sem escrita cruzada no registry. |
+| R14 | Limite de taxa do Let's Encrypt estourado | 🟡 | On-demand TLS via registry (§5.8). |
+| R15 | Relatório de gerente passa de `statement_timeout=30s` | 🟡 | P2: override por endpoint. |
+| R16 | `audit_log`/`stock_movement` **nunca são podados** (crescem sem limite;Maintenance só limpa 4 tabelas) | 🟡 | `retention_days` no registry + manutenção por tenant. Origem nº1 de "o banco ficou lento". |
 
 ---
 

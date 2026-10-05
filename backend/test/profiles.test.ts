@@ -113,13 +113,13 @@ describe("tela de login por perfil (GET /auth/users)", () => {
     expect(upload.statusCode).toBe(200);
 
     const eu = (await loginSurface()).find((u) => u.id === criado.json.id);
-    expect(eu?.photoPath).toBe(`/uploads/${criado.json.id}.png`);
+    expect(eu?.photoPath).toBe(`/uploads/user/${criado.json.id}.png`);
 
     // A sessão também carrega a foto: é ela que a identidade de quem está
     // logado desenha (o menu), sem nova chamada depois do login.
     const login = await api("post", "/auth/login", { body: { userId: criado.json.id, pin: criado.json.pin } });
     expect(login.status).toBe(200);
-    expect(login.json.user.photoPath).toBe(`/uploads/${criado.json.id}.png`);
+    expect(login.json.user.photoPath).toBe(`/uploads/user/${criado.json.id}.png`);
   });
 
   it("quem não tem foto vem com photoPath nulo (o app cai para as iniciais)", async () => {

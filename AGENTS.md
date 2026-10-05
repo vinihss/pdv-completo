@@ -48,6 +48,7 @@ ws-gateway/ Gateway WebSocket em Go (módulo Go independente, como o `printer/`)
 | `docs/15-multi-tenant-schema.md` | Multi-tenant por **schema PostgreSQL** (subdomínio → tenant): arquitetura, decisões, fases e riscos |
 | `docs/16-pendencias.md` | Pendências do planejamento multi-tenant + intenção de unificar migrations numa única baseline |
 | `docs/17-runbook-unificacao-migrations.md` | Runbook do cutover para o baseline único de migrations (com validação de backup) |
+| `docs/18-ifood-por-loja.md` | iFood por tenant: estado atual, delta necessário, riscos (sem implementação) |
 | `ws-gateway/GO-GATEWAY-PLAN.md` | Gateway WebSocket em Go: arquitetura, rooms, outbox, fases de migração e o checklist de implantação. Mora junto do código (fora de `docs/`) porque é spec de um componente, não do produto inteiro |
 
 ### Guias para agentes
@@ -269,7 +270,7 @@ que `pre-push` deixa tag passar.
 ### Git (resumo)
 
 - **Nunca commitar na `main`**: branch própria + PR + squash merge, sempre via worktree (Trunk-Based com branches curtos).
-- **Auto-merge habilitado**: o repo tem `allow_auto_merge: true`. Após abrir a PR com `gh pr create --fill`, ativar o merge automático de squash com `gh pr merge --auto --squash` — o GitHub faz o merge sozinho assim que CI (backend, frontend, commitlint) ficar verde. Não é mais necessário clicar em "Merge" à mão.
+- **Auto-merge habilitado**: o repo tem `allow_auto_merge: true`. Após abrir a PR com `gh pr create --fill`, ativar o merge automático de squash com `gh pr merge --auto --squash` — o GitHub faz o merge sozinho assim que CI (backend, frontend, commitlint) ficar verde. Não é mais necessário clicar em "Merge" à mão. **Observação (gh 2.101.0)**: o subcomando `--auto` retornou sucesso sem registrar (`autoMergeRequest: null`); workaround que funcionou na PR #65: `gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {pullRequestId: "'$(gh pr view <n> --json id --jq .id)'", mergeMethod: SQUASH}) { pullRequest { autoMergeRequest { enabledAt } } } }'`. Se nada persistir, `gh pr checks <n> --watch` + `gh pr merge <n> --squash` manual.
 - **Trunk-Based Development**: branches de vida curta (< 1–2 dias), PRs pequenos e frequentes. Integrar na `main` assim que aprovado e verde.
 - **Conventional Commits obrigatório**: todos os commits devem seguir [Conventional Commits](https://www.conventionalcommits.org/). Validado automaticamente no PR (commitlint).
 - **Versionamento automático**: no merge na `main`, Semantic Release analisa os commits, gera/atualiza `CHANGELOG.md`, cria **tag `vX.Y.Z`** e **GitHub Release** automaticamente (baseado no tipo de mudança: `feat`→minor, `fix/perf`→patch, `BREAKING CHANGE`→major).
@@ -279,6 +280,7 @@ que `pre-push` deixa tag passar.
 - **`rm` de worktree não apaga branch não mergeada** — publicar ou `branch -D` consciously
 - **Tag é o gate de deploy**: produção é disparada **apenas** por push de tag `v*.*.*` (workflow `deploy-on-tag.yml`). Com o Semantic Release, a **tag deixa de ser manual e passa a ser automática e consistente**, sem alterar esse gate.
 - **Deploy contínuo híbrido**: merge na `main` → valida em **staging** (healthcheck + smoke). Produção → só via **Release/Tag** automático (criado pelo Semantic Release).
+- **A tag do Semantic Release só acorda o deploy se o `release.yml` usar o PAT** (`SEMANTIC_RELEASE_TOKEN`, escopo `contents: write`): o GitHub não dispara workflows a partir de eventos criados com `GITHUB_TOKEN`. Sem o secret, o `release.yml` cai no fallback e publica a tag do mesmo jeito — **o versionamento continua, o deploy não sai** (foi o que segurou produção parada entre `v1.18.0` e `v1.21.0`). Detalhe em `deploy/README.md` § Quem cria a tag.
 
 ### Deploy (resumo)
 

@@ -46,5 +46,5 @@ export async function loginUsecase(userId: string, rawPin: string) {
   const token = jwt.sign({ sub: u.id, role: u.role }, config.jwtSecret, { expiresIn: "12h" });
   // A foto vai na sessão (não no JWT) para a identidade do app logado mostrar
   // o avatar sem uma segunda chamada.
-  return { token, user: { id: u.id, name: u.name, role: u.role, photoPath: photoUrl(u.photoPath) } };
+  return { token, user: { id: u.id, name: u.name, role: u.role, photoPath: photoUrl(u.photoPath, "user") } };
 }

@@ -16,16 +16,22 @@
 | Item | Status |
 |---|---|
 | Plano arquitetural (`docs/15`) | ✅ escrito, PR #59 aberto → `main` |
-| Preparação §6.0 — consolidar migrations + redeploy limpo | ⏳ **pendente, não executado** |
+| Preparação §6.0 — consolidar migrations + redeploy limpo | ✅ **executada em produção (2026-10-04)**: baseline `0001_init.sql` único (PR #64), cutover executado conforme `docs/17` §6 — backup verificado (98 produtos, 12 comandas, 6 usuários), restore de dados validado, `_migrations` com uma única entrada. Rollback: `.dump` mantido em `/opt/backups` + cópia local |
 | Fases 0–8 de implementação | ⏳ não iniciadas |
-| PR #59 (docs) | ⏳ aberta, aguardando review/merge |
+| PR #59 (docs) | ✅ mergeada |
 
 A `feat/schema` foi atualizada com o `main` vigente (ws-gateway Go, guard de banco de teste,
 CI Node 22, APK garçom). Nenhum código alterado — só docs.
 
 ---
 
-## 2. Intenção de unificar as migrations
+## 2. Unificação das migrations — **executada (2026-10-04)**
+
+> Histórico: este doc registrava a intenção. O baseline `backend/migrations/0001_init.sql`
+> entrou na `main` via PR #64, a cadeia antiga foi arquivada em
+> `backend/migrations/archive/` e o cutover em produção foi executado (§6.0 ✅).
+
+### Estado original (pré-2026-10-04)
 
 Hoje: cadeia de 10 arquivos em `backend/migrations/`, com duplo `0003_` (`printer` +
 `profile_fields`), gap (`0008` = `customer_profile_fields`; `0009`–`0011` removidos mas como
@@ -58,12 +64,61 @@ roll completo é restaurar esse dump. Janela de segundos para 1 loja.
 
 ## 3. Decisões/pendências de produto (do §10 do `docs/15`)
 
-1. **Postgres de produção dá `CREATE` no banco?** Hoje a role `pdv` é SUPERUSER. Separar
-   `pdv_app`/`pdv_dba` exige `CREATE` no banco — precisa confirmar antes da Fase 3.
-2. **Alvo de N tenants em 12 meses** — o pool dedicado tem teto ~20; acima disso, a
-   arquitetura muda (pool compartilhado + `SET LOCAL search_path`).
-3. **Credenciais do iFood são por loja?** Hoje `IFOOD_CLIENT_ID/SECRET` são globais em env, mas
-   `ifood_state` é por loja. Se cada loja tiver o seu, precisam sair do env.
+1. **Postgres de produção dá `CREATE` no banco?** ✅ Respondido (2026-10-04): manter a role
+   `pdv` como está; separação `pdv_app`/`pdv_dba` fora das fases iniciais.
+2. **Alvo de N tenants em 12 meses** ✅ Respondido (2026-10-04): **pool dedicado por
+   tenant** (ver nota de revisão em §3 abaixo). Teto honesto ~20 tenants simultâneos com
+   `TENANT_POOL_MAX=4`; acima disso, revisitar (pool compartilhado + `SET LOCAL search_path`
+   fica como plano B no `docs/15` §4.3).
+3. **Credenciais do iFood são por loja?** ✅ **Respondido (2026-10-04):** cada tenant tem a
+   sua própria loja no iFood. Plano em `docs/18-ifood-por-loja.md` (sem implementação).
+4. **Impressora:** o daemon (`PRINTER_DAEMON_URL`) é global — 1 por host ou compartilhado entre
+   lojas? Se compartilhado, o daemon Go (`printer/`) precisa de fila por loja. ⏳ depois.
+5. **Gerente pode operar 2 lojas?** ✅ **Respondido (2026-10-04): não.** JWT não precisa de
+   troca de tenant; UI não precisa de troca de subdomínio.
+6. **Downtime tolerável no cutover** (hoje é segundos; zero exigiria logical replication). ⏳ depois.
+7. **Painel de administração** (provisionar/pausar loja) — script manual ou UI interna? ⏳ depois.
+
+**Registradas em 2026-10-04:**
+- §3.1: **Postgres mantém a role `pdv` como está** (SUPERUSER). Separação
+  `pdv_app`/`pdv_dba` fica para a Fase 3 ou mais tarde.
+- §3.2: **Pool dedicado por tenant** (revisado em 2026-10-04 — volta a valer a
+  recomendação do `docs/15`). Teto honesto ~20 tenants simultâneos; acima disso, revisar.
+  Sem `SET LOCAL search_path` global — o pin é por startup packet do pool.
+
+---
+
+## 6. Análise: iFood por loja
+
+> Levantamento 2026-10-04 (commit equivalente, `feat/schema` removida) — estado atual
+> do `backend/src/integrations/ifood/`.
+
+| Camada | Onde | Hoje |
+|---|---|---|
+| Credenciais | `config/env.ts:88-90` (`IFOOD_CLIENT_ID/SECRET`, `IFOOD_MERCHANT_ID`) | globais em env |
+| Estado | `integrations/ifood/state.ts:1-45`, `schema.ts:545` (`ifood_state.key/value`) | global no DB, PK só `key` |
+| Worker de polling | `worker.ts:72-104`, iniciado uma única vez em `server.ts:199` | 1 merchant no processo todo |
+| Toggle por loja | `store_settings.ifood_enabled` (`schema.ts:152`) | por loja ✅ |
+| Flag por produto | `product.ifood_enabled` + `ifoodSku` (`schema.ts:152-153`) | por produto ✅ |
+
+**Delta para iFood por loja (multi-tenant):**
+
+1. `ifood_state.key/value` passar a ser chaveado por loja (`(store_id, key)`) — hoje a PK
+   é só `key`, então duas lojas pisariam no token uma da outra.
+2. Credenciais saírem do `.env` e irem para o banco (ex.: `stores.ifood_client_id/secret/
+   merchant_id`) — o worker roda no mesmo processo de todas as lojas, então env por tenant
+   não resolve.
+3. `worker.ts` / `client.ts` / `catalog-sync.ts` iterarem as lojas com `ifood_enabled = true`,
+   com cache de token por loja.
+4. `GET /ifood/status` e rotas exigirem resolver o `store_id` a partir do JWT
+   (`t: <schema>`), para não vazar token/merchant entre lojas.
+
+**Veredicto para a pendência §3.3:** hoje credenciais e estado são **globais**; só o toggle
+é por loja. Se cada loja tiver o seu merchant, os itens 1–4 são pré-requisito antes das
+fases 0–2 do multi-tenant.
+
+> Decisão de produto (2026-10-04): **cada tenant tem a sua própria loja no iFood.**
+> Plano detalhado e inventário do código em `docs/18-ifood-por-loja.md` (sem implementação).
 4. **Impressora:** o daemon (`PRINTER_DAEMON_URL`) é global — 1 por host ou compartilhado entre
    lojas? Se compartilhado, o daemon Go (`printer/`) precisa de fila por loja.
 5. **Gerente pode operar 2 lojas?** Impacta o JWT (`t: <schema>`) e exige troca de subdomínio
@@ -89,8 +144,8 @@ roll completo é restaurar esse dump. Janela de segundos para 1 loja.
 
 ## 5. Próximos passos sugeridos (ordem livre, próxima sessão escolhe)
 
-1. Merge da PR #59 (docs do plano) para a `main`.
-2. Executar §6.0 (unificar migrations + redeploy limpo) — branch própria + PR.
+1. ~~Merge da PR #59 (docs do plano) para a `main`.~~ ✅
+2. ~~Executar §6.0 (unificar migrations + redeploy limpo) — branch própria + PR.~~ ✅ PR #64 + cutover 2026-10-04 (ver `docs/17`).
 3. Decidir sobre o gateway WS Go: **quando** ele vira o realtime vivo. O **como**
    já está decidido e implementado nesta branch: opt-in por flag (`WS_BACKEND`,
    default `node`), serviço atrás de `profiles: ["ws-gateway"]`, upstream próprio
