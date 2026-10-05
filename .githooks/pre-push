@@ -75,7 +75,7 @@ Como publicar o trabalho:
 Tag de versão NÃO é bloqueada e continua sendo o gatilho de deploy
 (.github/workflows/deploy-on-tag.yml, \`push: tags: v*.*.*\` (backend) e
 \`app-v*.*.*\` (app)). A tag nasce automaticamente do Semantic Release no
-merge da \`main\`; \`./bump-version.sh\` segue disponível só como fallback
+merge da \`main\`; \`scripts/release/bump-version.sh\` segue disponível só como fallback
 de emergência (deprecated).
 
 Bypass consciente: git push --no-verify

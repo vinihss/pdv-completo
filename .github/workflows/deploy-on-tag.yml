@@ -156,15 +156,15 @@ jobs:
           #
           # `Cargo.toml`/`Cargo.lock` contam porque a versão publicada do
           # instalador é resolvida de lá: trocar uma `tauri-plugin-*`
-          # muda o binário. `printer/**` é o daemon; `build-standalone.sh`
+          # muda o binário. `printer/**` é o daemon; `scripts/build/build-standalone.sh`
           # é o build local equivalente; `build-desktop.yml` é a definição
           # canônica do próprio instalador, e mudá-lo é motivo para
           # revalidar o artefato.
           #
-          # NÃO entram: `.githooks/**` e `scripts/dev-worktree.sh` — são
+          # NÃO entram: `.githooks/**` e `scripts/dev/dev-worktree.sh` — são
           # ferramentas de desenvolvimento, não componentes do artefato.
           # ==========================================================
-          APP_SCOPE_RE='^(?:standalone-pdv/|standalone-kds/|frontend/|printer/)|^(?:Cargo\.toml|Cargo\.lock|build-standalone\.sh|\.github/workflows/build-desktop\.yml)$'
+          APP_SCOPE_RE='^(?:standalone-pdv/|standalone-kds/|frontend/|printer/|scripts/build/)|^(?:Cargo\.toml|Cargo\.lock|\.github/workflows/build-desktop\.yml)$'
 
           APP_CHANGED=false
           TOTAL_CHANGED=0
@@ -204,7 +204,7 @@ jobs:
             #
             # Fica como AVISO, com o caminho de saída explícito: quem quiser o
             # instalador publicado publica a tag `app-` na MESMA tag de backend.
-            INSTALADOR_RE='^(?:standalone-pdv/|standalone-kds/|printer/)|^(?:Cargo\.toml|Cargo\.lock|build-standalone\.sh|\.github/workflows/build-desktop\.yml)$'
+            INSTALADOR_RE='^(?:standalone-pdv/|standalone-kds/|printer/|scripts/build/)|^(?:Cargo\.toml|Cargo\.lock|\.github/workflows/build-desktop\.yml)$'
             SO_INSTALADOR="$(printf '%s\n' "$DIFF" | grep -E "$INSTALADOR_RE" || true)"
 
             if [[ "$IS_BACKEND" == true && -n "$SO_INSTALADOR" ]]; then
@@ -281,7 +281,7 @@ jobs:
     # contra o Cargo.toml do crate), não a tag — a tag é do app v1/backend,
     # e cada app da família tem sua própria versão. O app v1
     # (frontend/src-tauri, em produção) tem o seu próprio script de build:
-    # `frontend/src-tauri/build-app.sh`.
+    # `scripts/build/build-app.sh`.
     uses: ./.github/workflows/build-desktop.yml
     # `contents: write` precisa estar AQUI, não só no workflow chamado: em
     # `workflow_call` o token é a interseção das permissões de quem chama com

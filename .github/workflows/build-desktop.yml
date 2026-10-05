@@ -22,7 +22,7 @@ name: Instalador Windows (Tauri)
 # mobile (garcon, entregador) não buildam aqui: o runner Windows gera
 # instaladores NSIS, e o alvo deles é Android/iOS — o build de mobile
 # exige toolchain que não está no runner. Quando precisar, o build é
-# local com `build-standalone.sh --app garcon`.
+# local com `scripts/build/build-standalone.sh --app garcon`.
 #
 # O que este workflow garante:
 # - assina o artefato com a chave Ed25519 do secret; sem o secret o
@@ -37,7 +37,7 @@ name: Instalador Windows (Tauri)
 #   que é o que dá o download por URL própria e o auto-update.
 #
 # O app v1 (frontend/src-tauri, em produção) tem o seu próprio script
-# de build: `frontend/src-tauri/build-app.sh`. Este workflow não o substitui.
+# de build: `scripts/build/build-app.sh`. Este workflow não o substitui.
 # ============================================================
 
 on:
@@ -128,7 +128,7 @@ jobs:
       # A tag NÃO é conferida contra a versão dos standalone: a tag é do
       # app v1/backend (o que o deploy-on-tag publica), e cada crate da
       # família tem sua própria versão. A conferência tag-vs-conf do app v1
-      # continua sendo manual, no `frontend/src-tauri/build-app.sh`.
+      # continua sendo manual, no `scripts/build/build-app.sh`.
       - name: Conferir versão do crate
         working-directory: ${{ env.CRATE_DIR }}
         shell: pwsh
@@ -209,13 +209,22 @@ jobs:
       # não têm node_modules próprio, e `npx tauri` de dentro do crate não
       # acha o binário. Do crate (standalone-<app>/), o caminho relativo é
       # ../node_modules/.bin (instalado pelo `npm ci` da raiz acima).
+      #
+      # A lógica de build local (exigência de chave no --release, chave
+      # descartável no build local, parse de --bundles, listagem de
+      # artefatos e mensagem final) tem definição canônica em
+      # scripts/lib/build-tauri.sh, compartilhada por build-standalone.sh
+      # e build-app.sh. A duplicação pwsh deste passo é intencional: passos
+      # pwsh são independentes e não há como compartilhar código entre eles
+      # (nem entre jobs) sem exportar via GITHUB_ENV/outputs — ver o
+      # comentário no passo "Conferir versão do crate".
       - name: Build do instalador (assinado)
         working-directory: ${{ env.CRATE_DIR }}
         shell: pwsh
         env:
           # Fixa o frontend_dir da CLI: sem isto o beforeBuildCommand roda na
           # raiz do repo e o `cd ../frontend` dos confs falha. Mesmo valor
-          # exportado por build-standalone.sh no build local.
+          # exportado por scripts/build/build-standalone.sh no build local.
           TAURI_FRONTEND_PATH: ${{ github.workspace }}/frontend
           # A chave publica esta no tauri.conf.json (plugins.updater.pubkey);
           # a privada so existe aqui. Sem TAURI_SIGNING_PRIVATE_KEY o build

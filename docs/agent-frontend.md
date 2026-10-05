@@ -211,7 +211,7 @@ O mesmo `App.jsx` roda como PWA no navegador e como app Windows. A distinção e
 >   (`@tauri-apps/cli` no `package.json` da raiz). Nada disso se instala mais em
 >   `frontend/node_modules`; para o v1, rode a CLI com cwd = `frontend/`
 >   (ex.: `cd frontend && ../node_modules/.bin/tauri dev`).
-> - **Build do v1 é manual**: `bash frontend/src-tauri/build-app.sh`
+> - **Build do v1 é manual**: `bash scripts/build/build-app.sh`
 >   (aceita `--release`, `--bundles <tipo>`, `--appimage-docker`; detalhe em
 >   `docs/11-desktop-instalador.md` §8). Os scripts `desktop:*` saíram do
 >   `frontend/package.json` — as deps de **runtime** `@tauri-apps/*` seguem lá,
