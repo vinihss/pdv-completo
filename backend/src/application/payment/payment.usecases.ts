@@ -693,24 +693,59 @@ export async function processPaymentEventUsecase(eventId: string): Promise<void>
 }
 
 /**
- * Um evento cujo `status` ficou `failed` volta para a fila depois do backoff, com
- * teto de tentativas. Estourado o teto, ele PARA de ser reprocessado (`failed`
- * sem `next_attempt_at`): um evento que quebrou no código vai quebrar em todo
- * retry, e martelar o gateway não conserta — quem resolve é a reconciliação,
- * que relê o estado pelo `GET /orders/{id}`.
+ * Um evento cujo processamento estourou volta para a fila depois do backoff, com
+ * teto de tentativas. Estourado o teto, ele PARA de ser reprocessado e vira DLQ
+ * (`failed` sem `next_attempt_at`): um evento que quebrou no código vai quebrar
+ * em todo retry, e martelar o gateway não conserta — quem resolve é a
+ * reconciliação, que relê o estado pelo `GET /orders/{id}`.
+ *
+ * ## O reenfileirado é `failed`, não `received`
+ *
+ * O drain (`integrations/pagarme/worker.ts`) só seleciona `received` COM
+ * `next_attempt_at` NULL, ou `failed` COM `next_attempt_at` vencido. Gravar
+ * `received` aqui deixava a linha em `received` + `next_attempt_at` preenchido:
+ * nenhum dos dois ramos casa, o retry morria na PRIMEIRA falha, e como
+ * `countDeadLetteredEvents()` só conta `failed` + NULL, o evento não chegava
+ * nem a parecer DLQ — some, sem erro e sem log. `failed` + data futura
+ * satisfaz o segundo ramo, e a DLQ continua sendo o mesmo status, distinguido
+ * só pelo `next_attempt_at`. É a mesma semântica de estado da implementação Go.
+ *
+ * ## Por que o contador é incrementado AQUI
+ *
+ * `processPaymentEventUsecase` incrementa `attempts` dentro da transação que
+ * aplica o efeito (vale para o caminho que dá certo). Quando essa transação
+ * estoura, ela é desfeita por inteiro e o incremento vai com ela — e o
+ * incremento nem chega a acontecer quando a falha é antes dela. Sem este `+ 1`,
+ * `attempts` nunca saía de zero no caminho de falha, `MAX` era inalcançável e o
+ * evento era reprocessado indefinidamente, sem DLQ. Os dois incrementos não se
+ * somam: um commita, o outro é desfeito.
  */
 export async function requeueFailedEventUsecase(eventId: string, errorMessage: string): Promise<void> {
   const event = await db.query.paymentEvents.findFirst({ where: eq(paymentEvents.id, eventId) });
   if (!event) return;
   const MAX = 5;
-  if (event.attempts >= MAX) return;
+  // `attempts` conta as tentativas JÁ feitas; este erro é a tentativa de
+  // número `attempts + 1`.
+  const tentativas = event.attempts + 1;
+  const erro = errorMessage.slice(0, 500);
+
+  if (tentativas >= MAX) {
+    // DLQ: sai da fila e fica à vista. O `next_attempt_at` NULL é exatamente o
+    // que `countDeadLetteredEvents()` conta.
+    await db
+      .update(paymentEvents)
+      .set({ status: "failed", attempts: tentativas, errorMessage: erro, nextAttemptAt: null })
+      .where(eq(paymentEvents.id, eventId));
+    return;
+  }
 
   const backoffMs = Math.min(2 ** event.attempts * 30_000, 15 * 60_000);
   await db
     .update(paymentEvents)
     .set({
-      status: "received",
-      errorMessage: errorMessage.slice(0, 500),
+      status: "failed",
+      attempts: tentativas,
+      errorMessage: erro,
       nextAttemptAt: new Date(Date.now() + backoffMs).toISOString(),
     })
     .where(eq(paymentEvents.id, eventId));

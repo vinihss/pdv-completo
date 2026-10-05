@@ -22,10 +22,12 @@ import { isPagarmeEnabled, pagarmeConfig } from "./config.js";
 //
 //   - persistido antes: gravado no POST do webhook, antes do 200;
 //   - assíncrono: este ciclo, separado da requisição;
-//   - retry: `attempts` + `next_attempt_at` com backoff;
-//   - DLQ: evento que estourou o teto de tentativas fica em `failed` sem
-//     `next_attempt_at` — sai da fila e fica parado, à vista, sem ser
-//     reprocessado. A reconciliação assume a recuperação dele.
+//   - retry: `attempts` + `next_attempt_at` com backoff. Um evento reenfileirado
+//     fica `failed` com `next_attempt_at` no futuro: o drain só o pega quando a
+//     data vence, e é o `attempts` que fecha a porta depois de 5 tentativas;
+//   - DLQ: evento que estourou o teto fica em `failed` sem `next_attempt_at` —
+//     sai da fila e fica parado, à vista, sem ser reprocessado. A reconciliação
+//     assume a recuperação dele.
 //
 // ## Cadência
 //
@@ -90,11 +92,13 @@ export function startPagarmeWorkers(): { stop: () => void } {
 /**
  * Um ciclo da inbox: pega os eventos elegíveis e processa um a um.
  *
- * Elegível = `received` (novo ou reenfileirado após backoff) ou `failed` com
- * `next_attempt_at` vencido. O `processing` fica de fora de propósito: um
- * evento marcado como em processamento que o processo não terminou é resgatado
- * pela reconciliação, e pegá-lo aqui criaria dois consumidores da mesma linha
- * ao mesmo tempo.
+ * Elegível = `received` (novo, sem `next_attempt_at`) ou `failed` com
+ * `next_attempt_at` vencido. Repare que o estado reenfileirado é `failed`, e
+ * não `received`: é o `next_attempt_at` que diz se a linha está esperando o
+ * backoff (preenchido) ou se é DLQ (NULL). `processing` fica de fora de
+ * propósito: um evento marcado como em processamento que o processo não
+ * terminou é resgatado pela reconciliação, e pegá-lo aqui criaria dois
+ * consumidores da mesma linha ao mesmo tempo.
  */
 export async function drainInboxOnce(limit = BATCH): Promise<number> {
   const agora = new Date().toISOString();
