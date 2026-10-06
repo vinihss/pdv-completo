@@ -6,6 +6,7 @@ import {
   dispatchDeliveryUsecase,
   deliverDeliveryUsecase,
   failDeliveryUsecase,
+  reportCourierLocationUsecase,
 } from "../../application/self-service/delivery.usecases.js";
 
 // "cancelled" (baseline 0001) entra no filtro: o entregador precisa conseguir listar
@@ -56,6 +57,20 @@ export async function courierRoutes(app: FastifyInstance) {
   app.patch("/courier/deliveries/:id/deliver", async (req) => {
     const { id } = req.params as { id: string };
     return deliverDeliveryUsecase({ deliveryId: id, courierId: req.authUser!.sub });
+  });
+
+  // Ping de localização do app do entregador. O zod rejeita ranges inválidos
+  // com 400 (validation_failed); a regra "só com entrega em rota" fica no
+  // usecase (409 courier_not_on_route).
+  const locationSchema = z.object({
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+    accuracy: z.number().nonnegative().nullish(),
+  });
+
+  app.post("/courier/location", async (req) => {
+    const body = locationSchema.parse(req.body);
+    return reportCourierLocationUsecase({ courierId: req.authUser!.sub, ...body });
   });
 
   app.patch("/courier/deliveries/:id/fail", async (req) => {

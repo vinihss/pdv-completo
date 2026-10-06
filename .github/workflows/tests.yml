@@ -114,13 +114,29 @@ jobs:
   #
   # 1. FORA DE pull_request, TUDO RODA. Este workflow é chamado também pelo
   #    `deploy-on-tag.yml` (evento `push` de tag) — e antes de ir para
-  #    produção o contrato é a suíte INTEIRA, não o delta. Por isso o `if`
-  #    de cada job começa com `github.event_name != 'pull_request'`: em tag,
-  #    este job `changes` é pulado (o `if:` abaixo), os outputs ficam vazios
-  #    e a primeira metade da condição decide. (O paths-filter até aceita
-  #    evento de push comparando com o commit anterior, mas em push de TAG o
-  #    `before` é 0000... e o comportamento deixa de ser "o diff do PR" —
-  #    não é o que queremos no caminho de release.)
+  #    produção o contrato é a suíte INTEIRA, não o delta. É por isso que
+  #    este job `changes` NÃO tem `if:` de evento (ver "ARMADILHA" abaixo):
+  #    fora de PR ele roda o passo `todas-as-areas`, que liga os seis
+  #    outputs como `true`, e todo job de suíte entra. (O paths-filter até
+  #    aceita evento de push comparando com o commit anterior, mas em push
+  #    de TAG o `before` é 0000... e o comportamento deixa de ser "o diff do
+  #    PR" — não é o que queremos no caminho de release.)
+  #
+  #    ARMADILHA — A VERSÃO ANTES DESTE COMMIT PULAVA OS TESTES NA TAG:
+  #    este job tinha `if: github.event_name == 'pull_request'` e, em tag,
+  #    ele era pulado. E o GitHub Actions pula TRABALHOS QUE `needs:` UM JOB
+  #    PULADO — o `if:` próprio do dependente (que avaliava verdadeiro,
+  #    porque `event_name != 'pull_request'`) NÃO o resgata: a semântica de
+  #    `needs:` é que a dependência pulada = dependente pulado, a menos que
+  #    o dependente use `always()`/`!cancelled()`. Medido no run 37520858498
+  #    (deploy da v1.32.0, 06/10): `test-backend / test-backend` e
+  #    `test-frontend / test-frontend` saíram SKIPPED e o `deploy` foi pra
+  #    produção com NENHUMA suíte de teste — só o `shellcheck` (que não tem
+  #    `needs:`) executou. Gate verde e vazio, a pior categoria. A regra que
+  #    este comentário deixa registrada: um job com `if:` condicional que o
+  #    skipa NÃO pode ficar à frente de `needs:` em nenhum dos caminhos do
+  #    workflow — ou o próprio job roda sempre e o condicionamento acontece
+  #    DENTRO dele (nos steps), como abaixo.
   # 2. ARQUIVO FORA DE ÁREA MAPEADA FAZ TUDO RODAR. Cada filtro inclui
   #    `.github/**` (mudar um workflow é mexer no próprio gate) e os
   #    lockfiles/manifests da RAIZ (`package.json`, `package-lock.json` —
@@ -141,22 +157,23 @@ jobs:
   # ============================================================
   changes:
     runs-on: ubuntu-latest
-    # Só faz sentido em PR (ver o bloco acima, item 1): fora de pull_request
-    # o fallback dos jobs já é "roda tudo", e o paths-filter não teria um
-    # diff de PR para comparar.
-    if: github.event_name == 'pull_request'
+    # SEM `if:` de evento aqui — de propósito (ver "ARMADILHA" no bloco
+    # acima): este job fica à frente de todos os de suíte via `needs:`, e um
+    # `if:` que o pulasse em tag pularia TODOS eles, deixando o gate de
+    # deploy verde sem rodar teste nenhum. O condicionamento mora nos steps.
     outputs:
-      backend: ${{ steps.filter.outputs.backend }}
-      frontend: ${{ steps.filter.outputs.frontend }}
-      pedido-public: ${{ steps.filter.outputs.pedido-public }}
-      ws-gateway: ${{ steps.filter.outputs.ws-gateway }}
-      pagarme-webhook: ${{ steps.filter.outputs.pagarme-webhook }}
-      printer: ${{ steps.filter.outputs.printer }}
+      backend: ${{ steps.result.outputs.backend }}
+      frontend: ${{ steps.result.outputs.frontend }}
+      pedido-public: ${{ steps.result.outputs.pedido-public }}
+      ws-gateway: ${{ steps.result.outputs.ws-gateway }}
+      pagarme-webhook: ${{ steps.result.outputs.pagarme-webhook }}
+      printer: ${{ steps.result.outputs.printer }}
     steps:
       # Sem checkout: o paths-filter usa a API do GitHub para listar os
       # arquivos do PR (não precisa da árvore em disco).
       - uses: dorny/paths-filter@v3
         id: filter
+        if: github.event_name == 'pull_request'
         with:
           filters: |
             backend:
@@ -198,11 +215,56 @@ jobs:
               - 'package.json'
               - 'package-lock.json'
 
+      # Passo normalizador: é ele que define os outputs reais do job.
+      #   - Em PR: repassa o que o `filter` acima calculou (uma área só
+      #     liga o output dela).
+      #   - Fora de PR (tag/deploy): liga OS SEIS como `true` — a suíte
+      #     inteira é o contrato antes de produção, e este passo é o que
+      #     materializa o fallback "roda tudo" descrito no bloco acima.
+      # A razão de existir um passo próprio (em vez de os outputs apontarem
+      # direto para `steps.filter`): fora de PR o `filter` nem roda (tem
+      # `if:` de evento), e os outputs ficariam VAZIOS — com outputs vazios,
+      # o `needs.changes.outputs.<area> == 'true'` de cada suíte seria
+      # falso e, em tese, pularia tudo. Com este passo, o valor nunca é
+      # vazio em nenhum dos dois eventos.
+      - name: resultado por evento
+        id: result
+        env:
+          IS_PR: ${{ github.event_name == 'pull_request' }}
+          FILTER_BACKEND: ${{ steps.filter.outputs.backend }}
+          FILTER_FRONTEND: ${{ steps.filter.outputs.frontend }}
+          FILTER_PEDIDO: ${{ steps.filter.outputs.pedido-public }}
+          FILTER_WS: ${{ steps.filter.outputs.ws-gateway }}
+          FILTER_PAGARME: ${{ steps.filter.outputs.pagarme-webhook }}
+          FILTER_PRINTER: ${{ steps.filter.outputs.printer }}
+        run: |
+          if [ "$IS_PR" = "true" ]; then
+            {
+              echo "backend=$FILTER_BACKEND"
+              echo "frontend=$FILTER_FRONTEND"
+              echo "pedido-public=$FILTER_PEDIDO"
+              echo "ws-gateway=$FILTER_WS"
+              echo "pagarme-webhook=$FILTER_PAGARME"
+              echo "printer=$FILTER_PRINTER"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "backend=true"
+              echo "frontend=true"
+              echo "pedido-public=true"
+              echo "ws-gateway=true"
+              echo "pagarme-webhook=true"
+              echo "printer=true"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
   test-backend:
     needs: changes
-    # Roda se: (a) não é PR (tag/deploy → suíte inteira, ver bloco do
-    # `changes`), ou (b) o PR tocou a área. `needs` num job pulado não
-    # bloqueia: o `if:` explícito é o que decide.
+    # Roda se: (a) não é PR (tag/deploy → suíte inteira, materializada pelo
+    # passo `resultado por evento` do `changes`), ou (b) o PR tocou a área.
+    # O `changes` NUNCA é pulado (ver "ARMADILHA" no bloco dele), então este
+    # `needs:` nunca recebe um job pulado — que é o cenário em que o GitHub
+    # pularia ESTE job independentemente do `if` abaixo.
     if: github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     # Os testes do backend rodam contra um Postgres DEDICADO (pdv_test), não

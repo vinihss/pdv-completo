@@ -68,6 +68,15 @@ export const Errors = {
     new AppError("duplicate_phone", 409, "Telefone já cadastrado."),
   invalidCourierRole: () =>
     new AppError("invalid_courier_role", 400, "Usuário indicado não é um entregador."),
+  // Ping de localização sem entrega em rota. 409 (não 400/422): o payload
+  // está válido, é o ESTADO do entregador que não permite — mesma régua do
+  // invalid_transition / order_not_open.
+  courierNotOnRoute: () =>
+    new AppError(
+      "courier_not_on_route",
+      409,
+      "Localização só é aceita com entrega em rota (out_for_delivery)."
+    ),
   cashDrawerAlreadyOpen: () =>
     new AppError("cash_drawer_already_open", 409, "Já existe um caixa aberto. Feche-o antes de abrir outro."),
   cashDrawerNotOpen: () =>

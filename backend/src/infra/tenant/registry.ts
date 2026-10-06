@@ -105,6 +105,13 @@ export async function findTenantByCustomDomain(host: string): Promise<TenantReco
   return tenant;
 }
 
+export async function listActiveTenants(): Promise<TenantRecord[]> {
+  const { rows } = await pool.query(
+    `SELECT ${SELECT_COLUMNS} FROM public.tenant WHERE status = 'active' ORDER BY slug`,
+  );
+  return rows.map((r) => toRecord(r as Record<string, unknown>));
+}
+
 /**
  * Invalida o cache do registry. Não há escrita no registry na Fase 1 (o
  * provisionamento é um script manual, §8 do doc 15, e ele não existe ainda), então

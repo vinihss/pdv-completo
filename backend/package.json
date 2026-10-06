@@ -15,6 +15,7 @@
     "db:migrate": "tsx src/infra/db/migrate.ts",
     "db:migrate:registry": "tsx src/infra/db/registry-migrate.ts",
     "db:migrate:sqlite": "tsx src/infra/db/migrate-sqlite-to-pg.ts",
+    "db:provision": "tsx src/infra/db/provision-tenant.ts",
     "db:deactivate-demo": "tsx src/infra/db/deactivate-demo-catalog.ts",
     "uploads:migrate-layout": "tsx scripts/migrate-uploads-layout.ts",
     "test": "vitest run",
