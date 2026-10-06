@@ -7,11 +7,20 @@
 #   bash scripts/build/build-standalone.sh --app kds --bundles nsis
 #
 # Os 4 apps da família (pdv, kds, garcon, entregador) são crates
-# independentes na raiz do repo, cada um com seu tauri.conf.json,
-# seu Cargo.toml e seu target/release/bundle/. Este script deriva
-# tudo a partir do --app e invoca a CLI de DENTRO do crate — da
-# raiz, a busca por tauri.conf.json desce 3 níveis e acha
-# frontend/src-tauri, buildando o app v1 em silêncio.
+# independentes na raiz do repo, cada um com seu tauri.conf.json e seu
+# Cargo.toml. Este script deriva tudo a partir do --app e invoca a CLI de
+# DENTRO do crate — da raiz, a busca por tauri.conf.json desce 3 níveis e
+# acha frontend/src-tauri, buildando o app v1 em silêncio.
+#
+# ONDE O BUNDLE NASCE (e por que NÃO é no crate): os 4 são members do
+# workspace Cargo declarado no `Cargo.toml` da raiz, e o Cargo compila
+# SEMPRE no `target/` da RAIZ do workspace — o `target/` do member nunca é
+# criado. Não existe `.cargo/config.toml` no repo (nenhum `target-dir`
+# customizado), então não há como o bundle cair dentro do crate. Por isso
+# `BUNDLE_DIR` abaixo aponta para `$ROOT/target/...`, e é a mesma coisa que
+# o `env.BUNDLE_DIR` do build-desktop.yml usa no CI. Confirmação sem
+# build: `cargo metadata --no-deps --format-version 1` devolve
+# "target_directory": "<repo>/target".
 #
 # O sidecar do daemon de impressão SAIU do build: `externalBin` saiu dos
 # confs e o script de sidecar não existe mais (printer reestruturado).
@@ -46,7 +55,10 @@ CRATE_DIR="$ROOT/standalone-$APP"
 TAURI_CONF="$CRATE_DIR/tauri.conf.json"
 CARGO_TOML="$CRATE_DIR/Cargo.toml"
 LOCAL_KEY="$CRATE_DIR/.local-signing.key"
-BUNDLE_DIR="$CRATE_DIR/target/release/bundle"
+# Raiz do WORKSPACE, não do crate — ver o cabeçalho. Isto era `$CRATE_DIR/
+# target/release/bundle`, um caminho que o cargo nunca cria: o build gerava o
+# instalador e o script listava um diretório vazio, sem erro.
+BUNDLE_DIR="$ROOT/target/release/bundle"
 
 for f in "$TAURI_CONF" "$CARGO_TOML"; do
   [ -f "$f" ] || die "$f não existe. --app válidos: pdv|kds|garcon|entregador."
