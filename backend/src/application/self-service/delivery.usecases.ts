@@ -1,6 +1,6 @@
 import { eq, inArray, and } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
-import { deliveries, users, orders, customers, courierLocations } from "../../infra/db/schema.js";
+import { deliveries, users, orders, customers, customerAddresses, courierLocations } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
 import { canTransitionDelivery, type DeliveryStatus } from "../../domain/customer-order-state.js";
 import { logAction } from "../../infra/audit-log.js";
@@ -71,7 +71,37 @@ export async function listCourierDeliveriesUsecase(input: {
       ),
     orderBy: (d, { asc }) => asc(d.createdAt),
   });
-  return rows.map(serialize);
+
+  // Coordenadas do destino para o mapa do entregador (marker de destino no
+  // CourierTrackingMap). A delivery não tem FK para customer_address — guarda
+  // só o snapshot em texto — então a ligação é por projeção na leitura:
+  // delivery → order.customerId → endereço padrão do cliente (is_default;
+  // sem padrão, o primeiro cadastrado). Sem endereço ou sem georreferência,
+  // os campos saem null e o mapa simplesmente não desenha o marker.
+  const orderIds = [...new Set(rows.map((d) => d.orderId))];
+  const orderRows = orderIds.length
+    ? await db.query.orders.findMany({ where: inArray(orders.id, orderIds) })
+    : [];
+  const customerIdByOrderId = new Map(orderRows.map((o) => [o.id, o.customerId]));
+  const customerIds = [...new Set(orderRows.map((o) => o.customerId).filter((id): id is string => !!id))];
+  const addressRows = customerIds.length
+    ? await db.query.customerAddresses.findMany({ where: inArray(customerAddresses.customerId, customerIds) })
+    : [];
+  const addressByCustomerId = new Map<string, typeof customerAddresses.$inferSelect>();
+  for (const a of addressRows) {
+    const current = addressByCustomerId.get(a.customerId);
+    if (!current || (!current.isDefault && a.isDefault)) addressByCustomerId.set(a.customerId, a);
+  }
+
+  return rows.map((d) => {
+    const customerId = customerIdByOrderId.get(d.orderId);
+    const address = customerId ? addressByCustomerId.get(customerId) : undefined;
+    return {
+      ...serialize(d),
+      addressLatitude: address?.latitude ?? null,
+      addressLongitude: address?.longitude ?? null,
+    };
+  });
 }
 
 // ---------- PATCH /courier/deliveries/:id/dispatch ----------

@@ -25,9 +25,11 @@ async function seedCouriers() {
   `);
 }
 
-async function seedDelivery(orderId: string, courierId: string, status: string) {
+async function seedDelivery(orderId: string, courierId: string, status: string, customerId?: string) {
   await raw.exec(`
-    INSERT INTO "order" (id, status, waiter_id, tab_label) VALUES ('${orderId}', 'open', '${FIXTURE.waiter}', 'Delivery - Teste') ON CONFLICT (id) DO NOTHING;
+    INSERT INTO "order" (id, status, waiter_id, tab_label, customer_id)
+    VALUES ('${orderId}', 'open', '${FIXTURE.waiter}', 'Delivery - Teste', ${customerId ? `'${customerId}'` : "NULL"})
+    ON CONFLICT (id) DO NOTHING;
     INSERT INTO delivery (id, order_id, courier_id, address, status)
     VALUES ('d-${orderId}', '${orderId}', '${courierId}', 'Rua Teste, 1', '${status}')
     ON CONFLICT (id) DO UPDATE SET status = '${status}';
@@ -154,5 +156,55 @@ describe("rastreamento de localização do entregador", () => {
   it("GET /manager/deliveries/locations exige papel manager", async () => {
     const res = await api("get", "/manager/deliveries/locations", { token: courierToken() });
     expect(res.status).toBe(403);
+  });
+
+  // Projeção das coordenadas do destino (marker no CourierTrackingMap):
+  // delivery → order.customer_id → endereço padrão do cliente.
+  describe("GET /courier/deliveries — coordenadas do endereço", () => {
+    async function seedCustomerWithAddress(addressId: string | null, withCoords: boolean) {
+      await raw.exec(`
+        INSERT INTO customer (id, name) VALUES ('c-geo', 'Cliente Geo') ON CONFLICT (id) DO NOTHING;
+      `);
+      if (addressId) {
+        await raw.exec(`
+          INSERT INTO customer_address (id, customer_id, street, number, neighborhood, city, latitude, longitude, is_default)
+          VALUES ('${addressId}', 'c-geo', 'Rua Geo', '10', 'Centro', 'Cidade',
+                  ${withCoords ? "-29.75" : "NULL"}, ${withCoords ? "-51.15" : "NULL"}, true)
+          ON CONFLICT (id) DO NOTHING;
+        `);
+      }
+    }
+
+    it("entrega com endereço georreferenciado retorna addressLatitude/addressLongitude", async () => {
+      await seedCustomerWithAddress("addr-geo", true);
+      await seedDelivery("o-geo", COURIER, "awaiting_courier", "c-geo");
+
+      const res = await api("get", "/courier/deliveries", { token: courierToken() });
+      expect(res.status).toBe(200);
+      const delivery = res.json.find((d: any) => d.orderId === "o-geo");
+      expect(delivery.addressLatitude).toBeCloseTo(-29.75);
+      expect(delivery.addressLongitude).toBeCloseTo(-51.15);
+    });
+
+    it("entrega sem coordenada no endereço retorna null", async () => {
+      await seedCustomerWithAddress("addr-sem-geo", false);
+      await seedDelivery("o-sem-geo", COURIER, "awaiting_courier", "c-geo");
+
+      const res = await api("get", "/courier/deliveries", { token: courierToken() });
+      expect(res.status).toBe(200);
+      const delivery = res.json.find((d: any) => d.orderId === "o-sem-geo");
+      expect(delivery.addressLatitude).toBeNull();
+      expect(delivery.addressLongitude).toBeNull();
+    });
+
+    it("entrega de pedido sem cliente/endereço retorna null", async () => {
+      await seedDelivery("o-sem-cliente", COURIER, "awaiting_courier");
+
+      const res = await api("get", "/courier/deliveries", { token: courierToken() });
+      expect(res.status).toBe(200);
+      const delivery = res.json.find((d: any) => d.orderId === "o-sem-cliente");
+      expect(delivery.addressLatitude).toBeNull();
+      expect(delivery.addressLongitude).toBeNull();
+    });
   });
 });
