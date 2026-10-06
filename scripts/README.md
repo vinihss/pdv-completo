@@ -18,7 +18,7 @@ argumentos (ou com `--help`) imprime a ajuda completa e sai com 0.
 ./pdv build <standalone|app|backend|frontend>          # Tauri / tsc / vite
 ./pdv test <backend|frontend|printer|gateway|all>      # vitest e go test
 ./pdv lint <frontend|all>             # oxlint; `all` soma o gate de gofmt do ws-gateway
-./pdv db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo>
+./pdv db <migrate|migrate-registry|generate|seed|seed-demo|seed-prod|deactivate-demo>
 ./pdv check [backend|frontend|all]    # critérios de verificação gerais (portão pré-PR)
 ./pdv release bump <versão>           # bump da família standalone
 ./pdv deploy <switch|backup|backup-fetch|probe|install|reset|caddy|run-cloud|pedido> [opções]
@@ -62,6 +62,7 @@ ou `cd ws-gateway && go test ./...` continuam equivalentes.
 | `db migrate-registry` | `db:migrate:registry` |
 | `db generate` | `db:generate` |
 | `db seed` | `seed` |
+| `db seed-demo` | `seed:demo` |
 | `db seed-prod` | `seed:prod` |
 | `db deactivate-demo` | `db:deactivate-demo` |
 
