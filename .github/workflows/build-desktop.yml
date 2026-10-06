@@ -633,6 +633,34 @@ jobs:
   # chave privada de producao deixar de ir para qualquer coisa que se faca
   # passar pelo Hostinger no meio da rede, e o preco de errar o SHA256 e
   # alguns minutos de debug.
+  #
+  # ------------------------------------------------------------------
+  # A REGRA DESTE JOB: `env:` DE JOB NÃO ALCANÇA O `script:` DA APPLEBOY
+  # ------------------------------------------------------------------
+  # Varredura dos TRÊS steps de appleboy deste job, feita para não ficar
+  # só no conserto pontual (o primeiro deles quebrou no run 37414894926):
+  #
+  #   step                          | variáveis no script | como chegam
+  #   ------------------------------|---------------------|----------------
+  #   Preparar deploy/updates (ssh) | UPDATES, APP        | ambas interpoladas
+  #   Publicar no servidor (scp)    | nenhuma (só source/ | sem shell: é o
+  #                                  | target/strip_comp)  | input da action
+  #   Ajustar layout (ssh)          | UPDATES, APP        | ambas interpoladas
+  #
+  # E o que NÃO é appleboy, no mesmo job: "Conferir o que será publicado"
+  # é um `run:` do runner e usa `$APP` do `env:` de job — ali funciona, e
+  # é o único uso legítimo desse `env:`.
+  #
+  # Motivo: o `script:` do appleboy/ssh-action é enviado por SSH e executado
+  # no shell do usuário REMOTO (zsh no Hostinger). `${{ }}` é resolvido pelo
+  # runner antes de enviar; `env:` de job/step vive no runner e não viaja.
+  # Com `set -Eeuo pipefail`, qualquer `$VAR` não interpolada nesse script
+  # morre na hora — "zsh:N: VAR: parameter not set" — DEPOIS de todo o
+  # trabalho caro (build, assinatura e release). Regra: dentro de `script:`
+  # de appleboy, tudo é `${{ }}` ou é declarado antes de usar.
+  #
+  # O job `deploy` do deploy-on-tag.yml segue a mesma regra (APP_PATH e TAG
+  # interpolados no script, com o motivo registrado lá).
   publish:
     needs: release
     if: inputs.publicar_no_servidor
@@ -642,6 +670,16 @@ jobs:
         app: [pdv, kds]
     name: publish (${{ matrix.app }})
     env:
+      # Este `env:` de job é legítimo e continua aqui: o step "Conferir o que
+      # será publicado" é um `run:` comum, executado pelo runner, onde o
+      # ambiente do job CHEGA sim (é o único lugar deste job que usa `$APP`
+      # sem interpolar).
+      #
+      # Ele NÃO alcança o `script:` das actions appleboy — o script roda no
+      # shell remoto, por SSH, e não vê o ambiente do runner. Por isso os três
+      # scripts de appleboy deste job interpolam o que precisam. O sintoma
+      # dessa confusão está registrado no primeiro step ("Preparar
+      # deploy/updates no servidor") e custou o run 37414894926.
       APP: ${{ matrix.app }}
     steps:
       # O mkdir vem antes do scp por um motivo concreto: o job `deploy` (dono
@@ -660,9 +698,45 @@ jobs:
           # `known_hosts` nunca existiu nestas actions) — ver o bloco do job
           # acima. Vazio = comportamento de hoje, sem verificação.
           fingerprint: ${{ secrets.HOSTINGER_SSH_FINGERPRINT }}
+          # ============================================================
+          # POR QUE `$APP` É INTERPOLADO AQUI E NÃO VEM DO `env:` DO JOB
+          # ============================================================
+          # O job `publish` declara `env: APP: ${{ matrix.app }}`, e esse
+          # `env:` NÃO CHEGA no `script:` desta action — foi o que matou o
+          # run 37414894926 (tag app-v0.1.0), no primeiro step de appleboy,
+          # DEPOIS dos dois instaladores compilarem, assinarem e a release
+          # existirem:
+          #
+          #   zsh:9: APP: parameter not set
+          #   ##[error]Process completed with exit code 1.
+          #
+          # Motivo: o `script:` do appleboy/ssh-action NÃO é executado pelo
+          # runner — ele é enviado por SSH e roda no shell do USUÁRIO REMOTO
+          # (no Hostinger, `zsh`, não bash). A interpolação `${{ }}` acontece
+          # antes, na hora de montar o texto do script; o que o runner tem no
+          # ambiente (`env:` de job e de step) simplesmente não existe lá
+          # dentro. Com `set -Eeuo pipefail`, `$APP` indefinido mata o script
+          # na hora em que aparece — linha 9 do script, que é o `mkdir` logo
+          # abaixo.
+          #
+          # Por que não o input `envs:` da appleboy: ele existe no
+          # ssh-action, mas (a) o scp-action NEM TEM esse input — os dois
+          # steps de publicação precisariam de dois jeitos diferentes de
+          # declarar a mesma variável, o que é pior que repetir a atribuição;
+          # (b) o `envs:` é construído a partir de `${{ }}` de qualquer
+          # jeito, ou seja, não economiza a interpolação; e (c) o padrão que
+          # JÁ FUNCIONAVA neste arquivo é interpolar — é o que o step "Ajustar
+          # layout no servidor" (mais abaixo) faz, e o que o job `deploy` do
+          # deploy-on-tag.yml faz com APP_PATH e TAG. Uma atribuição a mais
+          # não muda semântica nenhuma: o valor é o mesmo `matrix.app`.
+          #
+          # NÃO "simplifique" esta linha de volta para `$APP` puro achando que
+          # o `env:` do job cobre. Se precisar de outra variável neste
+          # script, declare-a logo abaixo desta, interpolada.
           script: |
             set -Eeuo pipefail
             UPDATES="${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates"
+            APP="${{ matrix.app }}"
             # `-p` sem problema: o dono é o mesmo usuário do scp, então não
             # há como o Docker criar isto antes como root (o que faria o scp
             # falhar com permission denied — ver switch.sh).
