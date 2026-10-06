@@ -2,6 +2,13 @@
 // registrando o que já rodou na tabela de controle `_migrations` — idempotente,
 // seguro pra rodar no boot do container.
 //
+// Fase 3 do multi-tenant (`docs/15-multi-tenant-schema.md` §6.1): CADA schema
+// de tenant recebe a mesma cadeia de migrations, e o `_migrations` é POR
+// SCHEMA (fica dentro do schema do tenant, não em `public`). O runner conecta
+// pelo pool dedicado do schema (tenant-db.ts), cujo `options` já fixa o
+// `search_path` no startup packet — o mesmo DDL aplicado ao `public` agora
+// aplica ao `tenant_umami`, sem nenhuma linha de SQL trocada.
+//
 // Postgres é o único banco suportado, então não há mais o caso especial do
 // SQLite (PRAGMA foreign_keys, reativação fora da transação): aqui cada
 // migration roda numa transação real com um advisory lock, para que dois
@@ -10,19 +17,32 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { pool } from "./client.js";
+import { getTenantPool } from "./tenant-db.js";
+import { resolveTenantSchemaInScope } from "./tenant-context.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.resolve(__dirname, "../../../migrations");
 
-// Chave fixa do advisory lock: serializa migrations entre processos.
-// picked arbitrariamente; só precisa ser exclusivo entre os runners do PDV.
+// Chave fixa do advisory lock: serializa migrations POR SCHEMA entre
+// processos. Dois ints: (base, hashtext(schema)) — mesmo schema de dois
+// containers racha o lock; schemas diferentes não bloqueiam entre si.
 const LOCK_KEY = 8_675_309;
 
-export async function runMigrations(): Promise<void> {
+export type RunMigrationsOptions = {
+  /**
+   * Schema onde as migrations rodam. Default: o schema do escopo atual
+   * (ALS → DEFAULT_TENANT_SCHEMA → public), preservando o comportamento
+   * pré-Fase 3 de `npm run db:migrate` e do boot local.
+   */
+  schema?: string;
+};
+
+export async function runMigrations(options: RunMigrationsOptions = {}): Promise<void> {
+  const schemaName = options.schema ?? resolveTenantSchemaInScope();
+  const pool = getTenantPool(schemaName);
   const client = await pool.connect();
   try {
-    await client.query("SELECT pg_advisory_lock($1)", [LOCK_KEY]);
+    await client.query("SELECT pg_advisory_lock($1, $2)", [LOCK_KEY, advisoryKeyForSchema(schemaName)]);
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS _migrations (
@@ -57,15 +77,26 @@ export async function runMigrations(): Promise<void> {
         await client.query("COMMIT");
       } catch (err) {
         await client.query("ROLLBACK");
-        throw new Error(`[migrate] falhou ao aplicar ${file}: ${(err as Error).message}`, { cause: err });
+        throw new Error(`[migrate] falhou ao aplicar ${file} em ${schemaName}: ${(err as Error).message}`, { cause: err });
       }
-      console.log(`[migrate] applied ${file}`);
+      console.log(`[migrate] applied ${file} (${schemaName})`);
     }
   } finally {
     // Solta o lock e devolve a conexão ao pool mesmo em caso de erro.
-    await client.query("SELECT pg_advisory_unlock($1)", [LOCK_KEY]).catch(() => {});
+    await client.query("SELECT pg_advisory_unlock($1, $2)", [LOCK_KEY, advisoryKeyForSchema(schemaName)]).catch(() => {});
     client.release();
   }
+}
+
+// Segundo arg do `pg_advisory_lock(int, int)`: um int32 estável derivado do
+// nome do schema (mesmo schema → mesmo lock; schemas diferentes → locks
+// diferentes). Determinístico porque `hashCode` é função pura do nome.
+function advisoryKeyForSchema(schemaName: string): number {
+  let hash = 0;
+  for (let i = 0; i < schemaName.length; i++) {
+    hash = ((hash << 5) - hash + schemaName.charCodeAt(i)) | 0;
+  }
+  return hash;
 }
 
 // Permite rodar via `npm run db:migrate` diretamente
