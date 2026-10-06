@@ -170,6 +170,26 @@ jobs:
         # Mais fino que 2s não compra nada: o backoff do runner (~6s) vira o
         # piso, e o banco só fica pronto em ~2,1s mesmo.
         #
+        # RESULTADO MEDIDO — melhor do que o previsto. Run 37413096448 (PR
+        # #116), job `tests / test-backend`, mesmo passo, mesmas linhas de log:
+        #
+        #   04:18:50.9  container criado
+        #   04:18:51.3  "Up Less than a second (health: starting)"
+        #   04:18:51.3  "postgres service is starting, waiting 2 seconds..."
+        #   04:18:53.3  "postgres service is healthy"         → 2,4s de espera
+        #
+        # A 2ª pergunta do runner (que cai em ~2,4s depois do `docker start`)
+        # JÁ encontrou o contêiner `healthy`, porque a 1ª sondagem do
+        # `pg_isready` — em 2s — passou. Nos três jobs com Postgres:
+        # 13,9s / 14,9s / 12,9s antes → 2,4s / 2,4s / 2,3s depois (−34,7s).
+        # O passo "Initialize containers" inteiro caiu de 24s/26s/30s para
+        # 11s/13s/13s.
+        #
+        # O resto da diferença é o `docker pull`, que é rede do runner
+        # efêmero e variou entre runs (8,4s nesta execução do backend contra
+        # 10,5s na do run de base) — por isso o número a citar é o do trecho
+        # `docker start → healthy`, que é o que esta mudança controla.
+        #
         # POR QUE NÃO É MAIS SEGURO COM 10s — "a margem de segurança do
         # healthcheck" NÃO vem do intervalo, vem do `retries`. Aqui está a
         # conta, e ela é a razão de o retries ter AUMENTADO em vez de
@@ -355,7 +375,8 @@ jobs:
         #
         # (passo inteiro: 26s). Com 2s, os mesmos ~10,3s de pull continuam
         # iguais — a diferença é a espera de saúde caindo de ~14,9s para
-        # ~6,1s, que é o piso do backoff do próprio runner.
+        # ~2,4s. MEDIDO no run 37413096448 (PR #116): o contêiner ficou
+        # `healthy` em 2,4s e o passo inteiro caiu de 26s para 13s.
         #
         # `--health-retries 50` × 2s = 100s de janela até `unhealthy`, a MESMA
         # janela que 10 retries × 10s dava: a tolerância a runner congestado
@@ -555,12 +576,13 @@ jobs:
         #   03:56:01.0  container criado
         #   03:56:14.0  "postgres service is healthy"          → 12,9s de espera
         #
-        # (passo inteiro: 30s). Este job foi o pior da três no pull (17,7s
+        # (passo inteiro: 30s). Este job foi o pior dos três no pull (17,7s
         # contra 10,3s do `test-ws-gateway` e 10,5s do `test-backend` na mesma
         # janela): o pull é rede do runner e varia job a job — e é a metade do
         # custo deste passo que NÃO é healthcheck. Com 2s, a espera de saúde
-        # cai de ~12,9s para ~6,1s (o piso do backoff do runner); o pull
-        # continua igual.
+        # cai de ~12,9s para ~2,3s. MEDIDO no run 37413096448 (PR #116): o
+        # contêiner ficou `healthy` em 2,3s e o passo inteiro caiu de 30s
+        # para 13s.
         #
         # `--health-retries 50` × 2s = 100s de janela até `unhealthy`, a MESMA
         # janela que 10 retries × 10s dava: a tolerância a runner congestado
