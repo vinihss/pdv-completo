@@ -167,6 +167,7 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 
 | Comando | Onde | O que faz |
 |---|---|---|
+| `./pdv <comando>` | raiz | dispatcher único dos scripts de apoio (`./pdv --help`) |
 | `npm run dev` | backend | roda com `tsx watch` |
 | `npm run build` | backend | `tsc` → `dist/` |
 | `npm run start` | backend | roda `dist/http/server.js` |
