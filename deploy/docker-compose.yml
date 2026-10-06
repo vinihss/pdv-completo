@@ -504,11 +504,48 @@ services:
     # então QUALQUER caminho devolve 200 com o index — o healthcheck passava
     # mesmo com o app quebrado. O `/healthz` é servido pelo nginx em
     # `apps/pedido-public/nginx.conf` e responde 200 sem depender do bundle.
+    #
+    # `127.0.0.1` e NÃO `localhost` — medido no run 37409580179 (tag v1.29.0),
+    # que abortou o deploy no passo 3/5 com este serviço `unhealthy`.
+    #
+    # Por que `localhost` quebra aqui e não quebra no `frontend` (mesma imagem
+    # base, mesmo default.conf sobrescrito, mesmo nginx:1.27-alpine):
+    #
+    #   1. O `Dockerfile` copia o nosso nginx.conf POR CIMA do
+    #      `/etc/nginx/conf.d/default.conf` do pacote.
+    #   2. O entrypoint `10-listen-on-ipv6-by-default.sh` compara o checksum
+    #      desse arquivo com o do pacote; como divergiu, ele loga
+    #      "differs from the packaged version" e sai SEM aplicar nada.
+    #   3. Logo o nginx escuta SÓ em `0.0.0.0:80`. Confirmação no container:
+    #      `netstat -lnt` → uma linha só, `tcp 0 0 0.0.0.0:80 LISTEN`.
+    #   4. O `/etc/hosts` do container resolve `localhost` para `::1` PRIMEIRO
+    #      (`::1  localhost ip6-localhost ip6-loopback`), e o wget do busybox
+    #      não faz fallback para IPv4.
+    #   5. Resultado: `wget` sai 1 com
+    #      `Connecting to localhost ([::1]:80)` + `Connection refused`, para
+    #      sempre. O nginx está de pé e answering — só que em `127.0.0.1`.
+    #
+    # O sintoma engana justamente porque o log do container fica limpo: o
+    # healthcheck não escreve no log do nginx, e o `switch.sh` (que só imprime
+    # `compose logs --tail=40`) mostra só o "start worker process" saudável.
+    #
+    # Por que o frontend não caiu: ele tem exatamente a mesma imagem e o mesmo
+    # default.conf sobrescrito — logo também só em IPv4 — mas o healthcheck dele
+    # diz `http://127.0.0.1/` desde sempre. `localhost` no healthcheck foi o
+    # ÚNICO serviço do compose com essa palavra (os outros: `127.0.0.1`,
+    # `127.0.0.1:8080`, `pg_isready`).
+    #
+    # A temporização também foi alinhada com o `frontend` (`interval: 3s` /
+    # `retries: 20` / `start_period: 3s`). Com `interval: 30s` × `retries: 3`,
+    # o container só era marcado `unhealthy` ~90s depois de subir — e o
+    # `wait_healthy` do switch.sh tem `PDV_HEALTH_TIMEOUT` de 120s, ou seja,
+    # o portão consumia 3/4 do orçamento só para declarar a falha.
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/healthz || exit 1"]
-      interval: 30s
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 3s
       timeout: 5s
-      retries: 3
+      retries: 20
+      start_period: 3s
 
 volumes:
   # Nomes explícitos (sem prefixo do projeto) para que o backup.sh e os
