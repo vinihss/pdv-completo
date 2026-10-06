@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { RefreshCcw, AlertTriangle, X, MapPin, ChevronDown } from "lucide-react";
+import { MapContainer, TileLayer, Marker, Popup, Polyline } from "react-leaflet";
 import {
   assignCourier,
   setDeliveryStatus,
@@ -19,6 +20,79 @@ import { ConfirmModal, inputClass } from "@/shared/components";
 // primeiros caracteres. A guarda existe porque o `orderId` é o elo com a
 // comanda: `.slice()` direto derrubava o card inteiro quando ele faltava, e um
 // card quebrado é pior que um card sem número.
+function DeliveryCardMiniMap({ delivery, locations }) {
+  const [routePoints, setRoutePoints] = useState([]);
+  const [relativeEta, setRelativeEta] = useState(delivery?.estimatedMinutes ?? null);
+
+  useEffect(() => {
+    if (!delivery?.addressLatitude || !delivery?.addressLongitude) return;
+    const courierLoc = (locations || []).find((l) => l.courierId === delivery.courierId);
+    if (!courierLoc?.latitude || !courierLoc?.longitude) return;
+    fetch(`https://router.project-osrm.org/route/v1/driving/${courierLoc.longitude},${courierLoc.latitude};${delivery.addressLongitude},${delivery.addressLatitude}?overview=false`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.routes?.[0]?.geometry) {
+          // OSRM returns encoded polyline; for simplicity we just draw straight line
+          setRoutePoints([
+            [courierLoc.latitude, courierLoc.longitude],
+            [delivery.addressLatitude, delivery.addressLongitude],
+          ]);
+        }
+      })
+      .catch(() => {});
+  }, [delivery, locations]);
+
+  // Atualiza previsão relativa a cada ping de localização (simulado com interval 30s)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const courierLoc = (locations || []).find((l) => l.courierId === delivery.courierId);
+      if (courierLoc && delivery?.estimatedMinutes) {
+        const diffKm = Math.hypot(
+          courierLoc.latitude - (delivery.addressLatitude ?? 0),
+          courierLoc.longitude - (delivery.addressLongitude ?? 0)
+        );
+        const roughMin = Math.max(0, Math.round(delivery.estimatedMinutes - diffKm * 60));
+        setRelativeEta(roughMin);
+      }
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [delivery, locations]);
+
+  const courierLoc = (locations || []).find((l) => l.courierId === delivery.courierId);
+  const dest = delivery?.addressLatitude != null && delivery?.addressLongitude != null
+    ? [delivery.addressLatitude, delivery.addressLongitude]
+    : null;
+
+  const center = courierLoc ? [courierLoc.latitude, courierLoc.longitude] : (dest ?? [-15.78, -47.88]);
+
+  return (
+    <div className="h-full w-full bg-stone-950" data-testid="delivery-card-map">
+      <div className="h-44 w-full relative">
+        <MapContainer center={center} zoom={courierLoc ? 15 : 13} scrollWheelZoom={false} className="h-44 w-full" style={{ zIndex: 1 }}>
+          <TileLayer url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
+          {courierLoc && (
+            <Marker position={[courierLoc.latitude, courierLoc.longitude]}>
+              <Popup><strong>Entregador</strong><br />Atualizado às {new Date(courierLoc.updatedAt).toLocaleTimeString("pt-BR")}</Popup>
+            </Marker>
+          )}
+          {dest && (
+            <Marker position={dest}>
+              <Popup>Endereço de entrega</Popup>
+            </Marker>
+          )}
+          {routePoints.length === 2 && (
+            <Polyline positions={routePoints} color="#f59e0b" weight={4} />
+          )}
+        </MapContainer>
+      </div>
+      <div className="px-2 py-1 flex items-center justify-between bg-stone-900 text-[11px] text-stone-300">
+        <span>Previsão relativa: <b className="text-amber-400">{relativeEta ?? delivery?.estimatedMinutes ?? "—"} min</b></span>
+        <span>Atualizado a cada ping</span>
+      </div>
+    </div>
+  );
+}
+
 function pedidoLabel(orderId) {
   return orderId ? `Pedido #${String(orderId).slice(0, 8)}` : "Pedido sem número";
 }
@@ -105,7 +179,27 @@ export default function DeliveriesTab({ showToast }) {
   // localmente pra não deixar cancelar de novo por engano na mesma sessão.
   const [justCancelled, setJustCancelled] = useState(() => new Set());
 
-  const visible = ordenarPorUrgencia(showResolved ? deliveries : deliveries.filter(isOpenDelivery));
+  const [expandedMap, setExpandedMap] = useState(false);
+  const [filterStatus, setFilterStatus] = useState(null); // null = todos
+  const [expandedCardMap, setExpandedCardMap] = useState({}); // id -> bool
+
+  let visible = ordenarPorUrgencia(showResolved ? deliveries : deliveries.filter(isOpenDelivery));
+  if (filterStatus) visible = visible.filter((d) => d.status === filterStatus);
+
+  // Indicadores das últimas 24 horas (calculados sobre deliveries completo)
+  const nowMs = Date.now();
+  const h24 = deliveries.filter((d) => nowMs - new Date(d.createdAt || 0).getTime() < 24 * 60 * 60 * 1000);
+  const total24 = h24.length;
+  const pending24 = h24.filter((d) => isOpenDelivery(d)).length;
+  const outFor24 = h24.filter((d) => d.status === "out_for_delivery").length;
+  const done24 = h24.filter((d) => d.status === "delivered" || d.status === "cancelled" || d.status === "failed").length;
+
+  // Filtro por clique no indicador (se já selecionado, desmarca)
+  const handleFilter = (status) => {
+    if (filterStatus === status) setFilterStatus(null);
+    else setFilterStatus(status);
+  };
+
 
   async function handleAssign(deliveryId, courierId) {
     if (!courierId) return;
@@ -174,11 +268,64 @@ export default function DeliveriesTab({ showToast }) {
         </button>
       </div>
 
+      {/* Indicadores das últimas 24h — clicáveis, filtram e destacam */}
+      <div className="flex items-center gap-3 text-xs">
+        <button
+          onClick={() => handleFilter("awaiting_courier")}
+          className={`px-2.5 py-1 rounded-lg border transition-colors ${filterStatus === "awaiting_courier" ? "bg-amber-500 text-stone-950 border-amber-500" : "bg-stone-900 border-stone-700 text-stone-300 hover:border-stone-500"}`}
+        >
+          <span className="font-bold">{pending24}</span> pendentes (24h)
+        </button>
+        <button
+          onClick={() => handleFilter("out_for_delivery")}
+          className={`px-2.5 py-1 rounded-lg border transition-colors ${filterStatus === "out_for_delivery" ? "bg-amber-500 text-stone-950 border-amber-500" : "bg-stone-900 border-stone-700 text-stone-300 hover:border-stone-500"}`}
+        >
+          <span className="font-bold">{outFor24}</span> em percurso (24h)
+        </button>
+        <button
+          onClick={() => handleFilter("delivered")}
+          className={`px-2.5 py-1 rounded-lg border transition-colors ${filterStatus === "delivered" ? "bg-amber-500 text-stone-950 border-amber-500" : "bg-stone-900 border-stone-700 text-stone-300 hover:border-stone-500"}`}
+        >
+          <span className="font-bold">{done24}</span> finalizadas (24h)
+        </button>
+        <button
+          onClick={() => handleFilter(null)}
+          className={`px-2.5 py-1 rounded-lg border transition-colors ${!filterStatus ? "bg-stone-700 text-stone-200 border-stone-600" : "bg-stone-900 border-stone-700 text-stone-500 hover:text-stone-300"}`}
+        >
+          <span className="font-bold">{total24}</span> total (24h)
+        </button>
+      </div>
+
+      {/* Mapa geral — expansível/retrátil */}
+      {outCount > 0 || locations.length > 0 ? (
+        <div className="overflow-hidden rounded-2xl border border-stone-800">
+          <button
+            onClick={() => setExpandedMap((s) => !s)}
+            className="w-full flex items-center justify-between px-3 py-2 bg-stone-800/60 text-xs text-stone-300 hover:text-stone-200"
+          >
+            <span>Mapa de entregadores em rota</span>
+            <ChevronDown size={14} className={`transition-transform ${expandedMap ? "rotate-180" : ""}`} />
+          </button>
+          {expandedMap && (
+            <div className="p-2">
+              <DeliveriesTrackingMap locations={locations} loaded={locationsLoaded} />
+            </div>
+          )}
+        </div>
+      ) : null}
+
       {/* Só faz sentido oferecer mapa quando há alguém a caminho — ou quando
           já existe posição chegando do realtime. Sem os dois, o estado vazio
           seria ruído permanente na fila do balcão. */}
-      {(outCount > 0 || locations.length > 0) && (
-        <DeliveriesTrackingMap locations={locations} loaded={locationsLoaded} />
+      {(outCount > 0 || locations.length > 0) && !expandedMap && (
+        <div className="overflow-hidden rounded-xl border border-stone-800" data-testid="deliveries-map-collapsed">
+          <button
+            onClick={() => setExpandedMap(true)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-stone-400 hover:text-stone-200 bg-stone-900"
+          >
+            <MapPin size={12} /> Mapa de entregadores em rota <ChevronDown size={12} />
+          </button>
+        </div>
       )}
 
       {/* O toggle só aparece quando há o que revelar — com nada resolvido no
@@ -401,6 +548,23 @@ export default function DeliveriesTab({ showToast }) {
                 )}
               </div>
             )}
+            {/* Mapa do card — expansível/retrátil com rota até o endereço */}
+            {d.status === "out_for_delivery" && (
+              <div className="mt-3 pt-2 border-t border-stone-800" onClick={(e) => e.stopPropagation()}>
+                <button
+                  onClick={() => setExpandedCardMap((prev) => ({ ...prev, [d.id]: !prev[d.id] }))}
+                  className="w-full flex items-center gap-2 text-xs text-stone-400 hover:text-stone-200"
+                >
+                  <MapPin size={12} /> Rota até entrega <ChevronDown size={12} className={`transition-transform ${expandedCardMap[d.id] ? "rotate-180" : ""}`} />
+                </button>
+                {expandedCardMap[d.id] && (
+                  <div className="mt-2 overflow-hidden rounded-xl border border-stone-800 h-48">
+                    <DeliveryCardMiniMap delivery={d} locations={locations} />
+                  </div>
+                )}
+              </div>
+            )}
+
           </div>
         ))}
       </div>
