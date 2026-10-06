@@ -1340,6 +1340,72 @@ o `switch.sh` usa para abortar um deploy ruim.
 - Restauração: `docker exec -i <container> pg_restore -U pdv -d pdv --clean <arquivo.dump>`
   (o `.dump` é formato custom do `pg_dump -Fc`).
 
+## Checklist de ativação: ws-gateway e pagarme-webhook
+
+Os dois serviços sobem com o Docker desde a PR #107, mas para **funcionarem de
+verdade** precisam de configuração adicional. Este checklist cobre os dois.
+
+### ws-gateway (realtime em Go)
+
+| # | Passo | Onde | Valor |
+|---|---|---|---|
+| 1 | Subir o container | `docker compose --profile ws-gateway up -d --build ws-gateway` | — |
+| 2 | Ligar o gate | `.env` | `WS_DISPATCH=1` |
+| 3 | Subir de novo (gate só entra no `up`) | `docker compose --profile ws-gateway up -d ws-gateway` | — |
+| 4 | Portão: `/health` com `outboxEnabled:true` | `docker compose exec caddy wget -qO- http://ws-gateway:8080/health` | — |
+| 5 | Decisão que sobrevive a deploy | `.env` | `WS_BACKEND=go` |
+| 6 | Caminho quente (proxy) | `state/active-upstream` | `PDV_WS_UPSTREAM=ws-gateway:8080` |
+| 7 | Recarregar o Caddy | `docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload` | — |
+
+**Ordem importa:** o gate (passo 2) liga **junto** com a virada do proxy (passo 6).
+Cada um dos dois errados sozinho é o defeito medido (gate ligado com proxy no Node
+= o gateway engole evento; proxy no gateway com gate desligado = ninguém recebe nada).
+
+**Rollback:** remover a linha `PDV_WS_UPSTREAM` do ponteiro, `WS_BACKEND=node` e
+`WS_DISPATCH=` (vazio) no `.env`, recarregar o Caddy. O gateway pode continuar
+de pé (o rollback é do proxy, não do container).
+
+### pagarme-webhook (webhook do Pagar.me)
+
+| # | Passo | Onde | Valor |
+|---|---|---|---|
+| 1 | Subir o container | `docker compose --profile pagarme-webhook up -d --build pagarme-webhook` | — |
+| 2 | Chave do Pagar.me | `.env` | `PAGARME_SECRET_KEY=sk_live_...` |
+| 3 | Token interno | `.env` | `PAGARME_INTERNAL_TOKEN=$(openssl rand -hex 32)` |
+| 4 | Mesmo token no backend | `.env` do backend | `PAGARME_INTERNAL_TOKEN=<mesmo valor>` |
+| 5 | Ligar o drain | `.env` | `PAGARME_DRAIN=1` |
+| 6 | Subir de novo (drain só entra no `up`) | `docker compose --profile pagarme-webhook up -d pagarme-webhook` | — |
+| 7 | Portão: `/health` com `drainEnabled:true` | `docker compose exec caddy wget -qO- http://pagarme-webhook:8080/health` | — |
+| 8 | Decisão que sobrevive a deploy | `.env` | `PAGARME_WEBHOOK_BACKEND=go` |
+| 9 | Caminho quente (proxy) | `state/active-upstream` | `PDV_PAGARME_UPSTREAM=pagarme-webhook:8080` |
+| 10 | Recarregar o Caddy | `docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload` | — |
+
+**Diferente do ws-gateway:** o `PAGARME_DRAIN` desligado **não é perigoso** — o
+webhook continua funcionando porque o worker do Node assume a fila. Então o
+drain pode ser ligado **depois** da virada do proxy, que é a ordem recomendada.
+
+**Rollback:** remover a linha `PDV_PAGARME_UPSTREAM` do ponteiro,
+`PAGARME_WEBHOOK_BACKBACKEND=node` e `PAGARME_DRAIN=` (vazio) no `.env`,
+recarregar o Caddy.
+
+### Verificação final
+
+```bash
+cd /opt/pdv-completo/deploy
+
+# ws-gateway
+docker compose exec caddy wget -qO- http://ws-gateway:8080/health
+# esperado: {"status":"ok",...,"outboxEnabled":true}
+
+# pagarme-webhook
+docker compose exec caddy wget -qO- http://pagarme-webhook:8080/health
+# esperado: {"status":"ok",...,"drainEnabled":true}
+
+# proxy
+./switch.sh --status
+# esperado: realtime=ws-gateway:8080 e pagarme=pagarme-webhook:8080
+```
+
 ## Deixando o app disponível pros garçons (PWA)
 
 Não precisa publicar em loja de app nenhuma. No celular do garçom:
