@@ -115,7 +115,7 @@ jobs:
       # `.cargo/config.toml` no repo (nenhum `target-dir` customizado), então
       # não há como o bundle cair dentro do crate.
       #
-      # Prova, não é theories — o próprio log do build neste workflow:
+      # Prova, não é teoria — o próprio log do build deste workflow:
       #
       #   Finished 1 bundle at:
       #           D:\a\pdv-completo\pdv-completo\target\release\bundle\nsis\
@@ -681,9 +681,9 @@ jobs:
         run: |
           set -Eeuo pipefail
           # `find` em vez de `ls` (SC2012, actionlint/shellcheck): nome de
-          # arquivo de instalador pode vir com caractere que o `ls` safa de
-          # forma diferente do shell, e aqui a lista é só diagnóstico — o que
-          # decide o run são os `test` e o `jq` abaixo.
+          # arquivo de instalador pode ter caractere que o `ls` trata de forma
+          # diferente do shell. E aqui a lista é só diagnóstico — o que decide
+          # o run são os `test` e o `jq` abaixo.
           find bundle -maxdepth 1 -printf '%M %10s %f\n' | sort
           test -f bundle/latest.json || { echo "Faltou o latest.json no bundle"; exit 1; }
           # O artefato é derivado do .sig quando existe (PDV, com updater) ou
