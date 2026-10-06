@@ -16,6 +16,11 @@ frontend/src-tauri/  App desktop v1 (Tauri) — desacoplado do web app, em manut
 deploy/     Deploy em nuvem: Dockerfiles, Caddy (HTTPS automático), docker-compose
 docs/       Specs originais + guias para agentes
 printer/    Daemon Go para impressão térmica (ESC/POS)
+            Também tem um renderizador ESC/POS em Rust (o app Caixa,
+            `standalone-pdv/src/printing/`), que NÃO passa pelo daemon — os
+            dois têm de sair byte a byte iguais e o golden é o mesmo arquivo
+            dos dois lados. Detalhes em `docs/agente-hardware-printing.md`
+            § "Dois renderizadores, uma golden".
 ws-gateway/ Gateway WebSocket em Go (módulo Go independente, como o `printer/`):
             mesmo handshake, mesmas rooms e mesmo outbox do backend Node, para
             substituir o `backend/src/infra/realtime/`. Plugado no `deploy/`
@@ -308,3 +313,12 @@ Antes de dar qualquer mudança por feita:
 5. Conferir o critério de aceite correspondente em `docs/03-acceptance-criteria.md`
 6. Toda mudança realtime: garantir que o evento chega a um room que o client realmente assina
 7. Toda mudança de schema: novo arquivo `.sql` numerado em `backend/migrations/`
+8. Impressão (qualquer um dos dois renderizadores):
+   - daemon: `go build`, `go vet`, `test -z "$(gofmt -l .)"` e `go test ./...` em
+     `printer/daemon` — os quatro estão no job `test-printer-daemon` do CI
+   - app Rust: `cargo test -p pdv-caixa` na raiz, e **`rust_imprime_o_mesmo_que_o_go`
+     tem que passar** — é o golden byte a byte com o daemon. Ele NÃO pega erro na
+     conversão de code page (o golden compara o render lógico, em UTF-8), então
+     uma mudança em `codepage.rs` precisa de teste próprio de bytes, não só o green
+   - `cargo fmt` em arquivo que você não mexeu reformata código de outra pessoa:
+     formate só o seu (`rustfmt --edition 2021 <arquivo>`)
