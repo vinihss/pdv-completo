@@ -616,6 +616,7 @@ export const deliveries = pgTable(
     dispatchedAt: text("dispatched_at"),
     deliveredAt: text("delivered_at"),
     notes: text("notes"),
+    arrivalAlertSent: boolean("arrival_alert_sent").notNull().default(false),
     createdAt: text("created_at").notNull().default(isoNow),
   },
   (t) => [index("idx_delivery_status").on(t.status), index("idx_delivery_courier").on(t.courierId)],

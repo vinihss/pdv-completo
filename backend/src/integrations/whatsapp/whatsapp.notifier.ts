@@ -74,6 +74,10 @@ export async function notifyReady(orderId: string): Promise<void> {
 
 // Cancelamento (pelo cliente — cancel-order.usecase.ts; ou pelo manager
 // via cancelOrderUsecase, quando a comanda tem telefone).
+export async function notifyArriving(orderId: string): Promise<void> {
+  await notify(orderId, "Sua entrega está chegando! 🍕 Está a poucos minutos.");
+}
+
 export async function notifyCancelled(orderId: string, reason: string): Promise<void> {
   await notify(orderId, `Seu pedido foi cancelado (${reason}). Se quiser, faça um novo pedido por aqui. 🙏`);
 }

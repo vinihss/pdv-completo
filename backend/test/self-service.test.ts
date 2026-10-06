@@ -674,7 +674,7 @@ describe("fila do entregador: a falha não some e a atribuição é avisada", ()
     const deliveryId = await readyOrder(orderId);
     const assign = await assignCourier(deliveryId, courierId);
     expect(assign.status).toBe(200);
-    return { orderId, deliveryId };
+    return { orderId, deliveryId, estimatedMinutes: created.json.estimatedMinutes as number };
   }
 
   // ---------- item 1: o default de status ----------
@@ -741,6 +741,32 @@ describe("fila do entregador: a falha não some e a atribuição é avisada", ()
     const res = await api("get", "/courier/deliveries?status=waiting", { token: courierToken() });
     expect(res.status).toBe(400);
     expect(res.json.error.code).toBe("validation_failed");
+  });
+
+  // ---------- item 2: o card do gerente (mapa geral) ----------
+
+  it("a lista do gerente carrega a previsão e as coordenadas do endereço do pedido", async () => {
+    const { orderId, deliveryId, estimatedMinutes } = await entregaProntaPara(COURIER);
+    // O checkout grava o endereço sem coordenadas (o cliente não manda lat/lng);
+    // o marker do mapa do gerente depende de o endereço estar georreferenciado.
+    await raw.exec(`
+      UPDATE customer_address SET latitude = -29.75, longitude = -51.15
+      WHERE customer_id = (SELECT customer_id FROM "order" WHERE id = '${orderId}');
+    `);
+
+    const res = await api("get", "/manager/deliveries", { token: manager });
+    expect(res.status).toBe(200);
+    const item = res.json.find((d: any) => d.orderId === orderId);
+    expect(item).toBeTruthy();
+    expect(item.id).toBe(deliveryId);
+    expect(item.addressLatitude).toBeCloseTo(-29.75);
+    expect(item.addressLongitude).toBeCloseTo(-51.15);
+    // A previsão que o card do gerente mostra é a MESMA que o cliente viu no
+    // checkout — o gerente precisa acompanhar a promessa feita, não outra.
+    // `distance_km` fica null sem faixa escolhida (no HTTP o zod descarta o
+    // deliveryZoneKm — ver §05), então a presença do campo é o contrato.
+    expect(item.estimatedMinutes).toBe(estimatedMinutes);
+    expect(item.distanceKm).toBeNull();
   });
 
   // ---------- item 3: o alerta direcionado da atribuição ----------

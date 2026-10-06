@@ -185,8 +185,8 @@ Gerente
 │   └── Excluir (com confirmação; se houver produtos vinculados, aviso explícito de que ficam sem
 │       categoria até reatribuição manual — exclusão não é bloqueada, só avisada)
 ├── Usuários
-│   ├── Lista (nome, role, ativo/inativo)
-│   └── Formulário (nome, role, definir/resetar PIN)
+│   ├── Lista (avatar com foto/iniciais, nome, role, ativo/inativo, editar)
+│   └── Formulário (nome, role, telefone, email, definir/resetar PIN, foto — no cadastro a foto escolhida sobe logo após a criação)
 └── Configurações
     ├── Usar mesas (toggle) — liga/desliga a opção de mesa na abertura de comanda do garçom
     ├── Usar tela da cozinha (toggle) — liga/desliga a etapa "pronto"; desativado, o garçom marca
@@ -207,7 +207,7 @@ Gerente
 
 **Formulário de categoria**: nome editável inline + ordem de exibição, já que isso define a ordem das abas na tela de seleção de produto do garçom (seção 4.4). Exclusão sempre passa por confirmação, com aviso diferenciado quando existem produtos vinculados àquela categoria.
 
-**Formulário de usuário**: nome, role (waiter/kitchen/manager), e definição de PIN — sem exibir PIN existente (só permite resetar).
+**Formulário de usuário**: nome, role (waiter/kitchen/manager), telefone, email e definição de PIN — sem exibir PIN existente (só permite resetar). A ficha de edição (aberta por um botão de editar na linha da lista, que já mostra o avatar/foto) também permite enviar/remover a foto do perfil; no cadastro, a foto escolhida sobe logo após a criação.
 
 **Configurações**: os toggles e formas de pagamento afetam imediatamente a experiência do garçom — não exigem deploy nem reinício do app, só releitura de `store_settings` no próximo carregamento da tela relevante. O toggle de cozinha também afeta a tela de seleção de usuário (login): sem cozinha habilitada, não faz sentido oferecer um usuário do tipo `kitchen` na lista — ver seção 3.
 
