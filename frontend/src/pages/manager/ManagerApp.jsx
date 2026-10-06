@@ -15,6 +15,7 @@ import SettingsTab from "./tabs/settings/SettingsTab.jsx";
 import StockTab from "./tabs/inventory/StockTab.jsx";
 import PurchaseTab from "./tabs/purchase/PurchaseTab.jsx";
 import CustomersTab from "./tabs/customers/CustomersTab.jsx";
+import ManagerHome from "./tabs/home/ManagerHome.jsx";
 import { useAuth } from "@/app/providers/auth";
 import { useNav } from "@/app/providers/nav";
 
@@ -30,8 +31,9 @@ export default function ManagerApp() {
   const purchaseEnabled = storeSettings?.purchaseEnabled ?? false;
 
   // Só a tela escolhida é montada; o mapa inteiro é barato (elementos, não
-  // componentes) e evita onze condicionais.
+  // componentes e evita onze condicionais.
   const SCREENS = {
+    home: <ManagerHome showToast={showToast} />,
     orders: <OrderBoard />,
     cash: <CashDrawerTab showToast={showToast} />,
     customers: <CustomersTab showToast={showToast} />,
@@ -58,10 +60,10 @@ export default function ManagerApp() {
   };
 
   // `activeId` inválido (item guardado de uma versão antiga, toggle desligado)
-  // cai em Comandas — nunca numa tela vazia.
+  // cai na Home — nunca numa tela vazia.
   return (
     <div className="min-h-screen bg-stone-950 text-stone-50">
-      {SCREENS[activeId] ?? SCREENS.orders}
+      {SCREENS[activeId] ?? SCREENS.home}
       <Toast toast={toast} />
     </div>
   );

@@ -1,5 +1,5 @@
 import {
-  BarChart3, Boxes, ChefHat, History, MessageCircle, Package, Receipt, Settings, ShoppingCart, Store, Truck, TruckIcon, Users, UtensilsCrossed, Wallet, LayoutDashboard, ClipboardList,
+  BarChart3, Boxes, ChefHat, History, Home, Package, Receipt, Settings, ShoppingCart, Store, Truck, TruckIcon, Users, UtensilsCrossed, Wallet, LayoutDashboard, ClipboardList,
 } from "lucide-react";
 
 /**
@@ -19,6 +19,12 @@ import {
  * que o id sozinho já diga de qual grupo veio.
  */
 const MANAGER = ({ inventoryEnabled, purchaseEnabled, ifoodIntegrationEnabled }) => [
+  {
+    id: "inicio",
+    label: "Início",
+    icon: Home,
+    items: [{ id: "home", label: "Início", icon: Home }],
+  },
   {
     id: "operacao",
     label: "Operação",

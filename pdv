@@ -452,7 +452,7 @@ case "${1:-}" in
     ;;
   start)
     shift
-    local _use_demo=0
+   _use_demo=0
     if [ "${1:-}" = "--demo" ]; then
       _use_demo=1; shift
     fi
