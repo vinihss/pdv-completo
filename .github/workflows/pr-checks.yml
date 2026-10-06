@@ -11,6 +11,32 @@ permissions:
   contents: read
   pull-requests: read
 
+# ============================================================
+# CONCURRENCY: UM PUSH NOVO CANCELA O RUN VELHO DESTES DOIS JOBS
+# ============================================================
+# Este workflow é o outro portão do PR, e ele roda em TODOS os eventos que
+# mexem na PR — `synchronize` (cada push), mas também `edited` (cada edição de
+# título/corpo). O `edited` é justamente o evento que o job
+# `titulo-conventional` existe para vigiar: renomear o título reenfileira o
+# gate, e sem isto o run do título VELHO continuava valendo ao lado do novo.
+#
+# `cancel-in-progress: true` mata o run anterior da MESMA PR, então o que
+# sobrevive é sempre a avaliação do estado mais recente do título e dos commits
+# — que é o único estado que interessa. O que NÃO é tocado:
+#
+# - outras PRs: o grupo leva o número da PR, duas PRs continuam em paralelo;
+# - o `ci-pr.yml`: tem o seu próprio `concurrency`, com o `github.workflow` no
+#   grupo justamente para os dois workflows não se cancelarem;
+# - o `deploy-on-tag.yml`: NÃO tem `cancel-in-progress` — um push novo nunca
+#   cancela o run de produção.
+#
+# `github.event.pull_request.number` (e não `github.ref`) deixa o grupo
+# legível na lista de runs e não depende do formato do ref de `pull_request`.
+# ============================================================
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   commitlint:
     name: Validate Conventional Commits
