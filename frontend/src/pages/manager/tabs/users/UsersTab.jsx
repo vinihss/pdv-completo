@@ -1,13 +1,15 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { Plus, RefreshCcw } from "lucide-react";
-import { listUsers, createUser, updateUser, resetPin } from "@/entities/user";
-import { Field, inputClass, ConfirmModal, Modal } from "@/shared/components";
+import { Pencil, Plus, RefreshCcw } from "lucide-react";
+import { listUsers, updateUser, resetPin } from "@/entities/user";
+import { ConfirmModal, UserAvatar } from "@/shared/components";
+import UserModal from "./UserModal.jsx";
 
 const ROLE_LABEL = { waiter: "Garçom", kitchen: "Cozinha", manager: "Gerente", courier: "Entregador", cashier: "Caixa" };
 
 export default function UsersTab({ showToast }) {
   const [users, setUsers] = useState([]);
   const [newUserOpen, setNewUserOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [revealedPin, setRevealedPin] = useState(null);
 
   const load = useCallback(async () => {
@@ -15,15 +17,13 @@ export default function UsersTab({ showToast }) {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  async function handleCreate(name, role) {
-    try {
-      const created = await createUser({ name, role });
-      setRevealedPin({ name: created.name, pin: created.pin });
-      setNewUserOpen(false);
-      await load();
-    } catch (e) {
-      showToast(e.message, "error");
-    }
+  // onSaved do UserModal: recarrega a lista (mutation `await` + reload, sem
+  // otimismo). Em criação o backend devolve o PIN gerado UMA única vez no
+  // corpo da resposta — `saved.pin` só existe aí (edição e upload de foto
+  // nunca devolvem pin), então o modal de PIN revelado só abre nesse caso.
+  async function handleSaved(saved) {
+    if (saved?.pin) setRevealedPin({ name: saved.name, pin: saved.pin });
+    await load();
   }
 
   async function handleToggleActive(u) {
@@ -40,13 +40,19 @@ export default function UsersTab({ showToast }) {
     <div className="p-5 max-w-lg mx-auto space-y-4">
       <div className="space-y-2">
         {users.map((u) => (
-          <div key={u.id} className={`flex items-center justify-between bg-stone-900 border border-stone-800 rounded-xl px-4 py-3 ${!u.active ? "opacity-50" : ""}`}>
-            <div>
-              <div className="text-sm font-semibold">{u.name}</div>
-              <div className="text-stone-500 text-xs capitalize">{ROLE_LABEL[u.role]}</div>
+          <div key={u.id} className={`flex items-center justify-between gap-3 bg-stone-900 border border-stone-800 rounded-xl px-4 py-3 ${!u.active ? "opacity-50" : ""}`}>
+            <div className="flex items-center gap-3 min-w-0">
+              <UserAvatar name={u.name} photoPath={u.photoPath} className="w-9 h-9 text-xs" />
+              <div className="min-w-0">
+                <div className="text-sm font-semibold truncate">{u.name}</div>
+                <div className="text-stone-500 text-xs">{ROLE_LABEL[u.role]}</div>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <button onClick={() => handleResetPin(u)} className="text-stone-500 hover:text-amber-400" title="Redefinir PIN">
+            <div className="flex items-center gap-3 shrink-0">
+              <button onClick={() => setEditing(u)} title="Editar usuário" aria-label={`Editar ${u.name}`} className="text-stone-500 hover:text-amber-400">
+                <Pencil size={15} />
+              </button>
+              <button onClick={() => handleResetPin(u)} className="text-stone-500 hover:text-amber-400" title="Redefinir PIN" aria-label={`Redefinir PIN de ${u.name}`}>
                 <RefreshCcw size={15} />
               </button>
               <button onClick={() => handleToggleActive(u)} className="text-xs font-semibold text-stone-400 hover:text-stone-200">
@@ -63,7 +69,22 @@ export default function UsersTab({ showToast }) {
         <Plus size={16} /> Novo usuário
       </button>
 
-      {newUserOpen && <NewUserModal onClose={() => setNewUserOpen(false)} onCreate={handleCreate} />}
+      {newUserOpen && (
+        <UserModal
+          onClose={() => setNewUserOpen(false)}
+          onSaved={handleSaved}
+          showToast={showToast}
+        />
+      )}
+      {editing && (
+        <UserModal
+          key={editing.id}
+          user={editing}
+          onClose={() => setEditing(null)}
+          onSaved={handleSaved}
+          showToast={showToast}
+        />
+      )}
 
       {revealedPin && (
         <ConfirmModal
@@ -75,62 +96,5 @@ export default function UsersTab({ showToast }) {
         />
       )}
     </div>
-  );
-}
-
-export function NewUserModal({ onClose, onCreate }) {
-  const [name, setName] = useState("");
-  const [role, setRole] = useState("waiter");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  async function handleSubmit() {
-    if (!name.trim()) {
-      setError("Informe o nome do usuário.");
-      return;
-    }
-    setError("");
-    setSaving(true);
-    try {
-      await onCreate(name.trim(), role);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Modal
-      title="Novo usuário"
-      onClose={onClose}
-      footer={
-        <button onClick={handleSubmit} disabled={saving} className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl">
-          {saving ? "Criando…" : "Criar usuário"}
-        </button>
-      }
-    >
-      <div className="p-5">
-        <Field label="Nome" required>
-          <input
-            value={name}
-            onChange={(e) => { setName(e.target.value); if (e.target.value.trim()) setError(""); }}
-            className={inputClass + (error ? " border-red-500/60" : "")}
-            aria-invalid={!!error}
-            aria-describedby={error ? "new-user-name-error" : undefined}
-          />
-        </Field>
-        {error && <p id="new-user-name-error" className="text-red-400 text-xs mt-1">{error}</p>}
-        <div className="mt-3">
-          <Field label="Perfil">
-            <select value={role} onChange={(e) => setRole(e.target.value)} className={inputClass}>
-              <option value="waiter">Garçom</option>
-              <option value="kitchen">Cozinha</option>
-              <option value="manager">Gerente</option>
-              <option value="cashier">Caixa</option>
-              <option value="courier">Entregador</option>
-            </select>
-          </Field>
-        </div>
-      </div>
-    </Modal>
   );
 }

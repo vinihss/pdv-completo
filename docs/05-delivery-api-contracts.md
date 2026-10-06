@@ -145,6 +145,19 @@ correção pontual, não a requisição inteira.
 
 Internamente: resolve/cria cliente → resolve/cria endereço → chama `openOrderUsecase({ tabLabel: "Delivery - <nome>", channel })` + `addItemsUsecase` → grava `orders.deliveryFee` a partir de `store_settings.delivery_fee`.
 
+> **Pendência conhecida (não corrigida aqui):** o `deliveryZoneKm` que a página
+> envia é **descartado pelo zod** da rota pública (o `createOrderSchema` não
+> declara o campo e o `z.object` do zod v4 remove chaves não declaradas), então
+> `delivery.distance_km` nasce `null` no fluxo HTTP — só `estimated_minutes`
+> (preparo + piso de viagem) é gravado, e a faixa escolhida na tela não entra
+> no cálculo. O usecase aceita o campo (`createSelfServiceOrderUsecase`), o
+> frontend o envia (`CustomerMenuPage`); falta a linha `deliveryZoneKm:
+> z.number().optional()` no schema. Enquanto isso, o contrato de
+> `GET /manager/deliveries` documenta `distanceKm: number | null` — o campo
+> existe e serializa; o valor só chega quando a distância real entrar via OSRM
+> (o lugar reservado em `delivery.distance_km`, ver `domain/delivery-eta.ts`).
+>
+
 ### `GET /public/orders/:id/status`
 
 Polling simples; a página também assina o WebSocket público (ver abaixo) e
@@ -273,10 +286,14 @@ Não há resposta síncrona significativa pro Fastify além de `200 OK` — a re
 
 ```
 query: ?status=awaiting_courier,out_for_delivery[,delivered,failed,cancelled]   // default: as duas primeiras
-200 → [{ id, orderId, address, status, createdAt, dispatchedAt, deliveredAt }]
+200 → [{ id, orderId, courierId, address, status, createdAt, dispatchedAt, deliveredAt, notes,
+         distanceKm: number | null, estimatedMinutes: number | null,
+         addressLatitude: number | null, addressLongitude: number | null }]
 ```
 
 Filtra automaticamente por `courier_id = <usuário autenticado>` — entregador nunca vê entregas de outro.
+
+`distanceKm`/`estimatedMinutes` são as colunas gravadas no insert do checkout (§4.1 do `order-intake`): a promessa de entrega que o cliente viu — o mapa do entregador e o card do gerente mostram a mesma previsão. `addressLatitude`/`addressLongitude` são a projeção `delivery → order.customer_id → customer_address` (o endereço padrão do cliente; sem padrão, o primeiro cadastrado) — sem georreferência, saem `null` e o mapa não desenha o marker de destino.
 
 ### `PATCH /courier/deliveries/:id/dispatch`
 
@@ -307,13 +324,39 @@ body: { reason: string }
 
 ```
 query: ?status=awaiting_courier,out_for_delivery,delivered,failed,cancelled
-200 → [{ id, orderId, address, status, courier: { id, name } | null,
-         customerName: string | null, createdAt, dispatchedAt, deliveredAt }]
+200 → [{ id, orderId, courierId, address, status, createdAt, dispatchedAt, deliveredAt, notes,
+         distanceKm: number | null, estimatedMinutes: number | null,
+         addressLatitude: number | null, addressLongitude: number | null,
+         courier: { id, name } | null,
+         customerName: string | null }]
 ```
 
 Ordenada por `createdAt` **descendente** (o que caiu por último vem primeiro). A lista do entregador é o oposto — `createdAt` ascendente, porque a fila dele é a mais antiga primeiro.
 
 `customerName` vem do `customer` ligado à comanda (`order.customer_id`). Cai no `order.tab_label` quando o pedido entrou sem cliente vinculado, que é o caso do checkout self-service: ele grava `tabLabel: "Delivery - <nome>"` (`order-intake.usecase.ts`). O prefixo é exigido — sem ele o fallback devolveria qualquer rótulo solto como se fosse nome de gente.
+
+`distanceKm`/`estimatedMinutes` e `addressLatitude`/`addressLongitude` têm as mesmas regras da lista do entregador (mesmo `serialize` e a mesma projeção de endereço, helper compartilhado) — é o que alimenta o card de cada entrega no mapa geral com a rota até o endereço e a previsão relativa à posição do entregador.
+
+### `GET /manager/deliveries/locations`
+
+```
+200 → [{ courierId, courierName: string, photoPath: string | null,
+         latitude: number, longitude: number, accuracy: number | null,
+         updatedAt: string }]
+```
+
+Última posição de cada entregador com entrega em rota **agora** (`delivery.status = out_for_delivery`), deduplicada por `courierId` — o join parte da `delivery`, não da `courier_location`, então quem terminou a rota não aparece. `photoPath` é a URL pública (`/uploads/user/<arquivo>`), `null` quando o entregador não tem foto.
+
+### Evento realtime `courier.location` (room `deliveries`)
+
+Empilhado no outbox a cada `POST /courier/location` (na mesma transação do upsert da posição — sem audit_log: ping de alta frequência poluiria o log). É o par da carga inicial acima, com os mesmos campos que o mapa já conhece:
+
+```
+{ courierId, latitude, longitude, accuracy: number | null, updatedAt,
+  courierName: string | null, photoPath: string | null }
+```
+
+`courierName`/`photoPath` são lidos da linha do usuário **dentro da mesma transação** do upsert. Os campos somam ao contrato (nada sai).
 
 ### `PATCH /manager/deliveries/:id/assign`
 
