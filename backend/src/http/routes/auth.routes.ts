@@ -7,7 +7,13 @@ import { loginUsecase } from "../../application/auth/login.usecase.js";
 import { photoUrl } from "../../application/user.usecases.js";
 import { loginRateLimit } from "../middlewares/rate-limit.middleware.js";
 
-const loginSchema = z.object({ userId: z.string(), pin: z.string().min(4).max(6) });
+const loginSchema = z.object({
+  userId: z.string(),
+  pin: z.string().min(4).max(6),
+  // Aparelho provisionado (docs/21 §5.3): presente, o backend valida vínculo
+  // ativo; ausente, comportamento atual preservado (PWA/tablet compartilhado).
+  deviceId: z.string().optional(),
+});
 
 export async function authRoutes(app: FastifyInstance) {
   // Rota pública mínima pra alimentar a tela de seleção de usuário do login
@@ -34,7 +40,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post("/auth/login", { preHandler: loginRateLimit }, async (req, reply) => {
     const body = loginSchema.parse(req.body);
-    const result = await loginUsecase(body.userId, body.pin);
+    const result = await loginUsecase(body.userId, body.pin, body.deviceId);
     return reply.code(200).send(result);
   });
 }
