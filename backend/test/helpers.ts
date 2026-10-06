@@ -152,6 +152,7 @@ const TRANSIENT_TABLES = [
   "outbox_event",
   "cash_drawer",
   "delivery",
+  "courier_location",
   "customer_cart",
   "customer_address",
   "whatsapp_conversation",
