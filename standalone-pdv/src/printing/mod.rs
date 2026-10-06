@@ -35,6 +35,7 @@
 //! ticket para a fila, quem pergunta o status do aparelho e o `PrintHealth` que
 //! a UI consome.
 
+pub mod codepage;
 pub mod commands;
 pub mod escpos;
 pub mod status;

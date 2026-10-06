@@ -74,6 +74,20 @@ pub struct PrinterProfile {
   /// este campo existe para a fase 2, em que ele passa a ser uma chave só.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub template_id: Option<String>,
+  /// Página de códigos do cupom: `cp850` (padrão), `cp858`, `windows-1252` ou
+  /// `utf-8` (sem conversão). Térmicas ESC/POS não entendem UTF-8, então o
+  /// default converte para cp850 e emite `ESC t`.
+  ///
+  /// Ausente ou vazio = cp850, igual ao daemon Go — que é o default das
+  /// térmicas de 80mm. Mesmo nome e mesmo significado do campo `encoding` no
+  /// `config.json` do daemon, para o técnico não ter dois dialetos.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub encoding: Option<String>,
+  /// Sobrescreve o número do `ESC t n` quando o modelo não segue a tabela
+  /// Epson (cp850=2, cp858=19, windows-1252=16). Último recurso: sintoma é
+  /// texto ilegível e a causa está no app.json, longe do sintoma.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub code_page: Option<i64>,
 }
 
 impl PrinterProfile {

@@ -79,6 +79,53 @@ O `Dockerfile` faz `npm ci` + `npm prune --omit=dev` no estágio `build` (com to
 - Auto-print é pós-commit **fire-and-forget**: cozinha no `addItemsUsecase`, entregador no `dispatchDeliveryUsecase`
 - Erros: comanda inexistente → 404; daemon fora do ar → 503 (`service_unavailable`)
 
+### Dois renderizadores, uma golden
+
+A impressão tem **dois** renderizadores ESC/POS, e eles precisam sair byte a byte
+iguais:
+
+| Caminho | Renderiza | Onde |
+|---|---|---|
+| Web/PWA e auto-print | daemon Go | `printer/daemon/render.go` |
+| App desktop Caixa | Rust | `standalone-pdv/src/printing/escpos.rs` |
+
+O app **não** delega ao daemon: ele monta o cupom e despacha direto ao spooler ou
+ao socket TCP (`commands.rs::dispatch`). Por isso os dois existem, e por isso o
+golden é o mesmo arquivo dos dois lados.
+
+Regra que mantém a paridade: **`render()` é o render lógico, em UTF-8, sem `ESC t`**
+— é ele que o golden compara. A conversão de code page só entra em
+`renderForProfile()` (Go, `render.go:81`) e `render_for_profile()` (Rust,
+`escpos.rs:330`), o caminho de produção. Se você mexer no render lógico, os dois
+goldens (Go e Rust) quebram; se mexer só na conversão, nenhum dos dois acusam,
+porque o golden não exercita a bobina.
+
+### Code page e sanitização
+
+Térmicas ESC/POS não entendem UTF-8, então todo texto do pedido passa por
+`sanitize()` + `encode()` antes de virar byte — no Go (`encoder.go`, em `emit()`)
+e no Rust (`codepage.rs`, no `line()`). É o mesmo par nas duas pontas.
+
+- `encoding` por perfil: `cp850` (default), `cp858` (euro no 0xD5),
+  `windows-1252`, ou `utf-8` para desligar a conversão. `code_page` sobrescreve
+  o `ESC t n` quando o modelo não segue a tabela Epson.
+- Defaults diferentes **por caminho** e isso é proposital: o daemon e o app
+  convertem para cp850 porque é o que a térmica entende; o mock de dev
+  (`scripts/dev/setup-dev.sh`) usa `utf-8` porque é um `cat` que despeja bytes no
+  terminal, e cp850 sairia ilegível.
+- **Sanitização não é opcional.** `Item.name` é o que o garçom digita no celular.
+  Sem descarte dos bytes de controle, um `ESC` no nome injeta comando na
+  impressora: `GS V` corta o papel, `ESC p` abre a gaveta. `\n` sobrevive,
+  `\t` vira espaço.
+- **Nomes e valores são o contrato.** As tags JSON de `PrinterProfile`
+  (`encoding`, `code_page`) e de `Order`/`Item` não são estilo: são o contrato
+  com o daemon, com o app e com o `config.json` do técnico. Mudar uma tag quebra
+  o cliente sem o compilador reclamar.
+
+Prova de que isso não é teórico: com o Rust sem `encode()`, a bobina da loja
+imprimiu `"Caoptions"` onde deveria sair `"Cappuccinos"` — o UTF-8 de `ã`
+(`c3 a3`) lido como cp850 vira dois caracteres e desloca o resto da linha.
+
 ## Central de alertas
 
 - Tabela `alert` (migration `0004`) gravada por `createAlertTx` **dentro da transação** de `openOrderUsecase`

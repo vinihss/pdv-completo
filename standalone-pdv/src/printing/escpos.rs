@@ -119,16 +119,42 @@ pub struct PrintRequest {
   pub order: Order,
 }
 
-/// Construtor de bytes ESC/POS. Espelha o `type escpos` do Go (`main.go:905`).
+/// Construtor de bytes ESC/POS. Espelha o `type escpos` do Go.
 #[derive(Debug, Default)]
 pub struct Escpos {
   data: Vec<u8>,
+  /// `None` = render lógico em UTF-8 (é o que os goldens comparam).
+  /// `Some` = produção: sanitiza e converte para a code page do perfil.
+  page: Option<&'static str>,
 }
 
 impl Escpos {
+  /// Render lógico: UTF-8, sem `ESC t`. É o que o golden do Rust e o golden
+  /// do Go esperam, então este construtor NÃO converte.
   pub fn new() -> Self {
-    let mut e = Escpos { data: Vec::new() };
+    let mut e = Escpos {
+      data: Vec::new(),
+      page: None,
+    };
     e.init();
+    e
+  }
+
+  /// Render de produção: aplica a code page do perfil. Com `page = None`
+  /// (encoding utf-8) o resultado é idêntico a [`Escpos::new`].
+  pub fn with_page(page: Option<&'static str>, code_page: u8) -> Self {
+    let mut e = Escpos {
+      data: Vec::new(),
+      page,
+    };
+    e.init();
+    // `ESC t` logo depois do `ESC @` e antes de qualquer bloco: a página
+    // precisa valer desde o primeiro byte de texto, e o init do cupom é o
+    // único ponto onde a impressora ainda está no estado dela. Mesma
+    // posição que o Go usa (render.go:94-98).
+    if page.is_some() {
+      e.data.extend_from_slice(&[0x1b, 0x74, code_page]);
+    }
     e
   }
 
@@ -139,8 +165,20 @@ impl Escpos {
     self.data.extend_from_slice(&[0x1b, 0x40]);
   }
 
+  /// Único caminho por onde texto do pedido vira byte: sanitiza (nada de
+  /// ESC/POS vindo de nome de item) e codifica na página. Passar por aqui em
+  /// vez de dentro de `line()` é o que mantém o builder burro e impossível de
+  /// usar errado — o mesmo argumento do `emit()` no Go.
   pub fn line(&mut self, s: &str) {
-    self.data.extend_from_slice(s.as_bytes());
+    match self.page {
+      None => self
+        .data
+        .extend_from_slice(super::codepage::sanitize(s).as_bytes()),
+      Some(page) => self.data.extend_from_slice(&super::codepage::encode(
+        page,
+        &super::codepage::sanitize(s),
+      )),
+    }
     self.data.push(b'\n');
   }
 
@@ -193,14 +231,22 @@ impl Escpos {
     let data = value.as_bytes();
     let size = (data.len() + 3) as u16;
     // Modelo 2, nível de correção M, tamanho em bytes, dados, imprimir.
-    self.data.extend_from_slice(&[0x1d, 0x28, 0x6b, 4, 0, 49, 65, 50, 0]);
-    self.data.extend_from_slice(&[0x1d, 0x28, 0x6b, 3, 0, 49, 67, 4]);
-    self.data.extend_from_slice(&[0x1d, 0x28, 0x6b, 3, 0, 49, 69, 48]);
+    self
+      .data
+      .extend_from_slice(&[0x1d, 0x28, 0x6b, 4, 0, 49, 65, 50, 0]);
+    self
+      .data
+      .extend_from_slice(&[0x1d, 0x28, 0x6b, 3, 0, 49, 67, 4]);
+    self
+      .data
+      .extend_from_slice(&[0x1d, 0x28, 0x6b, 3, 0, 49, 69, 48]);
     self
       .data
       .extend_from_slice(&[0x1d, 0x28, 0x6b, size as u8, (size >> 8) as u8, 49, 80, 48]);
     self.data.extend_from_slice(data);
-    self.data.extend_from_slice(&[0x1d, 0x28, 0x6b, 3, 0, 49, 81, 48]);
+    self
+      .data
+      .extend_from_slice(&[0x1d, 0x28, 0x6b, 3, 0, 49, 81, 48]);
     self.feed(1);
   }
 }
@@ -271,8 +317,36 @@ fn expand(value: &str, order: &Order) -> String {
 /// ordem dos comandos: um bloco `text` emite alinhamento, negrito, tamanho,
 /// o texto, e **depois** volta tamanho e negrito ao normal. Inverter essa
 /// ordem faria o separador seguinte herdar negrito.
+/// Renderiza o ticket em UTF-8, sem code page. É o render **lógico**: é o que
+/// os goldens comparam, e por isso ele não converte a página (sanitiza sempre).
+///
+/// Para produção use [`render_for_profile`], que aplica a code page do perfil.
 pub fn render(template: &Template, order: &Order) -> Result<Vec<u8>, String> {
-  let mut b = Escpos::new();
+  render_with_page(template, order, None, 0)
+}
+
+/// Render de produção: aplica a code page do perfil do destino. Com
+/// `encoding: utf-8` (`page = None`) o resultado é idêntico a [`render`].
+pub fn render_for_profile(
+  template: &Template,
+  order: &Order,
+  encoding: Option<&str>,
+  code_page_override: Option<i64>,
+) -> Result<Vec<u8>, String> {
+  match super::codepage::resolve(encoding, code_page_override) {
+    Some((page, cp)) => render_with_page(template, order, Some(page), cp),
+    None => render_with_page(template, order, None, 0),
+  }
+}
+
+/// Faz o trabalho. `page = None` é UTF-8 lógico.
+fn render_with_page(
+  template: &Template,
+  order: &Order,
+  page: Option<&'static str>,
+  code_page: u8,
+) -> Result<Vec<u8>, String> {
+  let mut b = Escpos::with_page(page, code_page);
   for block in &template.blocks {
     match block.r#type.as_str() {
       "text" => {
@@ -320,7 +394,10 @@ pub fn render(template: &Template, order: &Order) -> Result<Vec<u8>, String> {
         b.bold(true);
         b.line("ENDEREÇO");
         b.bold(false);
-        b.line(&format!("{}, {}", order.delivery.address, order.delivery.number));
+        b.line(&format!(
+          "{}, {}",
+          order.delivery.address, order.delivery.number
+        ));
         if !order.delivery.complement.is_empty() {
           b.line(&format!("Complemento: {}", order.delivery.complement));
         }
@@ -368,6 +445,127 @@ mod tests {
       total_cents: 4530,
       ..Default::default()
     }
+  }
+
+  #[test]
+  fn item_com_esc_nao_injeta_comando_na_impressora() {
+    // Regressão do defeito que motivou o `codepage`: `line()` fazia
+    // `s.as_bytes()` cru, então ESC/GS digitado no nome de um item virava
+    // comando. `GS V` corta o papel, `ESC p` abre a gaveta.
+    let mut o = order();
+    o.items = vec![Item {
+      name: "Cacha\u{1b}d\u{1b}".into(),
+      quantity: 1,
+      ..Default::default()
+    }];
+    let t = Template {
+      blocks: vec![Block {
+        r#type: "items".into(),
+        ..Default::default()
+      }],
+      ..Default::default()
+    };
+
+    for page in [None, Some("cp850"), Some("cp858"), Some("windows-1252")] {
+      let bytes = render_with_page(&t, &o, page, 2).unwrap();
+      // O texto é distinguido dos comandos: ESC @ e ESC t são do renderer, e
+      // valem. O que não pode é ESC vindo DEPOIS do primeiro bloco de texto.
+      let primeiro_texto = bytes
+        .windows(2)
+        .position(|w| w == [0x1b, b'a'])
+        .expect("o cupom tem alinhamento antes do texto");
+      let depois_do_texto = &bytes[primeiro_texto..];
+      // Nenhum ESC de texto deve existir: conta os ESC e compara com os que o
+      // renderer emite por conta própria (init + ESC t + alinhamentos).
+      let esc_do_texto = depois_do_texto.iter().filter(|b| **b == 0x1b).count();
+      let alvos = depois_do_texto
+        .windows(2)
+        .filter(|w| w[0] == 0x1b && (w[1] == b'a' || w[1] == b'E' || w[1] == b't'))
+        .count();
+      assert_eq!(
+        esc_do_texto, alvos,
+        "ESC do texto do pedido chegou ao cupom (page={page:?}): {bytes:02x?}"
+      );
+    }
+  }
+
+  #[test]
+  fn render_de_producao_converte_para_cp850() {
+    let mut o = order();
+    o.items = vec![Item {
+      name: "Porção de pão de queijo".into(),
+      quantity: 1,
+      ..Default::default()
+    }];
+    let t = Template {
+      blocks: vec![Block {
+        r#type: "items".into(),
+        ..Default::default()
+      }],
+      ..Default::default()
+    };
+
+    let bytes = render_for_profile(&t, &o, None, None).unwrap();
+    // cp850: Ç = 0x87 e ã = 0xC6 — os mesmos bytes que o Go espera em
+    // TestEncodeCP850 (hardening_test.go:261). Byte único, não UTF-8.
+    assert!(
+      bytes.contains(&0x87),
+      "Ç não virou 0x87 (cp850): {bytes:02x?}"
+    );
+    assert!(
+      bytes.contains(&0xC6),
+      "ã não virou 0xC6 (cp850): {bytes:02x?}"
+    );
+    // O ESC t tem que vir logo depois do ESC @, senão a página só vale depois
+    // do primeiro texto — e o primeiro texto sai na página errada.
+    assert_eq!(&bytes[0..2], &[0x1b, 0x40], "ESC @ no início");
+    assert_eq!(
+      &bytes[2..5],
+      &[0x1b, 0x74, 2],
+      "ESC t 2 (cp850) logo depois"
+    );
+  }
+
+  #[test]
+  fn utf8_no_perfil_desliga_a_conversao() {
+    let mut o = order();
+    o.items = vec![Item {
+      name: "Porção".into(),
+      quantity: 1,
+      ..Default::default()
+    }];
+    let t = Template {
+      blocks: vec![Block {
+        r#type: "items".into(),
+        ..Default::default()
+      }],
+      ..Default::default()
+    };
+
+    let utf8 = render_for_profile(&t, &o, Some("utf-8"), None).unwrap();
+    let logico = render(&t, &o).unwrap();
+    assert_eq!(utf8, logico, "utf-8 tem que ser idêntico ao render lógico");
+    assert!(
+      !utf8.windows(2).any(|w| w == [0x1b, 0x74]),
+      "utf-8 não emite ESC t"
+    );
+    // Sanitização continua valendo mesmo sem conversão: é segurança, não
+    // formatação. O nome "a\x1bb" tem que virar "ab" — sem ESC no meio.
+    let mut o2 = o.clone();
+    o2.items = vec![Item {
+      name: "a\u{1b}b".into(),
+      quantity: 1,
+      ..Default::default()
+    }];
+    let bytes = render_for_profile(&t, &o2, Some("utf-8"), None).unwrap();
+    assert!(
+      bytes.windows(6).any(|w| w == b"1x ab\n"),
+      "o ESC do nome sobreviveu no render utf-8: {bytes:02x?}"
+    );
+    assert!(
+      !bytes.windows(2).any(|w| w == b"a\x1b"),
+      "ESC dentro do texto do item: {bytes:02x?}"
+    );
   }
 
   #[test]
