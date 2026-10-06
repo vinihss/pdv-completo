@@ -408,7 +408,9 @@ export async function miscRoutes(app: FastifyInstance) {
   app.patch("/users/:id", { preHandler: requireRole("manager") }, async (req) => {
     const { id } = req.params as { id: string };
     const body = userUpdateSchema.parse(req.body);
-    return updateUserUsecase(id, body);
+    // actorId (quem está desativando) entra no audit/evento da cascata de
+    // revogação de aparelhos (docs/21 §5.4).
+    return updateUserUsecase(id, body, req.authUser!.sub);
   });
   app.patch("/users/:id/reset-pin", { preHandler: requireRole("manager") }, async (req) => {
     const { id } = req.params as { id: string };
