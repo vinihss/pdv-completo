@@ -222,6 +222,57 @@ Edite `config.json` com o IP da impressora:
 }
 ```
 
+### Acentos (code page)
+
+Térmicas ESC/POS **não entendem UTF-8**. Cada perfil aceita dois campos:
+
+```json
+"kitchen": {
+  "address": "192.168.1.50:9100",
+  "template": "kitchen-default",
+  "encoding": "cp850",
+  "code_page": 2
+}
+```
+
+| `encoding` | `ESC t n` | Quando |
+|---|---|---|
+| `cp850` (padrão, ou ausente) | 2 | padrão das térmicas de 80mm |
+| `cp858` | 19 | igual ao CP850 **com euro** no 0xD5 |
+| `windows-1252` | 16 | página do Windows |
+| `utf-8` | — | **não converte**; só para impressora com fonte UTF-8 |
+
+Ausente ou vazio = `cp850`. O `code_page` sobrescreve o número do `ESC t` quando
+o modelo não segue a tabela Epson — é último recurso, porque o sintoma (texto
+ilegível) aparece longe da causa (o `config.json`).
+
+Ocupado antes do texto, o `\n` sobrevive e o `\t` vira espaço. Tudo que é byte de
+controle (0x00-0x1F, 0x7F) é descartado: sem isso, um nome de item com `ESC`
+injetaria comando na impressora e o cupom sairia cortado no meio.
+
+Teste com um pedido contendo `Ç Ã Õ É` na impressora real. Se sair errado,
+ajuste `code_page` conforme o manual do modelo.
+
+#### O app desktop tem os mesmos campos
+
+O app Caixa (`standalone-pdv`) renderiza localmente e **não** passa pelo daemon,
+então tem a sua própria config (`%ProgramData%\PDV\app.json`) com os mesmos
+nomes e os mesmos valores:
+
+```json
+"printers": {
+  "kitchen": {
+    "transport": "tcp",
+    "socket": "192.168.1.50:9100",
+    "encoding": "cp850",
+    "code_page": 2
+  }
+}
+```
+
+Os dois renderizadores são presos ao golden byte a byte
+(`standalone-pdv/tests/golden.rs`), então divergir entre eles quebra o CI.
+
 ### Instalação como serviço
 
 **Linux:**
