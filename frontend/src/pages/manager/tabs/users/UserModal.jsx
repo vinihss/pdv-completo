@@ -122,9 +122,16 @@ export default function UserModal({ user, onClose, onSaved, showToast }) {
     setSaving(true);
     try {
       const body = { name: name.trim(), role, phone: phone.trim() || null, email: email.trim() || null };
+<<<<<<< HEAD
       // Só a edição aceita PIN manual; a criação gera um PIN automático que
       // será revelado uma vez após o cadastro.
       if (isEdit && pin) body.pin = pin;
+=======
+      // O PATCH /users/:id aceita pin manual; o POST /users ignora o campo e
+      // sempre gera um aleatório — por isso o PIN revelado no fim da criação é
+      // a fonte da verdade (nunca reflete o que foi digitado aqui).
+      if (pin) body.pin = pin;
+>>>>>>> e7828131 (feat(courier): payload foto/entregas, alerta WhatsApp 5min, foto equipe, migrations)
 
       let saved;
       if (isEdit) {

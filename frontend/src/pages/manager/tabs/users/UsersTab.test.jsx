@@ -124,6 +124,7 @@ describe("UsersTab", () => {
     expect(listUsers).toHaveBeenCalledTimes(2);
   });
 
+<<<<<<< HEAD
   it("preserva o PIN e fecha o modal se a criação funciona, mas a recarga falha", async () => {
     listUsers.mockReset();
     listUsers.mockResolvedValueOnce(USERS.slice()).mockRejectedValueOnce(new Error("sem conexão"));
@@ -142,6 +143,8 @@ describe("UsersTab", () => {
     expect(toast).toHaveBeenCalledWith(expect.stringContaining("não foi possível atualizar a lista"), "error");
   });
 
+=======
+>>>>>>> e7828131 (feat(courier): payload foto/entregas, alerta WhatsApp 5min, foto equipe, migrations)
   it("se o upload da foto falhar no cadastro, avisa e mantém o usuário criado", async () => {
     uploadUserPhoto.mockRejectedValue(new Error("arquivo muito grande"));
     const toast = vi.fn();
@@ -230,8 +233,12 @@ describe("UserModal", () => {
     render(<UserModal onClose={() => {}} onSaved={async () => {}} showToast={() => {}} />);
     expect(screen.getByText("Telefone")).toBeTruthy();
     expect(screen.getByText("Email")).toBeTruthy();
+<<<<<<< HEAD
     expect(screen.getByText(/PIN será gerado automaticamente/)).toBeTruthy();
     expect(screen.queryByPlaceholderText("4 a 6 dígitos")).toBeNull();
+=======
+    expect(screen.getByPlaceholderText("4 a 6 dígitos")).toBeTruthy();
+>>>>>>> e7828131 (feat(courier): payload foto/entregas, alerta WhatsApp 5min, foto equipe, migrations)
   });
 
   it("edição mostra foto do usuário e campos preenchidos", () => {
@@ -243,6 +250,27 @@ describe("UserModal", () => {
     expect(screen.getByDisplayValue("ana@exemplo.com")).toBeTruthy();
     expect(screen.getByPlaceholderText("4 a 6 dígitos")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Enviar foto" })).toBeTruthy();
+<<<<<<< HEAD
+  });
+
+  it("na edição, escolher foto sobe no onChange e o avatar reflete sem reabrir", async () => {
+    const onSaved = vi.fn();
+    const user = { id: "u1", name: "Ana Ribeiro", role: "waiter", phone: null, email: null, photoPath: null };
+    const { container } = render(<UserModal user={user} onClose={() => {}} onSaved={onSaved} showToast={() => {}} />);
+    const file = pickFile(container);
+    await waitFor(() => expect(uploadUserPhoto).toHaveBeenCalledWith("u1", file));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    // `user` do pai é snapshot — o modal espelha o photoPath devolvido pelo upload.
+    expect(screen.getByAltText("Ana Ribeiro").getAttribute("src")).toBe("/uploads/user/u1.jpg");
+  });
+
+  it("criação sem nome não cria usuário", () => {
+    render(<UserModal onClose={() => {}} onSaved={async () => {}} showToast={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Criar usuário" }));
+    expect(screen.getByText("Informe o nome do usuário.")).toBeTruthy();
+    expect(createUser).not.toHaveBeenCalled();
+=======
+>>>>>>> e7828131 (feat(courier): payload foto/entregas, alerta WhatsApp 5min, foto equipe, migrations)
   });
 
   it("na edição, escolher foto sobe no onChange e o avatar reflete sem reabrir", async () => {

@@ -23,6 +23,7 @@ export default function UsersTab({ showToast }) {
   // nunca devolvem pin), então o modal de PIN revelado só abre nesse caso.
   async function handleSaved(saved) {
     if (saved?.pin) setRevealedPin({ name: saved.name, pin: saved.pin });
+<<<<<<< HEAD
     try {
       await load();
     } catch (e) {
@@ -39,6 +40,9 @@ export default function UsersTab({ showToast }) {
     } catch (e) {
       showToast(e.message, "error");
     }
+=======
+    await load();
+>>>>>>> e7828131 (feat(courier): payload foto/entregas, alerta WhatsApp 5min, foto equipe, migrations)
   }
 
   async function handleResetPin(u) {
@@ -111,4 +115,8 @@ export default function UsersTab({ showToast }) {
       )}
     </div>
   );
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> e7828131 (feat(courier): payload foto/entregas, alerta WhatsApp 5min, foto equipe, migrations)
