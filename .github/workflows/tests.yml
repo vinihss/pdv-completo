@@ -107,8 +107,12 @@ jobs:
   # não foram tocadas e o resultado delas não mudou desde o último run.
   #
   # COMO FUNCIONA: `dorny/paths-filter` compara o diff do PR (base...head) e
-  # liga um output por área; cada job de suíte tem
-  # `if: github.event_name != 'pull_request' || needs.changes.outputs.<area> == 'true'`.
+  # liga um output por área; o passo `resultado por evento` repassa (em PR)
+  # ou liga tudo (fora de PR); e cada job de suíte tem
+  # `if: !cancelled() && (needs.changes.result != 'success' || github.event_name != 'pull_request' || needs.changes.outputs.<area> == 'true')`
+  # — três cláusulas, na ordem: (1) FAIL-OPEN: `changes` vermelho ⇒ roda
+  # tudo, nunca skip silencioso; (2) fora de PR ⇒ roda tudo; (3) em PR ⇒
+  # roda se o filtro ligou a área.
   #
   # POR QUE O FALLBACK É "RODA TUDO", E NÃO "PULA TUDO":
   #
@@ -149,6 +153,11 @@ jobs:
   # para required checks e auto-merge — o gate não quebra, e a lista de
   # checks continua mostrando todos os nomes (só muda o ícone). Se um dia
   # houver ruleset por nome de check, o nome continua o mesmo.
+  # Esse "skipped = sucesso" é exatamente por que o FAIL-OPEN acima existe:
+  # como skipped não bloqueia merge, um `changes` que falhasse deixaria o
+  # gate passar vazio (medido nas PRs #122/#123, que mergearam com
+  # `changes: FAILURE` e todas as suítes skipped — a permissão que faltava
+  # está no `ci-pr.yml`).
   #
   # O QUE ISTO NÃO FAZ: não descompartilha o `tests.yml` em vários chamadores
   # (a armadilha documentada no `ci-pr.yml` — cada chamador roda o workflow
@@ -265,7 +274,14 @@ jobs:
     # O `changes` NUNCA é pulado (ver "ARMADILHA" no bloco dele), então este
     # `needs:` nunca recebe um job pulado — que é o cenário em que o GitHub
     # pularia ESTE job independentemente do `if` abaixo.
-    if: github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true'
+    # FAIL-OPEN em `needs.changes.result != 'success'`: se o próprio `changes`
+    # falhar (ex.: API de PR inacessível), os outputs chegam vazios e o
+    # condicionamento por área pularia tudo — gate verde e vazio, o defeito
+    # que este bloco existe para impedir. Com a cláusula, um `changes`
+    # vermelho faz as suítes RODAREM (pior caso = testar de mais, nunca de
+    # menos). `!cancelled()` em vez de `always()` para não reanimar jobs de
+    # um run cancelado.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     # Os testes do backend rodam contra um Postgres DEDICADO (pdv_test), não
     # contra o banco da aplicação: o global setup (backend/test/global-setup.ts)
@@ -449,7 +465,14 @@ jobs:
   # diretórios e o build no stage de build.
   test-frontend:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.frontend == 'true'
+    # FAIL-OPEN em `needs.changes.result != 'success'`: se o próprio `changes`
+    # falhar (ex.: API de PR inacessível), os outputs chegam vazios e o
+    # condicionamento por área pularia tudo — gate verde e vazio, o defeito
+    # que este bloco existe para impedir. Com a cláusula, um `changes`
+    # vermelho faz as suítes RODAREM (pior caso = testar de mais, nunca de
+    # menos). `!cancelled()` em vez de `always()` para não reanimar jobs de
+    # um run cancelado.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || github.event_name != 'pull_request' || needs.changes.outputs.frontend == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -478,7 +501,14 @@ jobs:
   # justamente o ensaio que derrubou o PR #85.
   test-pedido-public:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.pedido-public == 'true'
+    # FAIL-OPEN em `needs.changes.result != 'success'`: se o próprio `changes`
+    # falhar (ex.: API de PR inacessível), os outputs chegam vazios e o
+    # condicionamento por área pularia tudo — gate verde e vazio, o defeito
+    # que este bloco existe para impedir. Com a cláusula, um `changes`
+    # vermelho faz as suítes RODAREM (pior caso = testar de mais, nunca de
+    # menos). `!cancelled()` em vez de `always()` para não reanimar jobs de
+    # um run cancelado.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || github.event_name != 'pull_request' || needs.changes.outputs.pedido-public == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -504,7 +534,14 @@ jobs:
   # (`npm run lint` no frontend), então a exceção aqui seria uma porta aberta.
   test-ws-gateway:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.ws-gateway == 'true'
+    # FAIL-OPEN em `needs.changes.result != 'success'`: se o próprio `changes`
+    # falhar (ex.: API de PR inacessível), os outputs chegam vazios e o
+    # condicionamento por área pularia tudo — gate verde e vazio, o defeito
+    # que este bloco existe para impedir. Com a cláusula, um `changes`
+    # vermelho faz as suítes RODAREM (pior caso = testar de mais, nunca de
+    # menos). `!cancelled()` em vez de `always()` para não reanimar jobs de
+    # um run cancelado.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || github.event_name != 'pull_request' || needs.changes.outputs.ws-gateway == 'true') }}
     runs-on: ubuntu-latest
     # O dispatcher (`internal/outbox`) tem duas camadas de teste: o GATE e o
     # `Run` não precisam de banco nenhum, mas o CICLO (`PollOnce`) precisa de
@@ -695,7 +732,14 @@ jobs:
   # (`npm run lint` no frontend), então a exceção aqui seria uma porta aberta.
   test-pagarme-webhook:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.pagarme-webhook == 'true'
+    # FAIL-OPEN em `needs.changes.result != 'success'`: se o próprio `changes`
+    # falhar (ex.: API de PR inacessível), os outputs chegam vazios e o
+    # condicionamento por área pularia tudo — gate verde e vazio, o defeito
+    # que este bloco existe para impedir. Com a cláusula, um `changes`
+    # vermelho faz as suítes RODAREM (pior caso = testar de mais, nunca de
+    # menos). `!cancelled()` em vez de `always()` para não reanimar jobs de
+    # um run cancelado.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || github.event_name != 'pull_request' || needs.changes.outputs.pagarme-webhook == 'true') }}
     runs-on: ubuntu-latest
     # Este serviço tem DUAS suítes que precisam de Postgres de verdade, e nenhuma
     # das duas é substituível por mock:
@@ -944,7 +988,14 @@ jobs:
   # pacote ainda não tinha testes.
   test-printer-daemon:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.printer == 'true'
+    # FAIL-OPEN em `needs.changes.result != 'success'`: se o próprio `changes`
+    # falhar (ex.: API de PR inacessível), os outputs chegam vazios e o
+    # condicionamento por área pularia tudo — gate verde e vazio, o defeito
+    # que este bloco existe para impedir. Com a cláusula, um `changes`
+    # vermelho faz as suítes RODAREM (pior caso = testar de mais, nunca de
+    # menos). `!cancelled()` em vez de `always()` para não reanimar jobs de
+    # um run cancelado.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || github.event_name != 'pull_request' || needs.changes.outputs.printer == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
