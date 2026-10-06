@@ -21,8 +21,9 @@
 #       backend/frontend → npm run test           printer → go test (printer/daemon)
 #       gateway          → go build + vet + test (ws-gateway)
 #   ./pdv lint <frontend|all>         oxlint; `all` soma o gate de `gofmt -l .` do ws-gateway
-#   ./pdv db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo>
+#   ./pdv db <migrate|migrate-registry|generate|seed|seed-demo|seed-prod|deactivate-demo>
 #                                     wrappers de npm --prefix backend run ...
+#   ./pdv start [--demo]             sobe do zero: migrate → seed base → seed-demo → dev backend+frontend
 #   ./pdv check [backend|frontend|all] "critérios de verificação gerais" (portão de PR)
 #   ./pdv release bump <versão>       → scripts/release/bump-version.sh
 #   ./pdv deploy <switch|backup|backup-fetch|probe|install|reset|caddy|run-cloud|pedido> [opções]
@@ -56,8 +57,9 @@ Domínios:
                                  gateway); `all` roda os quatro nessa ordem
   lint <frontend|all>            oxlint; `all` soma o gate de gofmt do
                                  ws-gateway (mesmo contrato do CI)
-  db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo>
+  db <migrate|migrate-registry|generate|seed|seed-demo|seed-prod|deactivate-demo>
                                  wrappers dos scripts npm do backend
+  start [--demo]                Sobe a app do zero: migrate → base → seed:demo (se --demo) → dev backend + frontend
   check [backend|frontend|all]   critérios de verificação gerais do AGENTS.md
                                  (pré-PR); default: all
   release bump <versão>          Bump de versão da família standalone
@@ -397,9 +399,10 @@ case "${1:-}" in
       migrate-registry)  shift; [ $# -eq 0 ] || die "uso: ./pdv db migrate-registry";  npm_run backend db:migrate:registry ;;
       generate)          shift; [ $# -eq 0 ] || die "uso: ./pdv db generate";          npm_run backend db:generate ;;
       seed)              shift; [ $# -eq 0 ] || die "uso: ./pdv db seed";              npm_run backend seed ;;
+      seed-demo)         shift; [ $# -eq 0 ] || die "uso: ./pdv db seed-demo";         npm_run backend seed:demo ;;
       seed-prod)         shift; [ $# -eq 0 ] || die "uso: ./pdv db seed-prod";         npm_run backend seed:prod ;;
       deactivate-demo)   shift; [ $# -eq 0 ] || die "uso: ./pdv db deactivate-demo";   npm_run backend db:deactivate-demo ;;
-      *) die "uso: ./pdv db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo>" ;;
+      *) die "uso: ./pdv db <migrate|migrate-registry|generate|seed|seed-demo|seed-prod|deactivate-demo>" ;;
     esac
     ;;
   check)
@@ -446,6 +449,29 @@ case "${1:-}" in
       test-local) shift; exec bash "$ROOT/printer/scripts/test-local.sh" "$@" ;;
       *) die "uso: ./pdv printer <install|package|test-local> [opções]" ;;
     esac
+    ;;
+  start)
+    shift
+    local _use_demo=0
+    if [ "${1:-}" = "--demo" ]; then
+      _use_demo=1; shift
+    fi
+    [ -z "${1:-}" ] || die "uso: ./pdv start [--demo] (nenhum argumento extra esperado)"
+    log "==> Migrations (db migrate)"
+    npm_run backend db:migrate
+    log "==> Seed base (db seed)"
+    npm_run backend seed
+    if [ "$_use_demo" -eq 1 ]; then
+      log "==> Seed demo com volume (db seed-demo)"
+      npm_run backend seed:demo
+    fi
+    log "==> Dev backend (npm run dev)"
+    ( cd "$ROOT/backend" && npm run dev ) &
+    local _dev_backend_pid=$!
+    log "==> Dev frontend (npm run dev)"
+    trap 'kill "$_dev_backend_pid" 2>/dev/null || true' EXIT
+    trap 'kill "$_dev_backend_pid" 2>/dev/null || true; exit 130' INT TERM
+    npm_run frontend dev
     ;;
   *)
     die "comando desconhecido: $1 (rode ./pdv --help)"
