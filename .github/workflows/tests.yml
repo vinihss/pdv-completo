@@ -96,7 +96,114 @@ on:
   workflow_call:
 
 jobs:
+  # ============================================================
+  # O JOB `changes`: FILTRO DE PATHS, PARA NÃO PAGAR 7 JOBS POR PR DE 1 PASTA
+  # ============================================================
+  # Antes deste job, um PR que tocava só `ws-gateway/**` pagava a suíte
+  # INTEIRA: backend (com Postgres), frontend (lint+build+test), app público,
+  # os dois serviços Go e o printer — medido ~8min de runner por execução
+  # (run 37409580179: 478s só na cópia do chamador `test-backend`). O que
+  # interessa ao gate é "a área que mudou continua verde"; as outras áreas
+  # não foram tocadas e o resultado delas não mudou desde o último run.
+  #
+  # COMO FUNCIONA: `dorny/paths-filter` compara o diff do PR (base...head) e
+  # liga um output por área; cada job de suíte tem
+  # `if: github.event_name != 'pull_request' || needs.changes.outputs.<area> == 'true'`.
+  #
+  # POR QUE O FALLBACK É "RODA TUDO", E NÃO "PULA TUDO":
+  #
+  # 1. FORA DE pull_request, TUDO RODA. Este workflow é chamado também pelo
+  #    `deploy-on-tag.yml` (evento `push` de tag) — e antes de ir para
+  #    produção o contrato é a suíte INTEIRA, não o delta. Por isso o `if`
+  #    de cada job começa com `github.event_name != 'pull_request'`: em tag,
+  #    este job `changes` é pulado (o `if:` abaixo), os outputs ficam vazios
+  #    e a primeira metade da condição decide. (O paths-filter até aceita
+  #    evento de push comparando com o commit anterior, mas em push de TAG o
+  #    `before` é 0000... e o comportamento deixa de ser "o diff do PR" —
+  #    não é o que queremos no caminho de release.)
+  # 2. ARQUIVO FORA DE ÁREA MAPEADA FAZ TUDO RODAR. Cada filtro inclui
+  #    `.github/**` (mudar um workflow é mexer no próprio gate) e os
+  #    lockfiles/manifests da RAIZ (`package.json`, `package-lock.json` —
+  #    a CLI do Tauri mora na raiz, ver AGENTS.md). Um arquivo que nenhum
+  #    filtro conhece (ex.: `docs/**`, `AGENTS.md`) não liga nenhum job de
+  #    suíte — e está certo: markdown não muda código.
+  #
+  # EFEITO NOS NOMES DOS CHECKS: um job pulado pelo `if:` aparece no PR como
+  # `tests / test-<area>` com status SKIPPED, e skipped CONTA COMO SUCESSO
+  # para required checks e auto-merge — o gate não quebra, e a lista de
+  # checks continua mostrando todos os nomes (só muda o ícone). Se um dia
+  # houver ruleset por nome de check, o nome continua o mesmo.
+  #
+  # O QUE ISTO NÃO FAZ: não descompartilha o `tests.yml` em vários chamadores
+  # (a armadilha documentada no `ci-pr.yml` — cada chamador roda o workflow
+  # chamado INTEIRO). O filtro é DENTRO da suíte, um chamador continua sendo
+  # um chamador.
+  # ============================================================
+  changes:
+    runs-on: ubuntu-latest
+    # Só faz sentido em PR (ver o bloco acima, item 1): fora de pull_request
+    # o fallback dos jobs já é "roda tudo", e o paths-filter não teria um
+    # diff de PR para comparar.
+    if: github.event_name == 'pull_request'
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      pedido-public: ${{ steps.filter.outputs.pedido-public }}
+      ws-gateway: ${{ steps.filter.outputs.ws-gateway }}
+      pagarme-webhook: ${{ steps.filter.outputs.pagarme-webhook }}
+      printer: ${{ steps.filter.outputs.printer }}
+    steps:
+      # Sem checkout: o paths-filter usa a API do GitHub para listar os
+      # arquivos do PR (não precisa da árvore em disco).
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - '.github/**'
+              - 'package.json'
+              - 'package-lock.json'
+            frontend:
+              - 'frontend/**'
+              - '.github/**'
+              - 'package.json'
+              - 'package-lock.json'
+            # O app público importa `frontend/src` pelo alias `@/`
+            # (apps/pedido-public/vite.config.ts) e o Vite resolve as deps
+            # bare do código compartilhado a partir do diretório do
+            # importador — por isso `frontend/src/**` e o lockfile do
+            # frontend ligam este job também, não só `apps/pedido-public/**`.
+            pedido-public:
+              - 'apps/pedido-public/**'
+              - 'frontend/src/**'
+              - 'frontend/package.json'
+              - 'frontend/package-lock.json'
+              - '.github/**'
+              - 'package.json'
+              - 'package-lock.json'
+            ws-gateway:
+              - 'ws-gateway/**'
+              - '.github/**'
+              - 'package.json'
+              - 'package-lock.json'
+            pagarme-webhook:
+              - 'pagarme-webhook/**'
+              - '.github/**'
+              - 'package.json'
+              - 'package-lock.json'
+            printer:
+              - 'printer/**'
+              - '.github/**'
+              - 'package.json'
+              - 'package-lock.json'
+
   test-backend:
+    needs: changes
+    # Roda se: (a) não é PR (tag/deploy → suíte inteira, ver bloco do
+    # `changes`), ou (b) o PR tocou a área. `needs` num job pulado não
+    # bloqueia: o `if:` explícito é o que decide.
+    if: github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     # Os testes do backend rodam contra um Postgres DEDICADO (pdv_test), não
     # contra o banco da aplicação: o global setup (backend/test/global-setup.ts)
@@ -246,7 +353,12 @@ jobs:
       - working-directory: backend
         run: |
           npm ci
-          npm run build
+          # `tsc --noEmit` e não `npm run build`: o gate precisa do TYPECHECK,
+          # não do `dist/`. O vitest transpila sozinho (esbuild, sem typecheck)
+          # e nada neste job consome o `dist/` — o emit era ~1/3 do tempo do
+          # `tsc` jogado fora (o build com emit continua existindo para quem
+          # precisa do artefato: `npm run build` e o Dockerfile de produção).
+          npx tsc --noEmit
           npm run test
 
   # `test-frontend` NÃO compila o app público de pedidos (apps/pedido-public),
@@ -274,6 +386,8 @@ jobs:
   # a esse app) e o `Dockerfile` da própria imagem, que roda `npm ci` nos dois
   # diretórios e o build no stage de build.
   test-frontend:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -301,6 +415,8 @@ jobs:
   # bundle. Um `npm ci` do frontend aqui dentro não traria prova nova — e é
   # justamente o ensaio que derrubou o PR #85.
   test-pedido-public:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.pedido-public == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -325,6 +441,8 @@ jobs:
   # passaria verde para sempre — e o resto do repo tem lint no portão
   # (`npm run lint` no frontend), então a exceção aqui seria uma porta aberta.
   test-ws-gateway:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.ws-gateway == 'true'
     runs-on: ubuntu-latest
     # O dispatcher (`internal/outbox`) tem duas camadas de teste: o GATE e o
     # `Run` não precisam de banco nenhum, mas o CICLO (`PollOnce`) precisa de
@@ -514,6 +632,8 @@ jobs:
   # passaria verde para sempre — e o resto do repo tem lint no portão
   # (`npm run lint` no frontend), então a exceção aqui seria uma porta aberta.
   test-pagarme-webhook:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.pagarme-webhook == 'true'
     runs-on: ubuntu-latest
     # Este serviço tem DUAS suítes que precisam de Postgres de verdade, e nenhuma
     # das duas é substituível por mock:
@@ -731,6 +851,13 @@ jobs:
   # passa despercebido no review e vira bug de deploy depois. Rodar sobre todos os
   # scripts versionados (incluindo .githooks, que não terminam em .sh) mantém a
   # barra no mesmo nível do `npm run lint` do frontend e do `gofmt -l` dos jobs Go.
+  # `shellcheck` NÃO entra no filtro de paths, de propósito: é o job mais
+  # barato da suíte (sem npm ci, sem Postgres, ~10s) e os alvos dele são os
+  # arquivos mais transversais do repo — `git ls-files '*.sh' '.githooks/*'`
+  # pega scripts de `deploy/`, `scripts/`, raiz, que não pertencem a nenhuma
+  # das seis áreas mapeadas. Um filtro `**.sh` casaria o glob, mas deixaria
+  # de fora exatamente o modo de falha que interessa (script novo em pasta
+  # nova). Sempre roda.
   shellcheck:
     runs-on: ubuntu-latest
     steps:
@@ -754,6 +881,8 @@ jobs:
   # reaproveitar o "ok, sem arquivo de teste" cacheado de uma execução em que o
   # pacote ainda não tinha testes.
   test-printer-daemon:
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.printer == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
