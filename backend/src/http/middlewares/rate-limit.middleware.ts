@@ -72,3 +72,9 @@ export async function publicOrderRateLimit(req: FastifyRequest, reply: FastifyRe
   await orderIpRateLimit(req, reply);
   await orderPhoneRateLimit(req, reply);
 }
+
+// ---------- Device provisioning (docs/21 §11) ----------
+// O código da chave e o device token têm 80/256 bits de entropia + argon2 —
+// brute force já é inviável; o limite apertado (5/min/IP) é a segunda barreira
+// no exchange (código digitado) e no refresh do device token.
+export const provisioningRateLimit = createRateLimit({ windowMs: 60_000, max: 5, keyPrefix: "prov-ip", keyFn: (req) => req.ip });
