@@ -18,11 +18,29 @@ const managerToken = () => tokenOf(FIXTURE.manager, "manager");
 
 async function seedCouriers() {
   await raw.exec(`
-    INSERT INTO "user" (id, name, role, pin_hash) VALUES
-      ('${COURIER}', 'Entregador Um', 'courier', 'x'),
-      ('${COURIER2}', 'Entregador Dois', 'courier', 'x')
+    INSERT INTO "user" (id, name, role, pin_hash, photo_path) VALUES
+      ('${COURIER}', 'Entregador Um', 'courier', 'x', 'u-courier.png'),
+      ('${COURIER2}', 'Entregador Dois', 'courier', 'x', NULL)
     ON CONFLICT (id) DO NOTHING;
+    -- O "user" não é truncado pelo resetState, então a linha pode sobreviver
+    -- de uma execução anterior (ou de outra suíte) — garante a foto esperada.
+    UPDATE "user" SET photo_path = 'u-courier.png' WHERE id = '${COURIER}';
+    UPDATE "user" SET photo_path = NULL WHERE id = '${COURIER2}';
   `);
+}
+
+async function seedCustomerWithAddress(addressId: string | null, withCoords: boolean) {
+  await raw.exec(`
+    INSERT INTO customer (id, name) VALUES ('c-geo', 'Cliente Geo') ON CONFLICT (id) DO NOTHING;
+  `);
+  if (addressId) {
+    await raw.exec(`
+      INSERT INTO customer_address (id, customer_id, street, number, neighborhood, city, latitude, longitude, is_default)
+      VALUES ('${addressId}', 'c-geo', 'Rua Geo', '10', 'Centro', 'Cidade',
+              ${withCoords ? "-29.75" : "NULL"}, ${withCoords ? "-51.15" : "NULL"}, true)
+      ON CONFLICT (id) DO NOTHING;
+    `);
+  }
 }
 
 async function seedDelivery(orderId: string, courierId: string, status: string, customerId?: string) {
@@ -127,9 +145,14 @@ describe("rastreamento de localização do entregador", () => {
     expect(payload.latitude).toBeCloseTo(second.latitude);
     expect(payload.longitude).toBeCloseTo(second.longitude);
     expect(payload.updatedAt).toBeTruthy();
+    // Os campos novos SOMAM ao contrato — a carga inicial de locations já
+    // trazia name e agora a foto; o ping tem que ecoar os dois, senão o
+    // marcador que já está no mapa perde o rosto quando o evento chega.
+    expect(payload.courierName).toBe("Entregador Um");
+    expect(payload.photoPath).toBe("/uploads/user/u-courier.png");
   });
 
-  it("GET /manager/deliveries/locations: só couriers em rota, com nome", async () => {
+  it("GET /manager/deliveries/locations: só couriers em rota, com nome e foto", async () => {
     await seedDelivery("o-4", COURIER, "out_for_delivery");
     await seedDelivery("o-5", COURIER2, "awaiting_courier");
     await api("post", "/courier/location", { token: courierToken(), body: LOC });
@@ -139,8 +162,22 @@ describe("rastreamento de localização do entregador", () => {
     expect(res.json).toHaveLength(1);
     expect(res.json[0].courierId).toBe(COURIER);
     expect(res.json[0].courierName).toBe("Entregador Um");
+    // Basename no banco, URL pública na resposta (photoUrl mapeia
+    // /uploads/user/<arquivo>) — mesma regra da lista de usuários.
+    expect(res.json[0].photoPath).toBe("/uploads/user/u-courier.png");
     expect(res.json[0].latitude).toBeCloseTo(LOC.latitude);
     expect(res.json[0].updatedAt).toBeTruthy();
+  });
+
+  it("GET /manager/deliveries/locations: photoPath null quando o entregador não tem foto", async () => {
+    await seedDelivery("o-8", COURIER2, "out_for_delivery");
+    await api("post", "/courier/location", { token: courier2Token(), body: LOC });
+
+    const res = await api("get", "/manager/deliveries/locations", { token: managerToken() });
+    expect(res.status).toBe(200);
+    expect(res.json).toHaveLength(1);
+    expect(res.json[0].courierId).toBe(COURIER2);
+    expect(res.json[0].photoPath).toBeNull();
   });
 
   it("GET /manager/deliveries/locations: courier com 2 entregas em rota aparece 1 vez", async () => {
@@ -161,20 +198,6 @@ describe("rastreamento de localização do entregador", () => {
   // Projeção das coordenadas do destino (marker no CourierTrackingMap):
   // delivery → order.customer_id → endereço padrão do cliente.
   describe("GET /courier/deliveries — coordenadas do endereço", () => {
-    async function seedCustomerWithAddress(addressId: string | null, withCoords: boolean) {
-      await raw.exec(`
-        INSERT INTO customer (id, name) VALUES ('c-geo', 'Cliente Geo') ON CONFLICT (id) DO NOTHING;
-      `);
-      if (addressId) {
-        await raw.exec(`
-          INSERT INTO customer_address (id, customer_id, street, number, neighborhood, city, latitude, longitude, is_default)
-          VALUES ('${addressId}', 'c-geo', 'Rua Geo', '10', 'Centro', 'Cidade',
-                  ${withCoords ? "-29.75" : "NULL"}, ${withCoords ? "-51.15" : "NULL"}, true)
-          ON CONFLICT (id) DO NOTHING;
-        `);
-      }
-    }
-
     it("entrega com endereço georreferenciado retorna addressLatitude/addressLongitude", async () => {
       await seedCustomerWithAddress("addr-geo", true);
       await seedDelivery("o-geo", COURIER, "awaiting_courier", "c-geo");
@@ -205,6 +228,55 @@ describe("rastreamento de localização do entregador", () => {
       const delivery = res.json.find((d: any) => d.orderId === "o-sem-cliente");
       expect(delivery.addressLatitude).toBeNull();
       expect(delivery.addressLongitude).toBeNull();
+    });
+  });
+
+  // ---------- GET /manager/deliveries ----------
+  // O card de cada entrega no mapa do gerente precisa das coords do destino
+  // (mesmo helper compartilhado da fila do entregador) e da previsão gravada no
+  // insert do checkout — `distance_km`/`estimated_minutes` existem na coluna
+  // desde a migration 0001 e nenhuma lista serializava.
+  describe("GET /manager/deliveries — coordenadas do destino e previsão", () => {
+    it("expõe addressLatitude/addressLongitude e distanceKm/estimatedMinutes", async () => {
+      await seedCustomerWithAddress("addr-mgr", true);
+      await seedDelivery("o-mgr", COURIER, "out_for_delivery", "c-geo");
+      await raw.exec(`UPDATE delivery SET distance_km = 5.2, estimated_minutes = 42 WHERE id = 'd-o-mgr'`);
+
+      const res = await api("get", "/manager/deliveries", { token: managerToken() });
+      expect(res.status).toBe(200);
+      const item = res.json.find((d: any) => d.orderId === "o-mgr");
+      expect(item.addressLatitude).toBeCloseTo(-29.75);
+      expect(item.addressLongitude).toBeCloseTo(-51.15);
+      expect(item.distanceKm).toBeCloseTo(5.2);
+      expect(item.estimatedMinutes).toBe(42);
+    });
+
+    it("sem georreferência as coords saem null, mas a previsão continua", async () => {
+      await seedCustomerWithAddress("addr-mgr-sem", false);
+      await seedDelivery("o-mgr-sem", COURIER, "awaiting_courier", "c-geo");
+      await raw.exec(`UPDATE delivery SET estimated_minutes = 30 WHERE id = 'd-o-mgr-sem'`);
+
+      const res = await api("get", "/manager/deliveries", { token: managerToken() });
+      expect(res.status).toBe(200);
+      const item = res.json.find((d: any) => d.orderId === "o-mgr-sem");
+      expect(item.addressLatitude).toBeNull();
+      expect(item.addressLongitude).toBeNull();
+      expect(item.distanceKm).toBeNull();
+      expect(item.estimatedMinutes).toBe(30);
+    });
+
+    it("a mesma previsão e as mesmas coords saem na fila do entregador (serialize compartilhado)", async () => {
+      await seedCustomerWithAddress("addr-mgr-2", true);
+      await seedDelivery("o-mgr-2", COURIER, "out_for_delivery", "c-geo");
+      await raw.exec(`UPDATE delivery SET distance_km = 3.1, estimated_minutes = 26 WHERE id = 'd-o-mgr-2'`);
+
+      const res = await api("get", "/courier/deliveries", { token: courierToken() });
+      expect(res.status).toBe(200);
+      const item = res.json.find((d: any) => d.orderId === "o-mgr-2");
+      expect(item.addressLatitude).toBeCloseTo(-29.75);
+      expect(item.addressLongitude).toBeCloseTo(-51.15);
+      expect(item.distanceKm).toBeCloseTo(3.1);
+      expect(item.estimatedMinutes).toBe(26);
     });
   });
 });

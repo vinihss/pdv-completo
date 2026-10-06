@@ -76,12 +76,12 @@ listadas nas seções **Comandas** e **Catálogo** — não são repetidas aqui.
 | PATCH | `/courier/deliveries/:id/dispatch` | courier | Despachar entrega |
 | PATCH | `/courier/deliveries/:id/deliver` | courier | Marcar como entregue |
 | PATCH | `/courier/deliveries/:id/fail` | courier | Marcar como falha |
-| GET | `/manager/deliveries` | manager | Listar todas as entregas |
+| GET | `/manager/deliveries` | manager | Listar todas as entregas (com `distanceKm`/`estimatedMinutes` e `addressLatitude`/`addressLongitude` por card) |
 | PATCH | `/manager/deliveries/:id/assign` | manager | Atribuir entregador |
 | PATCH | `/manager/deliveries/:id/status` | manager | Mudar status da entrega |
 | GET | `/manager/couriers` | manager | Listar entregadores |
-| POST | `/courier/location` | courier | Ping de localização (upsert; só com entrega `out_for_delivery`, senão 409 `courier_not_on_route`; publica `courier.location` no room `deliveries`) |
-| GET | `/manager/deliveries/locations` | manager | Última posição dos entregadores com entrega em rota |
+| POST | `/courier/location` | courier | Ping de localização (upsert; só com entrega `out_for_delivery`, senão 409 `courier_not_on_route`; publica `courier.location` no room `deliveries` com `courierName`/`photoPath`) |
+| GET | `/manager/deliveries/locations` | manager | Última posição dos entregadores com entrega em rota (com `courierName` e `photoPath`) |
 
 ## Catálogo (Products & Categories)
 
