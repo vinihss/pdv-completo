@@ -5,6 +5,7 @@ import {
   listManagerDeliveriesUsecase,
   assignCourierUsecase,
   listCouriersUsecase,
+  listCourierLocationsUsecase,
 } from "../../application/self-service/delivery.usecases.js";
 import { setDeliveryStatusUsecase } from "../../application/self-service/manager-delivery-status.usecase.js";
 
@@ -53,4 +54,8 @@ export async function deliveryManagerRoutes(app: FastifyInstance) {
   });
 
   app.get("/manager/couriers", async () => listCouriersUsecase());
+
+  // Mapa do gerente: última posição de cada entregador com entrega em rota.
+  // Declarada como rota estática (não colide com `/manager/deliveries/:id`).
+  app.get("/manager/deliveries/locations", async () => listCourierLocationsUsecase());
 }
