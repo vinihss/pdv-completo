@@ -36,7 +36,7 @@ Este banco **não pode ser compartilhado** com um servidor de dev: as suítes
 publicam de verdade e disputam o advisory lock `pdv:payment:worker` e o
 `pdv:outbox:owner`, os mesmos que o backend usa em produção.
 
-### Suítes (20 arquivos)
+### Suítes (21 arquivos)
 
 | Arquivo | Cobertura |
 |---|---|
@@ -58,6 +58,7 @@ publicam de verdade e disputam o advisory lock `pdv:payment:worker` e o
 | `test/self-service.test.ts` | Página pública: carrinho, variações, grupos obrigatórios |
 | `test/stock.test.ts` | Ledger de estoque (10 testes): débito, refund, bloqueio, margem |
 | `test/team-customers.test.ts` | Clientes + equipe (28 testes): CRUD, CPF/observações, foto do cliente, comanda aberta, histórico paginado, série do gráfico, PIN |
+| `test/tenant-routing.test.ts` | Multi-tenant Fase 1 (29 testes): resolução por subdomínio/domínio próprio/apex/`localhost`, rótulos reservados (`www`/`app`/`api`), **slug inválido → 404 e nunca o default**, kill-switch `TENANT_ROUTING`, `PLATFORM_ROOT_DOMAIN`, `tenant_inactive` (403), validação de `schema_name` em código, contrato do `GET /public/tenants/resolve` (inclusive o que **não** sai), `migrations/registry/` fora do glob do runner de tenant, DDL do registry nascendo em `public` mesmo com `search_path` de tenant, e o cache do registry (TTL, invalidação, resultado negativo) |
 | `test/uploads.test.ts` | Storage por tenant (14 testes): serving de `/uploads/:kind/:filename`, logo com `no-cache`, ETag/304, só basename no banco, arquivo só no kind dele, remoção, isolamento entre tenants, traversal barrado, e o `migrate-uploads-layout` (idempotente, `--dry-run`, `--revert`) |
 | `test/whatsapp.test.ts` | WhatsApp: webhooks, dedupe, status (35 testes) |
 

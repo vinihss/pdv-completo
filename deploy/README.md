@@ -55,25 +55,58 @@ apontando para o IP público do VPS:
 
 | Registro | Aponta para | Serve |
 |---|---|---|
-| `umamisushiarte.com.br` | IP do VPS | redirect para o WhatsApp (`wa.me`) |
-| `www.umamisushiarte.com.br` | IP do VPS | redirect para o WhatsApp (`wa.me`) |
+| `umamisushiarte.com.br` | IP do VPS | **cardápio público** (pedido do cliente final, sem login) |
+| `www.umamisushiarte.com.br` | IP do VPS | redirect para o `umamisushiarte.com.br` |
 | `app.umamisushiarte.com.br` | IP do VPS | **a aplicação (PDV)** |
+| `api.umamisushiarte.com.br` | IP do VPS | **API pública** (identifica a loja pelo header `X-Tenant-Host`) |
+| `*.umamisushiarte.com.br` | IP do VPS | cardápio público por subdomínio (uma loja por subdomínio) |
 
-O domínio raiz **não** serve o app — ele redireciona (302, temporário) para o
-**WhatsApp** da casa (`wa.me`, link com o número em texto). Quem for usar o PDV
-(garçons, cozinha, gerente) entra por **`app.`**; quem digitar o domínio sem
-`app.` cai no WhatsApp, que é o canal de contato/vendas. Como o `redir` é do
-site inteiro no Caddy, qualquer caminho no domínio raiz (inclusive
-`/cardapio/do-acao`) cai no mesmo link — o path da requisição não vaza para o
-`Location`. O redirect é **temporário** (302) de propósito: o 308
-(`permanent`) fica cacheado no navegador e mascara a mudança — quem já tinha
-visitado o domínio continuaria indo para o destino antigo até limpar o cache.
-Por isso, se o número do WhatsApp mudar depois, basta editar o `redir` e
-recarregar. Valide sempre com `curl -sI` e só considere `permanent` quando o
-destino estiver definitivo:
+### `ROOT_DOMAIN` — a raiz que o Caddyfile monta
+
+A Caddyfile tem três endereços parametrizados: `app.$ROOT_DOMAIN`,
+`api.$ROOT_DOMAIN` e o wildcard `*.$ROOT_DOMAIN`. Eles saem da variável de
+ambiente **`ROOT_DOMAIN`** do container do Caddy:
 
 ```bash
-curl -sI https://umamisushiarte.com.br | grep -i location
+# deploy/.env
+ROOT_DOMAIN=umamisushiarte.com.br
+```
+
+Três coisas que já custaram um deploy inteiro:
+
+- **A sintaxe do Caddy é `{$ROOT_DOMAIN}`, não `${ROOT_DOMAIN}`.** No
+  Caddyfile o `${...}` é substituição de *argumento de placeholder* em
+  diretiva — o Caddy não entende como variável de ambiente e o
+  `caddy validate` morre com
+  `subject does not qualify for certificate: 'app.'`.
+- **A variável tem que chegar no container.** Ela está no `environment` do
+  serviço `caddy` (`docker-compose.yml`), e por isso também pode ser
+  sobrescrita no `.env`. Sem ela o `caddy validate` — que é o portão do
+  `switch.sh` — reprova o deploy com o proxy velho ainda no ar.
+- **O `caddy validate` NÃO resolve upstream, mas resolve endereço.** Um nome
+  de serviço errado passa; um domínio que não existe no DNS não.
+
+`ROOT_DOMAIN` **não** é o mesmo que `DOMAIN`. O `DOMAIN` é o apex legado
+(`labolabe.tech`, que a Caddyfile ainda serve em bloco próprio, no fim do
+arquivo, com TLS on-demand); o `ROOT_DOMAIN` é a raiz dos três blocos
+parametrizados acima. Trocar um pelo outro duplica rota — medido com
+`caddy validate`: `ROOT_DOMAIN=labolabe.tech` sai com
+`ambiguous site definition: *.labolabe.tech`, porque o wildcard do fim do
+arquivo e o `*.$ROOT_DOMAIN` viram o mesmo endereço.
+
+O domínio raiz **não** serve o app interno — quem for usar o PDV
+(garçons, cozinha, gerente) entra por **`app.`**. O que o domínio raiz
+serve hoje é o **cardápio público** (`apps/pedido-public`, sem login): o
+cliente final pede por lá, e a loja é identificada pelo `Host` (domínio
+próprio ou subdomínio) que o backend resolve em
+`GET /public/tenants/resolve`. Antes do cardápio público existir, esse
+domínio redirecionava para o WhatsApp da casa (`wa.me`) — e o `www.` faz
+esse redirect para a raiz. Para voltar a esse comportamento (ou mandar o
+cliente final para o WhatsApp em vez do cardápio), edite o bloco
+`umamisushiarte.com.br` no `deploy/Caddyfile` e recarregue:
+
+```bash
+curl -sI https://umamisushiarte.com.br
 ```
 
 Depois de criar/alterar, é só recarregar o Caddy — ele pega os certificados
@@ -110,9 +143,9 @@ chamada de API ser bloqueada pelo navegador**, sem erro visível no servidor.
 
 O `docker-compose.yml` usa `CORS_ORIGIN=${CORS_ORIGIN:-https://${DOMAIN}}`,
 então a lista completa vai no `.env`, separada por vírgula e **sem espaços**.
-Aqui só entram os endereços que **servem o app** — o domínio raiz e o `www.`
-redirecionam para o WhatsApp (não servem o app), então não precisam (e não
-devem) estar na lista:
+Aqui só entram os endereços que **servem o app interno** — o domínio raiz e
+o `www.` servem o cardápio público, que não é o app (e a API pública tem bloco
+de CORS próprio na Caddyfile), então não precisam estar na lista:
 
 ```
 CORS_ORIGIN=https://app.umamisushiarte.com.br
@@ -821,9 +854,10 @@ imagem (`extends`, não cópia):
 |---|---|---|
 | backend | `backend` | `backend-next` (profile `canary`) |
 | frontend | `frontend` | `frontend-next` (profile `canary`) |
+| app público (`pedidopublic`) | `pedidopublic` | **não tem** — ver abaixo |
 | ws-gateway (Go) | `ws-gateway` | **não tem** — ver §"Gateway WebSocket em Go" |
 
-O gateway em Go é a única exceção, e por decisão: ele é stateless (sem
+O gateway em Go é uma exceção, e por decisão: ele é stateless (sem
 migration, sem volume, sem estado em disco), então não há o que drenar
 numa troca — recriar o container derrubaria as conexões abertas do mesmo
 jeito que o `stream_close_delay` segura as do backend.
@@ -831,7 +865,10 @@ jeito que o `stream_close_delay` segura as do backend.
 ```
 1. build da imagem nova ............ nada em produção é tocado
 2. up -d backend-next frontend-next  o tráfego segue na instância atual
-3. espera o healthcheck dos dois .... verde doente = ABORTA aqui, com o
+   pedidopublic ..................... o cardápio público entra no mesmo
+                                     passo (--no-deps: nem o caddy nem o
+                                     postgres são recriados)
+3. espera o healthcheck dos três ... verde doente = ABORTA aqui, com o
                                      proxy velho no ar (nada foi trocado)
 4. grava o ponteiro + caddy reload .. o proxy passa a mandar tráfego para a
                                      instância nova
@@ -843,6 +880,40 @@ jeito que o `stream_close_delay` segura as do backend.
 O passo 3 é o portão: `/health` só responde **depois** das migrations
 (`server.ts` roda `runMigrations()` antes do `app.listen`), então "healthy"
 quer dizer "schema aplicado e pronto para tráfego".
+
+### O app público de pedidos entra no switch (sem par `-next`)
+
+`pedidopublic` (`apps/pedido-public`) é o cardápio/pedido do cliente final:
+um nginx servindo bundle estático, sem banco, sem migration, sem estado e sem
+WebSocket. Ele **não** ganha uma instância `-next` — o que ele serve não tem
+migration para drenar, e "bundle velho no ar" é muito menos grave que "schema
+sem migration". O que ele precisa é **existir**: a Caddyfile faz
+`reverse_proxy pedidopublic:80` em três blocos (`umamisushiarte.com.br`, `www`
+e o wildcard `*.ROOT_DOMAIN`), e sem container o cardápio é 502 no ar.
+
+O switch então o constrói (passo 1), sobe com `--no-deps` (passo 2) e espera o
+**mesmo portão** dos outros dois (passo 3). O healthcheck dele é
+`GET /healthz`, servido de verdade pelo nginx — antes o healthcheck batia no
+`try_files` do `location /`, que devolve 200 para *qualquer* caminho, então
+ficava verde com o bundle ausente. Instância doente = aborta antes do reload,
+com o PDV inteiro na versão antiga.
+
+Duas consequências, ditas aqui para não haver surpresa:
+
+- **O `--rollback` não mexe no app público** — sem par `-next` não há
+  instância anterior preservada. Um rollback do PDV deixa o cardápio na versão
+  do switch que o promoveu; para voltar atrás dele é preciso um `./switch.sh`
+  no commit antigo.
+- **Entre o `up` e o fim do healthcheck (segundos) o cardápio pode dar
+  timeout.** Não é o mesmo contrato de downtime zero do PDV — o container é
+  único e o `up` o substitui. É uma janela curta sobre conteúdo estático, e
+  fingir que ela não existe seria pior do que registrá-la.
+
+Para republicar **só** o app público, sem passar pelo rodízio:
+
+```bash
+npm run deploy:pedido     # build + up --no-deps + espera o healthcheck
+```
 
 ### Uso
 
@@ -1194,8 +1265,8 @@ que ele não sobe sozinho" explica.
 ### O que o `switch.sh` faz (e não faz) com o gateway
 
 **Não faz**: não reconstrói a imagem dele (o build do switch é
-`backend frontend`), não recria o container e não o inclui no rodízio
-azul/verde. A decisão está escrita no cabeçalho do `switch.sh`.
+`backend frontend pedidopublic`), não recria o container e não o inclui no
+rodízio azul/verde. A decisão está escrita no cabeçalho do `switch.sh`.
 
 **Faz**: mostra o gateway no `--status` (o `realtime=` na primeira linha e o
 container na tabela) e, quando o gateway é quem serve o realtime, avisa no

@@ -19,6 +19,15 @@
 #   caddy-assemble.sh run       → entrypoint do container
 #   caddy-assemble.sh reload    → aplica a config nova sem derrubar o proxy
 #   caddy-assemble.sh validate  → só valida (não sobe nem recarrega)
+#
+# ---------- O que este script NÃO faz: gerar a Caddyfile ----------
+# O nome "assemble" é anterior à topologia atual: existiu uma versão que
+# concatenava um arquivo gerado no host (`$OUT`) com os blocos de
+# multi-tenant. Hoje a Caddyfile do git é a config INTEIRA — nada é gerado,
+# nada é concatenado — e os endereços parametrizados (`app.`, `api.` e o
+# wildcard `*.`) já estão nela, na ordem que o Caddy precisa (específicos
+# antes do wildcard). O que sobra para este script é resolver o upstream
+# ativo (passos 1 a 1c) e validar antes de aplicar.
 # ============================================================
 set -eu
 
@@ -125,6 +134,20 @@ echo "[caddy] upstream ativo — backend: ${PDV_BACKEND_UPSTREAM:-backend:3000 (
 caddy validate --config "$CONFIG" --adapter caddyfile
 
 # ---------- 3. aplicar ----------
+#
+# Este `case` é o ÚLTIMO comando do script e os três modos acabam nele
+# (`run` e `reload` são `exec`; `validate` só sai). Não há nada depois — e é
+# por isso que o bloco 4 do pedido público (o `if [ -n "${ROOT_DOMAIN:-}" ]`
+# com `cat >> "$OUT"`) foi removido: ele estava DEPOIS deste `case`, com
+# `run`/`reload` em `exec` (que troca o processo) e `validate` caindo fora,
+# então nunca executou em nenhum dos três modos.
+#
+# E ele não podia funcionar: `$OUT` não existe neste script (a config é
+# montada pelo `caddy` lendo a Caddyfile diretamente — é o que o cabeçalho
+# acima descreve), e os endereços que ele escrevia — `umamisushiarte.com.br`,
+# `www`, `app.${ROOT_DOMAIN}`, `api.${ROOT_DOMAIN}`, `*.${ROOT_DOMAIN}` — já
+# estão no Caddyfile base, na ordem certa (específicos antes do wildcard).
+# Reescrevê-los aqui duplicaria rota em vez de gerar uma.
 case "$MODE" in
   run) exec caddy run --config "$CONFIG" --adapter caddyfile ;;
   reload) exec caddy reload --config "$CONFIG" --adapter caddyfile ;;
@@ -134,61 +157,3 @@ case "$MODE" in
     exit 2
     ;;
 esac
-
-# ---------- 4. Bloco de pedido público multi-tenant (ROOT_DOMAIN) ----------
-# Adiciona os blocos para o domínio público de pedidos.
-# Esses blocos devem vir ANTES do wildcard *.ROOT_DOMAIN no Caddyfile gerado.
-# O Caddyfile base (deploy/Caddyfile) já tem os blocos em ordem:
-#   app.ROOT_DOMAIN, api.ROOT_DOMAIN, umamisushiarte.com.br, www redirect, *.ROOT_DOMAIN
-# Este trecho gera os blocos condicionalmente quando ROOT_DOMAIN está definido.
-if [ -n "${ROOT_DOMAIN:-}" ]; then
-  cat >> "$OUT" <<BLOCKS
-
-# ---------- Pedido público multi-tenant ----------
-# Bloco específico para o domínio customizado do tenant (ex.: umamisushiarte.com.br)
-# O Caddy não precisa mudar de roteamento: o domínio é resolvido pelo backend
-# via GET /public/tenants/resolve (host -> schema)
-umamisushiarte.com.br {
-    encode gzip zstd
-    reverse_proxy pedidopublic:80
-}
-
-# www redirect para raiz
-www.umamisushiarte.com.br {
-    redir https://umamisushiarte.com.br{uri} permanent
-}
-
-# Bloco app.* mantém a aplicação interna do PDV (garçom/cozinha/gerente/caixa)
-app.${ROOT_DOMAIN} {
-    import site
-}
-
-# API pública com header X-Tenant-Host para identificação de tenant
-api.${ROOT_DOMAIN} {
-    encode gzip zstd
-    header {
-        Access-Control-Allow-Origin https://*.${ROOT_DOMAIN} https://app.${ROOT_DOMAIN} https://umamisushiarte.com.br https://www.umamisushiarte.com.br
-        Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-        Access-Control-Allow-Headers "Content-Type, Authorization, X-Tenant-Slug, X-Tenant-Host, X-Forwarded-Host"
-        Access-Control-Allow-Credentials true
-        defer
-    }
-
-    @options method OPTIONS
-    respond @options 204
-
-    reverse_proxy backend:3000 {
-        header_up X-Tenant-Host {host}
-        header_up X-Forwarded-Host {host}
-        header_up X-Forwarded-Proto {scheme}
-        header_up Host {host}
-    }
-}
-
-# Wildcard: demais tenants por subdomínio
-*.${ROOT_DOMAIN} {
-    encode gzip zstd
-    reverse_proxy pedidopublic:80
-}
-BLOCKS
-fi

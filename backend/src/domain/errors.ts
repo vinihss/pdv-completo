@@ -209,4 +209,30 @@ export const Errors = {
   // log. 409 também não serve: aqui não há conflito de estado, é conteúdo.
   invalidInternalCharge: (reason: string, details?: unknown) =>
     new AppError("invalid_internal_charge", 422, `Cobrança recusada: ${reason}`, details),
+  // ---------- Multi-tenant (registry `public.tenant`) ----------
+  //
+  // Códigos e status do §3.1 do `docs/15-multi-tenant-schema.md`, já que o
+  // `tenant.middleware` da Fase 2 vai reaproveitar exatamente estes.
+  //
+  // 404 e nunca o tenant default: um `slug` fora do `CHECK` ou um subdomínio
+  // que não existe no registry são "não é loja nenhuma", e cair no default seria
+  // servir a loja errada para quem pediu a loja certa (a "regra de ouro" do
+  // §4.8). O detalhe vai no log do servidor, não na resposta — o corpo não
+  // ecoa o host que o cliente mandou.
+  tenantNotResolved: () =>
+    new AppError("tenant_not_resolved", 404, "Loja não encontrada para este endereço."),
+  // A loja existe mas está suspensa: 403 (e não 404) para o dono da loja ver a
+  // página de suspensão em vez de erro de certificado (§8 do doc 15).
+  tenantInactive: (slug: string) =>
+    new AppError("tenant_inactive", 403, "Esta loja está temporariamente indisponível.", { slug }),
+  // A loja está no registry, mas o processo ainda não fala o schema dela —
+  // estado que só existe entre a Fase 1 (registry) e a Fase 3 (schema
+  // provisionado), e que o registry não consegue detectar sozinho.
+  tenantSchemaUnavailable: (slug: string, schemaName: string) =>
+    new AppError(
+      "tenant_schema_unavailable",
+      503,
+      "Esta loja ainda não está disponível.",
+      { slug, schemaName },
+    ),
 };

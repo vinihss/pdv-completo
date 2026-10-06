@@ -216,6 +216,7 @@ em cada caso). "autenticado" ≠ "público": rota sem token nenhum é só a de
 | Método | Path | Papel | Descrição |
 |---|---|---|---|
 | GET | `/public/menu` | público | Cardápio público |
+| GET | `/public/tenants/resolve` | público | Resolve a loja pelo `host` (query, `X-Tenant-Host` ou `Host`); 404 `found:false` se não for loja, 403 se suspensa |
 | POST | `/public/customers/lookup` | público | Busca cliente por telefone |
 | POST | `/public/customers` | público | Criar cliente no checkout |
 | POST | `/public/customers/:id/addresses` | público | Adicionar endereço no checkout |
@@ -227,6 +228,25 @@ em cada caso). "autenticado" ≠ "público": rota sem token nenhum é só a de
 | PUT | `/public/cart` | público | Salvar carrinho rascunho |
 | DELETE | `/public/cart` | público | Limpar carrinho rascunho |
 | POST | `/calcular-entrega` | público | Calcular taxa e prazo de entrega |
+
+### `GET /public/tenants/resolve`
+
+Único endpoint do multi-tenant (schema-por-tenant) que existe hoje: a vitrine de
+pedidos (`apps/pedido-public`) pergunta **em qual loja** está antes de qualquer
+outra chamada. Detalhe em `docs/15-multi-tenant-schema.md` §6 (Fase 1).
+
+- **Sem autenticação** e com o rate limit de lookup público (20/min por IP).
+- O host vem de `?host=`, de `X-Tenant-Host` (que o Caddy injeta em `api.*`) ou
+  do `Host`/`X-Forwarded-Host` da requisição — nessa ordem.
+- `200` → `{ found: true, tenant: { storeId, slug, name, logoUrl, primaryColor, usesDelivery, kitchenEnabled } }`.
+  O `schema_name` do banco **não** sai: é topologia interna.
+- `404` → `{ found: false, error: { code: "tenant_not_resolved", … } }` (endereço
+  não é loja nenhuma; nunca cai no tenant default).
+- `403` → `tenant_inactive` (loja suspensa). `503` → `tenant_schema_unavailable`
+  (a loja está no registry mas o processo ainda não fala o schema dela — só
+  acontece entre a Fase 1 e a Fase 3).
+- Com `TENANT_ROUTING=false` (o default) **nenhum** endereço dá 404: todo host
+  resolve para o tenant default, que é o comportamento de antes do multi-tenant.
 
 ## Webhooks
 

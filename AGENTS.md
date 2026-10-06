@@ -60,7 +60,7 @@ ws-gateway/ Gateway WebSocket em Go (módulo Go independente, como o `printer/`)
 | `docs/agent-backend.md` | Convenções backend: camadas, transações, migrations, estoque, alertas, impressão |
 | `docs/agent-frontend.md` | Convenções frontend: FSD, camadas, componentes, overlays, menu, Tauri |
 | `docs/agent-deploy.md` | Deploy azul/verde: switch, healthcheck, regras, backup, os dois portões que falhavam em silêncio (título da PR = mensagem do squash; tag publicada sem deploy) |
-| `docs/agent-testing.md` | Como rodar testes: backend (20 suítes), frontend (34 suítes), printer |
+| `docs/agent-testing.md` | Como rodar testes: backend (21 suítes), frontend (34 suítes), printer |
 | `docs/agent-api-index.md` | Índice de todos os endpoints da API, agrupados por domínio |
 | `docs/agent-glossary.md` | Glossário de termos do domínio (BR Code, FSD, blue/green, …) |
 | `docs/agent-backend-map.md` | Mapa arquivo→conteúdo do backend (onde mexer para cada assunto) |
@@ -168,7 +168,8 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `npm run seed` | backend | seed de dev (usuários/PINs fictícios) |
 | `npm run seed:prod` | backend | seed de primeiro deploy (sem dados fictícios) |
 | `npm run db:migrate` | backend | aplica `migrations/*.sql` (também roda no boot em modo local) |
-| `npm run test` | backend | vitest 5, 20 suítes (`backend/test/*.test.ts`; Postgres dedicado `pdv_test`) |
+| `npm run db:migrate:registry` | backend | aplica `migrations/registry/*.sql` no schema `public` (registry de tenant; roda no boot antes do `db:migrate`) |
+| `npm run test` | backend | vitest 5, 21 suítes (`backend/test/*.test.ts`; Postgres dedicado `pdv_test`) |
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
 | `npm run test` | frontend | vitest (jsdom + Testing Library; 44 arquivos de suíte) |
