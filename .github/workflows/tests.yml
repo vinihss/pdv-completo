@@ -178,6 +178,8 @@ jobs:
           filters: |
             backend:
               - 'backend/**'
+              - 'migrations/**'
+              - 'docs/**'
               - '.github/**'
               - 'package.json'
               - 'package-lock.json'
