@@ -149,6 +149,25 @@ subdomínio). Três regras, e cada uma delas já parou um deploy:
   no compose, com default. Sem isso, um `.env` do VPS escrito antes da variável
   existir reprova o deploy no portão — que é a mesma classe de falha do
   `${...}`, só adiada.
+- **Chegar no container não basta: ela é do BOOT dele, e o switch troca a
+  configuração por `reload`.** O passo 4/5 do switch é `docker exec … caddy
+  reload` (e não `recreate`, por causa dos 1-3s de queda e do WebSocket do
+  salão), e `docker exec` herda o `Config.Env` do container — que só muda quando
+  ele é criado. Um container criado **antes** da linha `ROOT_DOMAIN=` existir no
+  compose nunca recebe a variável, mesmo que o `.env` do host esteja correto e
+  o compose novo já tenha o default. O sintoma é o do `${...}` com o
+  `{$...}` de verdade: `subject does not qualify for certificate: 'app.'`, o
+  switch aborta no passo 4/5 e o proxy antigo continua no ar. Medido no run
+  `37412852257` (tag `v1.29.1`).
+  Por isso o `switch.sh` **lê o valor efetivo no `docker compose config`** (que
+  já aplica o `${ROOT_DOMAIN:-...}` e o `.env` do host) e o injeta no `reload`
+  com `docker exec -e ROOT_DOMAIN=…`. Não é recreate: o processo do proxy
+  continua o mesmo, e o WebSocket aberto não cai. O `caddy-assemble.sh`, pelo
+  lado dele, barra o `validate` antes do `caddy validate` quando a variável está
+  vazia **e** a config em uso referencia `{$ROOT_DOMAIN}` — sem default
+  silencioso, porque servir o domínio errado é pior que não servir. Ele também
+  avisa quando o container e o compose discordam, que é o estado invisível que
+  produz o `app.`.
 - **`ROOT_DOMAIN` ≠ `DOMAIN`.** `DOMAIN` é o apex legado (`labolabe.tech`, que a
   Caddyfile ainda serve em bloco próprio, no fim, com TLS on-demand) e
   `ROOT_DOMAIN` é a raiz dos três blocos parametrizados. Pôr `labolabe.tech`
