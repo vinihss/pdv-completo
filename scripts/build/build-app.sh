@@ -107,6 +107,28 @@ else
 fi
 
 echo
+# O caminho `src-tauri/target/release/bundle` está CORRETO aqui, e é o
+# oposto do que vale para a família standalone — não "uniformize" os dois.
+#
+# Motivo: `frontend/src-tauri` é um crate AUTÔNOMO (não é member do workspace
+# da raiz; a intenção está no `exclude` do `Cargo.toml` da raiz), então não
+# existe workspace acima dele e o cargo compila no `target/` dele mesmo. Os
+# crates `standalone-*` são MEMBERS daquele workspace e usam o `target/` da
+# RAIZ — é o que o build-standalone.sh e o `env.BUNDLE_DIR` do
+# build-desktop.yml fazem.
+#
+# ALERTA, bug ABERTO e FORA do escopo do conserto do caminho: o `exclude` do
+# `Cargo.toml` da raiz está escrito DEPOIS da tabela `[workspace.package]`, e
+# em TOML isso o torna chave de `[workspace.package]`, não de `[workspace]` —
+# ou seja, o cargo nunca o viu. Consequência medida hoje: `cargo` dentro de
+# frontend/src-tauri morre com "current package believes it's in a workspace
+# when it's not". Confirmado com `tomllib` e reproduzido em workspace mínimo.
+# Ou seja: este script hoje nem chega a compilar, por um motivo diferente do
+# caminho do bundle. Não corrigido aqui (Cargo.toml da raiz está fora do
+# escopo deste conserto) — quem corrigir for o `exclude` (mova para dentro de
+# `[workspace]`) ou adicionar `[workspace]` vazio no src-tauri, o caminho
+# acima passa a valer: `cargo metadata` de dentro de frontend/src-tauri então
+# devolve "target_directory": "<repo>/frontend/src-tauri/target".
 echo "==> Artefatos em src-tauri/target/release/bundle/"
 tauri_list_artifacts "src-tauri/target/release/bundle"
 echo
