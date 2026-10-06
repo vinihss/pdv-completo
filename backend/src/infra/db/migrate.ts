@@ -36,7 +36,14 @@ export async function runMigrations(): Promise<void> {
 
     const files = fs.existsSync(migrationsDir)
       ? fs.readdirSync(migrationsDir)
-          .filter((f) => f.endsWith(".sql"))
+          // Só arquivo `.sql` no PRÓPRIO diretório. A pasta `registry/` mora
+          // dentro de `migrations/` de propósito e precisa ficar de fora: ela é
+          // o índice dos schemas de tenant (`public.tenant`), e se este runner
+          // a lesse, a Fase 3 a aplicaria dentro de CADA schema de loja. O
+          // filtro `endsWith(".sql")` já a exclui (diretório não termina em
+          // `.sql`); o `statSync` é a segunda barreira, para o dia em que
+          // alguém criar um diretório que termine em `.sql`.
+          .filter((f) => f.endsWith(".sql") && fs.statSync(path.join(migrationsDir, f)).isFile())
           .sort()
       : [];
 

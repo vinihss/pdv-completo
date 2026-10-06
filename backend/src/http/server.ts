@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
 import { config } from "../config/env.js";
 import { runMigrations } from "../infra/db/migrate.js";
+import { runRegistryMigrations } from "../infra/db/registry-migrate.js";
 import { checkDatabaseHealth } from "../infra/db/client.js";
 import { startOutboxDispatcher } from "../infra/realtime/outbox-dispatcher.js";
 import { startMaintenanceJobs } from "../infra/maintenance.js";
@@ -20,6 +21,7 @@ import { cashFlowRoutes } from "./routes/cash-flow.routes.js";
 import { miscRoutes } from "./routes/misc.routes.js";
 import { realtimeRoutes } from "./routes/realtime.routes.js";
 import { publicRoutes } from "./routes/public.routes.js";
+import { tenantRoutes } from "./routes/tenant.routes.js";
 import { courierRoutes } from "./routes/courier.routes.js";
 import { deliveryManagerRoutes } from "./routes/delivery-manager.routes.js";
 import { whatsappWebhookRoutes } from "./routes/whatsapp-webhook.routes.js";
@@ -133,6 +135,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(miscRoutes);
   await app.register(realtimeRoutes);
   await app.register(publicRoutes);
+  // ---------- Resolução de loja para a vitrine de pedidos (Fase 1 do doc 15) ----------
+  // `GET /public/tenants/resolve?host=<hostname>`: a página pública do cliente
+  // final (`apps/pedido-public`) descobre a loja pelo hostname ANTES de
+  // qualquer outra chamada, e sem isso ela fica presa em "Loja não encontrada".
+  // Sem autenticação e com o rate limit de lookup público; o `schema_name` do
+  // registry nunca sai na resposta (é topologia interna do banco).
+  await app.register(tenantRoutes);
   await app.register(courierRoutes);
   await app.register(deliveryManagerRoutes);
   await app.register(whatsappWebhookRoutes);
@@ -192,8 +201,15 @@ async function main() {
   // `docker compose logs backend`. Sem o banco pronto, o `pool.connect()`
   // estoura em `connectionTimeoutMillis` (10s) — no compose o backend só sobe
   // depois do `service_healthy` do postgres, então isso não acontece em deploy.
+  //
+  // Ordem obrigatória (§6.1 do doc 15): o REGISTRY antes das migrations de
+  // tenant. As duas podem ser o mesmo boot hoje (só existe o schema default),
+  // mas o registry é o índice dos schemas de tenant e não pode depender deles.
+  // Ambos usam runners separados e advisory locks distintos — ver
+  // `infra/db/registry-migrate.ts` para por que o glob é separado.
   if (config.deploymentMode === "local") {
     try {
+      await runRegistryMigrations();
       await runMigrations();
     } catch (err) {
       throw new Error(
