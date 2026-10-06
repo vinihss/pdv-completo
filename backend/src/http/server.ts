@@ -36,11 +36,43 @@ import { uploadsRoutes } from "./routes/uploads.routes.js";
 import { startIfoodSync } from "../integrations/ifood/worker.js";
 import { startPagarmeWorkers } from "../integrations/pagarme/worker.js";
 import { getStoreSettingsUsecase } from "../application/store-settings.usecases.js";
+import { listActiveTenants } from "../infra/tenant/registry.js";
+import { resolveTenantSchema } from "../infra/storage/index.js";
+import { enterTenantScope, exitTenantScope } from "../infra/db/tenant-context.js";
+import { resolveTenant } from "../application/tenant/resolve-tenant.usecase.js";
 
 // Monta o app Fastify com todas as rotas/plugins, sem escutar. Exportado
 // para os testes (vitest) injetarem requests via `app.inject()`.
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.logLevel }, trustProxy: true });
+
+  // ---------- Fase 2: resolve o tenant do Host e entra no ALS ----------
+  // O ALS é o transporte do tenant (quem diz "esta requisição é da loja X");
+  // o pool dedicado por tenant (`tenant-db.ts`) é a barreira de isolamento.
+  // Qualquer handler que importe `db` passa a falar com o schema certo
+  // sem nenhuma alteração — o Proxy em `client.ts` resolve via ALS.
+  //
+  // Paths que NÃO passam pela resolução: health do switch (§5.6 do doc 15 —
+  // o portão do deploy não pode virar 503 por um host que não é loja), o
+  // endpoint do TLS on-demand do Caddy e o próprio `GET /public/tenants/
+  // resolve` (ele PRECISA responder 404 de tenant sem que o middleware
+  // responda 404 antes — a SPA trata o 404 no corpo, não no status).
+  const NO_TENANT_RESOLVE = new Set(["/health", "/internal/caddy-on-demand-tls", "/public/tenants/resolve"]);
+  app.addHook("onRequest", async (req) => {
+    if (NO_TENANT_RESOLVE.has(req.url.split("?")[0])) return;
+    const rawHost =
+      (req.query as Record<string, unknown> | undefined)?.host ??
+      req.headers["x-tenant-host"] ??
+      req.hostname;
+    const tenant = await resolveTenant(typeof rawHost === "string" ? rawHost : undefined);
+    enterTenantScope({ schemaName: tenant.schemaName, isDefault: tenant.isDefault });
+  });
+  // Limpa o escopo ao fim do request: sem isto, o ALS guardaria a loja
+  // do request anterior para o código que roda depois (inclusive testes
+  // que injetam vários requests no mesmo contexto async).
+  app.addHook("onResponse", async () => {
+    exitTenantScope();
+  });
 
   // ---------- Error handler — envelope padrão da §7.0 ----------
   // Registrado antes dos plugins/rotas: o handler do contexto raiz precisa
@@ -211,6 +243,13 @@ async function main() {
     try {
       await runRegistryMigrations();
       await runMigrations();
+      // Fase 3: cada schema de tenant ativo no registry precisa estar
+      // migrado. O schema default (`public` / DEFAULT_TENANT_SCHEMA) já
+      // rodou acima; os demais chegam via `runMigrations({ schema })`.
+      for (const tenant of await listActiveTenants()) {
+        if (tenant.schemaName === resolveTenantSchema()) continue;
+        await runMigrations({ schema: tenant.schemaName });
+      }
     } catch (err) {
       throw new Error(
         `[boot] migrations falharam — não subo para não servir com schema inconsistente: ${(err as Error).message}`,
