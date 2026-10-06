@@ -11,7 +11,6 @@ import { publicApi } from '../../shared/api/public-client'
 export type Tenant = {
   storeId: string
   slug: string
-  schema: string
   name: string
   logoUrl?: string | null
   primaryColor?: string | null
@@ -57,6 +56,9 @@ export function TenantProvider({ children }: TenantProviderProps) {
         params: { host },
       })
 
+      // 404 não chega aqui: o axios rejeita e o `error` abaixo aciona a tela de
+      // "Loja não encontrada". O `found: false` é o contrato do backend para
+      // quem chamar com `validateStatus` tolerante.
       if (!data.found) {
         throw new Error('Loja não encontrada para este subdomínio')
       }
