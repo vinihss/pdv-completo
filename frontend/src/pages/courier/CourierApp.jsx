@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCcw } from "lucide-react";
 import { deliverDelivery, dispatchDelivery, failDelivery, useDeliveries } from "@/entities/delivery";
+import { CourierTrackingMap, useCourierLocationPing } from "@/features/courier-tracking";
 import { useToast, Toast } from "@/shared/components";
 import { groupDeliveries } from "./model/deliveries.js";
 import { useNewDeliveryAlert } from "./model/useNewDeliveryAlert.js";
@@ -56,6 +57,16 @@ export default function CourierApp() {
 
   const list = useMemo(() => (Array.isArray(deliveries) ? deliveries.filter(Boolean) : []), [deliveries]);
   const { active, queue, failed } = useMemo(() => groupDeliveries(list), [list]);
+
+  // Ping de GPS: só enquanto houver entrega `out_for_delivery` — sem entrega
+  // em rota o backend recusa o POST e, mais importante, rastrear entregador
+  // parado é bateria e privacidade jogadas fora.
+  const hasOutForDelivery = active.length > 0;
+  const {
+    position: gpsPosition,
+    permissionDenied: gpsDenied,
+    supported: gpsSupported,
+  } = useCourierLocationPing({ active: hasOutForDelivery });
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), CLOCK_TICK_MS);
@@ -239,6 +250,20 @@ export default function CourierApp() {
                     variant="hero"
                     busy={busyId === active[0].id}
                     {...cardProps}
+                  />
+                  {/* O mapa vive na seção "Em rota": só existe posição para
+                      mostrar quando há entrega em trânsito (é exatamente o
+                      gate do ping). O destino usa lat/long do endereço se a
+                      listagem expuser; sem eles, só o marker do entregador. */}
+                  <CourierTrackingMap
+                    position={gpsPosition}
+                    destination={
+                      active[0].addressLatitude != null && active[0].addressLongitude != null
+                        ? { latitude: active[0].addressLatitude, longitude: active[0].addressLongitude }
+                        : null
+                    }
+                    permissionDenied={gpsDenied}
+                    supported={gpsSupported}
                   />
                   {active.slice(1).map((d) => (
                     <DeliveryCard

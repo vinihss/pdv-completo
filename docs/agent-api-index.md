@@ -80,6 +80,8 @@ listadas nas seções **Comandas** e **Catálogo** — não são repetidas aqui.
 | PATCH | `/manager/deliveries/:id/assign` | manager | Atribuir entregador |
 | PATCH | `/manager/deliveries/:id/status` | manager | Mudar status da entrega |
 | GET | `/manager/couriers` | manager | Listar entregadores |
+| POST | `/courier/location` | courier | Ping de localização (upsert; só com entrega `out_for_delivery`, senão 409 `courier_not_on_route`; publica `courier.location` no room `deliveries`) |
+| GET | `/manager/deliveries/locations` | manager | Última posição dos entregadores com entrega em rota |
 
 ## Catálogo (Products & Categories)
 
