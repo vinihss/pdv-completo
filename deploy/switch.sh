@@ -538,6 +538,39 @@ ensure_updates_dir() {
   done
 }
 
+# O valor EFETIVO de ROOT_DOMAIN que o container do Caddy vai enxergar, lido
+# do próprio compose (`config` já aplica o `${ROOT_DOMAIN:-default}` e o `.env`
+# do host) em vez de do ambiente do container em execução.
+#
+# Por que essa leitura existe: variável de ambiente só entra no BOOT do
+# container, e o switch troca a configuração por `caddy reload` (que é
+# `docker exec`) justamente para não derrubar quem está com WebSocket aberto.
+# Ou seja: o caminho quente do deploy é, por desenho, o caminho que NÃO pode
+# pegar env nova. Medido no run 37412852257 (tag v1.29.1) — o `caddy validate`
+# do passo 4/5 morreu com
+#   subject does not qualify for certificate: 'app.'
+# porque `app.{$ROOT_DOMAIN}` interpolou vazio: o container em pé foi criado
+# antes da linha `ROOT_DOMAIN=` existir no compose, então nele a variável não
+# existe — e o `docker exec` do reload não a injeta. O `compose config` deste
+# lado, ao contrário, é lido a cada execução e enxerga o compose novo e o
+# `.env` atual.
+#
+# Sai vazio de propósito quando o compose não declara a variável (o stack
+# local usa `Caddyfile.local`, que não usa `{$ROOT_DOMAIN}`): aí não há o que
+# injetar e o caddy-assemble.sh segue lendo só o que o container tem.
+#
+# `docker exec -e` não é recrear o container: o processo novo (o `caddy reload`)
+# recebe a env, o proxy continua o MESMO processo — é o mesmo motivo pelo qual
+# o `exec` já é o mecanismo do reload.
+caddy_root_domain() {
+  "${COMPOSE[@]}" config 2>/dev/null | awk '
+    /^  [a-zA-Z]/ { svc = $1 }
+    svc == "caddy:" && /^    environment:/ { inenv = 1; next }
+    inenv && /^    [a-zA-Z_]/ { inenv = 0 }
+    inenv && /^      ROOT_DOMAIN:/ { sub(/^      ROOT_DOMAIN:[[:space:]]*/, ""); gsub(/^["'"'"']|["'"'"']$/, ""); print; exit }
+  '
+}
+
 # Recarrega o proxy. A config é montada DENTRO do container do Caddy a
 # partir do ponteiro acima (caddy-assemble.sh valida antes de aplicar).
 reload_caddy() {
@@ -555,7 +588,28 @@ reload_caddy() {
     "${COMPOSE[@]}" up -d --no-deps --force-recreate caddy >/dev/null
     return 0
   fi
-  docker exec "$id" sh /srv/pdv-deploy/caddy-assemble.sh reload ||
+  # A env do container é a do BOOT dele (ver `caddy_root_domain`): o reload é
+  # `docker exec`, e exec não relê o compose nem o `.env`. Injetar o valor
+  # efetivo lido do compose é o que faz o `caddy validate` do
+  # caddy-assemble.sh interpolar o domínio certo mesmo em container criado
+  # antes da linha `ROOT_DOMAIN=` existir — sem recriar o proxy, que é o
+  # ponto do switch (1-3s de queda, WebSocket do salão junto).
+  local -a env_caddy=()
+  local root_domain no_container
+  root_domain="$(caddy_root_domain || true)"
+  if [ -n "$root_domain" ]; then
+    env_caddy=(-e "ROOT_DOMAIN=$root_domain")
+    # O aviso abaixo é o diagnóstico que o run 37412852257 não teve: um
+    # container com env defasada é o estado que produz `app.` no Caddyfile, e
+    # ele fica invisível enquanto o `docker exec` não comparar as duas fontes.
+    no_container="$(svc_field caddy '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null |
+      sed -n 's/^ROOT_DOMAIN=//p' | head -1 || true)"
+    if [ "$no_container" != "$root_domain" ]; then
+      warn "container do caddy com ROOT_DOMAIN defasado (container='${no_container:-vazio}', compose='${root_domain}') — o reload vai usar o valor do compose; um 'compose up -d caddy' alinha o container"
+    fi
+  fi
+  # shellcheck disable=SC2086
+  docker exec ${env_caddy[@]+"${env_caddy[@]}"} "$id" sh /srv/pdv-deploy/caddy-assemble.sh reload ||
     fail "caddy reload falhou — o proxy antigo continua no ar (ver: docker logs $id)"
 }
 
