@@ -65,6 +65,33 @@ O serviço `ws-gateway` não tem arquivo aqui: a fonte é o módulo Go
   devolve **200 para qualquer caminho** — verde com o bundle ausente. Healthcheck que
   não pode falhar não é portão, é enfeite.
 
+### No healthcheck, escreva `127.0.0.1` — nunca `localhost`
+
+Todo healthcheck deste compose fala com o próprio serviço por `127.0.0.1`
+explícito. **Não é preciosismo: `localhost` é `::1` primeiro e quebra o
+`pedidopublic`.**
+
+Medido no run `37409580179` (tag `v1.29.0`), que abortou o deploy no passo 3/5
+com o app público `unhealthy` e o log do container **limpo** (só
+`start worker process`):
+
+1. O `Dockerfile` copia o `nginx.conf` por cima do
+   `/etc/nginx/conf.d/default.conf` do pacote;
+2. o entrypoint `10-listen-on-ipv6-by-default.sh` compara o checksum desse arquivo
+   com o do pacote, vê que divergiu (`differs from the packaged version`) e sai
+   **sem** aplicar o `listen [::]:80`;
+3. o nginx fica só em `0.0.0.0:80` (`netstat -lnt` confirma: uma linha);
+4. o `/etc/hosts` resolve `localhost` para `::1` primeiro, e o `wget` do busybox
+   não cai para IPv4 — `Connecting to localhost ([::1]:80)` + `Connection refused`,
+   para sempre.
+
+O `frontend` não caiu porque tem a **mesma** imagem base e o **mesmo**
+`default.conf` sobrescrito (logo, também só IPv4) — mas o healthcheck dele diz
+`127.0.0.1` desde sempre. Com `127.0.0.1` o mesmo container vai `healthy` em
+~12s. Quando um healthcheck falha com o log do container saudável, **confira o
+endereço antes de culpar o boot**: `docker exec <c> netstat -lnt` e
+`docker exec <c> wget -O /dev/null http://127.0.0.1/<rota>`.
+
 ### O app público de pedidos entra no switch, sem par `-next`
 
 `pedidopublic` é nginx de estático: sem banco, sem migration, sem estado, sem
