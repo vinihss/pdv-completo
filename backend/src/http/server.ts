@@ -36,6 +36,8 @@ import { uploadsRoutes } from "./routes/uploads.routes.js";
 import { startIfoodSync } from "../integrations/ifood/worker.js";
 import { startPagarmeWorkers } from "../integrations/pagarme/worker.js";
 import { getStoreSettingsUsecase } from "../application/store-settings.usecases.js";
+import { listActiveTenants } from "../infra/tenant/registry.js";
+import { resolveTenantSchema } from "../infra/storage/index.js";
 import { enterTenantScope, exitTenantScope } from "../infra/db/tenant-context.js";
 import { resolveTenant } from "../application/tenant/resolve-tenant.usecase.js";
 
@@ -241,6 +243,13 @@ async function main() {
     try {
       await runRegistryMigrations();
       await runMigrations();
+      // Fase 3: cada schema de tenant ativo no registry precisa estar
+      // migrado. O schema default (`public` / DEFAULT_TENANT_SCHEMA) já
+      // rodou acima; os demais chegam via `runMigrations({ schema })`.
+      for (const tenant of await listActiveTenants()) {
+        if (tenant.schemaName === resolveTenantSchema()) continue;
+        await runMigrations({ schema: tenant.schemaName });
+      }
     } catch (err) {
       throw new Error(
         `[boot] migrations falharam — não subo para não servir com schema inconsistente: ${(err as Error).message}`,
