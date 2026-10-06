@@ -7,6 +7,17 @@
 #   api.umamisushiarte.com.br  → API pública (com header X-Tenant-Host)
 #   *.seudominio.com.br        → pedido público multi-tenant (subdomínio)
 #
+# Os três blocos do meio saem de `{$ROOT_DOMAIN}` (ver `environment` do
+# serviço `caddy` e `ROOT_DOMAIN` no .env.example), que vale
+# `umamisushiarte.com.br`: com esse valor `app.{$ROOT_DOMAIN}` É o
+# `app.umamisushiarte.com.br` que está no ar hoje, e o wildcard
+# `*.{$ROOT_DOMAIN}` não colide com o `*.labolabe.tech` do fim do arquivo.
+#
+# A sintaxe de variável do Caddy é `{$VAR}` — `${VAR}` NÃO é env: no
+# Caddyfile o `${...}` é substituição de ARGUMENTO de placeholder em
+# diretiva, e o resultado é o erro `subject does not qualify for
+# certificate: 'app.{$ROOT_DOMAIN}'` no `caddy validate`.
+#
 # Todos precisam de registro DNS tipo A apontando para o IP do
 # servidor, senão o Let's Encrypt não consegue validar o desafio
 # HTTP-01 e nenhum certificado é emitido (o Caddy fica servindo
@@ -102,16 +113,16 @@
 # Mantém o app interno (garçom/cozinha/gerente/caixa) em app.ROOT_DOMAIN
 # IMPORTANTE: este bloco DEVE vir ANTES do wildcard *.ROOT_DOMAIN
 # para que o Caddy faça o match correto (especificidade > wildcard)
-app.${ROOT_DOMAIN} {
+app.{$ROOT_DOMAIN} {
 	import site
 }
 
 # ---------- Bloco 2: API pública com contexto de tenant ----------
 # Injeta header X-Tenant-Host para o backend identificar o tenant
-api.${ROOT_DOMAIN} {
+api.{$ROOT_DOMAIN} {
     encode gzip zstd
     header {
-        Access-Control-Allow-Origin https://*.${ROOT_DOMAIN} https://app.${ROOT_DOMAIN} https://umamisushiarte.com.br https://www.umamisushiarte.com.br
+        Access-Control-Allow-Origin https://*.{$ROOT_DOMAIN} https://app.{$ROOT_DOMAIN} https://umamisushiarte.com.br https://www.umamisushiarte.com.br
         Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
         Access-Control-Allow-Headers "Content-Type, Authorization, X-Tenant-Slug, X-Tenant-Host, X-Forwarded-Host"
         Access-Control-Allow-Credentials true
@@ -121,10 +132,16 @@ api.${ROOT_DOMAIN} {
     @options method OPTIONS
     respond @options 204
 
-    reverse_proxy backend:3000 {
+    # Upstream pelo PONTEIRO, como todo proxy de backend nesta Caddyfile — e
+    # não o literal `backend:3000`. O switch para a instância antiga no passo
+    # 5, então um literal deixaria a `api.` apontando para um container
+    # PARADO a partir do primeiro switch: a rota pública do cardápio passaria
+    # a responder 502 enquanto o resto do app (que usa
+    # `{$PDV_BACKEND_UPSTREAM}`) continua funcionando — que é o pior tipo de
+    # falha, porque o sintoma aparece só no navegador do cliente final e o
+    # log do servidor não reclama de nada.
+    reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000} {
         header_up X-Tenant-Host {host}
-        header_up X-Forwarded-Host {host}
-        header_up X-Forwarded-Proto {scheme}
         header_up Host {host}
     }
 }
@@ -142,7 +159,7 @@ www.umamisushiarte.com.br {
 
 # ---------- Bloco 4: Wildcard para demais tenants (subdomínio) ----------
 # Qualquer subdomínio de ROOT_DOMAIN (exceto app, api, www) cai no pedido público
-*.${ROOT_DOMAIN} {
+*.{$ROOT_DOMAIN} {
     encode gzip zstd
     reverse_proxy pedidopublic:80
 }

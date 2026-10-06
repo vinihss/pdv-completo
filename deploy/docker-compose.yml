@@ -40,6 +40,20 @@ services:
       - "443:443"
     environment:
       - DOMAIN=${DOMAIN}
+      # Raiz dos blocos parametrizados do Caddyfile (`app.`, `api.` e o
+      # wildcard `*.`). A sintaxe de env do Caddy é `{$VAR}`, então a
+      # variável PRECISA chegar no container: sem ela o `caddy validate` do
+      # caddy-assemble.sh morre com
+      #   subject does not qualify for certificate: 'app.{$ROOT_DOMAIN}'
+      # — que é o portão do switch.sh, ou seja, o deploy inteiro para aí.
+      #
+      # O default NÃO é enfeite: o `.env` do VPS foi escrito antes desta
+      # variável existir e o `deploy-on-tag.yml` PRESERVA as variáveis que já
+      # estão lá. Sem o default, `ROOT_DOMAIN` vazio produziria `app.` no
+      # Caddyfile e o primeiro deploy depois do merge morria no portão — o
+      # mesmo modo de falha que estamos corrigindo aqui, só adiado. Quem
+      # editar o `.env` para outro valor continua prevalecendo sobre ele.
+      - ROOT_DOMAIN=${ROOT_DOMAIN:-umamisushiarte.com.br}
       - PDV_CADDY_CONFIG=/srv/pdv-deploy/Caddyfile
       - PDV_UPSTREAM_STATE=/srv/pdv-deploy/state/active-upstream
       # Qual implementação serve o /realtime* (`node` = a atual, no backend;
@@ -470,12 +484,26 @@ services:
       dockerfile: apps/pedido-public/Dockerfile
     container_name: pdv-pedido-public
     restart: unless-stopped
-    networks:
-      - pdv-net
+    # Rede default do projeto, como os outros 10 serviços (caddy incluso, que
+    # é quem faz `reverse_proxy pedidopublic:80`). Este serviço declarava
+    # `networks: [pdv-net]` e o arquivo NÃO tem chave top-level `networks:` —
+    # o `docker compose config` morria com
+    #   service "pedidopublic" refers to undefined network pdv-net: invalid compose project
+    # e o `switch.sh` (que faz `compose build` no passo 1/5, com
+    # `set -euo pipefail`) abortava antes de tocar qualquer container.
     expose:
       - "80"
+    # `caddy` e não o backend: este nginx só serve arquivos estáticos e fala
+    # com o backend pela API pública ATRAVÉS do Caddy (`/api` → backend), então
+    # a única dependência real de rede é o proxy que o publica. `--no-deps` no
+    # switch.sh garante que subir este serviço não recrie o proxy nem o banco.
     depends_on:
       - caddy
+    # O healthcheck tem que provar que o nginx responde DE VERDADE. `/healthz`
+    # não existia: o `location /` do nginx.conf faz `try_files → /index.html`,
+    # então QUALQUER caminho devolve 200 com o index — o healthcheck passava
+    # mesmo com o app quebrado. O `/healthz` é servido pelo nginx em
+    # `apps/pedido-public/nginx.conf` e responde 200 sem depender do bundle.
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/healthz || exit 1"]
       interval: 30s
