@@ -42,7 +42,7 @@ Projeto: PDV Restaurante/Pub (backend Node.js + frontend React)
 
 ## Testes
 
-- Backend: `npm run test` (vitest, 17 suítes, Postgres dedicado `pdv_test`)
+- Backend: `npm run test` (vitest, 21 suítes, Postgres dedicado `pdv_test`)
 - Frontend: `npm run test` (vitest, 34 suítes, jsdom + Testing Library)
 - Printer: `go test ./...` em `printer/daemon/`
 

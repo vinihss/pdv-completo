@@ -69,6 +69,34 @@ Diretório `backend/migrations/` com 9 arquivos:
 - O boot **aborta** se a migration falhar (`runMigrations()` com `await` no `server.ts`)
 - **Não reintroduza** `runMigrations()` sem `await`
 
+### Registry do multi-tenant — `migrations/registry/` (Fase 1 do `docs/15`)
+
+`backend/migrations/registry/` é um **diretório** e tem **runner próprio**
+(`src/infra/db/registry-migrate.ts`, `npm run db:migrate:registry`, controle em
+`public._registry_migrations`). É o índice dos schemas de tenant (`public.tenant`,
+§3.2 do doc 15), então ele **não pode** estar no glob do runner de tenant: na Fase 3
+aquele runner roda o mesmo arquivo dentro de cada schema de loja, e cada uma
+criaria a sua própria lista de lojas. O `migrate.ts` filtra `*.sql` de um nível e
+tem um `statSync().isFile()` explícito por isso.
+
+- `server.ts#main` chama `runRegistryMigrations()` **antes** de `runMigrations()`,
+  no mesmo `try` (falha em qualquer uma aborta o boot).
+- Advisory lock distinto do runner de tenant e `SET LOCAL search_path = public` em
+  cada transação: uma conexão já apontada para um schema de tenant não desvia o DDL.
+- **Toda referência é qualificada com `public.`** e o registry **não** entra no
+  `infra/db/schema.ts` (que é o DDL replicado em cada loja — o `drizzle-kit`
+  criaria `tenant` dentro de cada schema).
+- Regras de resolução em `src/domain/tenant.ts` (puras), acesso em
+  `src/infra/tenant/registry.ts` (cache 60 s, resultado negativo também cacheado),
+  decisão em `src/application/tenant/resolve-tenant.usecase.ts` (`resolveTenant`, o
+  mesmo que a Fase 2 vai pôr no `onRequest`) e rota em
+  `src/http/routes/tenant.routes.ts` (`GET /public/tenants/resolve`, sem auth, com
+  `publicLookupRateLimit`). **O `schema_name` nunca sai na resposta.**
+- **`TENANT_ROUTING` é default DESLIGADO** (Fase 1 = comportamento idêntico ao de
+  hoje): ligado, todo endereço fora do registry dá 404. `PLATFORM_ROOT_DOMAIN`
+  (= `${ROOT_DOMAIN}` do Caddy) é o que separa o apex de um subdomínio num TLD de
+  duas labels. Kill-switch: `TENANT_ROUTING=false` → todo host vira tenant default.
+
 ## Build da imagem Docker
 
 O `Dockerfile` faz `npm ci` + `npm prune --omit=dev` no estágio `build` (com toolchain) e copia o `node_modules` compilado para a imagem final.

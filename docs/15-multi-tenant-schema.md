@@ -1,13 +1,37 @@
 # 15 — Multi-tenant: um schema PostgreSQL por loja (subdomínio → tenant)
 
-> **Status:** **nada do roteiro das fases foi implementado**, exceto a parte de storage da Fase 5.
-> Verificado em 2026-10-04 no HEAD `0cb6c06`:
-> - **Fases 0–4 e 6–8: não iniciadas.** Não existe `public.tenant`, não existe
->   `backend/migrations/registry/`, não existe `resolveTenant`/`tenant.middleware`, não existe ALS nem
->   pool por tenant — `backend/src/infra/db/client.ts:10-17` é um `Pool` estático, sem `search_path`.
+> **Status:** **Fase 1 implementada** (registry + resolução + o endpoint que a
+> vitrine de pedidos consome). As fases 2–8 continuam não iniciadas.
+> Verificado em 2026-10-05 no branch `feat/tenant-resolve-public`:
+> - **Fase 1: FEITA.** `backend/migrations/registry/0001_tenant_registry.sql` (o
+>   `public.tenant` do §3.2 + `custom_domain`), o runner próprio
+>   `infra/db/registry-migrate.ts` (`runRegistryMigrations()`, roda no boot
+>   **antes** das migrations de tenant, §6.1), o acesso ao registry com cache em
+>   `infra/tenant/registry.ts`, as regras puras de `Host` em `domain/tenant.ts`,
+>   o use case `application/tenant/resolve-tenant.usecase.ts` (`resolveTenant`,
+>   pronto para o `onRequest` da Fase 2), os `Errors.tenant*` e o endpoint
+>   `GET /public/tenants/resolve` (`http/routes/tenant.routes.ts`).
+>   Suíte: `backend/test/tenant-routing.test.ts` (29 casos, o `tenant-routing.test.ts`
+>   do §6 F8 — os `tenant-isolation.test.ts` continuam sendo Fase 2+).
+> - **Fase 1 em modo seguro:** `TENANT_ROUTING` **desligado por default**, ou seja,
+>   **comportamento idêntico ao de hoje** (todo host → tenant default). Ligar é
+>   uma env só depois de popular o registry e ter a Fase 2/3 — com o registry
+>   vazio, ligado, qualquer endereço não cadastrado levaria 404, inclusive as
+>   lojas que já estão no ar.
+> - **O que a Fase 1 NÃO faz** (e é por isso que ela é segura): `resolveTenant`
+>   existe, mas **nada consome o `schema_name` ainda**. `db` continua sendo um
+>   pool único sem `search_path` por request, então um tenant registrado em
+>   `tenant_x` **não tem** cardápio, carrinho nem pedido neste processo — e o
+>   endpoint responde `503 tenant_schema_unavailable` em vez de servir a marca
+>   dele sobre o catálogo de outra loja (que seria o §5.2 de novo). O cutover
+>   continua sendo a Fase 7.
+> - **Fases 2–4 e 6–8: não iniciadas.** Não existe ALS, pool por tenant,
+>   `runMigrations({ schema })`, `provisionTenantSchema()`, JWT com `t`,
+>   `tenant.middleware` nem gateway particionado.
 > - **Fase 5: parcial** — rodou o bloco de storage (porta + layout por tenant em disco), `d30ec49`
 >   (PR #73). O resto da fase (fan-out do WhatsApp, `/health/tenants`, TLS on-demand via registry,
->   `printer_daemon_url` por tenant, CORS por registry) segue não iniciado.
+>   `printer_daemon_url` por tenant, CORS por registry) segue não iniciado — e o
+>   `/internal/caddy-on-demand-tls` continua no regex hardcoded (§5.8).
 > - **O gateway Go ficou deployável** em `b01000b` (PR #76) — o que §3.3 exige para o particionamento
 >   é o mesmo nos dois (§5.11).
 > - **§6.0 (preparação): executada em produção.** Baseline único `0001_init.sql` em `bf75736`
@@ -98,20 +122,27 @@ O que **perdemos**:
   Host: ana-terra.… └──────────────────────────────┬────────────────────────────────┘
                                                    │
                     ┌──────────────────────────────▼────────────────────────────────┐
-                    │ onRequest #1 — resolveTenant        http/middlewares/tenant.*     │
-                    │                                                                        │
-                    │  host = (x-forwarded-host ?? host).split(":")[0]   ← trustProxy     │
-                    │  slug = 1ª label, se parts.length ≥ 3                             │
-                    │  slug ∈ {www, app} | localhost | apex  → DEFAULT_TENANT_SCHEMA     │
-                    │  slug fora de ^[a-z0-9][a-z0-9-]*$  → 404 (NUNCA default)         │
-                    │                                                                        │
-                    │  tenant = await resolveTenantBySlug(slug)   ← cache 5s              │
-                    │     SELECT slug, schema_name, status FROM public.tenant           │
-                    │     status ≠ 'active' → tenant_inactive (403)                     │
-                    │     não existe       → tenant_not_resolved (404)                   │
-                    │                                                                        │
-                    │  req.tenant = { slug, schema_name }                                │
-                    │  tenantContext.enterWith(req.tenant)      ← ALS entra AQUI         │
+                     │ onRequest #1 — resolveTenant        http/middlewares/tenant.*     │
+                     │   ⚠️ A FUNÇÃO JÁ EXISTE (Fase 1):                                    │
+                     │     application/tenant/resolve-tenant.usecase.ts#resolveTenant       │
+                     │     ⚠️ O onRequest que a chama é a Fase 2 — hoje NENHUM request       │
+                     │        usa o schema resolvido (§6, Fase 1).                         │
+                     │                                                                        │
+                     │  host = (x-forwarded-host ?? host).split(":")[0]   ← trustProxy     │
+                     │  1ª label ∈ {www, app, api}   → DEFAULT_TENANT_SCHEMA (nem registry) │
+                     │  custom_domain casa o host    → o tenant dele                        │
+                     │  localhost | apex (== ROOT_DOMAIN) → DEFAULT_TENANT_SCHEMA           │
+                     │  subdomínio → slug = 1ª label                                       │
+                     │  slug fora de ^[a-z0-9][a-z0-9-]*$  → 404 (NUNCA default)            │
+                     │  TENANT_ROUTING=false → default, sem olhar o Host (kill-switch)      │
+                     │                                                                        │
+                     │  tenant = await findTenantBySlug/findTenantByHost   ← cache 60s      │
+                     │     SELECT slug, schema_name, status FROM public.tenant              │
+                     │     status ≠ 'active' → tenant_inactive (403)                        │
+                     │     não existe       → tenant_not_resolved (404)                      │
+                     │                                                                        │
+                     │  req.tenant = { slug, schema_name }                                │
+                     │  tenantContext.enterWith(req.tenant)      ← ALS entra AQUI (Fase 2) │
                     └──────────────────────────────┬────────────────────────────────┘
                                                    │
                     ┌──────────────────────────────▼────────────────────────────────┐
@@ -141,20 +172,48 @@ O que **perdemos**:
 
 ### 3.2 Schema de controle (`public`)
 
+> **Implementado (Fase 1).** O que está no arquivo hoje tem uma coluna a mais que
+> o DDL original e um ajuste na heurística do apex — ambos anotados abaixo.
+
 ```sql
 -- backend/migrations/registry/0001_tenant_registry.sql
 -- ⚠️ NÃO entra em backend/migrations/ — se entrasse, rodaria dentro de cada schema de tenant.
 CREATE TABLE IF NOT EXISTS public.tenant (
-  slug         TEXT PRIMARY KEY CHECK (slug ~ '^[a-z0-9][a-z0-9-]*$'),
-  schema_name  TEXT NOT NULL UNIQUE CHECK (schema_name ~ '^tenant_[a-z0-9_]+$'),
-  display_name TEXT NOT NULL,
-  status       TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended')),
-  created_at   TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+  slug          TEXT PRIMARY KEY CHECK (slug ~ '^[a-z0-9][a-z0-9-]*$'),
+  schema_name   TEXT NOT NULL UNIQUE CHECK (schema_name ~ '^tenant_[a-z0-9_]+$'),
+  display_name  TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended')),
+  custom_domain TEXT CHECK (custom_domain IS NULL OR custom_domain ~ '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'),
+  created_at    TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
 );
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tenant_custom_domain
+  ON public.tenant (lower(custom_domain)) WHERE custom_domain IS NOT NULL;
 
 -- A extensão PRECISA morar em public. Ver §5.1 — sem isso o tenant 2 quebra.
 CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public;
 ```
+
+**`custom_domain` (acréscimo ao DDL original).** O primeiro cliente real
+(`umamisushiarte.com.br`) é um **domínio próprio**, e a regra do §3.1 — "1ª label
+de um host com 3+ partes é o slug" — resolve `umamisushiarte`, que não é a loja
+(`umami`): sem esta coluna o endpoint daria 404 numa loja que existe. É coluna
+nova, `NULL` por default (tenant por subdomínio não precisa), e não toca no
+`CHECK`/`UNIQUE` do `slug` nem do `schema_name`. O índice único é sobre
+`lower(custom_domain)` porque host é case-insensitive: com `UNIQUE` na coluna,
+`Loja.com.br` e `loja.com.br` poderiam ser duas lojas disputando o mesmo
+endereço, e o `Host` do request não diria qual vence.
+
+**`display_name` não é a origem do nome exibido.** O `name` que o
+`/public/tenants/resolve` devolve vem de `store_settings.merchant_name` do schema
+do tenant (mesma fonte do `/store-info`), para vitrine e login nunca discordarem.
+`display_name` é o rótulo do registry para o operador — provisionamento e, mais
+tarde, `/health/tenants` (Fase 5).
+
+**O que ainda não existe no registry:** `is_default` (citado no passo 8 do §6.2
+mas ausente do DDL original) e `phone_number_id` (fan-out do WhatsApp, R13). A
+Fase 1 resolve o tenant default pelo **ambiente** (`DEFAULT_TENANT_SCHEMA`), e não
+por uma linha do registry — que é coerente com o `CHECK` do `schema_name`, que
+não aceita `public` (o schema default **até** o cutover da Fase 7).
 
 Por que `public`: é garantidamente o último elo de qualquer `search_path` do projeto, inclusive o
 das conexões de tenant. `information_schema` é read-only por design. Um schema dedicado
@@ -162,7 +221,10 @@ exigiria qualificar à mão ou tirar `public` do caminho.
 
 O `CHECK` no `schema_name` não é decoração: **o nome do schema vem do registry, nunca do request**.
 Sem a barreira, um slug mal resolvido cai silenciosamente em `public` — que é exatamente o modo de
-falha que `pg` não acusa.
+falha que `pg` não acusa. Por isso o código **repete** a validação
+(`domain/tenant.ts#isValidTenantSchemaName`) antes de usar o valor: o `CHECK` é a
+primeira barreira e a segunda existe para o dia em que o constraint cair — a
+suíte remove o constraint e prova que a linha corrompida é recusada em código.
 
 ### 3.3 Realtime — particionar o gateway, não prefixar a room
 
@@ -531,6 +593,11 @@ resolver o schema do tenant e ele não estiver provisionado → 503 → deploy a
 `/health` fica **O(1) no registry**; a verificação por tenant vai para `/health/tenants`, que roda
 **depois** do switch e só avisa.
 
+> **Ainda aberto, e a Fase 1 não mexeu nele.** `/health` segue sendo `SELECT 1`
+> (`server.ts` → `checkDatabaseHealth()`), sem tocar no registry — que é o comportamento
+> seguro do §5.6 e o que mantém o switch funcionando. `/health/tenants` (a verificação por
+> tenant, pós-switch) continua **não implementado**: é item da Fase 5.
+
 ### 5.7 🟠 Os 3 composes dividem os mesmos volumes
 
 `docker-compose.yml`, `.local.yml` e `.dev.yml` declaram todos `pdv_postgres_data`,
@@ -546,6 +613,11 @@ dados. `deploy/reset.sh:45` apaga **todo** volume `pdv_*`, incluindo o de produ�
 estourar o **limite de taxa do Let's Encrypt** (5 duplicados/semana) e travar o on-demand de um
 tenant real. Trocar o regex por consulta ao registry (permitindo `suspended`, recusando
 desconhecido).
+
+> **Continua aberto.** A Fase 1 **não** tocou nesse endpoint (é Fase 5): o regex segue como
+> está, e o registry agora é a fonte que ele vai consultar quando chegar. Regra que a
+> consulta vai ter que respeitar: `suspended` **libera** (o dono precisa ver a página de
+> suspensão, §8), desconhecido **recusa**.
 
 ### 5.9 🟡 `CORS_ORIGIN` enumerado não escala
 
@@ -661,14 +733,14 @@ A **preparação §6.0 deve ter acontecido antes** — as fases assumem o baseli
 | # | Fase | Entrega | Risco prod | Tamanho |
 |---|---|---|---|---|
 | **0** | **Spike** | Teste único: ALS no `onRequest` do Fastify 5 propagando até o handler com 2 tenants concorrentes; pool com `options`; `search_path` visível; `tx` herdando; advisory lock por tenant. **Só o teste entra na `main`** — valida a única aposta arriscada do desenho. | — | 0,5 d |
-| **1** | **Registry** | `public.tenant`, `registry-migrate.ts`, `tenants.ts` (cache), `Errors.tenant*`, `resolveTenant` registrado. `DEFAULT_TENANT_SCHEMA=public` → **comportamento idêntico ao de hoje**. | nenhum | 1 d |
-| **2** | **`db` escopado** | `tenant-context.ts` (ALS), `tenant-db.ts` (Map+LRU), `client.ts` passa a exportar o `Proxy`. `TENANT_STRICT` desligado, ligado após 1 semana em staging. | baixo | 2 d |
+| **1** | **Registry** | ✅ **FEITA** (`feat/tenant-resolve-public`): `public.tenant` em `migrations/registry/0001_tenant_registry.sql` (+ `custom_domain`), `registry-migrate.ts` (runner próprio, roda no boot **antes** das migrations de tenant), `infra/tenant/registry.ts` (cache 60s, resultado negativo também cacheado), `domain/tenant.ts` (regras puras de `Host`), `resolve-tenant.usecase.ts` (`resolveTenant` + `getPublicTenantUsecase`), `Errors.tenant*` e o endpoint `GET /public/tenants/resolve`. Kill-switch `TENANT_ROUTING` **default desligado** + `PLATFORM_ROOT_DOMAIN` (o apex de um `.com.br` tem 3 rótulos, igual um subdomínio). `tenant-routing.test.ts` (29 casos). `DEFAULT_TENANT_SCHEMA=public` → **comportamento idêntico ao de hoje**. | nenhum | 1 d |
+| **2** | **`db` escopado** | `tenant-context.ts` (ALS), `tenant-db.ts` (Map+LRU), `client.ts` passa a exportar o `Proxy`. `TENANT_STRICT` desligado, ligado após 1 semana em staging. É também o que **destrava o `503 tenant_schema_unavailable`** do endpoint da Fase 1 e a seam de storage (§4.7). | baixo | 2 d |
 | **3** | **Migrations por schema** | `runMigrations({ schema })`, boot iterando tenants, `provisionTenantSchema()`, `unaccent` em `public`. | médio | 1,5 d |
 | **4** | **Workers, locks, realtime, cache** | Loops por tenant com stagger, `lockName(base, schema)`, gateway particionado, `tenantKey()`. | médio | 2 d |
 | **5** | **Rotas sem subdomínio** | Fan-out do webhook do WhatsApp por `phone_number_id`, `/health/tenants`, on-demand TLS via registry, `printer_daemon_url` por tenant, CORS por registry. **+ porta de storage** (§4.7): `src/infra/storage/` consolidando as 4 cópias duplicadas, layout `<uploadsDir>/<schema>/<kind>/` no disco, rota `GET /uploads/:kind/:filename` que resolve o tenant do `Host` (sai o `@fastify/static`), migração one-shot idempotente dos arquivos do layout flat, API devolvendo `/uploads/<kind>/<filename>`. | médio | 3 d |
-| **6** | **JWT + desligamento do single-tenant** | `t` no payload, `tenant_mismatch`, `TENANT_ROUTING=false` como kill-switch. | médio | 1 d |
+| **6** | **JWT + desligamento do single-tenant** | `t` no payload, `tenant_mismatch`, `TENANT_ROUTING=false` como kill-switch. ⚠️ O kill-switch **já existe desde a Fase 1** (default desligado); o que falta aqui é o `t` no JWT e o `tenant_mismatch`. | médio | 1 d |
 | **7** | **Cutover do dado de produção** | §6.2. **Único ponto de não-retorno.** | **alto** | 1 d + janela |
-| **8** | **Suítes de isolamento** | `tenant-isolation.test.ts` + `tenant-routing.test.ts` (começam na Fase 1). | nenhum | 2 d |
+| **8** | **Suítes de isolamento** | ⚠️ **PARCIAL**: `tenant-routing.test.ts` ✅ (29 casos, Fase 1). `tenant-isolation.test.ts` segue pendente — não há o que provar enquanto o `db` não for escopado (2 sockets, upload cruzado, canário de `nextval`). | nenhum | 2 d |
 
 **Rollback.** Fases 1-6: `git revert` do merge → nova tag → deploy. O dado não volta porque
 nenhum schema de produção foi tocado. **Kill-switch** para emergência sem deploy:
@@ -677,20 +749,29 @@ nenhum schema de produção foi tocado. **Kill-switch** para emergência sem dep
 ### 6.1 O que muda no boot
 
 ```
-registry-migrate()                    → garante public.tenant + unaccent em public
-for tenant de registry.active:
+registry-migrate()                    → garante public.tenant + unaccent em public   ✅ Fase 1
+runMigrations()                       → migra o schema default (o único que existe)   ✅ Fase 1
+for tenant de registry.active:                                              ⬜ Fase 3
     runMigrations({ schema })         → _migrations DENTRO do schema
-workers (1 timer cada, iterando tenants com stagger)
+workers (1 timer cada, iterando tenants com stagger)                     ⬜ Fase 4
 ```
 
 ⚠️ **Ordem obrigatória**: registry antes de migration de tenant. Sem isso, o `unaccent` (§5.1)
 mora no schema do primeiro tenant.
 
+> **Já vale na Fase 1:** `server.ts#main` chama `runRegistryMigrations()` e **depois**
+> `runMigrations()`, no mesmo `try` — se qualquer um dos dois falhar, o boot aborta com
+> `exit 1` (o container reinicia e o motivo fica no log), em vez de subir com o schema pela
+> metade. Os dois runners usam **advisory locks distintos** e o do registry fixa
+> `SET LOCAL search_path = public` em cada transação, então uma conexão já apontada para um
+> schema de tenant não consegue desviar o DDL.
+
 ⚠️ **O boot vai ficar mais lento** (N × migrations). O healthcheck do compose dá ~65 s de
 tolerância (`retries 20 × 3s + start 5s`) e estoura **antes** do `PDV_HEALTH_TIMEOUT=120`.
 → Preferir **tirar as migrations do boot** para um passo explícito do CI antes do `switch.sh`
 (o boot passa a só *verificar* e falhar rápido se algo estiver pendente). É a mudança de maior
-retorno aqui.
+retorno aqui. **A Fase 1 não aumenta esse custo**: o registry é 1 arquivo, idempotente, e
+não roda quando já aplicado.
 
 ### 6.2 Cutover do dado de produção
 
@@ -813,6 +894,26 @@ que um 404 bem aplicado evita. O painel de provisionamento da plataforma é tool
   HTTP (auth nova, superfície CSRF/DoS, "quem criou a loja X?" fica na auditoria). Idempotente por
   slug. Fluxo: pré-checagem → `CREATE SCHEMA` + `GRANT` + migrations + `store_settings` + gerente
   (PIN no log, **uma vez**) → confirmar via `/store-info` → disparar TLS on-demand → dump.
+
+- **Como a Fase 1 se liga (e por que ela não se liga sozinha).** O registry existe e é lido, mas
+  **não há escrita nele** — o único jeito de popular `public.tenant` hoje é um `INSERT` manual,
+  e o roteamento por `Host` nasce **desligado**. Para ligar uma loja própria já resolvida:
+
+  ```sql
+  INSERT INTO public.tenant (slug, schema_name, display_name, custom_domain)
+  VALUES ('umami', 'tenant_umami', 'Umami Sushi Arte', 'umamisushiarte.com.br');
+  ```
+
+  ```bash
+  TENANT_ROUTING=true            # sem isso o Host é ignorado e todo mundo cai no default
+  PLATFORM_ROOT_DOMAIN=seudominio.com.br   # separa o apex de um subdomínio (TLD de 2 labels)
+  ```
+
+  ⚠️ **Ligar antes da Fase 3 não cria uma loja servível**: o schema `tenant_umami` não existe, e
+  `/public/tenants/resolve` responde `503 tenant_schema_unavailable` para ela (enquanto o
+  cardápio, o carrinho e o pedido continuariam vindo do schema default). Serve para
+  exercitar a resolução, não para atender cliente. Depois de mudar o registry, a mudança só
+  aparece no app em até `TENANT_REGISTRY_CACHE_TTL_SECONDS` (60 s).
 - **Papéis — medido, e é o número que decide a recusa de RLS (§2).** `SELECT rolname, rolsuper,
   rolbypassrls FROM pg_roles` em produção devolve **`pdv | t | t`**: o app conecta como **superuser**,
   que **sempre** bypassa RLS, mesmo com `FORCE ROW LEVEL SECURITY` em cada tabela. Ou seja,
@@ -841,13 +942,13 @@ que um 404 bem aplicado evita. O painel de provisionamento da plataforma é tool
 | R4 | **Leitura de upload entre lojas** — `/uploads/*` público e sem fronteira de tenant; a foto de um cliente/usuário de A abre em B. Dado pessoal (LGPD) (§5.3) | ✅ mitigado | Layout por tenant + rota `GET /uploads/:kind/:filename` + saída do `@fastify/static` em **`d30ec49` (PR #73)**; o schema não vai na URL, então a URL de A dá 404 em B por construção. ⚠️ **A fronteira ainda é latente**: falta a Fase 2 ligar a seam no ALS (§4.8) — enquanto o schema resolver sempre `public`, não há duas lojas para cruzar e o isolamento real não foi provado. `tenant-isolation.test.ts`: mesmo `filename` em 2 tenants → 200 só no dono. |
 | R5 | **Acesso ao banco sem contexto de tenant** | 🔴 | `requireTenant()` **lança**; `TENANT_STRICT` no ar depois de 1 semana; `grep` no CI. |
 | R6 | `pdv:server` vaza **imagem** entre lojas no web — `assetUrl()` e `fetchTag()` passam a apontar para outra origem, **sem** trocar a API (§5.5) | 🟠 | Gate por `isDesktop()` — no web `pdv:server` não tem função (a origem **é** o servidor) — mais a origem única por subdomínio. |
-| R7 | `/health` falha → switch aborta (§5.6) | 🟠 | `/health` no registry; `/health/tenants` pós-switch. |
+| R7 | `/health` falha → switch aborta (§5.6) | 🟠 **aberto** | `/health` no registry; `/health/tenants` pós-switch. **A Fase 1 deixou `/health` como `SELECT 1`** — não toca no registry, que é o comportamento seguro do §5.6 — e `/health/tenants` segue na Fase 5. |
 | R8 | Dev aplica migration no banco de produção (§5.7) | 🟠 | Volumes próprios por stack + confirmação no `reset.sh`. **Antes de qualquer código.** |
 | R9 | Estouro de `max_connections` acima de ~20 lojas | 🟠 | `TENANT_POOL_MAX_TOTAL` → 503 explícito; `CONNECTION LIMIT` na role; plano B pronto (§4.3). ⚠️ Antes disso: a probe do `/health` do gateway Go (`healthMaxInFlight=2`, `healthStaleAfter=3s`) foi calibrada para **um** pool de 25 e vira gargalo antes (§5.11). |
 | R10 | Cutover perde dado | 🟠 | `EXCEPT` de verificação, `RENAME` (não `DROP`), backup antes e depois, uma release de espera. |
 | R11 | `nextval()` não qualificado + `public` no path = vazão silenciosa | 🟡 | Canário no boot (`current_schema()` == schema do tenant **e** `to_regclass('"order"')` não-nulo); `/health/tenants` reporta. Some quando o `public` for esvaziado (passo 11 do cutover). |
 | R12 | Rollback de migration em N schemas | 🟡 | Expand/contract em 2-3 releases; o **backup pré-deploy do CI já é o mecanismo de rollback** (`pg_restore -n tenant_x`). |
-| R13 | Webhook do WhatsApp chega no apex, sem Host | 🟡 | Fan-out de 1 query indexada por tenant (`phone_number_id`), cache 60s. Sem escrita cruzada no registry. |
+| R13 | Webhook do WhatsApp chega no apex, sem Host | 🟡 | Fan-out de 1 query indexada por tenant (`phone_number_id`), cache 60s. Sem escrita cruzada no registry. **Fase 5 — a Fase 1 não tocou no webhook** (o registry ainda não tem a coluna `phone_number_id`). |
 | R14 | Limite de taxa do Let's Encrypt estourado | 🟡 | On-demand TLS via registry (§5.8). |
 | R15 | Relatório de gerente passa de `statement_timeout=30s` | 🟡 | P2: override por endpoint. |
 | R16 | `audit_log`/`stock_movement` **nunca são podados** (crescem sem limite;Maintenance só limpa 4 tabelas) | 🟡 | `retention_days` no registry + manutenção por tenant. Origem nº1 de "o banco ficou lento". |
