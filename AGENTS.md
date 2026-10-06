@@ -59,7 +59,7 @@ ws-gateway/ Gateway WebSocket em Go (módulo Go independente, como o `printer/`)
 |---|---|
 | `docs/agent-backend.md` | Convenções backend: camadas, transações, migrations, estoque, alertas, impressão |
 | `docs/agent-frontend.md` | Convenções frontend: FSD, camadas, componentes, overlays, menu, Tauri |
-| `docs/agent-deploy.md` | Deploy azul/verde: switch, healthcheck, regras, backup |
+| `docs/agent-deploy.md` | Deploy azul/verde: switch, healthcheck, regras, backup, os dois portões que falhavam em silêncio (título da PR = mensagem do squash; tag publicada sem deploy) |
 | `docs/agent-testing.md` | Como rodar testes: backend (20 suítes), frontend (34 suítes), printer |
 | `docs/agent-api-index.md` | Índice de todos os endpoints da API, agrupados por domínio |
 | `docs/agent-glossary.md` | Glossário de termos do domínio (BR Code, FSD, blue/green, …) |
@@ -124,15 +124,14 @@ apps standalone servem). Os scripts `desktop:*` saíram do `frontend/package.jso
 agora na **raiz do repo** (`node_modules/.bin/tauri`, `package.json` da raiz).
 
 ```bash
-# a partir de frontend/
-cd frontend
-bash src-tauri/build-app.sh            # build local (instalador; sem sidecar — printer reestruturado)
-bash src-tauri/build-app.sh --release  # build de entrega: exige chave de assinatura
-../node_modules/.bin/tauri dev         # roda o app no desktop (CLI da raiz, cwd = frontend)
+# a partir da raiz
+bash scripts/build/build-app.sh            # build local (instalador; sem sidecar — printer reestruturado)
+bash scripts/build/build-app.sh --release  # build de entrega: exige chave de assinatura
+(cd frontend && ../node_modules/.bin/tauri dev)  # roda o app no desktop
 ```
 
 O script resolve os caminhos pela própria localização, então também vale
-`bash frontend/src-tauri/build-app.sh` a partir da raiz do repo. Não existe mais
+`bash scripts/build/build-app.sh` a partir da raiz do repo. Não existe mais
 `npm run desktop:build` / `npm run desktop:dev`.
 
 ## Perfis de acesso
@@ -143,7 +142,7 @@ O mesmo código cobre 5 perfis, cada um com sua superfície no login e seus pap�
 
 Duas armadilhas que já custaram tempo (detalhe em `docs/11-desktop-instalador.md` §8.1-8.2):
 
-- **AppImage não empacota no Arch** — o `strip` do `linuxdeploy` não conhece a seção `.relr.dyn` das libs do Arch e o build morre with "failed to run linuxdeploy". The `.deb` sai normal; para o AppImage use `bash frontend/src-tauri/build-app.sh --appimage-docker` (empacota num `debian:bookworm-slim`).
+- **AppImage não empacota no Arch** — o `strip` do `linuxdeploy` não conhece a seção `.relr.dyn` das libs do Arch e o build morre with "failed to run linuxdeploy". The `.deb` sai normal; para o AppImage use `bash scripts/build/build-app.sh --appimage-docker` (empacota num `debian:bookworm-slim`).
 - **Build local sempre pede chave de assinatura** — o Tauri 2 assina o artefato de update sempre que `plugins.updater.pubkey` está no conf, e nenhuma flag de `-c` desliga. Sem isso o build local terminava com erro *depois* de gerar o instalador. O script agora gera uma chave descartável em `frontend/src-tauri/.local-signing.key` (fora do git): o instalador sai, o `.sig` existe, e nenhum app real atualiza por ele — entrega continua exigindo `--release` com a chave de verdade.
 
 O app Windows é o alvo: instalador único, config por loja em `%ProgramData%\PDV\app.json` e daemon de impressão instalado como serviço junto. **A lista do que ainda não foi provado (chave da assinatura fora do repo, secrets do deploy ausentes, `installer-hooks.nsh` nunca compilado) está em `docs/11-desktop-instalador.md` §9 — leia antes de chamar algo de "pronto".**
@@ -173,16 +172,16 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
 | `npm run test` | frontend | vitest (jsdom + Testing Library; 44 arquivos de suíte) |
-| `bash src-tauri/build-app.sh` | frontend | build do app desktop v1 (Tauri); `--release` = entrega (chave de assinatura), `--appimage-docker` = AppImage |
+| `bash scripts/build/build-app.sh` | frontend | build do app desktop v1 (Tauri); `--release` = entrega (chave de assinatura), `--appimage-docker` = AppImage |
 | `node_modules/.bin/tauri <cmd>` | raiz | CLI do Tauri (na raiz do repo, não em `frontend/node_modules`; rodar com cwd=`frontend/` para o app v1) |
 | `go test ./...` | `printer/daemon` | suíte do daemon |
 | `go build ./...` / `go vet ./...` / `go test ./...` | `ws-gateway` | portão do gateway WS: build, vet e suíte (é o que o CI roda, junto com `gofmt -l .`) |
 | `./switch.sh` | deploy | deploy sem downtime (instância nova + `caddy reload`); `--status`, `--rollback`, `--install`, `--no-build`. Não mexe no `ws-gateway` |
 | `docker compose --profile ws-gateway up -d --build ws-gateway` | deploy | sobe **só** o gateway WS em Go — o `up` normal não o cria (está atrás de `profiles`) |
 | `./probe-availability.sh --url <url> --seconds N` | deploy | mede o gap de downtime real (sai != 0 se houve falha) |
-| `./scripts/dev-worktree.sh new <branch>` | raiz | cria o worktree de trabalho em `~/pdv/<branch>` (dentro do clone bare), a partir da `origin/main` já atualizada |
-| `./scripts/dev-worktree.sh list` | raiz | lista os worktrees e a branch de cada um |
-| `./scripts/dev-worktree.sh rm <branch>` | raiz | remove o worktree; só apaga a branch se ela já estiver mergeada na `main` |
+| `./scripts/dev/dev-worktree.sh new <branch>` | raiz | cria o worktree de trabalho em `~/pdv/<branch>` (dentro do clone bare), a partir da `origin/main` já atualizada |
+| `./scripts/dev/dev-worktree.sh list` | raiz | lista os worktrees e a branch de cada um |
+| `./scripts/dev/dev-worktree.sh rm <branch>` | raiz | remove o worktree; só apaga a branch se ela já estiver mergeada na `main` |
 | `git config core.hooksPath .githooks` | qualquer | ativa os hooks versionados — **necessário após cada clone novo** |
 
 ## Git: worktree por branch, `main` intocada
@@ -194,9 +193,9 @@ base/coordenação (ler, comparar, abrir o editor). **Todo desenvolvimento acont
 worktree separado**; o clone bare em `~/pdv/.bare` não tem working tree.
 
 ```bash
-./scripts/dev-worktree.sh new feat/minha-branch   # cria ~/pdv/feat/minha-branch
+./scripts/dev/dev-worktree.sh new feat/minha-branch   # cria ~/pdv/feat/minha-branch
 git push -u origin feat/minha-branch && gh pr create --fill
-./scripts/dev-worktree.sh rm feat/minha-branch    # apaga a branch só se já mergeada na main
+./scripts/dev/dev-worktree.sh rm feat/minha-branch    # apaga a branch só se já mergeada na main
 ```
 
 **Nunca commit em `main`.** Fluxo de hotfix urgente é o mesmo: branch própria +
@@ -233,7 +232,7 @@ gh api -X DELETE repos/OWNER/REPO/rulesets/ID
 O deploy **não** é disparado por push na `main`: `.github/workflows/deploy-on-tag.yml`
 roda em `push: tags: v*.*.*` (backend) e `app-v*.*.*` (app). O versionamento é
 automático via Semantic Release no merge da `main` — a tag nasce sozinha.
-`./bump-version.sh` é fallback de emergência (deprecated), não o caminho normal —
+`scripts/release/bump-version.sh` é fallback de emergência (deprecated), não o caminho normal —
 é por isso que o `pre-push` deixa tag passar.
 
 ## Regras críticas
@@ -276,14 +275,18 @@ automático via Semantic Release no merge da `main` — a tag nasce sozinha.
 - **Auto-merge habilitado**: o repo tem `allow_auto_merge: true`. Após abrir a PR com `gh pr create --fill`, ativar o merge automático de squash com `gh pr merge --auto --squash` — o GitHub faz o merge sozinho assim que CI (backend, frontend, commitlint) ficar verde. Não é mais necessário clicar em "Merge" à mão. **Observação (gh 2.101.0)**: o subcomando `--auto` retornou sucesso sem registrar (`autoMergeRequest: null`); workaround que funcionou na PR #65: `gh api graphql -f query='mutation { enablePullRequestAutoMerge(input: {pullRequestId: "'$(gh pr view <n> --json id --jq .id)'", mergeMethod: SQUASH}) { pullRequest { autoMergeRequest { enabledAt } } } }'`. Se nada persistir, `gh pr checks <n> --watch` + `gh pr merge <n> --squash` manual.
 - **Trunk-Based Development**: branches de vida curta (< 1–2 dias), PRs pequenos e frequentes. Integrar na `main` assim que aprovado e verde.
 - **Conventional Commits obrigatório**: todos os commits devem seguir [Conventional Commits](https://www.conventionalcommits.org/). Validado automaticamente no PR (commitlint).
+- **O título da PR também tem que ser Conventional Commit**, porque o merge é squash e **o GitHub usa o TÍTULO da PR como mensagem do commit**. O commitlint valida os commits da branch, nunca o título — por isso o job `Validar título da PR (Conventional Commit)` existe no `pr-checks.yml`. Medido no PR #89: título `feat/printer` entrou com 31 arquivos e 5.586 linhas, o run do release ficou verde e **nenhuma tag saiu**. Atenção: a config de squash deste repo é `COMMIT_OR_PR_TITLE`, então com **um** commit só quem vira commit é a mensagem do commit; com **2+**, é o título. E editar o título **depois** de enfileirar o auto-merge não muda o commit — cancele o auto-merge, renomeie, reenfileire. Detalhes em `docs/agent-deploy.md` § "Os dois portões que falhavam em silêncio".
+- **O `!` de breaking no título não publica major**: o preset `conventionalcommits` não lê o `!` no cabeçalho, a linha sai com `type=null` e o `commit-analyzer` devolve `release=undefined`. Major sai com a nota `BREAKING CHANGE:` no **corpo** do commit. O job avisa sobre isso.
 - **Versionamento automático**: no merge na `main`, Semantic Release analisa os commits, gera/atualiza `CHANGELOG.md`, cria **tag `vX.Y.Z`** e **GitHub Release** automaticamente (baseado no tipo de mudança: `feat`→minor, `fix/perf`→patch, `BREAKING CHANGE`→major).
-- **Worktree por branch** dentro do clone bare (`~/pdv/<branch>`; `./scripts/dev-worktree.sh new|list|rm`)
+- **Worktree por branch** dentro do clone bare (`~/pdv/<branch>`; `./scripts/dev/dev-worktree.sh new|list|rm`)
 - **Hooks versionados** em `.githooks/`: precisam de `git config core.hooksPath .githooks` após clone novo
 - Hook é **freio, não tranca** (`--no-verify` contorna); a garantia é o ruleset no GitHub
 - **`rm` de worktree não apaga branch não mergeada** — publicar ou `branch -D` consciously
 - **Tag é o gate de deploy**: produção é disparada **apenas** por push de tag `v*.*.*` (backend) ou `app-v*.*.*` (app) (workflow `deploy-on-tag.yml`). A tag é criada automaticamente pelo Semantic Release no merge da `main`.
 - **Fluxo real**: merge na `main` → CI de PR (`ci-pr.yml`/`tests.yml`) valida; produção → só via tag automática do Semantic Release (`deploy-on-tag.yml`).
-- **A tag do Semantic Release só acorda o deploy se o `release.yml` usar o PAT** (`SEMANTIC_RELEASE_TOKEN`, escopo `contents: write`): o GitHub não dispara workflows a partir de eventos criados com `GITHUB_TOKEN`. Sem o secret, o `release.yml` cai no fallback e publica a tag do mesmo jeito — **o versionamento continua, o deploy não sai** (foi o que segurou produção parada entre `v1.18.0` e `v1.21.0`). Detalhe em `deploy/README.md` § Quem cria a tag.
+- **A tag do Semantic Release só acorda o deploy se o `release.yml` usar o PAT** (`SEMANTIC_RELEASE_TOKEN`, escopo `contents: write`): o GitHub não dispara workflows a partir de eventos criados com `GITHUB_TOKEN`. Sem o secret, o `release.yml` cai no fallback e publica a tag do mesmo jeito — **o versionamento continua, o deploy não sai**. Detalhe em `deploy/README.md` § Quem cria a tag.
+- **ESTADO ATUAL (05/10/2026): o PAT ainda NÃO foi criado** — `gh secret list` não mostra `SEMANTIC_RELEASE_TOKEN`. Consequência medida: `v1.25.0`/`v1.25.1`/`v1.25.2` publicaram tag sem nenhum run de deploy (produção parada ~20h) e `v1.26.0`/`v1.26.1` idem. É um secret, então **não dá para criar de dentro de uma PR** — quem cria é o dono do repositório (`gh secret set SEMANTIC_RELEASE_TOKEN --repo <owner>/<repo>`, PAT fine-grained, escopo `contents: write`, só neste repo). O `||` fallback do `release.yml` é **intencional**: sem o PAT o versionamento continua funcionando e só o deploy não dispara; virar string vazia pura quebraria o versionamento inteiro por causa de um secret inexistente.
+- **Dois workflows vigiam a travessia inteira**: `pr-checks.yml` valida o título da PR (que é a mensagem do squash) e `auditoria-deploy.yml` roda diário perguntando se a tag mais recente chegou em produção. As regras e as armadilhas estão em `docs/agent-deploy.md` § "Os dois portões que falhavam em silêncio".
 
 ### Deploy (resumo)
 

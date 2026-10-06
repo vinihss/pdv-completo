@@ -18,7 +18,7 @@ members = [
 
 # Versão única da família standalone. Os 4 apps herdam via `version.workspace
 # = true` nos seus Cargo.toml, e os tauri.conf.json NÃO declaram `version` —
-# o Tauri lê do Cargo.toml do crate automaticamente. Para bump: ./bump-version.sh 0.2.0
+# o Tauri lê do Cargo.toml do crate automaticamente. Para bump: scripts/release/bump-version.sh 0.2.0
 [workspace.package]
 version = "0.1.0"
 

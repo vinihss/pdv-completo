@@ -76,11 +76,11 @@ done
 [ -w updates ] || err "deploy/updates sem permissão de escrita. Se o Docker o criou como root: sudo chown \"\$(id -u):\$(id -g)\" updates"
 
 # ---------- 3. Subir containers ----------
-# O gateway WebSocket em Go NÃO entra aqui: está atrás do profile
-# `ws-gateway`, e é a instalação padrão que ele fique de fora (o realtime
-# vivo é o do backend Node — ver README §"Gateway WebSocket em Go").
-log "Subindo containers (caddy + backend + frontend + postgres)..."
-docker compose -f docker-compose.yml up -d --build --remove-orphans
+# Os profiles `ws-gateway` e `pagarme-webhook` são subidos junto: o gateway
+# serve o realtime (com o gate WS_DISPATCH desligado por padrão) e o webhook
+# processa os eventos do Pagar.me (com o gate PAGARME_DRAIN desligado).
+log "Subindo containers (caddy + backend + frontend + postgres + ws-gateway + pagarme-webhook)..."
+docker compose -f docker-compose.yml --profile ws-gateway --profile pagarme-webhook up -d --build --remove-orphans
 
 # ---------- 4. Aguardar health check ----------
 log "Aguardando backend ficar saudável..."
