@@ -6,6 +6,7 @@ import { users } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
 import { config } from "../../config/env.js";
 import { photoUrl } from "../user.usecases.js";
+import { assertDeviceForLogin } from "../provisioning/provisioning.usecases.js";
 
 const MAX_ATTEMPTS = 5;
 const LOCK_MS = 5 * 60_000;
@@ -26,8 +27,10 @@ async function countFailedAttempt(u: Pick<typeof users.$inferSelect, "id" | "fai
     .where(eq(users.id, u.id));
 }
 
-/** Autentica um usuário por PIN. */
-export async function loginUsecase(userId: string, rawPin: string) {
+/** Autentica um usuário por PIN. `deviceId` opcional (docs/21 §5.3/§6): quando
+ * presente, o aparelho precisa ser conhecido, ativo, não revogado e vinculado
+ * ao `userId`; sem ele, comportamento inalterado (PWA/tablet compartilhado). */
+export async function loginUsecase(userId: string, rawPin: string, deviceId?: string) {
   const u = await db.query.users.findFirst({ where: eq(users.id, userId) });
   if (!u || !u.active) throw Errors.invalidCredentials();
 
@@ -42,6 +45,8 @@ export async function loginUsecase(userId: string, rawPin: string) {
   }
 
   await db.update(users).set({ failedAttempts: 0, lockedUntil: null }).where(eq(users.id, userId));
+
+  if (deviceId) await assertDeviceForLogin(userId, deviceId);
 
   const token = jwt.sign({ sub: u.id, role: u.role }, config.jwtSecret, { expiresIn: "12h" });
   // A foto vai na sessão (não no JWT) para a identidade do app logado mostrar
