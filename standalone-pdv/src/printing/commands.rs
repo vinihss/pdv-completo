@@ -14,7 +14,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::escpos::{render, Block, Order, Template};
+use super::escpos::{render, render_for_profile, Block, Order, Template};
 use super::status::{self, SpoolerStatus};
 use super::{now_ms, PrintHealth, PrinterInfo, PrinterProfile, Transport};
 use pdv_shared::AppConfig;
@@ -165,7 +165,15 @@ pub fn printer_test(destination: String) -> Result<PrintTestResult, String> {
 pub fn print_ticket(input: PrintTicketInput) -> Result<PrintResult, String> {
   let config: AppConfig = pdv_shared::app_config().unwrap_or_default();
   let profile = config.printers.profile(&input.destination)?;
-  let bytes = render(&input.template, &input.order)?;
+  // Render de produção: sanitiza o texto do pedido e converte para a code page
+  // do destino. Antes era `render()` puro (UTF-8), que deixava acento ilegível
+  // na térmica e permitia ESC/POS vindo do nome de um item.
+  let bytes = render_for_profile(
+    &input.template,
+    &input.order,
+    profile.encoding.as_deref(),
+    profile.code_page,
+  )?;
   let bytes_sent = dispatch(profile, &input.destination, &bytes)?;
   Ok(PrintResult {
     destination: input.destination,
@@ -258,6 +266,8 @@ mod tests {
       printer_name: name.map(str::to_string),
       socket: socket.map(str::to_string),
       template_id: None,
+      encoding: None,
+      code_page: None,
     }
   }
 
