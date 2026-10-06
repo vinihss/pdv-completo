@@ -11,6 +11,7 @@ import {
 import { cancelOrder } from "@/entities/order";
 import { useDeliveries } from "@/entities/delivery";
 import { useOrderFocus } from "@/app/providers/order-focus";
+import { DeliveriesTrackingMap, useDeliveryLocations } from "@/features/courier-tracking";
 import { formatDateTime, minutesSince } from "@/shared/lib";
 import { ConfirmModal, inputClass } from "@/shared/components";
 
@@ -78,6 +79,10 @@ function ordenarPorUrgencia(lista) {
 export default function DeliveriesTab({ showToast }) {
   const { deliveries, couriers, loading, reload } = useDeliveries();
   const { focusOrder } = useOrderFocus();
+  // Mapa de acompanhamento: carga inicial por GET, daí em diante o evento
+  // `courier.location` da room `deliveries` (já assinada pelo useDeliveries)
+  // move os markers sem GET por ping.
+  const { locations, loaded: locationsLoaded } = useDeliveryLocations();
   const [assigning, setAssigning] = useState(null); // deliveryId em progresso
   const [openReasonFor, setOpenReasonFor] = useState(null); // deliveryId com o campo de motivo aberto
   const [submitting, setSubmitting] = useState(false);
@@ -168,6 +173,13 @@ export default function DeliveriesTab({ showToast }) {
           <RefreshCcw size={13} /> Atualizar
         </button>
       </div>
+
+      {/* Só faz sentido oferecer mapa quando há alguém a caminho — ou quando
+          já existe posição chegando do realtime. Sem os dois, o estado vazio
+          seria ruído permanente na fila do balcão. */}
+      {(outCount > 0 || locations.length > 0) && (
+        <DeliveriesTrackingMap locations={locations} loaded={locationsLoaded} />
+      )}
 
       {/* O toggle só aparece quando há o que revelar — com nada resolvido no
           histórico ele seria um controle morto na tela. */}
