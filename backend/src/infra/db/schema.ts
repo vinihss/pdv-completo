@@ -900,3 +900,61 @@ export const paymentRefunds = pgTable(
   },
   (t) => [index("idx_payment_refund_payment").on(t.paymentId), check("chk_payment_refund_amount", sql`${t.amount} > 0`)],
 );
+
+// ============================================================
+// Device provisioning (docs/21-device-provisioning.md) — PR 1
+// ============================================================
+//
+// Migration 0004. Mesmas convenções do resto do schema: id text (UUID gerado
+// no app), datas em text ISO-8601 UTC (ordenação lexicográfica = cronológica),
+// texto puro de segredo JAMAIS persistido (argon2 no `code_hash` /
+// `device_secret_hash`). O DDL não define DEFAULT para created_at/updated_at
+// (a migration replica a §4 do plano na íntegra), então TODA escrita fornece
+// os dois timestamps explicitamente.
+
+// Chave de provisionamento: multi-uso até revogada/expirada. No máximo 1
+// ativa por usuário — garantido no banco pelo índice único parcial
+// `uq_provisioning_key_active` (mesma técnica do `uq_cash_drawer_single_open`).
+export const provisioningKeys = pgTable(
+  "provisioning_key",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull(),
+    codeHint: text("code_hint").notNull(),
+    createdBy: text("created_by").references(() => users.id),
+    expiresAt: text("expires_at"),
+    revokedAt: text("revoked_at"),
+    emailSentAt: text("email_sent_at"),
+    createdAt: text("created_at").notNull().default(isoNow),
+    updatedAt: text("updated_at").notNull().default(isoNow),
+  },
+  (t) => [uniqueIndex("uq_provisioning_key_active").on(t.userId).where(sql`${t.revokedAt} IS NULL`)],
+);
+
+// Aparelho autenticado de um usuário. `active`/`revoked_at` são o ciclo de
+// vida: revogar = `active=false` + `revoked_at` (o refresh e o login com
+// `deviceId` passam a negar). `active=false` também é o que o
+// `updateUserUsecase` faz em cascata quando o usuário é desativado.
+export const userDevices = pgTable(
+  "user_device",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provisioningKeyId: text("provisioning_key_id").references(() => provisioningKeys.id),
+    label: text("label"),
+    platform: text("platform").notNull(),
+    appProfile: text("app_profile").notNull(),
+    deviceSecretHash: text("device_secret_hash").notNull(),
+    active: boolean("active").notNull().default(true),
+    lastSeenAt: text("last_seen_at"),
+    revokedAt: text("revoked_at"),
+    createdAt: text("created_at").notNull().default(isoNow),
+    updatedAt: text("updated_at").notNull().default(isoNow),
+  },
+  (t) => [index("ix_user_device_user").on(t.userId).where(sql`${t.active} = true`)],
+);

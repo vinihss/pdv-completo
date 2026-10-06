@@ -22,6 +22,12 @@ async function enableDelivery() {
     INSERT INTO "user" (id, name, role, pin_hash)
       VALUES ('${KITCHEN_USER}', 'Cozinha Alertas', 'kitchen', 'x')
       ON CONFLICT (id) DO NOTHING;
+    -- O teste "o entregador também fica de fora" usa um token de entregador
+    -- inexistente na fixture; com a verificação de user.active no middleware
+    -- (docs/21 §5.4) o usuário precisa existir para o 200 esperado.
+    INSERT INTO "user" (id, name, role, pin_hash)
+      VALUES ('u-courier-alertas', 'Entregador Alertas', 'courier', 'x')
+      ON CONFLICT (id) DO NOTHING;
   `);
 }
 

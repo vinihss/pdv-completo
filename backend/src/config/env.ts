@@ -124,4 +124,14 @@ export const config = {
   // diferente de um que sobe e aceita qualquer um. Comparado em tempo constante
   // e nunca aceito em branco.
   pagarmeInternalToken: process.env.PAGARME_INTERNAL_TOKEN,
+  // ---------- Email (SMTP) ----------
+  // Nada aqui derruba o boot: sem SMTP_HOST o envio apenas reporta
+  // {sent:false, reason:"not_configured"}. O seam `setMailerForTests`
+  // permite que os testes injetem um fake sem tocar na rede.
+  smtpHost: process.env.SMTP_HOST,
+  smtpPort: Number(process.env.SMTP_PORT ?? 587),
+  smtpSecure: process.env.SMTP_SECURE === "true",
+  smtpUser: process.env.SMTP_USER,
+  smtpPass: process.env.SMTP_PASS,
+  mailFrom: process.env.MAIL_FROM ?? "no-reply@localhost",
 };

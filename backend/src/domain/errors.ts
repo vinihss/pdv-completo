@@ -244,4 +244,24 @@ export const Errors = {
       "Esta loja ainda não está disponível.",
       { slug, schemaName },
     ),
+  // ---------- Device provisioning (docs/21-device-provisioning.md) ----------
+  //
+  // Códigos do PR 1 (provisionamento de aparelho por usuário). A régua de
+  // status segue o resto do catálogo: 400 = conteúdo inválido (chave errada),
+  // 403 = estado do recurso impede (revogada/aparelho não vinculado), 404 =
+  // recurso inexistente. O exchange NÃO revela qual usuário a chave pertence
+  // (nem se a chave é de alguém desativado): chave sem match cai em
+  // `provisioning_key_invalid`, a mesma resposta de "código errado".
+  provisioningKeyInvalid: () =>
+    new AppError("provisioning_key_invalid", 400, "Chave de provisionamento inválida."),
+  provisioningKeyExpired: () =>
+    new AppError("provisioning_key_expired", 400, "Chave de provisionamento expirada."),
+  provisioningKeyRevoked: () =>
+    new AppError("provisioning_key_revoked", 403, "Chave de provisionamento revogada."),
+  deviceUnknown: () =>
+    new AppError("device_unknown", 404, "Aparelho não encontrado."),
+  deviceRevoked: () =>
+    new AppError("device_revoked", 403, "Aparelho revogado."),
+  deviceNotProvisioned: () =>
+    new AppError("device_not_provisioned", 403, "Este aparelho não está vinculado a este usuário."),
 };
