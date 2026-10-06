@@ -36,7 +36,7 @@ import { uploadsRoutes } from "./routes/uploads.routes.js";
 import { startIfoodSync } from "../integrations/ifood/worker.js";
 import { startPagarmeWorkers } from "../integrations/pagarme/worker.js";
 import { getStoreSettingsUsecase } from "../application/store-settings.usecases.js";
-import { enterTenantScope } from "../infra/db/tenant-context.js";
+import { enterTenantScope, exitTenantScope } from "../infra/db/tenant-context.js";
 import { resolveTenant } from "../application/tenant/resolve-tenant.usecase.js";
 
 // Monta o app Fastify com todas as rotas/plugins, sem escutar. Exportado
@@ -64,6 +64,12 @@ export async function buildApp(): Promise<FastifyInstance> {
       req.hostname;
     const tenant = await resolveTenant(typeof rawHost === "string" ? rawHost : undefined);
     enterTenantScope({ schemaName: tenant.schemaName, isDefault: tenant.isDefault });
+  });
+  // Limpa o escopo ao fim do request: sem isto, o ALS guardaria a loja
+  // do request anterior para o código que roda depois (inclusive testes
+  // que injetam vários requests no mesmo contexto async).
+  app.addHook("onResponse", async () => {
+    exitTenantScope();
   });
 
   // ---------- Error handler — envelope padrão da §7.0 ----------

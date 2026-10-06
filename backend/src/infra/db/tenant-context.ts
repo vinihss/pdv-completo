@@ -19,11 +19,20 @@ export type TenantScope = {
   isDefault: boolean;
 };
 
-const store = new AsyncLocalStorage<TenantScope>();
+const store = new AsyncLocalStorage<TenantScope | undefined>();
 
 /** Entrar com um escopo de tenant. Use `enterTenantScope` para rodar código dentro dele. */
 export function enterTenantScope(scope: TenantScope): void {
   store.enterWith(scope);
+}
+
+/**
+ * Limpa o escopo atual. Usado pelo hook `onResponse` do Fastify para o ALS
+ * não vazar a loja do request anterior para o código que roda depois
+ * (inclusive testes que injetam vários requests no mesmo contexto async).
+ */
+export function exitTenantScope(): void {
+  store.enterWith(undefined);
 }
 
 /** Roda `cb` dentro de um escopo de tenant, isolado do escopo externo. */
