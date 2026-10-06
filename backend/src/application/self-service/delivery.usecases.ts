@@ -8,9 +8,16 @@ import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
 import { createAlertTx, DELIVERY_ASSIGNED_ALERT_KIND, describeDeliveryAssignedAlert } from "../alert/alert.usecases.js";
 import { emitCustomerStageChangedTx } from "./customer-stage.js";
 import { closeOrderAfterDelivery } from "./manager-delivery-status.usecase.js";
-import { notifyDispatched, notifyDelivered, notifyFailed } from "../../integrations/whatsapp/whatsapp.notifier.js";
+import {
+  notifyDispatched,
+  notifyDelivered,
+  notifyFailed,
+  notifyArriving,
+} from "../../integrations/whatsapp/whatsapp.notifier.js";
 import { printCourierOrder } from "../../integrations/printer/printer.usecases.js";
 import { getSettings } from "../order/order.usecases.js";
+import { photoUrl } from "../user.usecases.js";
+import { OsmRoutingService } from "../../integrations/maps/routing.service.js";
 
 const DELIVERY_ROOM = "deliveries";
 
@@ -27,7 +34,45 @@ function serialize(d: typeof deliveries.$inferSelect) {
     dispatchedAt: d.dispatchedAt,
     deliveredAt: d.deliveredAt,
     notes: d.notes,
+    // Previsão gravada no insert do checkout (order-intake.usecase.ts §4.1).
+    // As duas colunas existiam e nenhuma lista as expunha — sem elas o gerente
+    // não tem como estimar a chegada do entregador no card da entrega.
+    distanceKm: d.distanceKm,
+    estimatedMinutes: d.estimatedMinutes,
   };
+}
+
+// Coordenadas do destino para o mapa (marker de destino). A delivery não tem
+// FK para customer_address — guarda só o snapshot em texto — então a ligação é
+// por projeção na leitura: delivery → order.customer_id → endereço padrão do
+// cliente (is_default; sem padrão, o primeiro cadastrado). Sem endereço ou sem
+// georreferência, os campos saem null e o mapa simplesmente não desenha o
+// marker.
+//
+// Única fonte da projeção, compartilhada por GET /courier/deliveries e
+// GET /manager/deliveries: são as mesmas duas leituras em lote, e duas cópias
+// divergiriam no primeiro conserto da regra de "endereço padrão".
+async function addressCoordsByOrderId(
+  orderRows: { id: string; customerId: string | null }[]
+): Promise<Map<string, { latitude: number | null; longitude: number | null }>> {
+  const customerIds = [
+    ...new Set(orderRows.map((o) => o.customerId).filter((id): id is string => !!id)),
+  ];
+  const addressRows = customerIds.length
+    ? await db.query.customerAddresses.findMany({ where: inArray(customerAddresses.customerId, customerIds) })
+    : [];
+  const addressByCustomerId = new Map<string, typeof customerAddresses.$inferSelect>();
+  for (const a of addressRows) {
+    const current = addressByCustomerId.get(a.customerId);
+    if (!current || (!current.isDefault && a.isDefault)) addressByCustomerId.set(a.customerId, a);
+  }
+
+  const coords = new Map<string, { latitude: number | null; longitude: number | null }>();
+  for (const o of orderRows) {
+    const address = o.customerId ? addressByCustomerId.get(o.customerId) : undefined;
+    coords.set(o.id, { latitude: address?.latitude ?? null, longitude: address?.longitude ?? null });
+  }
+  return coords;
 }
 
 async function getOwnedDelivery(deliveryId: string, courierId: string) {
@@ -73,35 +118,18 @@ export async function listCourierDeliveriesUsecase(input: {
   });
 
   // Coordenadas do destino para o mapa do entregador (marker de destino no
-  // CourierTrackingMap). A delivery não tem FK para customer_address — guarda
-  // só o snapshot em texto — então a ligação é por projeção na leitura:
-  // delivery → order.customerId → endereço padrão do cliente (is_default;
-  // sem padrão, o primeiro cadastrado). Sem endereço ou sem georreferência,
-  // os campos saem null e o mapa simplesmente não desenha o marker.
+  // CourierTrackingMap) — projeção compartilhada, ver addressCoordsByOrderId.
   const orderIds = [...new Set(rows.map((d) => d.orderId))];
   const orderRows = orderIds.length
     ? await db.query.orders.findMany({ where: inArray(orders.id, orderIds) })
     : [];
-  const customerIdByOrderId = new Map(orderRows.map((o) => [o.id, o.customerId]));
-  const customerIds = [...new Set(orderRows.map((o) => o.customerId).filter((id): id is string => !!id))];
-  const addressRows = customerIds.length
-    ? await db.query.customerAddresses.findMany({ where: inArray(customerAddresses.customerId, customerIds) })
-    : [];
-  const addressByCustomerId = new Map<string, typeof customerAddresses.$inferSelect>();
-  for (const a of addressRows) {
-    const current = addressByCustomerId.get(a.customerId);
-    if (!current || (!current.isDefault && a.isDefault)) addressByCustomerId.set(a.customerId, a);
-  }
+  const coordsByOrderId = await addressCoordsByOrderId(orderRows);
 
-  return rows.map((d) => {
-    const customerId = customerIdByOrderId.get(d.orderId);
-    const address = customerId ? addressByCustomerId.get(customerId) : undefined;
-    return {
-      ...serialize(d),
-      addressLatitude: address?.latitude ?? null,
-      addressLongitude: address?.longitude ?? null,
-    };
-  });
+  return rows.map((d) => ({
+    ...serialize(d),
+    addressLatitude: coordsByOrderId.get(d.orderId)?.latitude ?? null,
+    addressLongitude: coordsByOrderId.get(d.orderId)?.longitude ?? null,
+  }));
 }
 
 // ---------- PATCH /courier/deliveries/:id/dispatch ----------
@@ -235,10 +263,16 @@ export async function listManagerDeliveriesUsecase(input: { statuses?: DeliveryS
   const customerNameById = new Map(customerRows.map((c) => [c.id, c.name]));
   const orderById = new Map(orderRows.map((o) => [o.id, o]));
 
+  // Mesma projeção do GET /courier/deliveries (helper compartilhado): o mapa do
+  // gerente desenha o marker de destino no card de cada entrega.
+  const coordsByOrderId = await addressCoordsByOrderId(orderRows);
+
   return rows.map((d) => ({
     ...serialize(d),
     courier: d.courierId ? { id: d.courierId, name: (courierById.get(d.courierId) as any)?.name ?? null } : null,
     customerName: customerNameFor(orderById.get(d.orderId), customerNameById),
+    addressLatitude: coordsByOrderId.get(d.orderId)?.latitude ?? null,
+    addressLongitude: coordsByOrderId.get(d.orderId)?.longitude ?? null,
   }));
 }
 
@@ -308,6 +342,15 @@ export async function reportCourierLocationUsecase(input: {
 
   const now = new Date().toISOString();
   const [row] = await db.transaction(async (tx) => {
+    // Nome e foto do entregador lidos NA MESMA transação do upsert: o evento
+    // realtime é o par da carga inicial de GET /manager/deliveries/locations e
+    // precisa vir com os mesmos campos (courierName/photoPath), senão o marcador
+    // que já está no mapa perde o rosto quando o ping chega. O `photoPath` sai
+    // como URL pública (`/uploads/user/<arquivo>`), igual a todo o resto da API.
+    const courier = await tx.query.users.findFirst({
+      where: eq(users.id, input.courierId),
+      columns: { name: true, photoPath: true },
+    });
     const [upserted] = await tx
       .insert(courierLocations)
       .values({
@@ -324,14 +367,68 @@ export async function reportCourierLocationUsecase(input: {
       .returning();
     // Accuracy vai junto: ela não é dado sensível (é a incerteza do GPS, não
     // a posição) e o mapa do gerente precisa dela para não fingir precisão
-    // que o device não tem.
+    // que o device não tem. Os campos novos SOMAM ao contrato — nenhum dos
+    // existentes sai.
     await enqueueEvent(tx, DELIVERY_ROOM, "courier.location", {
       courierId: input.courierId,
       latitude: input.latitude,
       longitude: input.longitude,
       accuracy: input.accuracy ?? null,
       updatedAt: now,
+      courierName: courier?.name ?? null,
+      photoPath: photoUrl(courier?.photoPath, "user"),
     });
+    // Verifica se o entregador está a <= 5 min do destino (regra de
+    // negócio para o WhatsApp "Sua entrega está chegando!"): calcula a rota
+    // OSRM entre a posição atual do courier e o endereço de entrega e, se o
+    // tempo for <= 5 min e o alerta ainda não foi enviado, envia a mensagem e
+    // marca a flag na própria delivery. Tudo isso é fire-and-forget: falha de
+    // rota, OSRM fora do ar ou erro no envio não derrubam o ping.
+    const deliveryRow = await tx.query.deliveries.findFirst({
+      where: (d, { and, eq: eqOp }) =>
+        and(eqOp(d.courierId, input.courierId), eqOp(d.status, "out_for_delivery")),
+    });
+    if (
+      deliveryRow &&
+      deliveryRow.status === "out_for_delivery" &&
+      !deliveryRow.arrivalAlertSent &&
+      upserted?.latitude != null &&
+      upserted?.longitude != null
+    ) {
+      try {
+        const orderRow = await tx.query.orders.findFirst({
+          where: eq(orders.id, deliveryRow.orderId),
+          columns: { customerId: true },
+        });
+        if (orderRow?.customerId) {
+          const customerRow = await tx.query.customers.findFirst({
+            where: eq(customers.id, orderRow.customerId),
+            columns: { id: true },
+          });
+          if (customerRow) {
+            const coords = await addressCoordsByOrderId([{ id: deliveryRow.orderId, customerId: customerRow.id }]);
+            const coord = coords.get(deliveryRow.orderId);
+            if (coord?.latitude != null && coord?.longitude != null) {
+              const route = await calculateRoute(
+                upserted.longitude, upserted.latitude,
+                coord.longitude, coord.latitude
+              );
+              if (route != null && route.durationMinutes <= 5) {
+                await tx
+                  .update(deliveries)
+                  .set({ arrivalAlertSent: true })
+                  .where(eq(deliveries.id, deliveryRow.id));
+                notifyArriving(deliveryRow.orderId).catch((err) =>
+                  console.error("[whatsapp] erro ao enviar alerta de chegada:", err)
+                );
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error("[entregas] erro ao checar alerta de chegada:", err);
+      }
+    }
     return [upserted];
   });
 
@@ -348,6 +445,9 @@ export async function listCourierLocationsUsecase() {
     .select({
       courierId: courierLocations.courierId,
       courierName: users.name,
+      // Basename no banco, URL pública na resposta — mesma regra de todo o
+      // resto da API (photoUrl em application/user.usecases.ts).
+      photoPath: users.photoPath,
       latitude: courierLocations.latitude,
       longitude: courierLocations.longitude,
       updatedAt: courierLocations.updatedAt,
@@ -359,11 +459,40 @@ export async function listCourierLocationsUsecase() {
   // Um courier pode ter 2+ entregas em rota — dedupe por courierId, a
   // localização é a mesma linha.
   const byCourier = new Map(rows.map((r) => [r.courierId, r]));
-  return [...byCourier.values()];
+  return [...byCourier.values()].map((r) => ({ ...r, photoPath: photoUrl(r.photoPath, "user") }));
 }
 
 // ---------- GET /manager/couriers ----------
 export async function listCouriersUsecase() {
   const rows = await db.query.users.findMany({ where: eq(users.role, "courier") });
   return rows.map((u) => ({ id: u.id, name: u.name, active: u.active }));
+}
+
+/**
+ * Calcula a rota entre duas coordenadas usando o serviço OSRM configurado.
+ *
+ * Retorna o objeto { distanceKm, durationMinutes } ou null em caso de erro.
+ * Wrapper leve em torno de `OsmRoutingService` para não depender de `setMapServices`
+ * nem do DI do `calcularEntregaUsecase` — o mesmo serviço que o checkout usa.
+ */
+async function calculateRoute(
+  courierLongitude: number,
+  courierLatitude: number,
+  destinationLongitude: number,
+  destinationLatitude: number
+): Promise<{ distanceKm: number; durationMinutes: number } | null> {
+  try {
+    const service = new OsmRoutingService();
+    const result = await service.calculateRoute(
+      { latitude: courierLatitude, longitude: courierLongitude },
+      { latitude: destinationLatitude, longitude: destinationLongitude }
+    );
+    return {
+      distanceKm: result.distanceKm,
+      durationMinutes: result.durationMinutes,
+    };
+  } catch (err) {
+    console.error("[entregas] rota OSRM falhou:", err);
+    return null;
+  }
 }
