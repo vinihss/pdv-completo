@@ -98,6 +98,45 @@ jobs:
     env:
       APP: ${{ matrix.app }}
       CRATE_DIR: standalone-${{ matrix.app }}
+      # ============================================================
+      # ONDE O BUNDLE NSIS NASCE — E POR QUE É A RAIZ DO REPO
+      # ============================================================
+      # Esta é a FONTE ÚNICA do caminho do bundle. Os três lugares que
+      # precisam dele (montar o latest.json, o upload-artifact e o resumo
+      # final) usam `${{ env.BUNDLE_DIR }}`; não cole o caminho em lugar
+      # nenhum, e não "conserte" de volta para dentro do crate.
+      #
+      # O caminho é a RAIZ do workspace Cargo, NÃO `<crate>/target`. Isto NÃO
+      # é bug, é a regra do Cargo, e já custou um run inteiro (37390730557):
+      # `standalone-pdv`, `standalone-kds`, `standalone-garcon` e
+      # `standalone-entregador` são MEMBERS do workspace declarado no
+      # `Cargo.toml` da raiz, e o Cargo SEMPRE compila no `target/` da raiz
+      # do workspace — o `target/` do member nunca é criado. Não existe
+      # `.cargo/config.toml` no repo (nenhum `target-dir` customizado), então
+      # não há como o bundle cair dentro do crate.
+      #
+      # Prova, não é teoria — o próprio log do build deste workflow:
+      #
+      #   Finished 1 bundle at:
+      #           D:\a\pdv-completo\pdv-completo\target\release\bundle\nsis\
+      #             KDS Cozinha_0.1.0_x64-setup.exe
+      #
+      # `pdv-completo\target\...` é a RAIZ. Com o caminho relativo ao crate,
+      # o passo seguinte fazia `Get-ChildItem "target/release/bundle/nsis"`
+      # de dentro de `standalone-kds/` — um diretório que nunca existiu — e
+      # morria com "Nenhum .exe em ... (build do instalador nao rodou?)".
+      # Aquela mensagem era enganosa: o build tinha rodado e o .exe estava lá.
+      #
+      # Confirmação local, sem Windows e sem 20 min de build:
+      #   $ cargo metadata --no-deps --format-version 1
+      #   "target_directory": "<repo>/target", "workspace_root": "<repo>"
+      #
+      # `CRATE_DIR` continua existindo e continua sendo o `working-directory`
+      # de quem precisa do `Cargo.toml` do crate (resolver a versão) ou da CLI
+      # do Tauri (`tauri build` tem de rodar de dentro do crate, senão a
+      # busca por tauri.conf.json desce 3 níveis e acha frontend/src-tauri).
+      # Onde o bundle SAI é a raiz; de onde o build é INVOCADO é o crate.
+      BUNDLE_DIR: ${{ github.workspace }}/target/release/bundle/nsis
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -238,11 +277,19 @@ jobs:
       # O manifesto é montado por app, com a URL apontando para o diretório
       # do app. Se PDV e KDS publicassem no mesmo latest.json, o updater
       # do PDV baixaria o instalador do KDS.
+      #
+      # O `working-directory` é o CRATE (o passo precisa do `Cargo.toml` dele
+      # para resolver a versão), mas `$dir` NÃO pode ser relativo a ele: o
+      # bundle nasce no `target/` da RAIZ do workspace. `${{ env.BUNDLE_DIR }}`
+      # é absoluto e é a fonte única desse caminho — ver o bloco em `env:` do
+      # job. Um caminho relativo aqui foi o que matou o run 37390730557 com a
+      # mensagem enganosa "build do instalador nao rodou?" quando o build tinha
+      # rodado e o .exe estava no lugar.
       - name: Montar manifesto latest.json
         working-directory: ${{ env.CRATE_DIR }}
         shell: pwsh
         run: |
-          $dir = 'target/release/bundle/nsis'
+          $dir = '${{ env.BUNDLE_DIR }}'
           # Descoberta pelo .sig, nao por extensao do artefato.
           #
           # Com createUpdaterArtifacts=true (modo v2, o que o conf do PDV usa)
@@ -259,8 +306,19 @@ jobs:
             # So o ultimo segmento some: "X.exe.sig" -> "X.exe", "X.nsis.zip.sig" -> "X.nsis.zip".
             $artefato = [IO.Path]::GetFileNameWithoutExtension($sig.Name)
           } else {
-            $exe = Get-ChildItem "$dir/*.exe" | Select-Object -First 1
-            if (-not $exe) { Write-Error "Nenhum .exe em $dir (build do instalador nao rodou?)"; exit 1 }
+            $exe = Get-ChildItem "$dir/*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $exe) {
+              # A mensagem antiga ("build do instalador nao rodou?") era
+              # enganosa e atirou o debug na direção errada: o build tinha
+              # rodado, o que não existia era o caminho do bundle. Além do
+              # caminho certo, este passo mostra ONDE procurou e onde o bundle
+              # realmente pode estar — `cargo metadata` é a fonte da verdade.
+              Write-Error "Nenhum .exe em $dir (fonte unica do caminho: env BUNDLE_DIR)"
+              Write-Host "Procure tambem em <raiz-do-repo>/target/release/bundle/nsis e em <crate>/target/release/bundle/nsis."
+              Get-ChildItem (Join-Path '${{ github.workspace }}' 'target/release') -Directory -ErrorAction SilentlyContinue |
+                Select-Object FullName | Format-Table -AutoSize
+              exit 1
+            }
             $artefato = $exe.Name
           }
           $sigFull = if ($sig) { $sig.FullName } else { $null }
@@ -350,16 +408,23 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nsis-bundle-${{ matrix.app }}
-          path: ${{ env.CRATE_DIR }}/target/release/bundle/nsis
+          # Raiz do workspace, nunca `<crate>/target` — ver o bloco em `env:`.
+          # Com o caminho do crate o `if-no-files-found: error` abaixo derrubava
+          # o job DEPOIS dos ~20 min de build.
+          path: ${{ env.BUNDLE_DIR }}
           if-no-files-found: error
           retention-days: 7
 
+      # `if: always()` de propósito: quando o build falha, este passo é a única
+      # saída que mostra o que existe de fato. Por isso ele NÃO pode estar
+      # cego para o diretório certo — listar um caminho inexistente produzia uma
+      # tabela vazia e silêncio, que é a pior leitura possível num run vermelho.
       - name: Resumo dos artefatos
         if: always()
-        working-directory: ${{ env.CRATE_DIR }}
         shell: pwsh
         run: |
-          Get-ChildItem 'target/release/bundle/nsis' -ErrorAction SilentlyContinue |
+          Write-Host "Bundle esperado em ${{ env.BUNDLE_DIR }} (raiz do workspace Cargo)"
+          Get-ChildItem '${{ env.BUNDLE_DIR }}' -ErrorAction SilentlyContinue |
             Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}} |
             Format-Table -AutoSize
           if ('${{ inputs.publicar_no_servidor }}' -ne 'true') {
@@ -568,6 +633,34 @@ jobs:
   # chave privada de producao deixar de ir para qualquer coisa que se faca
   # passar pelo Hostinger no meio da rede, e o preco de errar o SHA256 e
   # alguns minutos de debug.
+  #
+  # ------------------------------------------------------------------
+  # A REGRA DESTE JOB: `env:` DE JOB NÃO ALCANÇA O `script:` DA APPLEBOY
+  # ------------------------------------------------------------------
+  # Varredura dos TRÊS steps de appleboy deste job, feita para não ficar
+  # só no conserto pontual (o primeiro deles quebrou no run 37414894926):
+  #
+  #   step                          | variáveis no script | como chegam
+  #   ------------------------------|---------------------|----------------
+  #   Preparar deploy/updates (ssh) | UPDATES, APP        | ambas interpoladas
+  #   Publicar no servidor (scp)    | nenhuma (só source/ | sem shell: é o
+  #                                  | target/strip_comp)  | input da action
+  #   Ajustar layout (ssh)          | UPDATES, APP        | ambas interpoladas
+  #
+  # E o que NÃO é appleboy, no mesmo job: "Conferir o que será publicado"
+  # é um `run:` do runner e usa `$APP` do `env:` de job — ali funciona, e
+  # é o único uso legítimo desse `env:`.
+  #
+  # Motivo: o `script:` do appleboy/ssh-action é enviado por SSH e executado
+  # no shell do usuário REMOTO (zsh no Hostinger). `${{ }}` é resolvido pelo
+  # runner antes de enviar; `env:` de job/step vive no runner e não viaja.
+  # Com `set -Eeuo pipefail`, qualquer `$VAR` não interpolada nesse script
+  # morre na hora — "zsh:N: VAR: parameter not set" — DEPOIS de todo o
+  # trabalho caro (build, assinatura e release). Regra: dentro de `script:`
+  # de appleboy, tudo é `${{ }}` ou é declarado antes de usar.
+  #
+  # O job `deploy` do deploy-on-tag.yml segue a mesma regra (APP_PATH e TAG
+  # interpolados no script, com o motivo registrado lá).
   publish:
     needs: release
     if: inputs.publicar_no_servidor
@@ -577,6 +670,16 @@ jobs:
         app: [pdv, kds]
     name: publish (${{ matrix.app }})
     env:
+      # Este `env:` de job é legítimo e continua aqui: o step "Conferir o que
+      # será publicado" é um `run:` comum, executado pelo runner, onde o
+      # ambiente do job CHEGA sim (é o único lugar deste job que usa `$APP`
+      # sem interpolar).
+      #
+      # Ele NÃO alcança o `script:` das actions appleboy — o script roda no
+      # shell remoto, por SSH, e não vê o ambiente do runner. Por isso os três
+      # scripts de appleboy deste job interpolam o que precisam. O sintoma
+      # dessa confusão está registrado no primeiro step ("Preparar
+      # deploy/updates no servidor") e custou o run 37414894926.
       APP: ${{ matrix.app }}
     steps:
       # O mkdir vem antes do scp por um motivo concreto: o job `deploy` (dono
@@ -595,9 +698,45 @@ jobs:
           # `known_hosts` nunca existiu nestas actions) — ver o bloco do job
           # acima. Vazio = comportamento de hoje, sem verificação.
           fingerprint: ${{ secrets.HOSTINGER_SSH_FINGERPRINT }}
+          # ============================================================
+          # POR QUE `$APP` É INTERPOLADO AQUI E NÃO VEM DO `env:` DO JOB
+          # ============================================================
+          # O job `publish` declara `env: APP: ${{ matrix.app }}`, e esse
+          # `env:` NÃO CHEGA no `script:` desta action — foi o que matou o
+          # run 37414894926 (tag app-v0.1.0), no primeiro step de appleboy,
+          # DEPOIS dos dois instaladores compilarem, assinarem e a release
+          # existirem:
+          #
+          #   zsh:9: APP: parameter not set
+          #   ##[error]Process completed with exit code 1.
+          #
+          # Motivo: o `script:` do appleboy/ssh-action NÃO é executado pelo
+          # runner — ele é enviado por SSH e roda no shell do USUÁRIO REMOTO
+          # (no Hostinger, `zsh`, não bash). A interpolação `${{ }}` acontece
+          # antes, na hora de montar o texto do script; o que o runner tem no
+          # ambiente (`env:` de job e de step) simplesmente não existe lá
+          # dentro. Com `set -Eeuo pipefail`, `$APP` indefinido mata o script
+          # na hora em que aparece — linha 9 do script, que é o `mkdir` logo
+          # abaixo.
+          #
+          # Por que não o input `envs:` da appleboy: ele existe no
+          # ssh-action, mas (a) o scp-action NEM TEM esse input — os dois
+          # steps de publicação precisariam de dois jeitos diferentes de
+          # declarar a mesma variável, o que é pior que repetir a atribuição;
+          # (b) o `envs:` é construído a partir de `${{ }}` de qualquer
+          # jeito, ou seja, não economiza a interpolação; e (c) o padrão que
+          # JÁ FUNCIONAVA neste arquivo é interpolar — é o que o step "Ajustar
+          # layout no servidor" (mais abaixo) faz, e o que o job `deploy` do
+          # deploy-on-tag.yml faz com APP_PATH e TAG. Uma atribuição a mais
+          # não muda semântica nenhuma: o valor é o mesmo `matrix.app`.
+          #
+          # NÃO "simplifique" esta linha de volta para `$APP` puro achando que
+          # o `env:` do job cobre. Se precisar de outra variável neste
+          # script, declare-a logo abaixo desta, interpolada.
           script: |
             set -Eeuo pipefail
             UPDATES="${{ secrets.HOSTINGER_APP_PATH }}/deploy/updates"
+            APP="${{ matrix.app }}"
             # `-p` sem problema: o dono é o mesmo usuário do scp, então não
             # há como o Docker criar isto antes como root (o que faria o scp
             # falhar com permission denied — ver switch.sh).
@@ -615,15 +754,19 @@ jobs:
       - name: Conferir o que será publicado
         run: |
           set -Eeuo pipefail
-          ls -la bundle
+          # `find` em vez de `ls` (SC2012, actionlint/shellcheck): nome de
+          # arquivo de instalador pode ter caractere que o `ls` trata de forma
+          # diferente do shell. E aqui a lista é só diagnóstico — o que decide
+          # o run são os `test` e o `jq` abaixo.
+          find bundle -maxdepth 1 -printf '%M %10s %f\n' | sort
           test -f bundle/latest.json || { echo "Faltou o latest.json no bundle"; exit 1; }
           # O artefato é derivado do .sig quando existe (PDV, com updater) ou
           # do .exe direto (KDS, sem updater — ver o passo Montar manifesto).
-          sig=$(ls bundle/*.sig 2>/dev/null | head -1)
+          sig=$(find bundle -maxdepth 1 -type f -name '*.sig' | sort | head -1)
           if [ -n "$sig" ]; then
             artefato="${sig%.sig}"
           else
-            artefato=$(ls bundle/*.exe 2>/dev/null | head -1)
+            artefato=$(find bundle -maxdepth 1 -type f -name '*.exe' | sort | head -1)
           fi
           test -n "$artefato" || { echo "Faltou o artefato no bundle"; exit 1; }
           # O manifesto tem que apontar para um arquivo que realmente vai

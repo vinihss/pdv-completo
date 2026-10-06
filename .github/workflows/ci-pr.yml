@@ -67,6 +67,43 @@ on:
     branches:
       - main
 
+# ============================================================
+# CONCURRENCY: UM PUSH NOVO CANCELA O RUN VELHO DA MESMA PR
+# ============================================================
+# O gate de PR leva ~2min por execução (medido: `tests / test-printer-daemon`
+# sozinho leva 116s no run 37411275059), e é o que trava o merge. Quem empurra
+# 5 commits seguidos sem esperar o gate pagava 5 execuções de 7 jobs cada para
+# ler só a última — e ainda ocupava a fila de concorrência do repositório, que é
+# o limite real quando várias PRs estão abertas ao mesmo tempo.
+#
+# `cancel-in-progress: true` mata o run anterior de MESMA PR. O que NÃO é
+# tocado:
+#
+# - outras PRs: o grupo leva o número da PR, então duas PRs abertas continuam
+#   rodando em paralelo (a fila do próprio GitHub resolve o resto);
+# - o `deploy-on-tag.yml`: NÃO tem `cancel-in-progress`, e não deve. O run de
+#   produção não pode ser morto por um push novo — se duas tags saírem
+#   seguidas, a segunda não pode cancelar o deploy da primeira. A política é
+#   invertida de propósito: gate cancelável, produção não.
+#
+# POR QUE O NÚMERO DA PR E NÃO O `github.ref`: em `pull_request` o
+# `github.ref` é `refs/pull/<n>/merge`, que também serviria, mas o número deixa
+# o grupo legível na lista de runs ("CI (pull request)-110") e não depende do
+# formato do ref.
+#
+# `github.workflow` no grupo (a recomendação da documentação do GitHub) isola
+# este workflow dos outros do repo: um `pr-checks.yml` com o mesmo grupo
+# cancelaria o `ci-pr.yml` e vice-versa.
+#
+# E POR QUE O `concurrency` NÃO ESTÁ NO `tests.yml`: um workflow chamado herda
+# o `github.workflow` do chamador, e o `deploy-on-tag.yml` chama o `tests.yml`
+# DUAS vezes — as duas chamadas cairiam no mesmo grupo e a segunda cancelaria a
+# primeira. O porquê inteiro está no cabeçalho do `tests.yml`.
+# ============================================================
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   tests:
     uses: ./.github/workflows/tests.yml

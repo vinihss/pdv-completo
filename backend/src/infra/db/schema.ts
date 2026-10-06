@@ -621,6 +621,19 @@ export const deliveries = pgTable(
   (t) => [index("idx_delivery_status").on(t.status), index("idx_delivery_courier").on(t.courierId)],
 );
 
+// Última posição conhecida do entregador (migration 0003). Uma linha por
+// courier (upsert), alimentada por POST /courier/location enquanto ele tem
+// entrega em rota. Não é trilha: o histórico não existe de propósito.
+export const courierLocations = pgTable("courier_location", {
+  courierId: text("courier_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  latitude: real("latitude").notNull(),
+  longitude: real("longitude").notNull(),
+  accuracy: real("accuracy"),
+  updatedAt: text("updated_at").notNull().default(isoNow),
+});
+
 // Carrinho server-side do cliente (baseline 0001) — continuação do pedido sem
 // localStorage, chaveado pelo telefone.
 export const customerCarts = pgTable(

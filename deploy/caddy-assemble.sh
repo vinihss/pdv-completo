@@ -127,6 +127,57 @@ fi
 
 echo "[caddy] upstream ativo — backend: ${PDV_BACKEND_UPSTREAM:-backend:3000 (default)} | frontend: ${PDV_FRONTEND_UPSTREAM:-frontend:80 (default)} | realtime: ${PDV_WS_UPSTREAM} (WS_BACKEND=${WS_BACKEND:-node}) | webhook pagarme: ${PDV_PAGARME_UPSTREAM} (PAGARME_WEBHOOK_BACKEND=${PAGARME_WEBHOOK_BACKEND:-node})"
 
+# ---------- 1d. ROOT_DOMAIN: a variável que NÃO tem default aqui ----------
+# Os endereços `app.`, `api.` e o wildcard `*.` saem de `{$ROOT_DOMAIN}`, e a
+# interpolação acontece no cliente do `caddy validate`/`caddy reload`. Vazia,
+# ela não dá erro de sintaxe: dá `subject does not qualify for certificate:
+# 'app.'` — que é o portão do switch.sh, com o proxy velho ainda no ar.
+#
+# Por que este bloco NÃO cai num default (ao contrário de WS_BACKEND e
+# PAGARME_WEBHOOK_BACKEND, que caem): um default silencioso serve o domínio
+# errado sem ninguém ver. O proxy sobe, o TLS sai, e a empresa entra em
+# `app.<dominio-errado>` enquanto o domínio certo continua no ar do proxy
+# velho — que é a mesma classe de falha que o `stream_close_delay` existe para
+# não produzir (uma troca que "funciona" e corta quem está conectado).
+# O valor padrão pertence a UM lugar só, que é o compose
+# (`ROOT_DOMAIN=${ROOT_DOMAIN:-...}`); aqui a única regra é: vazio é erro, e o
+# erro diz como resolver.
+#
+# A condição é o próprio arquivo de config, e não "a variável existe": o
+# `Caddyfile.local` (stack de `--profile local`) e o `Caddyfile.dev` não usam
+# `{$ROOT_DOMAIN}` em lugar nenhum, então exigir a variável lá quebraria a
+# instalação local sem motivo.
+#
+# O `sed` tira as linhas de COMENTÁRIO antes do `grep` porque a Caddyfile
+# documenta a variável (o cabeçalho dela, e a seção "os três blocos do meio")
+# — sem isso a checagem pegaria o arquivo inteiro e o stack local pararia de
+# subir por causa de um texto que explica a variável.
+if [ -z "${ROOT_DOMAIN:-}" ] && sed 's/^[[:space:]]*#.*$//' "$CONFIG" 2>/dev/null |
+  grep -q 'ROOT_DOMAIN'; then
+  # Heredoc COM aspas: a mensagem é literal (`{$ROOT_DOMAIN}` é sintaxe do
+  # Caddyfile, `$(docker compose ps -q caddy)` é o comando que o operador
+  # precisa colar) — com `<<EOF` o shell expandiria os dois no `set -u` e a
+  # mensagem morreria com "parameter not set" em vez de chegar ao operador.
+  cat >&2 <<'EOF'
+[caddy] ERRO: ROOT_DOMAIN vazio, e a Caddyfile usa {$ROOT_DOMAIN} (blocos app./api./*.)
+   Sem ela o 'caddy validate' morre com:
+     subject does not qualify for certificate: 'app.'
+   — e o switch.sh aborta no passo 4/5, com o proxy antigo no ar.
+
+   Por que ela está vazia: variável de ambiente do container só entra no BOOT
+   dele. Um 'caddy reload' (docker exec) NÃO injeta env nova, e o container em
+   pé pode ter sido criado antes desta linha existir no compose — nesse caso a
+   variável nunca chega, mesmo que o .env do host esteja correto.
+
+   O switch.sh já resolve isso (lê o valor efetivo no 'docker compose config'
+   e injeta com 'docker exec -e'). Se você está rodando o reload na mão, use a
+   mesma forma, com o valor que o .env do host define:
+     docker exec -e ROOT_DOMAIN=<seu-dominio> \$(docker compose ps -q caddy) \
+       sh /srv/pdv-deploy/caddy-assemble.sh reload
+EOF
+  exit 1
+fi
+
 # ---------- 2. validar antes de aplicar ----------
 # Este é o portão de segurança do switch: um nome de serviço errado no
 # ponteiro tem que falhar aqui, com o proxy velho ainda no ar, e não

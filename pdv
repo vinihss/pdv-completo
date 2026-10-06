@@ -1,14 +1,34 @@
 #!/usr/bin/env bash
 # ============================================================
-# ./pdv — ponto de entrada único para os scripts de apoio.
+# ./pdv — ponto de entrada único para scripts, npm e go do repo.
 #
-#   ./pdv setup                     → scripts/dev/setup-dev.sh
-#   ./pdv worktree <new|list|rm>    → scripts/dev/dev-worktree.sh
-#   ./pdv build standalone [opts]   → scripts/build/build-standalone.sh
-#   ./pdv build app [opts]          → scripts/build/build-app.sh
-#   ./pdv release bump <versão>     → scripts/release/bump-version.sh
-#   ./pdv deploy <switch|backup|probe|install> [opts] → deploy/<script>.sh
-#   ./pdv printer install           → printer/scripts/install-linux.sh
+# Nenhum script é movido ou renomeado: cada comando abaixo só faz
+# `exec bash <script>` (ou roda npm/go com cwd explícito), então os
+# caminhos diretos continuam válidos.
+#
+#   ./pdv status                      diagnóstico read-only do ambiente
+#   ./pdv setup                       → scripts/dev/setup-dev.sh
+#   ./pdv worktree <new|list|rm>      → scripts/dev/dev-worktree.sh
+#   ./pdv dev <backend|frontend|app|all>
+#       backend/frontend/all → npm run dev (frontend/all: --profile <pdv|kds|garcon|entregador>)
+#       app <pdv|kds|garcon|entregador> → tauri dev do standalone escolhido
+#           (instala npm ci na raiz/frontend se faltar; --profile NÃO se aplica:
+#           o perfil vem do beforeDevCommand do conf do crate)
+#   ./pdv build <standalone|app|backend|frontend>
+#       standalone/app → scripts/build/build-*.sh (Tauri)
+#       backend        → npm run build (tsc)      frontend → npm run build (vite)
+#   ./pdv test <backend|frontend|printer|gateway|all>
+#       backend/frontend → npm run test           printer → go test (printer/daemon)
+#       gateway          → go build + vet + test (ws-gateway)
+#   ./pdv lint <frontend|all>         oxlint; `all` soma o gate de `gofmt -l .` do ws-gateway
+#   ./pdv db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo>
+#                                     wrappers de npm --prefix backend run ...
+#   ./pdv check [backend|frontend|all] "critérios de verificação gerais" (portão de PR)
+#   ./pdv release bump <versão>       → scripts/release/bump-version.sh
+#   ./pdv deploy <switch|backup|backup-fetch|probe|install|reset|caddy|run-cloud|pedido> [opções]
+#                                     → deploy/<script>.sh (args crus)
+#   ./pdv printer <install|package|test-local> [opções]
+#                                     → printer/scripts/<script>.sh (args crus)
 # ============================================================
 set -euo pipefail
 
@@ -20,16 +40,214 @@ usage() {
 Uso: ./pdv <domínio> <comando> [args...]
 
 Domínios:
-  setup                         Setup do ambiente de dev
-  worktree <new|list|rm>        Convenção de worktree por branch
-  build standalone [opções]     Build dos apps standalone (Tauri)
-  build app [opções]            Build do app desktop v1 (Tauri)
-  release bump <versão>         Bump de versão da família standalone
-  deploy <switch|backup|probe|install> [opções]  Deploy em nuvem
-  printer install               Instala o daemon de impressão (Linux)
-  -h|--help                     Esta ajuda
+  status                         Diagnóstico do ambiente (read-only: git,
+                                 worktrees, versões, dependências locais)
+  setup                          Setup do ambiente de dev
+  worktree <new|list|rm>         Convenção de worktree por branch
+  dev <backend|frontend|app|all>  npm run dev no diretório; `app
+                                  <pdv|kds|garcon|entregador>` roda o standalone
+                                  via tauri dev; frontend/all aceitam
+                                  --profile <pdv|kds|garcon|entregador>
+  build <standalone|app|backend|frontend>
+                                 standalone/app = Tauri; backend = tsc;
+                                 frontend = vite
+  test <backend|frontend|printer|gateway|all>
+                                 suítes: vitest (npm) e go test (daemon e
+                                 gateway); `all` roda os quatro nessa ordem
+  lint <frontend|all>            oxlint; `all` soma o gate de gofmt do
+                                 ws-gateway (mesmo contrato do CI)
+  db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo>
+                                 wrappers dos scripts npm do backend
+  check [backend|frontend|all]   critérios de verificação gerais do AGENTS.md
+                                 (pré-PR); default: all
+  release bump <versão>          Bump de versão da família standalone
+  deploy <switch|backup|backup-fetch|probe|install|reset|caddy|run-cloud|pedido> [opções]
+                                 Deploy em nuvem (os args vão crus ao script)
+  printer <install|package|test-local> [opções]
+                                 Daemon de impressão (Linux)
+  -h|--help                      Esta ajuda
+
+Sem argumentos, ./pdv imprime esta ajuda e sai com 0.
+Cada domínio com argumento inválido imprime o uso e sai com != 0.
 EOF
 }
+
+# ------------------------------------------------------------
+# Helpers de execução
+# ------------------------------------------------------------
+
+# npm com cwd explícito no diretório do package.json: o `cross-env` do frontend
+# e o `tsx`/`tsc` do backend resolvem binários e caminhos relativos a ele.
+# Roda em subshell (sem `exec` no shell principal) para que `check` possa
+# encadear passos; o exit code do npm é repassado.
+npm_run() { # <dir relativo à raiz> <script npm> [args...]
+  local dir="$1"
+  shift
+  ( cd "$ROOT/$dir" && npm run "$@" )
+}
+
+# Sequência "build + vet + go test" de um módulo Go — o mesmo portão que o CI
+# roda em ws-gateway/ e printer/daemon/ (lá somado ao gate de gofmt).
+go_gate() { # <dir relativo à raiz>
+  local dir="$1"
+  (
+    cd "$ROOT/$dir"
+    go build ./...
+    go vet ./...
+    exec go test -count=1 ./...
+  )
+}
+
+# `gofmt -l .` como GATE, como no CI: o gofmt imprime os arquivos fora de
+# formato e sai 0 sempre, então quem falha é o `test -z` da sequência.
+gofmt_gate() { # <dir relativo à raiz>
+  local dir="$1" unformatted
+  unformatted="$( cd "$ROOT/$dir" && gofmt -l . )"
+  if [ -n "$unformatted" ]; then
+    printf '%s\n' "$unformatted" >&2
+    die "arquivos fora de formato em $dir — rode: (cd $dir && gofmt -w .)"
+  fi
+  log "gofmt ok: $dir"
+}
+
+# ------------------------------------------------------------
+# Subcomandos implementados aqui (não têm script próprio)
+# ------------------------------------------------------------
+
+# Diagnóstico read-only: nada abaixo altera estado.
+cmd_status() {
+  log "── git ──"
+  if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    printf 'branch: %s\n' "$(git -C "$ROOT" branch --show-current 2>/dev/null || printf '(HEAD desanexado)')"
+    local _dirty
+    _dirty="$(git -C "$ROOT" status -s 2>/dev/null | wc -l | tr -d ' ')"
+    if [ "${_dirty:-0}" -gt 0 ]; then
+      # sed lê a saída inteira (o `head` cortaria o git com SIGPIPE sob pipefail).
+      git -C "$ROOT" status -s 2>/dev/null | sed -n '1,10p'
+      [ "$_dirty" -le 10 ] || printf '… e mais %s arquivo(s) alterado(s)\n' "$((_dirty - 10))"
+    else
+      printf 'working tree limpa\n'
+    fi
+  else
+    warn "git indisponível ou $ROOT não é um repositório"
+  fi
+
+  echo
+  log "── worktrees ──"
+  ( cd "$ROOT" && bash "$ROOT/scripts/dev/dev-worktree.sh" list ) \
+    || warn "não consegui listar os worktrees (scripts/dev/dev-worktree.sh list)"
+
+  echo
+  log "── versões ──"
+  local _c _v
+  for _c in git node npm go docker; do
+    if command -v "$_c" >/dev/null 2>&1; then
+      # `go` não tem `--version` (é `go version`); os outros, sim.
+      case "$_c" in
+        go) _v="$("$_c" version 2>/dev/null | sed -n '1p' || true)" ;;
+        *)  _v="$("$_c" --version 2>/dev/null | sed -n '1p' || true)" ;;
+      esac
+      printf '  %-6s %s\n' "$_c" "${_v:-?}"
+    else
+      printf '  %-6s não instalado\n' "$_c"
+    fi
+  done
+
+  echo
+  log "── dependências locais ──"
+  # O `.env` que o `./pdv setup` cria é o do backend (backend/.env).
+  local _p
+  for _p in backend/node_modules frontend/node_modules backend/.env; do
+    if [ -e "$ROOT/$_p" ]; then
+      printf '  %-22s ok\n' "$_p"
+    else
+      printf '  %-22s AUSENTE\n' "$_p"
+    fi
+  done
+}
+
+# `./pdv dev frontend|all [--profile <perfil>]` — perfil lido antes de subir
+# qualquer servidor, para falhar cedo em arg inválido.
+dev_frontend() { # <perfil (vazio = default)>
+  if [ -n "$1" ]; then
+    npm_run frontend "dev:$1"
+  else
+    npm_run frontend dev
+  fi
+}
+
+# `./pdv dev app <pdv|kds|garcon|entregador> [args crus do tauri dev]` —
+# roda o standalone escolhido em modo dev no desktop.
+#
+# Por que os dois pré-requisitos e o cwd: o `beforeDevCommand` do conf do crate
+# (`cd ../frontend && npm run dev:<perfil>`) precisa de `frontend/node_modules`,
+# e a CLI do Tauri mora em `node_modules/` na RAIZ do repo (mesmos motivos do
+# §0a/§0b do scripts/build/build-standalone.sh). O `TAURI_FRONTEND_PATH` não é
+# decoração: sem ele a resolução de `frontend_dir` da CLI cai no pai do crate e o
+# `cd ../frontend` sai do repo — é a armadilha que a linha mágica manual
+# contornava, documentada no cabeçalho do build-standalone.
+dev_app() {
+  # `--profile` antes do nome do app também cai aqui (mensagem certa, não
+  # "app inválido: --profile").
+  local _a
+  for _a in "$@"; do
+    case "$_a" in
+      --profile|--profile=*)
+        die "--profile não se aplica a './pdv dev app': o perfil vem do beforeDevCommand do conf do crate (roda 'npm run dev:<app>' em frontend/). Para o app web no perfil, use: ./pdv dev frontend --profile <pdv|kds|garcon|entregador>"
+        ;;
+    esac
+  done
+  [ $# -ge 1 ] || die "uso: ./pdv dev app <pdv|kds|garcon|entregador> [opções do tauri dev]"
+  local _app="$1"
+  shift
+  case "$_app" in
+    pdv|kds|garcon|entregador) ;;
+    *) die "app inválido: $_app (uso: ./pdv dev app <pdv|kds|garcon|entregador> [opções do tauri dev])" ;;
+  esac
+
+  # Pré-requisito 1: CLI do Tauri na raiz (padrão do build-standalone §0a).
+  local _tauri_cli="$ROOT/node_modules/.bin/tauri"
+  if [ ! -x "$_tauri_cli" ]; then
+    log "==> CLI do Tauri ausente na raiz, instalando dependências (npm ci)"
+    ( cd "$ROOT" && npm ci )
+  fi
+  [ -x "$_tauri_cli" ] || die "$_tauri_cli não existe mesmo após npm ci"
+
+  # Pré-requisito 2: frontend/node_modules (o beforeDevCommand roda
+  # `npm run dev:<perfil>` em frontend/ — padrão do build-standalone §0b).
+  if [ ! -d "$ROOT/frontend/node_modules" ]; then
+    log "==> node_modules do frontend ausente, instalando dependências (npm ci)"
+    ( cd "$ROOT/frontend" && npm ci )
+  fi
+
+  local _crate="$ROOT/standalone-$_app"
+  [ -f "$_crate/tauri.conf.json" ] \
+    || die "tauri.conf.json não encontrado em $_crate (crate standalone-$_app inexistente?)"
+
+  cd "$_crate"
+  TAURI_FRONTEND_PATH="$ROOT/frontend" exec "$_tauri_cli" dev "$@"
+}
+
+# Critérios de verificação gerais (AGENTS.md) — o portão antes de abrir PR.
+check_backend() {
+  log "check backend: build (tsc)"
+  npm_run backend build
+  log "check backend: test (vitest)"
+  npm_run backend test
+}
+
+check_frontend() {
+  log "check frontend: lint (oxlint)"
+  npm_run frontend lint
+  log "check frontend: build (vite)"
+  npm_run frontend build
+  log "check frontend: test (vitest)"
+  npm_run frontend test
+}
+
+# ------------------------------------------------------------
+# Despacho
+# ------------------------------------------------------------
 
 if [ $# -eq 0 ]; then
   usage
@@ -41,6 +259,11 @@ case "${1:-}" in
     usage
     exit 0
     ;;
+  status)
+    shift
+    [ $# -eq 0 ] || die "uso: ./pdv status"
+    cmd_status
+    ;;
   setup)
     shift
     exec bash "$ROOT/scripts/dev/setup-dev.sh" "$@"
@@ -49,12 +272,148 @@ case "${1:-}" in
     shift
     exec bash "$ROOT/scripts/dev/dev-worktree.sh" "$@"
     ;;
+  dev)
+    shift
+    case "${1:-}" in
+      app) shift; dev_app "$@" ;;
+      backend|frontend|all) _dev_target="$1"; shift ;;
+      *) die "uso: ./pdv dev <backend|frontend|app|all> [--profile <pdv|kds|garcon|entregador>] ou ./pdv dev app <pdv|kds|garcon|entregador> [opções do tauri dev]" ;;
+    esac
+    _dev_profile=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --profile)
+          [ $# -ge 2 ] || die "uso: ./pdv dev <backend|frontend|app|all> [--profile <pdv|kds|garcon|entregador>] ou ./pdv dev app <pdv|kds|garcon|entregador> [opções do tauri dev]"
+          _dev_profile="$2"
+          shift 2
+          ;;
+        *) die "argumento desconhecido em './pdv dev': $1 (uso: ./pdv dev <backend|frontend|app|all> [--profile <pdv|kds|garcon|entregador>] ou ./pdv dev app <pdv|kds|garcon|entregador>)" ;;
+      esac
+    done
+    if [ -n "$_dev_profile" ]; then
+      case "$_dev_profile" in
+        pdv|kds|garcon|entregador) ;;
+        *) die "perfil inválido: $_dev_profile (esperado: pdv|kds|garcon|entregador)" ;;
+      esac
+      [ "$_dev_target" != backend ] || die "--profile não se aplica a './pdv dev backend'"
+    fi
+    case "$_dev_target" in
+      backend)
+        npm_run backend dev
+        ;;
+      frontend)
+        dev_frontend "$_dev_profile"
+        ;;
+      all)
+        # Backend em segundo plano; o frontend é o foreground. Os traps garantem
+        # que o Ctrl+C (ou a morte do frontend) derrubem o backend junto.
+        ( cd "$ROOT/backend" && exec npm run dev ) &
+        _dev_backend_pid=$!
+        trap 'kill "$_dev_backend_pid" 2>/dev/null || true' EXIT
+        trap 'kill "$_dev_backend_pid" 2>/dev/null || true; exit 130' INT TERM
+        dev_frontend "$_dev_profile"
+        ;;
+    esac
+    ;;
   build)
     shift
     case "${1:-}" in
       standalone) shift; exec bash "$ROOT/scripts/build/build-standalone.sh" "$@" ;;
       app) shift; exec bash "$ROOT/scripts/build/build-app.sh" "$@" ;;
-      *) die "uso: ./pdv build <standalone|app> [opções]" ;;
+      backend)
+        shift
+        [ $# -eq 0 ] || die "uso: ./pdv build backend"
+        npm_run backend build
+        ;;
+      frontend)
+        shift
+        [ $# -eq 0 ] || die "uso: ./pdv build frontend"
+        npm_run frontend build
+        ;;
+      *) die "uso: ./pdv build <standalone|app|backend|frontend> [opções]" ;;
+    esac
+    ;;
+  test)
+    shift
+    case "${1:-}" in
+      backend)
+        shift
+        [ $# -eq 0 ] || die "uso: ./pdv test backend"
+        npm_run backend test
+        ;;
+      frontend)
+        shift
+        [ $# -eq 0 ] || die "uso: ./pdv test frontend"
+        npm_run frontend test
+        ;;
+      printer)
+        shift
+        [ $# -eq 0 ] || die "uso: ./pdv test printer"
+        go_gate printer/daemon
+        ;;
+      gateway)
+        shift
+        [ $# -eq 0 ] || die "uso: ./pdv test gateway"
+        go_gate ws-gateway
+        ;;
+      all)
+        shift
+        [ $# -eq 0 ] || die "uso: ./pdv test all"
+        log "── test backend (vitest) ──"
+        npm_run backend test
+        log "── test frontend (vitest) ──"
+        npm_run frontend test
+        log "── test printer (go) ──"
+        go_gate printer/daemon
+        log "── test gateway (go) ──"
+        go_gate ws-gateway
+        ;;
+      *) die "uso: ./pdv test <backend|frontend|printer|gateway|all>" ;;
+    esac
+    ;;
+  lint)
+    shift
+    case "${1:-}" in
+      frontend)
+        shift
+        [ $# -eq 0 ] || die "uso: ./pdv lint frontend"
+        npm_run frontend lint
+        ;;
+      all)
+        shift
+        [ $# -eq 0 ] || die "uso: ./pdv lint all"
+        log "── lint frontend (oxlint) ──"
+        npm_run frontend lint
+        log "── lint ws-gateway (gofmt) ──"
+        gofmt_gate ws-gateway
+        ;;
+      *) die "uso: ./pdv lint <frontend|all>" ;;
+    esac
+    ;;
+  db)
+    shift
+    case "${1:-}" in
+      migrate)           shift; [ $# -eq 0 ] || die "uso: ./pdv db migrate";           npm_run backend db:migrate ;;
+      migrate-registry)  shift; [ $# -eq 0 ] || die "uso: ./pdv db migrate-registry";  npm_run backend db:migrate:registry ;;
+      generate)          shift; [ $# -eq 0 ] || die "uso: ./pdv db generate";          npm_run backend db:generate ;;
+      seed)              shift; [ $# -eq 0 ] || die "uso: ./pdv db seed";              npm_run backend seed ;;
+      seed-prod)         shift; [ $# -eq 0 ] || die "uso: ./pdv db seed-prod";         npm_run backend seed:prod ;;
+      deactivate-demo)   shift; [ $# -eq 0 ] || die "uso: ./pdv db deactivate-demo";   npm_run backend db:deactivate-demo ;;
+      *) die "uso: ./pdv db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo>" ;;
+    esac
+    ;;
+  check)
+    shift
+    _check_target="${1:-all}"
+    [ $# -le 1 ] || die "uso: ./pdv check [backend|frontend|all]"
+    case "$_check_target" in
+      backend)  check_backend ;;
+      frontend) check_frontend ;;
+      all)
+        check_backend
+        check_frontend
+        ;;
+      *) die "uso: ./pdv check [backend|frontend|all]" ;;
     esac
     ;;
   release)
@@ -67,18 +426,25 @@ case "${1:-}" in
   deploy)
     shift
     case "${1:-}" in
-      switch) shift; exec bash "$ROOT/deploy/switch.sh" "$@" ;;
-      backup) shift; exec bash "$ROOT/deploy/backup.sh" "$@" ;;
-      probe) shift; exec bash "$ROOT/deploy/probe-availability.sh" "$@" ;;
-      install) shift; exec bash "$ROOT/deploy/install.sh" "$@" ;;
-      *) die "uso: ./pdv deploy <switch|backup|probe|install> [opções]" ;;
+      switch)       shift; exec bash "$ROOT/deploy/switch.sh" "$@" ;;
+      backup)       shift; exec bash "$ROOT/deploy/backup.sh" "$@" ;;
+      backup-fetch) shift; exec bash "$ROOT/deploy/backup-fetch.sh" "$@" ;;
+      probe)        shift; exec bash "$ROOT/deploy/probe-availability.sh" "$@" ;;
+      install)      shift; exec bash "$ROOT/deploy/install.sh" "$@" ;;
+      reset)        shift; exec bash "$ROOT/deploy/reset.sh" "$@" ;;
+      caddy)        shift; exec bash "$ROOT/deploy/caddy-assemble.sh" "$@" ;;
+      run-cloud)    shift; exec bash "$ROOT/deploy/run-cloud.sh" "$@" ;;
+      pedido)       shift; exec bash "$ROOT/deploy/deploy-pedido-public.sh" "$@" ;;
+      *) die "uso: ./pdv deploy <switch|backup|backup-fetch|probe|install|reset|caddy|run-cloud|pedido> [opções]" ;;
     esac
     ;;
   printer)
     shift
     case "${1:-}" in
-      install) shift; exec bash "$ROOT/printer/scripts/install-linux.sh" "$@" ;;
-      *) die "uso: ./pdv printer <install>" ;;
+      install)    shift; exec bash "$ROOT/printer/scripts/install-linux.sh" "$@" ;;
+      package)    shift; exec bash "$ROOT/printer/scripts/package-daemon-linux.sh" "$@" ;;
+      test-local) shift; exec bash "$ROOT/printer/scripts/test-local.sh" "$@" ;;
+      *) die "uso: ./pdv printer <install|package|test-local> [opções]" ;;
     esac
     ;;
   *)

@@ -1,6 +1,6 @@
 import { eq, inArray, and } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
-import { deliveries, users, orders, customers } from "../../infra/db/schema.js";
+import { deliveries, users, orders, customers, customerAddresses, courierLocations } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
 import { canTransitionDelivery, type DeliveryStatus } from "../../domain/customer-order-state.js";
 import { logAction } from "../../infra/audit-log.js";
@@ -71,7 +71,37 @@ export async function listCourierDeliveriesUsecase(input: {
       ),
     orderBy: (d, { asc }) => asc(d.createdAt),
   });
-  return rows.map(serialize);
+
+  // Coordenadas do destino para o mapa do entregador (marker de destino no
+  // CourierTrackingMap). A delivery não tem FK para customer_address — guarda
+  // só o snapshot em texto — então a ligação é por projeção na leitura:
+  // delivery → order.customerId → endereço padrão do cliente (is_default;
+  // sem padrão, o primeiro cadastrado). Sem endereço ou sem georreferência,
+  // os campos saem null e o mapa simplesmente não desenha o marker.
+  const orderIds = [...new Set(rows.map((d) => d.orderId))];
+  const orderRows = orderIds.length
+    ? await db.query.orders.findMany({ where: inArray(orders.id, orderIds) })
+    : [];
+  const customerIdByOrderId = new Map(orderRows.map((o) => [o.id, o.customerId]));
+  const customerIds = [...new Set(orderRows.map((o) => o.customerId).filter((id): id is string => !!id))];
+  const addressRows = customerIds.length
+    ? await db.query.customerAddresses.findMany({ where: inArray(customerAddresses.customerId, customerIds) })
+    : [];
+  const addressByCustomerId = new Map<string, typeof customerAddresses.$inferSelect>();
+  for (const a of addressRows) {
+    const current = addressByCustomerId.get(a.customerId);
+    if (!current || (!current.isDefault && a.isDefault)) addressByCustomerId.set(a.customerId, a);
+  }
+
+  return rows.map((d) => {
+    const customerId = customerIdByOrderId.get(d.orderId);
+    const address = customerId ? addressByCustomerId.get(customerId) : undefined;
+    return {
+      ...serialize(d),
+      addressLatitude: address?.latitude ?? null,
+      addressLongitude: address?.longitude ?? null,
+    };
+  });
 }
 
 // ---------- PATCH /courier/deliveries/:id/dispatch ----------
@@ -255,6 +285,81 @@ export async function assignCourierUsecase(input: { deliveryId: string; courierI
   });
 
   return serialize(updated);
+}
+
+// ---------- POST /courier/location ----------
+// Ping de localização do app do entregador. Só vale enquanto ele tem entrega
+// em rota: fora disso o rastreamento vira vigilância sem propósito de
+// negócio (e o gerente não precisa saber onde o entregador está no dia de
+// folga). Upsert — uma linha por courier, a última posição é a única que
+// interessa. SEM audit_log: ping de alta frequência poluiria o log; o rastro
+// é o evento realtime no outbox, gravado na mesma transação do upsert.
+export async function reportCourierLocationUsecase(input: {
+  courierId: string;
+  latitude: number;
+  longitude: number;
+  accuracy?: number | null;
+}) {
+  const onRoute = await db.query.deliveries.findFirst({
+    where: (d, { and, eq: eqOp }) => and(eqOp(d.courierId, input.courierId), eqOp(d.status, "out_for_delivery")),
+    columns: { id: true },
+  });
+  if (!onRoute) throw Errors.courierNotOnRoute();
+
+  const now = new Date().toISOString();
+  const [row] = await db.transaction(async (tx) => {
+    const [upserted] = await tx
+      .insert(courierLocations)
+      .values({
+        courierId: input.courierId,
+        latitude: input.latitude,
+        longitude: input.longitude,
+        accuracy: input.accuracy ?? null,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: courierLocations.courierId,
+        set: { latitude: input.latitude, longitude: input.longitude, accuracy: input.accuracy ?? null, updatedAt: now },
+      })
+      .returning();
+    // Accuracy vai junto: ela não é dado sensível (é a incerteza do GPS, não
+    // a posição) e o mapa do gerente precisa dela para não fingir precisão
+    // que o device não tem.
+    await enqueueEvent(tx, DELIVERY_ROOM, "courier.location", {
+      courierId: input.courierId,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      accuracy: input.accuracy ?? null,
+      updatedAt: now,
+    });
+    return [upserted];
+  });
+
+  return row;
+}
+
+// ---------- GET /manager/deliveries/locations ----------
+// Última posição dos entregadores com entrega em rota AGORA. O join parte da
+// delivery (fonte da verdade do "em rota"), não da courier_location: um
+// entregador que terminou a rota continua com a linha dele na tabela (é a
+// última posição conhecida), mas não deve aparecer no mapa.
+export async function listCourierLocationsUsecase() {
+  const rows = await db
+    .select({
+      courierId: courierLocations.courierId,
+      courierName: users.name,
+      latitude: courierLocations.latitude,
+      longitude: courierLocations.longitude,
+      updatedAt: courierLocations.updatedAt,
+    })
+    .from(deliveries)
+    .innerJoin(courierLocations, eq(courierLocations.courierId, deliveries.courierId))
+    .innerJoin(users, eq(users.id, deliveries.courierId))
+    .where(eq(deliveries.status, "out_for_delivery"));
+  // Um courier pode ter 2+ entregas em rota — dedupe por courierId, a
+  // localização é a mesma linha.
+  const byCourier = new Map(rows.map((r) => [r.courierId, r]));
+  return [...byCourier.values()];
 }
 
 // ---------- GET /manager/couriers ----------
