@@ -16,8 +16,9 @@ deploy/
 ├── Caddyfile                  # config do proxy (upstream por variável)
 ├── Caddyfile.dev
 ├── Caddyfile.local
-├── caddy-assemble.sh          # monta a Caddyfile efetiva dentro do container
+├── caddy-assemble.sh          # resolve o upstream ativo e valida antes de aplicar
 ├── switch.sh                  # deploy sem downtime (switch/install/rollback/status)
+├── deploy-pedido-public.sh    # republica SÓ o app público (npm run deploy:pedido)
 ├── probe-availability.sh      # mede o gap de downtime real
 ├── backup.sh                  # pg_dump sob demanda
 ├── backup-fetch.sh            # baixa backup do servidor
@@ -39,7 +40,7 @@ O serviço `ws-gateway` não tem arquivo aqui: a fonte é o módulo Go
 
 | Comando | O que faz |
 |---|---|
-| `./switch.sh` | Deploy sem downtime (instância nova + `caddy reload`). **Não** mexe no `ws-gateway` |
+| `./switch.sh` | Deploy sem downtime (instância nova + `caddy reload`). Sobe também o app público (`pedidopublic`). **Não** mexe no `ws-gateway` |
 | `./switch.sh --status` | Mostra qual instância está ativa e quem serve o `/realtime*` |
 | `./switch.sh --rollback` | Reverte para a instância anterior (backend/frontend; não mexe no gateway) |
 | `./switch.sh --install` | Instala sem rebuild (usa imagem existente) |
@@ -58,6 +59,34 @@ O serviço `ws-gateway` não tem arquivo aqui: a fonte é o módulo Go
 - Verde = schema aplicado
 - Verde doente → o switch aborta **antes** do reload, com o proxy velho no ar
 - **Nunca** remover o healthcheck do backend nem do frontend esperando "confiar no log"
+- O app público (`pedidopublic`) passa pelo **mesmo** portão, com `GET /healthz`. Esse
+  caminho só existe porque o `apps/pedido-public/nginx.conf` tem um `location = /healthz`:
+  sem ele o healthcheck batia no `location /`, que faz `try_files → /index.html` e
+  devolve **200 para qualquer caminho** — verde com o bundle ausente. Healthcheck que
+  não pode falhar não é portão, é enfeite.
+
+### O app público de pedidos entra no switch, sem par `-next`
+
+`pedidopublic` é nginx de estático: sem banco, sem migration, sem estado, sem
+WebSocket. Não ganha instância `-next` (não há o que drenar, e bundle velho é
+menos grave que schema sem migration), mas **tem que existir** — a Caddyfile
+faz `reverse_proxy pedidopublic:80` em três blocos.
+
+O switch então: constrói no passo 1, sobe com `--no-deps` no passo 2 e espera
+o healthcheck no passo 3. Regras que não podem quebrar:
+
+- `--no-deps` é obrigatório: o serviço declara `depends_on: caddy`, e sem o
+  `--no-deps` o compose recriaria o PROXY para trocar um nginx de estático
+  (derrubando `caddy reload` e as conexões WS do salão por causa de um cardápio)
+- O `COMPOSE` usado é perguntado antes: os stacks `local`/`dev`
+  (`docker-compose.local.yml`, `docker-compose.dev.yml`) **não** declaram o
+  serviço, e `compose build pedidopublic` lá morre com "no such service". É o
+  `has_service` (via `config --services`), não um `|| true` — que esconderia
+  um erro de verdade
+- `--rollback` **não** mexe nele: sem par `-next` não há instância anterior
+  preservada
+- O gap dele **não** é zero (container único, o `up` o substitui) e a
+  documentação diz isso em vez de vender o mesmo contrato do PDV
 
 ### Sem `lb_retries` no Caddy
 
@@ -78,6 +107,28 @@ O serviço `ws-gateway` não tem arquivo aqui: a fonte é o módulo Go
 - `caddy validate` é o portão do switch, mas **não resolve upstream** (ver armadilhas em [Gateway WebSocket em Go](#duas-armadilhas-do-validate)): ele pega sintaxe e chave errada, não nome de serviço errado
 - O host não gera Caddyfile
 - O compose monta o **diretório** `deploy/` (`./:/srv/pdv-deploy:ro`), não arquivo: o `git checkout -f` da tag troca o inode do arquivo e um mount de arquivo deixaria o proxy servindo a config antiga em silêncio
+
+### `ROOT_DOMAIN` — variável de ambiente, sintaxe `{$...}`, e ela é do Caddyfile
+
+Além do upstream, a Caddyfile tem **endereço** parametrizado: `app.{$ROOT_DOMAIN}`,
+`api.{$ROOT_DOMAIN}` e o wildcard `*.{$ROOT_DOMAIN}` (o cardápio público por
+subdomínio). Três regras, e cada uma delas já parou um deploy:
+
+- **A sintaxe é `{$ROOT_DOMAIN}`, nunca `${ROOT_DOMAIN}`.** No Caddyfile o
+  `${...}` é substituição de *argumento de placeholder* em diretiva, não env.
+  O `caddy validate` (o portão do switch) morre com
+  `subject does not qualify for certificate: 'app.'`.
+- **Ela precisa chegar no container**: está no `environment` do serviço `caddy`
+  no compose, com default. Sem isso, um `.env` do VPS escrito antes da variável
+  existir reprova o deploy no portão — que é a mesma classe de falha do
+  `${...}`, só adiada.
+- **`ROOT_DOMAIN` ≠ `DOMAIN`.** `DOMAIN` é o apex legado (`labolabe.tech`, que a
+  Caddyfile ainda serve em bloco próprio, no fim, com TLS on-demand) e
+  `ROOT_DOMAIN` é a raiz dos três blocos parametrizados. Pôr `labolabe.tech`
+  como `ROOT_DOMAIN` sai com `ambiguous site definition: *.labolabe.tech` —
+  medido com `caddy validate`.
+- `caddy validate` não resolve upstream, mas resolve endereço: domínio que não
+  existe no DNS não passa, mesmo com o `on_demand_tls` ligado.
 
 ### `git checkout -f` reverte `deploy/state/active-upstream`
 

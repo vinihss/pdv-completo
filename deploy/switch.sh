@@ -22,6 +22,7 @@
 # que não está respondendo — por isso o gap de HTTP é 0, e não "quase 0".
 #
 # ---------- O que este script NÃO troca: o gateway WebSocket em Go ----------
+# (e, pelo mesmo motivo, o app público de pedidos — ver a seção seguinte)
 # O `ws-gateway` não entra no rodízio azul/verde, e a decisão é deliberada.
 # Ele é stateless de verdade: não roda migration, não tem volume, não tem
 # estado em disco — o que o switch sabe drenar (uma instância "-next" que
@@ -57,6 +58,43 @@
 # DIFERENTE — o que o PRÓXIMO `up` vai aplicar. As duas divergem quando o `.env`
 # foi editado sem `up`, que é o caso comum depois de uma edição no editor de
 # texto, e é por isso que ele vem por último na ordem de `gate_env_value`.
+#
+# ---------- O que este script passou a fazer a mais: o app público ----------
+# `pedidopublic` (apps/pedido-public, o cardápio/pedido do cliente final) é
+# um nginx de arquivos estáticos — sem banco, sem migration, sem estado, sem
+# WebSocket. Ele NÃO ganha uma instância "-next": o que ele serve é um bundle
+# estático, e o modo de falha de "bundle velho no ar" é muito menos grave que
+# o do backend (schema sem migration). O que ele PRECISA é existir, porque a
+# Caddyfile faz `reverse_proxy pedidopublic:80` em três blocos (`umamisushiarte.com.br`,
+# `www` e o wildcard `*.ROOT_DOMAIN`) — sem container, 502 no ar.
+#
+# Então o switch o carrega dentro dos MESMOS passos, sem sair da semântica:
+#   passo 1 — `compose build backend frontend pedidopublic`: a imagem entra
+#     junto. Sem isto a Caddyfile continua apontando para `pedidopublic:80`
+#     com o bundle da versão anterior — ou, na primeira vez, sem container
+#     nenhum;
+#   passo 2 — `compose up -d --no-deps ... pedidopublic`: `--no-deps` é a
+#     regra do passo, nada aqui pode recriar o postgres nem o caddy (recriar
+#     o proxy derrubaria os WebSocket do salão por causa de um cardápio);
+#   passo 3 — `wait_healthy pedidopublic`: o MESMO portão dos outros dois, e
+#     aqui ele finalmente significa alguma coisa — o `/healthz` passou a ser
+#     servido de verdade pelo nginx (antes o healthcheck batia no
+#     `try_files`, que devolve 200 para qualquer caminho). Instância doente =
+#     aborta antes do reload, com o proxy velho no ar;
+#   passo 5 — NÃO entra no rodízio: não há `pedidopublic-next`, então não há
+#     o que parar. O container novo REVELA o antigo (é o `up` que faz a
+#     troca), e como é conteúdo estático não há requisição em voo nem sessão
+#     a drenar.
+#
+# Consequência assumida: entre o `up` e o fim do healthcheck (segundos) o
+# cardápio público responde com o container novo já subindo. É uma janela
+# curta e sobre conteúdo estático — não é o mesmo contrato do PDV, e fingir
+# que é seria pior do que dizer isto aqui.
+#
+# O `--rollback` NÃO mexe no `pedidopublic`: sem par "-next" não há instância
+# anterior preservada para voltar (mesma razão do `ws-gateway`). Um rollback
+# do PDV deixa o cardápio público na versão do deploy que o switch promotes —
+# para voltar atrás dele também é preciso um `./switch.sh` no commit antigo.
 #
 # Uso:
 #   ./switch.sh                  # switch (o que o CI chama)
@@ -101,12 +139,12 @@ while [ $# -gt 0 ]; do
       ;;
     -h | --help)
       # O intervalo acompanha o cabeçalho: se ele crescer, o `--help` passa
-      # a cortar a ajuda no meio (ou a vazar código). Hoje o cabeçalho fecha
-      # na linha 76 e o código começa na 77 — com `2,71` o `--help` já perdia
-      # as seções "Uso" e "Variáveis de ambiente", que é justamente o corte no
-      # meio. Regra: o primeiro número é 2, o segundo é a linha do último `#`
-      # do cabeçalho, uma antes do `set -euo pipefail`.
-      sed -n '2,76p' "$0" | sed 's/^# \{0,1\}//'
+      # a cortar a ajuda no meio (ou a vazar código). Com `2,71` o `--help` já
+      # perdia as seções "Uso" e "Variáveis de ambiente", que é justamente o
+      # corte no meio. Regra: o primeiro número é 2, o segundo é a linha do
+      # ÚLTIMO `#` do cabeçalho, uma antes do `set -euo pipefail` — que hoje
+      # está na linha 115, então o cabeçalho fecha na 114.
+      sed -n '2,114p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -147,6 +185,22 @@ UPDATES_DIR="updates"
 # apontando; "next" é o par que o switch vai promover.
 BACKEND_SERVICES=(backend backend-next)
 FRONTEND_SERVICES=(frontend frontend-next)
+
+# O app público de pedidos entra no switch junto com o backend e o frontend
+# (ver a seção do cabeçalho). O nome fica numa variável — e não espalhado em
+# três comandos — porque o serviço NÃO existe em todo compose deste repositório:
+# `docker-compose.local.yml` e `docker-compose.dev.yml` (os stacks de
+# `--profile local`) não o declaram, e um `compose build pedidopublic` lá
+# morre com "no such service". `has_service` é o que decide, uma vez, em vez de
+# o switch inteiro carregar `|| true` que esconderia um erro de verdade.
+PEDIDO_SERVICE="pedidopublic"
+
+# Um serviço existe neste compose? Pergunta ao próprio compose (`config
+# --services` é o mesmo caminho que o `config` do Passo A/F valida), e não a um
+# grep no YAML: o YAML mente quando há `extends`, `profiles` ou override.
+has_service() {
+  "${COMPOSE[@]}" config --services 2>/dev/null | grep -qx "$1"
+}
 
 # ----------------------------------------------------------------------
 # helpers
@@ -552,7 +606,13 @@ do_status() {
   printf 'Caddy aponta para: backend=%s frontend=%s realtime=%s\n' "$be" "$fe" "$ws"
   gate_status_line "$ws"
   printf '\n%-16s %-22s %-12s %s\n' SERVIÇO IMAGEM ESTADO SAÚDE
-  for svc in postgres caddy "${BACKEND_SERVICES[@]}" "${FRONTEND_SERVICES[@]}" ws-gateway; do
+  # O app público entra na lista: ele é destino de três blocos da Caddyfile
+  # (`umamisushiarte.com.br`, `www` e `*.ROOT_DOMAIN`), então "não existe" ou
+  # "unhealthy" nele é 502 no ar — e o operador precisa ver isso no `--status`,
+  # não descobrir pela tela do cliente.
+  local -a status_servicos=(postgres caddy "${BACKEND_SERVICES[@]}" "${FRONTEND_SERVICES[@]}" ws-gateway)
+  if has_service "$PEDIDO_SERVICE"; then status_servicos+=("$PEDIDO_SERVICE"); fi
+  for svc in "${status_servicos[@]}"; do
     if [ -z "$(svc_id "$svc")" ]; then
       printf '%-16s %-22s %-12s %s\n' "$svc" "-" "-" "não existe"
       continue
@@ -594,6 +654,12 @@ do_install() {
   # tráfego.
   wait_healthy backend
   wait_healthy frontend
+  # O `up` acima já sobe o app público (ele não está atrás de profile), mas
+  # o portão é o mesmo dos outros dois: o Caddy tem três blocos com
+  # `reverse_proxy pedidopublic:80`, e um cardápio que não sobe é 502 no ar.
+  if has_service "$PEDIDO_SERVICE"; then
+    wait_healthy "$PEDIDO_SERVICE"
+  fi
   say "instalado. Para os próximos deploys: ./switch.sh"
 }
 
@@ -602,6 +668,13 @@ do_install() {
 # ----------------------------------------------------------------------
 do_switch() {
   local old_be old_fe new_be new_fe
+  # O app público entra na lista de containers deste switch (ver a seção do
+  # cabeçalho). `HAS_PEDIDO` é resolvido UMA vez, antes de qualquer comando:
+  # perguntar ao compose a cada passo seria o mesmo `config --services` três
+  # vezes, e — pior — o resultado no meio do switch já poderia ter mudado.
+  local tem_pedido=0
+  if has_service "$PEDIDO_SERVICE"; then tem_pedido=1; fi
+
   old_be="$(live_backend)"
   old_fe="$(live_frontend)"
   new_be="$(other_of "$old_be")"
@@ -609,31 +682,49 @@ do_switch() {
 
   require_tools
   say "switch: $old_be → $new_be (frontend $old_fe → $new_fe)"
+  [ "$tem_pedido" = "1" ] || info "compose sem '$PEDIDO_SERVICE' (stack local) — o app público fica fora deste switch"
   ensure_updates_dir
 
   # --- 1. build (imagem compartilhada pelas duas instâncias) -----------
+  # O app público entra no MESMO `build`: sem isso a Caddyfile continua
+  # apontando para `pedidopublic:80` com o bundle da versão anterior — ou, na
+  # primeira vez, sem container nenhum (502).
+  local build_alvo=(backend frontend)
+  if [ "$tem_pedido" = "1" ]; then build_alvo+=("$PEDIDO_SERVICE"); fi
   if [ "$NO_BUILD" = "1" ]; then
     info "--no-build: reaproveitando a tag $(docker images -q "${BACKEND_IMAGE:-pdv-backend:local}" | head -1)"
   else
     say "1/5 build da imagem nova (nada em produção é tocado)"
-    "${COMPOSE[@]}" build backend frontend
+    "${COMPOSE[@]}" build "${build_alvo[@]}"
   fi
 
   # --- 2. sobe a próxima instância -------------------------------------
   say "2/5 subindo a instância nova (o tráfego segue na atual)"
   # --no-deps: o postgres já está no ar e não pode ser recriado aqui; o
   # healthcheck abaixo é o portão que substitui a dependência.
-  "${COMPOSE[@]}" up -d --no-deps "$new_be" "$new_fe"
+  local up_alvo=("$new_be" "$new_fe")
+  if [ "$tem_pedido" = "1" ]; then up_alvo+=("$PEDIDO_SERVICE"); fi
+  "${COMPOSE[@]}" up -d --no-deps "${up_alvo[@]}"
 
   # --- 3. healthcheck: o portão do corte -------------------------------
   # backend E frontend: o backend prova que as migrations terminaram (o
   # /health só responde depois delas); o frontend prova que o nginx já
   # atende. Sem o segundo, o reload podia apontar para um nginx que ainda
   # não subiu e o navegador levava 502 no primeiro F5.
+  # O app público entra no MESMO portão: o `/healthz` do nginx dele é o que
+  # impede que o passo 4 recarregue o proxy com três blocos
+  # `reverse_proxy pedidopublic:80` apontando para um cardápio que não sobe.
   say "3/5 aguardando a instância nova ficar healthy"
   if ! wait_healthy "$new_be" || ! wait_healthy "$new_fe"; then
     say "instância nova não ficou healthy — ABORTANDO sem tocar no proxy"
     info "o tráfego segue na instância antiga ($old_be); nada foi trocado"
+    "${COMPOSE[@]}" stop "$new_be" "$new_fe" >/dev/null 2>&1 || true
+    exit 1
+  fi
+  if [ "$tem_pedido" = "1" ] && ! wait_healthy "$PEDIDO_SERVICE"; then
+    say "app público ($PEDIDO_SERVICE) não ficou healthy — ABORTANDO sem tocar no proxy"
+    info "o PDV continua na instância antiga ($old_be); o cardápio público não foi promovido"
+    info "log: ${COMPOSE_CMD} logs --tail=40 $PEDIDO_SERVICE"
     "${COMPOSE[@]}" stop "$new_be" "$new_fe" >/dev/null 2>&1 || true
     exit 1
   fi
