@@ -433,7 +433,7 @@ describe("registry: migrations, isolamento de schema e cache", () => {
     );
 
     expect(doRegistry).toEqual(["0001_tenant_registry.sql"]);
-    expect(doTenant).toEqual(["0001_init.sql", "0002_pagarme.sql", "0003_courier_location.sql"]);
+    expect(doTenant).toEqual(["0001_init.sql", "0002_pagarme.sql", "0003_courier_location.sql", "0004_delivery_arrival_alert_sent.sql", "0004_device_provisioning.sql"]);
     // E o diretório existe de verdade — a exclusão não é por pasta vazia.
     expect(fs.existsSync(path.dirname(REGISTRY_SQL))).toBe(true);
   });
