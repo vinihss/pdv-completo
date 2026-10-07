@@ -23,17 +23,31 @@ export default function UsersTab({ showToast }) {
   // nunca devolvem pin), então o modal de PIN revelado só abre nesse caso.
   async function handleSaved(saved) {
     if (saved?.pin) setRevealedPin({ name: saved.name, pin: saved.pin });
-    await load();
+    try {
+      await load();
+    } catch (e) {
+      // A mutação já foi confirmada. Não manter o modal aberto para evitar
+      // que a pessoa tente criar o mesmo usuário novamente por engano.
+      showToast(`Salvo, mas não foi possível atualizar a lista: ${e.message}`, "error");
+    }
   }
 
   async function handleToggleActive(u) {
-    await updateUser(u.id, { active: !u.active });
-    await load();
+    try {
+      await updateUser(u.id, { active: !u.active });
+      await load();
+    } catch (e) {
+      showToast(e.message, "error");
+    }
   }
 
   async function handleResetPin(u) {
-    const { pin } = await resetPin(u.id);
-    setRevealedPin({ name: u.name, pin });
+    try {
+      const { pin } = await resetPin(u.id);
+      setRevealedPin({ name: u.name, pin });
+    } catch (e) {
+      showToast(e.message, "error");
+    }
   }
 
   return (

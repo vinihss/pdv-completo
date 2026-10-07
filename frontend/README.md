@@ -5,8 +5,12 @@ App React (Vite) para o PDV Restaurante/Pub. Instalável como PWA e disponível 
 ## Guias para agentes
 
 - **Convenções frontend**: `docs/agent-frontend.md` (FSD, camadas, componentes, overlays, menu, Tauri)
-- **Mapa de telas**: `docs/agent-frontend-map.md` (em breve)
+- **Mapa de telas**: `docs/agent-frontend-map.md`
 - **Testes**: `docs/agent-testing.md`
+
+O projeto usa **npm** como gerenciador oficial (`package-lock.json`). Instale
+dependências com `npm ci` em checkouts limpos; não mantenha lockfiles de outro
+gerenciador em paralelo.
 
 ## Rodando localmente
 

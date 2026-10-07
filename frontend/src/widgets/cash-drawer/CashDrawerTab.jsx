@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { Wallet, Lock, History, ArrowDownCircle, ArrowUpCircle } from "lucide-react";
 import { getCurrentCashDrawer, listCashDrawers, openCashDrawer, registerCashMovement, closeCashDrawer } from "@/entities/cash";
-import { Section } from "@/shared/components";
+import { EmptyState, PageHeader, Section } from "@/shared/components";
 import { useRealtime } from "@/shared/hooks";
 import { useAuth } from "@/app/providers/auth";
 import { toDate } from "@/shared/lib";
@@ -105,9 +105,10 @@ export default function CashDrawerTab({ showToast }) {
   const open = current !== null;
 
   return (
-    <div className="p-5 max-w-xl mx-auto space-y-5">
+    <div className="mx-auto max-w-xl space-y-5 p-4 sm:p-5">
+      <PageHeader title="Caixa" description="Acompanhe a sessão ativa e o histórico de fechamentos." />
       {/* Status do caixa */}
-      <div className="bg-stone-900 border border-stone-800 rounded-2xl p-5">
+      <div className="ui-surface p-5">
         <div className="flex items-center gap-2 text-stone-400 text-xs font-bold uppercase tracking-wide mb-1">
           <Wallet size={14} />
           {open ? "Caixa aberto" : "Caixa fechado"}
@@ -207,7 +208,14 @@ export default function CashDrawerTab({ showToast }) {
               </div>
             </button>
           ))}
-          {history.length === 0 && <div className="text-stone-600 text-sm py-4 text-center">Nenhum caixa fechado ainda.</div>}
+          {history.length === 0 && (
+            <EmptyState
+              icon={History}
+              title="Nenhum caixa fechado ainda"
+              description="Os fechamentos anteriores aparecerão aqui."
+              compact
+            />
+          )}
         </div>
         {hasMore && (
           <button onClick={loadMore} className="w-full text-sm text-amber-400 hover:text-amber-300 font-medium py-2 mt-1">

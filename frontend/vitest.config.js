@@ -13,6 +13,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Em v7 o wrapper react-router-dom CommonJS reexporta react-router/dom
+      // em ESM; no ambiente jsdom resolvemos para o entry ESM compatível.
+      "react-router-dom": "react-router",
     },
   },
   test: {

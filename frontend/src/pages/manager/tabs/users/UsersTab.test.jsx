@@ -124,6 +124,24 @@ describe("UsersTab", () => {
     expect(listUsers).toHaveBeenCalledTimes(2);
   });
 
+  it("preserva o PIN e fecha o modal se a criação funciona, mas a recarga falha", async () => {
+    listUsers.mockReset();
+    listUsers.mockResolvedValueOnce(USERS.slice()).mockRejectedValueOnce(new Error("sem conexão"));
+    const toast = vi.fn();
+    renderTab(toast);
+    await screen.findByText("Ana Ribeiro");
+    fireEvent.click(screen.getByRole("button", { name: /Novo usuário/ }));
+    const modal = screen.getByRole("dialog", { name: "Novo usuário" });
+    fireEvent.change(modal.querySelector("input:not([type='file'])"), { target: { value: "Beatriz Souza" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Criar usuário" }));
+
+    await waitFor(() => expect(createUser).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/PIN gerado: 4321/)).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Novo usuário" })).toBeNull();
+    expect(toast).toHaveBeenCalledWith(expect.stringContaining("não foi possível atualizar a lista"), "error");
+  });
+
   it("se o upload da foto falhar no cadastro, avisa e mantém o usuário criado", async () => {
     uploadUserPhoto.mockRejectedValue(new Error("arquivo muito grande"));
     const toast = vi.fn();
@@ -208,11 +226,12 @@ describe("UserModal", () => {
     expect(select.value).toBe("courier");
   });
 
-  it("tem telefone, email e campo de PIN", () => {
+  it("tem telefone e email, e explica que o PIN é automático na criação", () => {
     render(<UserModal onClose={() => {}} onSaved={async () => {}} showToast={() => {}} />);
     expect(screen.getByText("Telefone")).toBeTruthy();
     expect(screen.getByText("Email")).toBeTruthy();
-    expect(screen.getByPlaceholderText("4 a 6 dígitos")).toBeTruthy();
+    expect(screen.getByText(/PIN será gerado automaticamente/)).toBeTruthy();
+    expect(screen.queryByPlaceholderText("4 a 6 dígitos")).toBeNull();
   });
 
   it("edição mostra foto do usuário e campos preenchidos", () => {
@@ -222,6 +241,7 @@ describe("UserModal", () => {
     expect(screen.getByDisplayValue("Ana Ribeiro")).toBeTruthy();
     expect(screen.getByDisplayValue("(11) 99999-0001")).toBeTruthy();
     expect(screen.getByDisplayValue("ana@exemplo.com")).toBeTruthy();
+    expect(screen.getByPlaceholderText("4 a 6 dígitos")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Enviar foto" })).toBeTruthy();
   });
 

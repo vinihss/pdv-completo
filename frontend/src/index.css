@@ -2,6 +2,18 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: dark;
+  /* Tokens semânticos do shell: mantenha as telas na mesma escala visual. */
+  --app-bg: #0c0a09;
+  --surface-raised: #1c1917;
+  --surface-overlay: #292524;
+  --border-subtle: #292524;
+  --text-primary: #fafaf9;
+  --text-secondary: #a8a29e;
+  --text-muted: #78716c;
+  --status-success: #34d399;
+  --status-warning: #fbbf24;
+  --status-danger: #f87171;
   --brand-accent: #e8a33d; /* cor de destaque da página externa (padrão atual) */
   --brand-accent-strong: #b97c1f;
   --brand-accent-foreground: #211b19;
@@ -10,10 +22,43 @@
 html, body, #root {
   height: 100%;
 }
-
+html {
+  background: var(--app-bg);
+  text-size-adjust: 100%;
+}
 body {
   font-family: 'Inter', system-ui, sans-serif;
-  background-color: #0c0a09;
+  background-color: var(--app-bg);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+button, input, textarea, select {
+  font: inherit;
+}
+button:not(:disabled) {
+  cursor: pointer;
+}
+:focus-visible {
+  outline: 2px solid var(--color-amber-400, #fbbf24);
+  outline-offset: 2px;
+}
+::selection {
+  color: var(--brand-accent-foreground);
+  background: var(--brand-accent);
+}
+.ui-eyebrow {
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+.ui-surface {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 1rem;
 }
 
 .font-display {
@@ -312,4 +357,13 @@ body {
 @keyframes bar {
   0% { width: 0; }
   100% { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

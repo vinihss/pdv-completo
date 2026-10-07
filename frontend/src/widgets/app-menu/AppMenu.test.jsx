@@ -43,7 +43,7 @@ describe("AppMenu", () => {
   });
   afterEach(cleanup);
 
-  it("gerente: coluna completa, seção da tela ativa aberta", () => {
+  it("gerente: coluna completa e Home ativa na primeira visita", () => {
     const { container } = setup("manager", { inventoryEnabled: true, purchaseEnabled: true });
     const aside = asideOf(container);
     expect(container.querySelector("aside").className).toContain("w-72");
@@ -51,10 +51,29 @@ describe("AppMenu", () => {
     for (const label of ["Operação", "Catálogo", "Gestão"]) {
       expect(aside.getByRole("button", { name: new RegExp(label) })).toBeTruthy();
     }
-    // Sem tela guardada: começa em Comandas, com a seção Operação aberta.
-    expect(aside.getByRole("button", { name: /Operação/ }).getAttribute("aria-expanded")).toBe("true");
-    expect(aside.getByText("Comandas").closest("button").getAttribute("aria-current")).toBe("page");
+    // Sem tela guardada: começa na Home; Comandas continua na seção Operação.
+    expect(aside.getByText("Início").closest("button").getAttribute("aria-current")).toBe("page");
+    expect(aside.getByRole("button", { name: /Operação/ }).getAttribute("aria-expanded")).toBe("false");
+    expect(aside.queryByText("Comandas")).toBeNull();
     expect(aside.queryByText("Equipe")).toBeNull();
+  });
+
+  it("migra o antigo padrão Comandas para Home uma vez e depois respeita a seleção manual", () => {
+    sessionStorage.setItem("pdv:nav:manager", "orders");
+    const { container } = setup("manager", {});
+    const aside = asideOf(container);
+    expect(sessionStorage.getItem("pdv:nav:manager")).toBe("home");
+    expect(aside.getByText("Início").closest("button").getAttribute("aria-current")).toBe("page");
+
+    fireEvent.click(aside.getByRole("button", { name: /Operação/ }));
+    fireEvent.click(aside.getByText("Comandas"));
+    expect(sessionStorage.getItem("pdv:nav:manager")).toBe("orders");
+    cleanup();
+
+    const next = setup("manager", {});
+    const nextAside = asideOf(next.container);
+    expect(sessionStorage.getItem("pdv:nav:manager")).toBe("orders");
+    expect(nextAside.getByText("Comandas").closest("button").getAttribute("aria-current")).toBe("page");
   });
 
   it("seção de um item só não vira cabeçalho (nada de 'Configurações' dentro de 'Sistema')", () => {
@@ -88,7 +107,8 @@ describe("AppMenu", () => {
 
     const com = setup("manager", { ifoodIntegrationEnabled: true });
     const aside = asideOf(com.container);
-    // Operação já vem aberta: a tela inicial é Comandas.
+    // iFood aparece ao abrir Operação, independentemente da tela inicial.
+    fireEvent.click(aside.getByRole("button", { name: /Operação/ }));
     expect(aside.getByText("iFood")).toBeTruthy();
     expect(aside.queryByText("WhatsApp")).toBeNull();
   });
@@ -96,6 +116,7 @@ describe("AppMenu", () => {
   it("abrir outra seção mostra os itens dela sem fechar a primeira", () => {
     const { container } = setup("manager", {});
     const aside = asideOf(container);
+    fireEvent.click(aside.getByRole("button", { name: /Operação/ }));
     fireEvent.click(aside.getByRole("button", { name: /Gestão/ }));
     expect(aside.getByRole("button", { name: /Gestão/ }).getAttribute("aria-expanded")).toBe("true");
     expect(aside.getByRole("button", { name: /Operação/ }).getAttribute("aria-expanded")).toBe("true");
@@ -123,7 +144,7 @@ describe("AppMenu", () => {
     expect(pai.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(pai);
     // Abrir o grupo não pode escolher tela nenhuma — não há relatório "Relatórios".
-    expect(sessionStorage.getItem("pdv:nav:manager")).toBe("orders");
+    expect(sessionStorage.getItem("pdv:nav:manager")).toBe("home");
 
     // "Entregas" também é item da seção Operação, então a busca fica dentro do
     // grupo do submenu — senão o teste passa a depender de qual nome duplicado na tela.
@@ -151,8 +172,8 @@ describe("AppMenu", () => {
   it("tela guardada que não existe mais cai no primeiro item", () => {
     sessionStorage.setItem("pdv:nav:manager", "compras");
     const { container } = setup("manager", {}); // compras desligado
-    expect(sessionStorage.getItem("pdv:nav:manager")).toBe("orders");
-    expect(asideOf(container).getByText("Comandas").closest("button").getAttribute("aria-current")).toBe("page");
+    expect(sessionStorage.getItem("pdv:nav:manager")).toBe("home");
+    expect(asideOf(container).getByText("Início").closest("button").getAttribute("aria-current")).toBe("page");
   });
 
   it("perfil de tela única: trilho de 64px, sem seções", () => {

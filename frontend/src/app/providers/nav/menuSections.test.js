@@ -4,18 +4,19 @@ import { menuSectionsFor, hasExpandableSections, firstItemId } from "./menuSecti
 const labels = (sections) => sections.flatMap((s) => s.items.map((i) => `${s.label}/${i.label}`));
 
 describe("menuSectionsFor", () => {
-  it("gerente: 4 seções, 12 itens com estoque, compras e iFood ligados", () => {
+  it("gerente: Home e áreas por perfil com estoque, compras e iFood ligados", () => {
     const sections = menuSectionsFor("manager", {
       inventoryEnabled: true,
       purchaseEnabled: true,
       ifoodIntegrationEnabled: true,
     });
-    expect(sections.map((s) => s.label)).toEqual(["Operação", "Catálogo", "Gestão", "Sistema"]);
-    expect(sections.flatMap((s) => s.items)).toHaveLength(12);
+    expect(sections.map((s) => s.label)).toEqual(["Início", "Operação", "Catálogo", "Gestão", "Sistema"]);
+    expect(sections.flatMap((s) => s.items)).toHaveLength(13);
   });
 
   it("gerente: os toggles de estoque e compras entram no catálogo, o de iFood na operação", () => {
     expect(labels(menuSectionsFor("manager"))).toEqual([
+      "Início/Início",
       "Operação/Comandas", "Operação/Caixa", "Operação/Clientes", "Operação/Entregas",
       "Catálogo/Cadastros",
       "Gestão/Equipe", "Gestão/Relatórios", "Gestão/Auditoria",
@@ -51,7 +52,7 @@ describe("menuSectionsFor", () => {
     })
       .flatMap((s) => s.items)
       .map((i) => i.id);
-    expect(ids).toEqual(["orders", "cash", "customers", "deliveries", "ifood", "catalog", "stock", "compras", "users", "reports", "audit", "settings"]);
+    expect(ids).toEqual(["home", "orders", "cash", "customers", "deliveries", "ifood", "catalog", "stock", "compras", "users", "reports", "audit", "settings"]);
   });
 
   it("perfis de tela única: uma seção com um item", () => {
@@ -87,7 +88,7 @@ describe("modo do menu", () => {
   });
 
   it("firstItemId é o primeiro item da primeira seção", () => {
-    expect(firstItemId(menuSectionsFor("manager"))).toBe("orders");
+    expect(firstItemId(menuSectionsFor("manager"))).toBe("home");
     expect(firstItemId(menuSectionsFor("cashier"))).toBe("cash");
     expect(firstItemId([])).toBeNull();
   });

@@ -1,6 +1,7 @@
 import React from "react";
 import { AlertTriangle } from "lucide-react";
 import useEscapeLayer from "@/shared/hooks/useEscapeLayer.js";
+import Button from "./Button.jsx";
 
 /**
  * Confirmação curta ("Remover item?", "Excluir categoria?"). Mantém o card
@@ -26,26 +27,21 @@ export default function ConfirmModal({
       role="alertdialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
     >
-      <div className="w-full max-w-xs bg-stone-900 border border-stone-800 rounded-2xl p-5 fade-up">
+      <div className="fade-up w-full max-w-xs rounded-2xl border border-stone-800 bg-stone-900 p-5">
         <div className={`flex items-center gap-2 mb-3 ${destructive ? "text-red-400" : "text-amber-400"}`}>
-          <AlertTriangle size={18} />
+          <AlertTriangle size={18} aria-hidden="true" />
           <span className="font-semibold text-sm">{title}</span>
         </div>
         <p className="text-stone-400 text-sm mb-5">{message}</p>
         <div className="flex gap-2">
-          <button onClick={onCancel} className="flex-1 bg-stone-800 text-stone-300 font-semibold py-2.5 rounded-xl">
+          <Button variant="secondary" className="flex-1" onClick={onCancel}>
             Cancelar
-          </button>
-          <button
-            onClick={onConfirm}
-            className={`flex-1 text-stone-950 font-semibold py-2.5 rounded-xl ${
-              destructive ? "bg-red-500 hover:bg-red-400" : "bg-amber-500 hover:bg-amber-400"
-            }`}
-          >
+          </Button>
+          <Button variant={destructive ? "danger" : "primary"} className="flex-1" onClick={onConfirm}>
             {confirmLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
