@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Check, Clock, Flame, ChefHat, PackageCheck } from "lucide-react";
+import { Check, Clock, Flame, ChefHat, PackageCheck, ClipboardList } from "lucide-react";
 import { listOrders, updateItemStatus } from "@/entities/order";
 import { listKitchenGroups } from "@/entities/kitchen-group";
 import { useAuth } from "@/app/providers/auth";
 import { useRealtime } from "@/shared/hooks";
 import { minutesSince, variationsText } from "@/shared/lib";
 import { assetUrl } from "@/shared/lib/server";
+import { EmptyState } from "@/shared/components";
 
 // "3:20" — formato de cronômetro da tela da cozinha, não "3m 20s".
 function formatMinSec(minutesFloat) {
@@ -97,7 +98,7 @@ export default function KitchenDisplay() {
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-50 flex flex-col">
-      <div className="flex items-center justify-between px-8 py-5 border-b-2 border-stone-800 shrink-0">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b-2 border-stone-800 px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-2xl bg-amber-500 flex items-center justify-center">
             <ChefHat size={24} className="text-stone-950" strokeWidth={2.5} />
@@ -107,13 +108,13 @@ export default function KitchenDisplay() {
             <div className="text-stone-500 text-sm">{settings.merchantName || "PDV"}</div>
           </div>
         </div>
-        <div className="flex items-center gap-6 text-stone-400 text-sm font-medium">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm font-medium text-stone-400 sm:gap-6">
           <span className="flex items-center gap-1.5"><Flame size={16} className="text-amber-400" /> {preparing.length} em preparo</span>
           <span className="flex items-center gap-1.5"><PackageCheck size={16} className="text-emerald-400" /> {ready.length} prontos</span>
         </div>
       </div>
 
-      <div className="flex-[3] overflow-y-auto p-6">
+      <div className="min-h-0 flex-[3] overflow-y-auto p-4 sm:p-6">
         {kitchenGroups.length > 1 && (
           <div className="flex gap-2 overflow-x-auto pb-3 mb-2">
             <button onClick={() => setActiveGroup(null)} className={chipClass(!activeGroup)}>Todas</button>
@@ -124,11 +125,17 @@ export default function KitchenDisplay() {
             ))}
           </div>
         )}
-        <div className="text-stone-500 text-xs font-bold tracking-widest uppercase mb-3 px-1">Em preparo</div>
-        {preparing.length === 0 && (
-          <div className="h-full flex items-center justify-center text-stone-600 text-lg py-16">Nenhum pedido em preparo.</div>
-        )}
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="ui-eyebrow mb-3 px-1">Em preparo</div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3 2xl:grid-cols-4">
+          {preparing.length === 0 && (
+            <EmptyState
+              icon={ClipboardList}
+              title="Nenhum pedido em preparo"
+              description="Os novos itens aparecerão aqui automaticamente."
+              compact
+              className="col-span-full"
+            />
+          )}
           {preparing.map((t) => {
             const elapsed = minutesSince(t.createdAt, now);
             const urgency = elapsed >= settings.kitchenPrepUrgentMin ? "urgent" : elapsed >= settings.kitchenPrepWarnMin ? "warn" : "fresh";
@@ -142,7 +149,7 @@ export default function KitchenDisplay() {
               <button
                 key={t.id}
                 onClick={() => markReady(t)}
-                className={`text-left rounded-2xl border-2 p-5 transition-transform active:scale-95 ${ringClass} ${urgency === "urgent" ? "urgent-pulse" : ""}`}
+                className={`text-left rounded-2xl border-2 p-4 transition-transform active:scale-[.98] sm:p-5 ${ringClass} ${urgency === "urgent" ? "urgent-pulse" : ""}`}
               >
                 <div className="flex items-start justify-between mb-3">
                   <span className="font-display text-3xl font-extrabold leading-none">{t.quantity}×</span>
@@ -167,11 +174,18 @@ export default function KitchenDisplay() {
         </div>
       </div>
 
-      <div className="flex-[1.4] border-t-2 border-stone-800 bg-stone-900/40 overflow-y-auto p-6">
-        <div className="text-emerald-500 text-xs font-bold tracking-widest uppercase mb-3 px-1 flex items-center gap-1.5">
+      <div className="min-h-0 flex-[1.4] overflow-y-auto border-t-2 border-stone-800 bg-stone-900/40 p-4 sm:p-6">
+        <div className="ui-eyebrow mb-3 flex items-center gap-1.5 px-1 text-emerald-500">
           <PackageCheck size={13} /> Prontos — aguardando retirada
         </div>
-        {ready.length === 0 && <div className="text-stone-600 text-base py-6 text-center">Nada aguardando retirada.</div>}
+        {ready.length === 0 && (
+          <EmptyState
+            icon={Check}
+            title="Tudo em dia"
+            description="Pedidos prontos para retirada aparecerão aqui."
+            compact
+          />
+        )}
         <div className="flex gap-3 overflow-x-auto pb-1">
           {ready.map((t) => {
             const waiting = minutesSince(t.updatedAt ?? t.createdAt, now);

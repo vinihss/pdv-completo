@@ -1,5 +1,4 @@
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from "vitest";
-import argon2 from "argon2";const FIXTURE_PIN_HASH = await argon2.hash("1234");
 import { api, seedFixture, resetState, closeTestApp, manager, waiter, FIXTURE, raw } from "./helpers.js";
 
 describe("Provisionamento de dispositivo (PR 1)", () => {
@@ -16,14 +15,14 @@ describe("Provisionamento de dispositivo (PR 1)", () => {
   });
 
   function createUserUsecase(name: string, role: string) {
-  return raw.get(
-    `INSERT INTO "user" (id, name, role, pin_hash)
-     VALUES ('u-${role}-prov', '${name}', '${role}', '${FIXTURE_PIN_HASH}')
-     ON CONFLICT (id) DO UPDATE SET name = EXCLUDEd.name
-     RETURNING id`,
-    [],
-  );
-}
+    return raw.get(
+      `INSERT INTO "user" (id, name, role, pin_hash)
+       VALUES ('u-${role}-prov', '${name}', '${role}', 'x')
+       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
+       RETURNING id`,
+      [],
+    );
+  }
 
   let reqCounter = 0;
   async function provisionDevice(userId: string, role: string, deviceLabel = "Device Teste") {
@@ -63,7 +62,7 @@ describe("Provisionamento de dispositivo (PR 1)", () => {
 
       expect(result.status).toBe(201);
       expect(result.json).toHaveProperty("code");
-      expect(result.json.code).toMatch(/^PDV-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+      expect(result.json.code).toMatch(/^PDV-[A-Z0-9]{16}$/);
       expect(result.json).toHaveProperty("qrPayload");
       expect(result.json.qrPayload).toMatch(/^PDVPROV1:/);
     });
@@ -107,11 +106,6 @@ describe("Provisionamento de dispositivo (PR 1)", () => {
       });
       expect(keyResult.status).toBe(201);
 
-  // Revoga a chave antes de testar o exchange
-  await raw.exec(
-    `UPDATE provisioning_key SET revoked_at = '${new Date().toISOString()}' WHERE user_id = 'u-manager'`
-  );
-
       const invalidExchange = await api("post", "/public/provisioning/exchange", {
         token: waiter,
         body: {
@@ -120,7 +114,7 @@ describe("Provisionamento de dispositivo (PR 1)", () => {
           appProfile: "garcon",
         },
       });
-      expect(invalidExchange.status).toBe(403); // chave revogada
+      expect(invalidExchange.status).toBe(400); // chave inexistente/bloqueada
     });
   });
 
@@ -163,7 +157,7 @@ describe("Provisionamento de dispositivo (PR 1)", () => {
         },
       });
       expect(invalidExchange.status).toBe(400);
-      expect(invalidExchange.json.error).toHaveProperty("code", "provisioning_key_invalid");
+      expect(invalidExchange.json).toHaveProperty("code", "provisioning_key_invalid");
     });
 
     it("exchange com código expirado devolve provisioning_key_expired", async () => {
@@ -185,7 +179,7 @@ describe("Provisionamento de dispositivo (PR 1)", () => {
         },
       });
       expect(expiredExchange.status).toBe(400);
-      expect(expiredExchange.json.error).toHaveProperty("code", "provisioning_key_expired");
+      expect(expiredExchange.json).toHaveProperty("code", "provisioning_key_expired");
     });
 
     it("exchange com chave revogada devolve provisioning_key_revoked", async () => {
@@ -206,7 +200,7 @@ describe("Provisionamento de dispositivo (PR 1)", () => {
         },
       });
       expect(revokedExchange.status).toBe(403);
-      expect(revokedExchange.json.error).toHaveProperty("code", "provisioning_key_revoked");
+      expect(revokedExchange.json).toHaveProperty("code", "provisioning_key_revoked");
     });
 
     it("taxa de troca por IP (5/min/IP) é respeitada", async () => {
@@ -237,7 +231,7 @@ describe("Provisionamento de dispositivo (PR 1)", () => {
         body: {
           userId: "u-waiter",
           pin: "1234",
-          
+          deviceId: "device-inexistente",
         },
       });
 
@@ -346,7 +340,7 @@ describe("Provisionamento de dispositivo (PR 1)", () => {
     it("refresh de dispositivo não existente nega", async () => {
       const invalidRefresh = await api("post", "/auth/device/refresh", {
         token: waiter,
-        body: {  deviceToken: "xyz" },
+        body: { deviceId: "device-inexistente", deviceToken: "xyz" },
       });
       expect(invalidRefresh.status).toBe(404);
       expect(invalidRefresh.json).toHaveProperty("code", "device_unknown");
@@ -394,7 +388,7 @@ describe("Provisionamento de dispositivo (PR 1)", () => {
         token: manager,
         body: {},
       });
-      expect(remaining.json.length).toBe(2);
+      expect(remaining.json.length).toBe(1);
     });
 
     it("revogar dispositivo sem permissão nega", async () => {

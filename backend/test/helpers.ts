@@ -5,8 +5,6 @@ import { db, pool } from "../src/infra/db/client.js";
 import { runMigrations } from "../src/infra/db/migrate.js";
 import { buildApp } from "../src/http/server.js";
 import { config } from "../src/config/env.js";
-import argon2 from "argon2";
-import { resetRateLimit } from "../src/http/middlewares/rate-limit.middleware.js";
 import { resetCache } from "../src/infra/cache/index.js";
 import { clearActiveUserCache } from "../src/infra/auth/active-user-check.js";
 import {
@@ -18,27 +16,19 @@ import {
   users,
 } from "../src/infra/db/schema.js";
 
-// Fixture mínima para os fluxos de comanda + caixa: usuários pelos 3 perfis
-// que interessam, configuração com todos os métodos de pagamento, um produto
-// (Chopp 300ml = R$ 9,50) e uma mesa ("1"). PINs são validados via argon2.
-// Os PINs usados: 1234 para todos os perfis da fixture.
-const FIXTURE_PINS = {
-  waiter: "1234",
-  manager: "1234",
-  cashier: "1234",
-  kitchen: "1234",
-};
+let _app: FastifyInstance | undefined;
 
-export const FIXTURE = {
-  waiter: "u-waiter",
-  manager: "u-manager",
-  cashier: "u-cashier",
-  kitchen: "u-kitchen",
-  table: "t-1",
-  product: "p-1",
-  category: "c-1",
-  kitchenGroup: "k-1",
-};
+export async function testApp(): Promise<FastifyInstance> {
+  if (!_app) _app = await buildApp();
+  return _app;
+}
+
+export async function closeTestApp() {
+  if (_app) {
+    await _app.close();
+    _app = undefined;
+  }
+}
 
 // Escape hatch de SQL para os testes: o app inteiro usa Drizzle, mas as
 // suítes às vezes precisam de UPDATE/SELECT cru (envelhecer um expires_at,
@@ -59,6 +49,89 @@ export const raw = {
     return res.rows[0] ?? null;
   },
 };
+
+export function tokenOf(userId: string, role: string) {
+  return jwt.sign({ sub: userId, role }, config.jwtSecret);
+}
+
+// Fixture mínima para os fluxos de comanda + caixa: usuários pelos 3 perfis
+// que interessam, configuração com todos os métodos de pagamento, um produto
+// (Chopp 300ml = R$ 9,50) e uma mesa ("1"). PINs não importam: os testes usam
+// tokens JWT assinados diretamente.
+export const FIXTURE = {
+  waiter: "u-waiter",
+  manager: "u-manager",
+  cashier: "u-cashier",
+  kitchen: "u-kitchen",
+  table: "t-1",
+  product: "p-1",
+  category: "c-1",
+  kitchenGroup: "k-1",
+};
+
+export async function seedFixture() {
+  resetCache();
+  await runMigrations();
+
+  // O banco persiste por toda a sessão de testes (só é recriado no global
+  // setup), então múltiplos arquivos chamam seedFixture — e a linha precisa
+  // ficar IGUAL em todos.
+  //
+  // Singleton (id 'singleton'): UPSERT para deixar a linha IGUAL em todos os
+  // arquivos de teste que chamam seedFixture. O arbiter é a PK `id` — é para
+  // ele que todos os testes raw apontam.
+  await db
+    .insert(storeSettings)
+    .values({
+      id: "singleton",
+      merchantName: "Teste Café",
+      merchantCity: "Sao Paulo",
+      enabledPaymentMethods: JSON.stringify(["cash", "card", "pix", "other"]),
+      usesDelivery: false,
+    })
+    .onConflictDoUpdate({
+      target: storeSettings.id,
+      set: {
+        merchantName: "Teste Café",
+        merchantCity: "Sao Paulo",
+        enabledPaymentMethods: JSON.stringify(["cash", "card", "pix", "other"]),
+        usesDelivery: false,
+      },
+    });
+
+  await db
+    .insert(users)
+    .values([
+      { id: FIXTURE.waiter, name: "Garçom Teste", role: "waiter", pinHash: "x" },
+      { id: FIXTURE.manager, name: "Gerente Teste", role: "manager", pinHash: "x" },
+      { id: FIXTURE.cashier, name: "Caixa Teste", role: "cashier", pinHash: "x" },
+      { id: FIXTURE.kitchen, name: "Cozinha Teste", role: "kitchen", pinHash: "x" },
+    ])
+    .onConflictDoNothing();
+
+  await db
+    .insert(categories)
+    .values({ id: FIXTURE.category, name: "Bebidas" })
+    .onConflictDoNothing();
+  await db
+    .insert(kitchenGroups)
+    .values({ id: FIXTURE.kitchenGroup, name: "Bar" })
+    .onConflictDoNothing();
+  await db
+    .insert(products)
+    .values({
+      id: FIXTURE.product,
+      name: "Chopp 300ml",
+      price: 9.5,
+      categoryId: FIXTURE.category,
+      kitchenGroupId: FIXTURE.kitchenGroup,
+    })
+    .onConflictDoNothing();
+  await db
+    .insert(restaurantTables)
+    .values({ id: FIXTURE.table, number: "1" })
+    .onConflictDoNothing();
+}
 
 // Tudo que a suíte pode sujar, exceto a fixture base (usuário, config,
 // categoria, grupo de cozinha, produto, mesa) e o usuário `system` da
@@ -104,7 +177,6 @@ const TRANSIENT_TABLES = [
 // `inventory_enabled = true`, o self-service do modo com cozinha).
 export async function resetState() {
   resetCache();
-  resetRateLimit();
   // O authMiddleware cacheia user.active por ~30s (docs/21 §5.4); entre
   // testes o banco pode ter mudado (ex.: um usuário desativado e reativado
   // por SQL cru), então o cache precisa nascer zerado.
@@ -126,6 +198,8 @@ export async function resetState() {
     .set({ status: "free" })
     .where(eq(restaurantTables.id, FIXTURE.table));
 }
+
+export type ApiResult = { status: number; json: any; body: string };
 
 // `ip` injeta X-Forwarded-For (o app roda com trustProxy: 1) — necessário
 // pros testes que exercitam as rotas públicas: elas têm rate limit por IP
@@ -158,87 +232,7 @@ export async function api(
   return { status: res.statusCode, json, body: res.body };
 }
 
-export function tokenOf(userId: string, role: string) {
-  return jwt.sign({ sub: userId, role }, config.jwtSecret);
-}
-
 export const cashier = tokenOf(FIXTURE.cashier, "cashier");
 export const manager = tokenOf(FIXTURE.manager, "manager");
 export const waiter = tokenOf(FIXTURE.waiter, "waiter");
 export const kitchen = tokenOf(FIXTURE.kitchen, "kitchen");
-
-// Funções auxiliares usadas pelas suítes de teste
-let _testApp: FastifyInstance | undefined;
-
-export async function testApp(): Promise<FastifyInstance> {
-  if (!_testApp) _testApp = await buildApp();
-  return _testApp;
-}
-
-export async function closeTestApp() {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  let _app: FastifyInstance | undefined;
-}
-
-// Seed da fixture base + migrations. Chamado em beforeAll de cada suíte.
-export async function seedFixture() {
-  // Reset do cache e rodada de migrations
-  resetCache();
-  await runMigrations();
-
-  // Singleton (id 'singleton'): UPSERT para deixar a linha IGUAL em todos os
-  // arquivos de teste que chamam seedFixture. O arbiter é a PK `id` — é para
-  // ele que todos os testes raw apontam.
-  await db
-    .insert(storeSettings)
-    .values({
-      id: "singleton",
-      merchantName: "Teste Café",
-      merchantCity: "Sao Paulo",
-      enabledPaymentMethods: JSON.stringify(["cash", "card", "pix", "other"]),
-      usesDelivery: false,
-    })
-    .onConflictDoUpdate({
-      target: storeSettings.id,
-      set: {
-        merchantName: "Teste Café",
-        merchantCity: "Sao Paulo",
-        enabledPaymentMethods: JSON.stringify(["cash", "card", "pix", "other"]),
-        usesDelivery: false,
-      },
-    });
-
-  // Usuários da fixture com PINs hashdeados via argon2
-  await db
-    .insert(users)
-    .values([
-      { id: FIXTURE.waiter, name: "Garçom Teste", role: "waiter", pinHash: await argon2.hash(FIXTURE_PINS.waiter) },
-      { id: FIXTURE.manager, name: "Gerente Teste", role: "manager", pinHash: await argon2.hash(FIXTURE_PINS.manager) },
-      { id: FIXTURE.cashier, name: "Caixa Teste", role: "cashier", pinHash: await argon2.hash(FIXTURE_PINS.cashier) },
-      { id: FIXTURE.kitchen, name: "Cozinha Teste", role: "kitchen", pinHash: await argon2.hash(FIXTURE_PINS.kitchen) },
-    ])
-    .onConflictDoNothing();
-
-  await db
-    .insert(categories)
-    .values({ id: FIXTURE.category, name: "Bebidas" })
-    .onConflictDoNothing();
-  await db
-    .insert(kitchenGroups)
-    .values({ id: FIXTURE.kitchenGroup, name: "Bar" })
-    .onConflictDoNothing();
-  await db
-    .insert(products)
-    .values({
-      id: FIXTURE.product,
-      name: "Chopp 300ml",
-      price: 9.5,
-      categoryId: FIXTURE.category,
-      kitchenGroupId: FIXTURE.kitchenGroup,
-    })
-    .onConflictDoNothing();
-  await db
-    .insert(restaurantTables)
-    .values({ id: FIXTURE.table, number: "1" })
-    .onConflictDoNothing();
-}

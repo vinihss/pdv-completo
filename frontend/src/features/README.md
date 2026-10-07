@@ -1,9 +1,9 @@
 # Arquitetura do frontend (PDV)
 
 Estrutura **FSD** (*Feature-Sliced Design*), pensada para facilitar extensão e
-personalização — inclusive por agentes de IA. Estratégia completa e histórico
-das fases em `docs/09-frontend-fsd.md`; convenções e mapa de arquivos em
-`docs/agent-frontend.md` e `docs/agent-frontend-map.md`.
+personalização — inclusive por agentes de IA. Convenções e mapa de arquivos em
+`docs/agent-frontend.md` e `docs/agent-frontend-map.md`; execução dos testes em
+`docs/agent-testing.md`.
 
 Regra de ouro: **cada camada só importa de camadas abaixo dela**, e `shared`
 só guarda o que não tem vocabulário de domínio.
@@ -33,7 +33,7 @@ src/
 │   ├── cart/ payment/ reports/ audit/ ifood/
 ├── shared/               # genérico, sem domínio
 │   ├── api/http.js       # ÚNICO núcleo de rede (request, upload, token)
-│   ├── components/       # Toast, Form, ConfirmModal
+│   ├── components/       # primitives: Button, PageHeader, EmptyState, Modal...
 │   ├── hooks/            # useRealtime
 │   └── lib/              # format, money, theme, uuid
 └── __tests__/            # fsd-boundaries.test.js: regras de arquitetura
