@@ -48,7 +48,7 @@ Projeto: PDV Restaurante/Pub (backend Node.js + frontend React)
 
 ## Documentação
 
-- Specs do produto: `docs/00-overview.md` até `docs/12-*.md`
+- Specs do produto: `docs/00-overview.md` até `docs/22-mobile-react-native.md`
 - Guias para agentes: `docs/agent-backend.md`, `docs/agent-frontend.md`, `docs/agent-deploy.md`, `docs/agent-testing.md`
 - Índice de endpoints: `docs/agent-api-index.md`
 - Mapa de módulos: `docs/agent-backend-map.md`, `docs/agent-frontend-map.md`
