@@ -4,7 +4,8 @@ import { Errors } from "../../domain/errors.js";
 // Rate limit simples em memória — suficiente para instância única (modo
 // local, único processo). Em modo cloud com múltiplas réplicas, isso
 // precisaria virar um store compartilhado (Redis); fora de escopo da etapa 1.
-const hits = new Map<string, number[]>();
+let hits = new Map<string, number[]>();
+export const resetRateLimit = () => { hits.clear() }
 
 /**
  * Fábrica genérica de rate limit por chave (IP, telefone, etc.), reaproveitada
