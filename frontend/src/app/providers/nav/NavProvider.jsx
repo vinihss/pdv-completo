@@ -7,17 +7,27 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
  * renderiza a tela (`pages/manager`) — os dois são irmãos, sem relação de
  * pai e filho, então não dá para passar por prop.
  *
- * A tela ativa persiste em `sessionStorage` por papel: com a sidebar sempre
- * visível, voltar para "Comandas" a cada F5 seria um passo atrás desnecessário
- * — e a sessão já vive no `sessionStorage`, então nada sobrevive à aba fechada.
+ * A tela ativa persiste em `sessionStorage` por papel — a seleção sobrevive a
+ * um F5, mas nada sobrevive à aba fechada. A migração abaixo troca uma única
+ * vez o antigo padrão do gerente ("orders") pela nova Home.
  */
 const NavContext = createContext(null);
 
 const storageKey = (role) => `pdv:nav:${role}`;
+const managerHomeMigrationKey = "pdv:nav:manager:home-migrated";
 
 function readStored(role) {
   try {
-    return sessionStorage.getItem(storageKey(role));
+    const key = storageKey(role);
+    const stored = sessionStorage.getItem(key);
+    if (role === "manager" && sessionStorage.getItem(managerHomeMigrationKey) !== "true") {
+      sessionStorage.setItem(managerHomeMigrationKey, "true");
+      if (stored === "orders") {
+        sessionStorage.setItem(key, "home");
+        return "home";
+      }
+    }
+    return stored;
   } catch {
     return null;
   }
