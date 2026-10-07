@@ -15,6 +15,8 @@ import { startOutboxDispatcher } from "../infra/realtime/outbox-dispatcher.js";
 import { startMaintenanceJobs } from "../infra/maintenance.js";
 import { initStorage } from "../infra/storage/index.js";
 import { AppError } from "../domain/errors.js";
+import { initCache, isUsingRedis, getCache } from "../infra/cache/index.js";
+import { runWarmupWithTenantRegistry, runWarmupLegacy } from "../infra/cache/warmup.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { orderRoutes } from "./routes/order.routes.js";
 import { cashFlowRoutes } from "./routes/cash-flow.routes.js";
@@ -46,6 +48,32 @@ import { resolveTenant } from "../application/tenant/resolve-tenant.usecase.js";
 // para os testes (vitest) injetarem requests via `app.inject()`.
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.logLevel }, trustProxy: true });
+
+  // ---------- Cache layer (Redis ou Memory fallback) ----------
+  // O initCache testa a conexão e popula o cache global.
+  // Em produção, o Redis deve estar disponível; em dev/local, cai para MemoryCache se cair.
+  await initCache(true);
+
+  // ---------- Cache warm-up integrando ao registry de tenant ----------
+  // Em vez de lista fixa de lojas, itera sobre tenants ativos do registry,
+  // usando o schemaName para isolamento de dados por loja no Redis.
+  // Isso garante que cada loja (schema) tenha seus caches populados corretamente.
+  try {
+    await runWarmupWithTenantRegistry()
+  } catch (err) {
+    // Fallback para warm-up legado se o registry falhar (ex: em dev sem registry)
+    try {
+      await runWarmupLegacy()
+    } catch (err2) {
+      // eslint-disable-next-line no-console
+      console.warn("⚠️ Cache warm-up falhou, operando sem warm-up:", err2)
+    }
+  }
+
+  // Decorate the request context with the cache instance.
+  // getCache() is synchronous - returns the current cache client (Redis or Memory).
+  const cacheClient = getCache()
+  app.decorate("cache", cacheClient as any)
 
   // ---------- Fase 2: resolve o tenant do Host e entra no ALS ----------
   // O ALS é o transporte do tenant (quem diz "esta requisição é da loja X");
