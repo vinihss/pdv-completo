@@ -12,6 +12,8 @@ PDV (ponto de venda) para restaurante/pub: abrir comanda → lançar itens → (
 backend/    API REST + WebSocket (Node.js + TypeScript + Fastify + Drizzle + PostgreSQL)
 frontend/   App React (Vite) — login, garçom, cozinha, gerente — instalável como PWA
             (também é o bundle servido pelos apps standalone)
+mobile/      Apps mobile (React Native + Expo SDK 57) — Garçom e Entregador em um codebase,
+            com build por APP_VARIANT (com.pdvapp.garcon / com.pdvapp.entregador)
 frontend/src-tauri/  App desktop v1 (Tauri) — desacoplado do web app, em manutenção
 deploy/     Deploy em nuvem: Dockerfiles, Caddy (HTTPS automático), docker-compose
 docs/       Specs originais + guias para agentes
@@ -56,6 +58,8 @@ ws-gateway/ Gateway WebSocket em Go (módulo Go independente, como o `printer/`)
 | `docs/18-ifood-por-loja.md` | iFood por tenant: estado atual, delta necessário, riscos (sem implementação) |
 | `docs/19-pagarme.md` | Camada de pagamentos Pagar.me V5: arquitetura, webhook, reconciliação, decisões e pendências |
 | `docs/20-pagarme-pendencias.md` | Pendências da integração Pagar.me V5: o que falta, risco e prioridade |
+| `docs/21-device-provisioning.md` | Device provisioning (aparelhos vinculados ao tenant/usuário) — implementação Tauri; referência para RN. |
+| `docs/22-mobile-react-native.md` | Migração dos apps mobile (Garçom/Entregador) de cascas Tauri para React Native/Expo. |
 | `ws-gateway/GO-GATEWAY-PLAN.md` | Gateway WebSocket em Go: arquitetura, rooms, outbox, fases de migração e o checklist de implantação. Mora junto do código (fora de `docs/`) porque é spec de um componente, não do produto inteiro |
 
 ### Guias para agentes
@@ -119,6 +123,10 @@ npm run dev                # http://localhost:5173
 ```
 
 O Vite já proxeia `/api` e `/realtime` para `localhost:3000` (`vite.config.js`). O app é PWA instalável.
+
+### Apps mobile (React Native/Expo)
+
+Os apps mobile migraram para **React Native + Expo SDK 57** (`mobile/`). Um único codebase gera dois apps via `APP_VARIANT=garcon|entregador` (ids `com.pdvapp.garcon` / `com.pdvapp.entregador`, iguais aos antigos crates Tauri). Provisionamento usa `expo-camera`/`expo-local-authentication`/`expo-secure-store`; realtime segue o mesmo contrato (WebSocket com token em subprotocol). Ver `docs/22-mobile-react-native.md`.
 
 ### App desktop (Tauri)
 
@@ -186,6 +194,9 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `./switch.sh` | deploy | deploy sem downtime (instância nova + `caddy reload`); `--status`, `--rollback`, `--install`, `--no-build`. Não mexe no `ws-gateway` |
 | `docker compose --profile ws-gateway up -d --build ws-gateway` | deploy | sobe **só** o gateway WS em Go — o `up` normal não o cria (está atrás de `profiles`) |
 | `./probe-availability.sh --url <url> --seconds N` | deploy | mede o gap de downtime real (sai != 0 se houve falha) |
+| `cd mobile && npm run start:garcon` / `start:entregador` | mobile | roda app RN Expo (SDK 57) com variante definida |
+| `cd mobile && npm test` | mobile | roda testes Jest (jest-expo + RTL) — 227/26 verdes nesta branch |
+| `cd mobile && npm run lint` | mobile | lint Expo (0 erros nesta branch) |
 | `./scripts/dev/dev-worktree.sh new <branch>` | raiz | cria o worktree de trabalho em `~/pdv/<branch>` (dentro do clone bare), a partir da `origin/main` já atualizada |
 | `./scripts/dev/dev-worktree.sh list` | raiz | lista os worktrees e a branch de cada um |
 | `./scripts/dev/dev-worktree.sh rm <branch>` | raiz | remove o worktree; só apaga a branch se ela já estiver mergeada na `main` |
