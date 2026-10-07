@@ -21,9 +21,7 @@ async function seedCouriers() {
     INSERT INTO "user" (id, name, role, pin_hash, photo_path) VALUES
       ('${COURIER}', 'Entregador Um', 'courier', 'x', 'u-courier.png'),
       ('${COURIER2}', 'Entregador Dois', 'courier', 'x', NULL)
-    ON CONFLICT (id) DO NOTHING;
-    -- O "user" não é truncado pelo resetState, então a linha pode sobreviver
-    -- de uma execução anterior (ou de outra suíte) — garante a foto esperada.
+    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, pin_hash = EXCLUDED.pin_hash, photo_path = EXCLUDED.photo_path;
     UPDATE "user" SET photo_path = 'u-courier.png' WHERE id = '${COURIER}';
     UPDATE "user" SET photo_path = NULL WHERE id = '${COURIER2}';
   `);
