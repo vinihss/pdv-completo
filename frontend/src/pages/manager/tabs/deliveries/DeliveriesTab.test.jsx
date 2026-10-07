@@ -310,3 +310,50 @@ describe("DeliveriesTab — tempo e contadores", () => {
     expect(screen.getByText(/Mostrar entregues e canceladas \(2\)/)).toBeTruthy();
   });
 });
+
+describe("DeliveriesTab — filtros das últimas 24 horas", () => {
+  const recente = (id, status, ageHours = 1) => ({
+    ...ENTREGA,
+    id,
+    customerName: id,
+    status,
+    createdAt: new Date(Date.now() - ageHours * 60 * 60 * 1000).toISOString(),
+    courier: status === "out_for_delivery" ? ENTREGADOR : null,
+  });
+
+  it("contagens e filtros exibem os mesmos estados e limitam-se às últimas 24 horas", () => {
+    setup([
+      recente("aguardando", "awaiting_courier"),
+      recente("em rota", "out_for_delivery"),
+      recente("entregue", "delivered"),
+      recente("cancelada", "cancelled"),
+      recente("falhou", "failed"),
+      recente("antiga", "awaiting_courier", 30),
+    ]);
+
+    expect(screen.getByTestId("delivery-filter-pending").getAttribute("aria-label")).toContain("1 entrega");
+    expect(screen.getByTestId("delivery-filter-out").getAttribute("aria-label")).toContain("1 entrega");
+    expect(screen.getByTestId("delivery-filter-completed").getAttribute("aria-label")).toContain("3 entregas");
+    expect(screen.getByTestId("delivery-filter-last24").getAttribute("aria-label")).toContain("5 entregas");
+
+    fireEvent.click(screen.getByTestId("delivery-filter-completed"));
+    expect(screen.getAllByTestId("delivery-card")).toHaveLength(3);
+    expect(screen.queryByText("antiga")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("clear-delivery-filter"));
+    fireEvent.click(screen.getByTestId("delivery-filter-last24"));
+    expect(screen.getAllByTestId("delivery-card")).toHaveLength(5);
+    expect(screen.queryByText("antiga")).toBeNull();
+  });
+
+  it("recolhe o mapa de entregadores por padrão e o expande sob demanda", () => {
+    setup(recente("em rota", "out_for_delivery"));
+    const toggle = screen.getByTestId("deliveries-map-toggle");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByTestId("deliveries-map-empty")).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("deliveries-map-empty")).toBeTruthy();
+  });
+});

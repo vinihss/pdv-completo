@@ -26,7 +26,16 @@ function PhotoBlock({ name, photoPath, editable, busy, onPick }) {
           >
             <Camera size={13} />
           </button>
-          <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={(e) => onPick(e.target.files?.[0])} />
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              onPick(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
         </>
       )}
     </div>
@@ -105,7 +114,7 @@ export default function UserModal({ user, onClose, onSaved, showToast }) {
       setError("Informe o nome do usuário.");
       return;
     }
-    if (pin && !/^\d{4,6}$/.test(pin)) {
+    if (isEdit && pin && !/^\d{4,6}$/.test(pin)) {
       setError("PIN deve ter de 4 a 6 dígitos.");
       return;
     }
@@ -113,10 +122,9 @@ export default function UserModal({ user, onClose, onSaved, showToast }) {
     setSaving(true);
     try {
       const body = { name: name.trim(), role, phone: phone.trim() || null, email: email.trim() || null };
-      // O PATCH /users/:id aceita pin manual; o POST /users ignora o campo e
-      // sempre gera um aleatório — por isso o PIN revelado no fim da criação é
-      // a fonte da verdade (nunca reflete o que foi digitado aqui).
-      if (pin) body.pin = pin;
+      // Só a edição aceita PIN manual; a criação gera um PIN automático que
+      // será revelado uma vez após o cadastro.
+      if (isEdit && pin) body.pin = pin;
 
       let saved;
       if (isEdit) {
@@ -194,6 +202,8 @@ export default function UserModal({ user, onClose, onSaved, showToast }) {
             value={name}
             onChange={(e) => { setName(e.target.value); if (e.target.value.trim()) setError(""); }}
             className={inputClass + (error && !name.trim() ? " border-red-500/60" : "")}
+            aria-invalid={Boolean(error && !name.trim())}
+            aria-describedby={error && !name.trim() ? "user-modal-name-error" : undefined}
             autoFocus
           />
         </Field>
@@ -226,17 +236,21 @@ export default function UserModal({ user, onClose, onSaved, showToast }) {
           />
         </Field>
 
-        <Field label={isEdit ? "Novo PIN (opcional — vazio mantém o atual)" : "PIN (opcional — vazio gera um automático)"}>
-          <input
-            value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
-            placeholder="4 a 6 dígitos"
-            inputMode="numeric"
-            className={inputClass}
-          />
-        </Field>
+        {isEdit ? (
+          <Field label="Novo PIN (opcional — vazio mantém o atual)">
+            <input
+              value={pin}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="4 a 6 dígitos"
+              inputMode="numeric"
+              className={inputClass}
+            />
+          </Field>
+        ) : (
+          <p className="text-xs text-stone-500">Um PIN será gerado automaticamente e exibido uma única vez após criar o usuário.</p>
+        )}
 
-        {error && <p className="text-red-400 text-xs">{error}</p>}
+        {error && <p id={!name.trim() ? "user-modal-name-error" : undefined} className="text-red-400 text-xs" role="alert">{error}</p>}
       </div>
     </Modal>
   );
