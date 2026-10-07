@@ -452,11 +452,8 @@ case "${1:-}" in
     ;;
   start)
     shift
-<<<<<<< HEAD
+
    _use_demo=0
-=======
-    _use_demo=0
->>>>>>> 2bf02db9 (adjusts)
     if [ "${1:-}" = "--demo" ]; then
       _use_demo=1; shift
     fi
