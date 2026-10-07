@@ -2,13 +2,6 @@ name: CI (pull request)
 
 permissions:
   contents: read
-  # O `tests / changes` (dorny/paths-filter) chama a API de arquivos do PR
-  # (`pulls/:n/files`) para decidir quais suítes rodar. Sem este escopo a
-  # chamada sai 403 "Resource not accessible by integration", o job
-  # `changes` fica VERMELHO e — como os dependentes dele são pulados quando
-  # ele falha, e skipped conta como sucesso para required checks — o
-  # auto-merge aceitava a PR com TODOS os testes skipped. Medido: PRs #122
-  # e #123 mergearam assim. `contents: read` sozinho não cobre a API de PR.
   pull-requests: read
 
 # ============================================================
