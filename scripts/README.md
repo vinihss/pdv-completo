@@ -14,11 +14,11 @@ argumentos (ou com `--help`) imprime a ajuda completa e sai com 0.
 ./pdv status                          # diagnóstico read-only do ambiente
 ./pdv setup                           # setup do ambiente de dev
 ./pdv worktree <new|list|rm>          # convenção de worktree por branch
-./pdv dev <backend|frontend|app|all>  # npm run dev; `app <pdv|kds|garcon|entregador>` = tauri dev do standalone; frontend/all aceitam --profile <pdv|kds|garcon|entregador>
+./pdv dev <backend|frontend|all>      # npm run dev; frontend aceita --profile <pdv|kds|garcon|entregador>
 ./pdv build <standalone|app|backend|frontend>          # Tauri / tsc / vite
 ./pdv test <backend|frontend|printer|gateway|all>      # vitest e go test
 ./pdv lint <frontend|all>             # oxlint; `all` soma o gate de gofmt do ws-gateway
-./pdv db <migrate|migrate-registry|generate|seed|seed-demo|seed-prod|deactivate-demo>
+./pdv db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo>
 ./pdv check [backend|frontend|all]    # critérios de verificação gerais (portão pré-PR)
 ./pdv release bump <versão>           # bump da família standalone
 ./pdv deploy <switch|backup|backup-fetch|probe|install|reset|caddy|run-cloud|pedido> [opções]
@@ -44,7 +44,6 @@ ou `cd ws-gateway && go test ./...` continuam equivalentes.
 | `dev backend` | `npm run dev` em `backend/` (`tsx watch`) |
 | `dev frontend [--profile <pdv\|kds\|garcon\|entregador>]` | `npm run dev`, ou `dev:<perfil>` (o `cross-env` do frontend) |
 | `dev all` | backend em segundo plano + frontend em foreground; Ctrl+C (ou a morte do frontend) derruba o backend junto |
-| `dev app <pdv\|kds\|garcon\|entregador> [opções do tauri dev]` | `tauri dev` de `standalone-<app>/` com `TAURI_FRONTEND_PATH=$ROOT/frontend` (sem ele o `cd ../frontend` do `beforeDevCommand` sai do repo). Garante `npm ci` na raiz (CLI do Tauri) e em `frontend/` se faltar; confere o `tauri.conf.json` do crate. `--profile` **não** se aplica — o perfil vem do `beforeDevCommand` do conf |
 | `build backend` / `build frontend` | `npm run build` (tsc → `dist/` / vite → build de produção) |
 | `test backend` / `test frontend` | `npm run test` (vitest) |
 | `test printer` | `go build ./... && go vet ./... && go test -count=1 ./...` em `printer/daemon/` |
@@ -62,7 +61,6 @@ ou `cd ws-gateway && go test ./...` continuam equivalentes.
 | `db migrate-registry` | `db:migrate:registry` |
 | `db generate` | `db:generate` |
 | `db seed` | `seed` |
-| `db seed-demo` | `seed:demo` |
 | `db seed-prod` | `seed:prod` |
 | `db deactivate-demo` | `db:deactivate-demo` |
 

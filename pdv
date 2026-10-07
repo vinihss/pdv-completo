@@ -9,11 +9,7 @@
 #   ./pdv status                      diagnóstico read-only do ambiente
 #   ./pdv setup                       → scripts/dev/setup-dev.sh
 #   ./pdv worktree <new|list|rm>      → scripts/dev/dev-worktree.sh
-#   ./pdv dev <backend|frontend|app|all>
-#       backend/frontend/all → npm run dev (frontend/all: --profile <pdv|kds|garcon|entregador>)
-#       app <pdv|kds|garcon|entregador> → tauri dev do standalone escolhido
-#           (instala npm ci na raiz/frontend se faltar; --profile NÃO se aplica:
-#           o perfil vem do beforeDevCommand do conf do crate)
+#   ./pdv dev <backend|frontend|all>  npm run dev (frontend: --profile <pdv|kds|garcon|entregador>)
 #   ./pdv build <standalone|app|backend|frontend>
 #       standalone/app → scripts/build/build-*.sh (Tauri)
 #       backend        → npm run build (tsc)      frontend → npm run build (vite)
@@ -21,9 +17,8 @@
 #       backend/frontend → npm run test           printer → go test (printer/daemon)
 #       gateway          → go build + vet + test (ws-gateway)
 #   ./pdv lint <frontend|all>         oxlint; `all` soma o gate de `gofmt -l .` do ws-gateway
-#   ./pdv db <migrate|migrate-registry|generate|seed|seed-demo|seed-prod|deactivate-demo>
+#   ./pdv db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo>
 #                                     wrappers de npm --prefix backend run ...
-#   ./pdv start [--demo]             sobe do zero: migrate → seed base → seed-demo → dev backend+frontend
 #   ./pdv check [backend|frontend|all] "critérios de verificação gerais" (portão de PR)
 #   ./pdv release bump <versão>       → scripts/release/bump-version.sh
 #   ./pdv deploy <switch|backup|backup-fetch|probe|install|reset|caddy|run-cloud|pedido> [opções]
@@ -45,10 +40,8 @@ Domínios:
                                  worktrees, versões, dependências locais)
   setup                          Setup do ambiente de dev
   worktree <new|list|rm>         Convenção de worktree por branch
-  dev <backend|frontend|app|all>  npm run dev no diretório; `app
-                                  <pdv|kds|garcon|entregador>` roda o standalone
-                                  via tauri dev; frontend/all aceitam
-                                  --profile <pdv|kds|garcon|entregador>
+  dev <backend|frontend|all>     npm run dev no diretório (frontend aceita
+                                 --profile <pdv|kds|garcon|entregador>)
   build <standalone|app|backend|frontend>
                                  standalone/app = Tauri; backend = tsc;
                                  frontend = vite
@@ -57,9 +50,8 @@ Domínios:
                                  gateway); `all` roda os quatro nessa ordem
   lint <frontend|all>            oxlint; `all` soma o gate de gofmt do
                                  ws-gateway (mesmo contrato do CI)
-  db <migrate|migrate-registry|generate|seed|seed-demo|seed-prod|deactivate-demo>
+  db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo>
                                  wrappers dos scripts npm do backend
-  start [--demo]                Sobe a app do zero: migrate → base → seed:demo (se --demo) → dev backend + frontend
   check [backend|frontend|all]   critérios de verificação gerais do AGENTS.md
                                  (pré-PR); default: all
   release bump <versão>          Bump de versão da família standalone
@@ -178,58 +170,6 @@ dev_frontend() { # <perfil (vazio = default)>
   fi
 }
 
-# `./pdv dev app <pdv|kds|garcon|entregador> [args crus do tauri dev]` —
-# roda o standalone escolhido em modo dev no desktop.
-#
-# Por que os dois pré-requisitos e o cwd: o `beforeDevCommand` do conf do crate
-# (`cd ../frontend && npm run dev:<perfil>`) precisa de `frontend/node_modules`,
-# e a CLI do Tauri mora em `node_modules/` na RAIZ do repo (mesmos motivos do
-# §0a/§0b do scripts/build/build-standalone.sh). O `TAURI_FRONTEND_PATH` não é
-# decoração: sem ele a resolução de `frontend_dir` da CLI cai no pai do crate e o
-# `cd ../frontend` sai do repo — é a armadilha que a linha mágica manual
-# contornava, documentada no cabeçalho do build-standalone.
-dev_app() {
-  # `--profile` antes do nome do app também cai aqui (mensagem certa, não
-  # "app inválido: --profile").
-  local _a
-  for _a in "$@"; do
-    case "$_a" in
-      --profile|--profile=*)
-        die "--profile não se aplica a './pdv dev app': o perfil vem do beforeDevCommand do conf do crate (roda 'npm run dev:<app>' em frontend/). Para o app web no perfil, use: ./pdv dev frontend --profile <pdv|kds|garcon|entregador>"
-        ;;
-    esac
-  done
-  [ $# -ge 1 ] || die "uso: ./pdv dev app <pdv|kds|garcon|entregador> [opções do tauri dev]"
-  local _app="$1"
-  shift
-  case "$_app" in
-    pdv|kds|garcon|entregador) ;;
-    *) die "app inválido: $_app (uso: ./pdv dev app <pdv|kds|garcon|entregador> [opções do tauri dev])" ;;
-  esac
-
-  # Pré-requisito 1: CLI do Tauri na raiz (padrão do build-standalone §0a).
-  local _tauri_cli="$ROOT/node_modules/.bin/tauri"
-  if [ ! -x "$_tauri_cli" ]; then
-    log "==> CLI do Tauri ausente na raiz, instalando dependências (npm ci)"
-    ( cd "$ROOT" && npm ci )
-  fi
-  [ -x "$_tauri_cli" ] || die "$_tauri_cli não existe mesmo após npm ci"
-
-  # Pré-requisito 2: frontend/node_modules (o beforeDevCommand roda
-  # `npm run dev:<perfil>` em frontend/ — padrão do build-standalone §0b).
-  if [ ! -d "$ROOT/frontend/node_modules" ]; then
-    log "==> node_modules do frontend ausente, instalando dependências (npm ci)"
-    ( cd "$ROOT/frontend" && npm ci )
-  fi
-
-  local _crate="$ROOT/standalone-$_app"
-  [ -f "$_crate/tauri.conf.json" ] \
-    || die "tauri.conf.json não encontrado em $_crate (crate standalone-$_app inexistente?)"
-
-  cd "$_crate"
-  TAURI_FRONTEND_PATH="$ROOT/frontend" exec "$_tauri_cli" dev "$@"
-}
-
 # Critérios de verificação gerais (AGENTS.md) — o portão antes de abrir PR.
 check_backend() {
   log "check backend: build (tsc)"
@@ -277,19 +217,18 @@ case "${1:-}" in
   dev)
     shift
     case "${1:-}" in
-      app) shift; dev_app "$@" ;;
       backend|frontend|all) _dev_target="$1"; shift ;;
-      *) die "uso: ./pdv dev <backend|frontend|app|all> [--profile <pdv|kds|garcon|entregador>] ou ./pdv dev app <pdv|kds|garcon|entregador> [opções do tauri dev]" ;;
+      *) die "uso: ./pdv dev <backend|frontend|all> [--profile <pdv|kds|garcon|entregador>]" ;;
     esac
     _dev_profile=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --profile)
-          [ $# -ge 2 ] || die "uso: ./pdv dev <backend|frontend|app|all> [--profile <pdv|kds|garcon|entregador>] ou ./pdv dev app <pdv|kds|garcon|entregador> [opções do tauri dev]"
+          [ $# -ge 2 ] || die "uso: ./pdv dev <backend|frontend|all> [--profile <pdv|kds|garcon|entregador>]"
           _dev_profile="$2"
           shift 2
           ;;
-        *) die "argumento desconhecido em './pdv dev': $1 (uso: ./pdv dev <backend|frontend|app|all> [--profile <pdv|kds|garcon|entregador>] ou ./pdv dev app <pdv|kds|garcon|entregador>)" ;;
+        *) die "argumento desconhecido em './pdv dev': $1 (uso: ./pdv dev <backend|frontend|all> [--profile <pdv|kds|garcon|entregador>])" ;;
       esac
     done
     if [ -n "$_dev_profile" ]; then
@@ -399,10 +338,9 @@ case "${1:-}" in
       migrate-registry)  shift; [ $# -eq 0 ] || die "uso: ./pdv db migrate-registry";  npm_run backend db:migrate:registry ;;
       generate)          shift; [ $# -eq 0 ] || die "uso: ./pdv db generate";          npm_run backend db:generate ;;
       seed)              shift; [ $# -eq 0 ] || die "uso: ./pdv db seed";              npm_run backend seed ;;
-      seed-demo)         shift; [ $# -eq 0 ] || die "uso: ./pdv db seed-demo";         npm_run backend seed:demo ;;
       seed-prod)         shift; [ $# -eq 0 ] || die "uso: ./pdv db seed-prod";         npm_run backend seed:prod ;;
       deactivate-demo)   shift; [ $# -eq 0 ] || die "uso: ./pdv db deactivate-demo";   npm_run backend db:deactivate-demo ;;
-      *) die "uso: ./pdv db <migrate|migrate-registry|generate|seed|seed-demo|seed-prod|deactivate-demo>" ;;
+      *) die "uso: ./pdv db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo>" ;;
     esac
     ;;
   check)
@@ -450,6 +388,8 @@ case "${1:-}" in
       *) die "uso: ./pdv printer <install|package|test-local> [opções]" ;;
     esac
     ;;
+<<<<<<< HEAD
+=======
   start)
     shift
 
@@ -474,6 +414,7 @@ case "${1:-}" in
     trap 'kill "$_dev_backend_pid" 2>/dev/null || true; exit 130' INT TERM
     npm_run frontend dev
     ;;
+>>>>>>> 783ba2e91702eaa1aa52c9713b37ab4ea4a1cc39
   *)
     die "comando desconhecido: $1 (rode ./pdv --help)"
     ;;
