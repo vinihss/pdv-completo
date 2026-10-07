@@ -276,7 +276,14 @@ jobs:
     # O `changes` NUNCA é pulado (ver "ARMADILHA" no bloco dele), então este
     # `needs:` nunca recebe um job pulado — que é o cenário em que o GitHub
     # pularia ESTE job independentemente do `if` abaixo.
-    if: github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true'
+    # FAIL-OPEN em `needs.changes.result != 'success'`: se o próprio `changes`
+    # falhar (ex.: API de PR inacessível), os outputs chegam vazios e o
+    # condicionamento por área pularia tudo — gate verde e vazio, o defeito
+    # que este bloco existe para impedir. Com a cláusula, um `changes`
+    # vermelho faz as suítes RODAREM (pior caso = testar de mais, nunca de
+    # menos). `!cancelled()` em vez de `always()` para não reanimar jobs de
+    # um run cancelado.
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true') }}
     runs-on: ubuntu-latest
     # Os testes do backend rodam contra um Postgres DEDICADO (pdv_test), não
     # contra o banco da aplicação: o global setup (backend/test/global-setup.ts)
