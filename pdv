@@ -388,6 +388,33 @@ case "${1:-}" in
       *) die "uso: ./pdv printer <install|package|test-local> [opções]" ;;
     esac
     ;;
+<<<<<<< HEAD
+=======
+  start)
+    shift
+
+   _use_demo=0
+    if [ "${1:-}" = "--demo" ]; then
+      _use_demo=1; shift
+    fi
+    [ -z "${1:-}" ] || die "uso: ./pdv start [--demo] (nenhum argumento extra esperado)"
+    log "==> Migrations (db migrate)"
+    npm_run backend db:migrate
+    log "==> Seed base (db seed)"
+    npm_run backend seed
+    if [ "$_use_demo" -eq 1 ]; then
+      log "==> Seed demo com volume (db seed-demo)"
+      npm_run backend seed:demo
+    fi
+    log "==> Dev backend (npm run dev)"
+    ( cd "$ROOT/backend" && npm run dev ) &
+    local _dev_backend_pid=$!
+    log "==> Dev frontend (npm run dev)"
+    trap 'kill "$_dev_backend_pid" 2>/dev/null || true' EXIT
+    trap 'kill "$_dev_backend_pid" 2>/dev/null || true; exit 130' INT TERM
+    npm_run frontend dev
+    ;;
+>>>>>>> 783ba2e91702eaa1aa52c9713b37ab4ea4a1cc39
   *)
     die "comando desconhecido: $1 (rode ./pdv --help)"
     ;;

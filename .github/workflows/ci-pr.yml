@@ -2,6 +2,7 @@ name: CI (pull request)
 
 permissions:
   contents: read
+  pull-requests: read
 
 # ============================================================
 # O GATE DE MERGE.
