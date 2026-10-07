@@ -1,11 +1,12 @@
 import jwt from "jsonwebtoken";
 import type { FastifyInstance } from "fastify";
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import { db, pool } from "../src/infra/db/client.js";
 import { runMigrations } from "../src/infra/db/migrate.js";
 import { buildApp } from "../src/http/server.js";
 import { config } from "../src/config/env.js";
 import { resetCache } from "../src/infra/cache/index.js";
+import { clearActiveUserCache } from "../src/infra/auth/active-user-check.js";
 import {
   categories,
   kitchenGroups,
@@ -163,6 +164,8 @@ const TRANSIENT_TABLES = [
   "ifood_event",
   "ifood_state",
   "alert",
+  "provisioning_key",
+  "user_device",
   '"order"',
   "customer",
 ] as const;
@@ -174,7 +177,21 @@ const TRANSIENT_TABLES = [
 // `inventory_enabled = true`, o self-service do modo com cozinha).
 export async function resetState() {
   resetCache();
+  // O authMiddleware cacheia user.active por ~30s (docs/21 §5.4); entre
+  // testes o banco pode ter mudado (ex.: um usuário desativado e reativado
+  // por SQL cru), então o cache precisa nascer zerado.
+  clearActiveUserCache();
   await raw.exec(`TRUNCATE ${TRANSIENT_TABLES.join(", ")} CASCADE`);
+  // Reativa os usuários da fixture (alguns testes desativam u-manager)
+  await db
+    .update(users)
+    .set({ active: true, failedAttempts: 0, lockedUntil: null })
+    .where(or(
+      eq(users.id, FIXTURE.waiter),
+      eq(users.id, FIXTURE.manager),
+      eq(users.id, FIXTURE.cashier),
+      eq(users.id, FIXTURE.kitchen),
+    ));
   // A mesa volta "free" (um teste anterior pode ter ocupado).
   await db
     .update(restaurantTables)

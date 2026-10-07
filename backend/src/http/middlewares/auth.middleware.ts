@@ -2,6 +2,7 @@ import type { FastifyRequest, FastifyReply } from "fastify";
 import jwt from "jsonwebtoken";
 import { config } from "../../config/env.js";
 import { Errors } from "../../domain/errors.js";
+import { assertUserActive } from "../../infra/auth/active-user-check.js";
 
 export type Role = "waiter" | "kitchen" | "manager" | "courier" | "cashier";
 
@@ -23,6 +24,10 @@ export async function authMiddleware(req: FastifyRequest, _reply: FastifyReply) 
   try {
     const payload = jwt.verify(token, config.jwtSecret) as AuthUser;
     req.authUser = payload;
+    // JWT é stateless (12h): sem isto, "desativar usuário" não matava sessão
+    // aberta. Verifica user.active a cada requisição com cache de ~30s
+    // (docs/21 §5.4) — usuário desativado responde 401 como token inválido.
+    await assertUserActive(payload.sub);
   } catch {
     throw Errors.unauthorized();
   }

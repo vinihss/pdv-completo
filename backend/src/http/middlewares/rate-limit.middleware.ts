@@ -4,7 +4,8 @@ import { Errors } from "../../domain/errors.js";
 // Rate limit simples em memória — suficiente para instância única (modo
 // local, único processo). Em modo cloud com múltiplas réplicas, isso
 // precisaria virar um store compartilhado (Redis); fora de escopo da etapa 1.
-const hits = new Map<string, number[]>();
+let hits = new Map<string, number[]>();
+export const resetRateLimit = () => { hits.clear() }
 
 /**
  * Fábrica genérica de rate limit por chave (IP, telefone, etc.), reaproveitada
@@ -72,3 +73,9 @@ export async function publicOrderRateLimit(req: FastifyRequest, reply: FastifyRe
   await orderIpRateLimit(req, reply);
   await orderPhoneRateLimit(req, reply);
 }
+
+// ---------- Device provisioning (docs/21 §11) ----------
+// O código da chave e o device token têm 80/256 bits de entropia + argon2 —
+// brute force já é inviável; o limite apertado (5/min/IP) é a segunda barreira
+// no exchange (código digitado) e no refresh do device token.
+export const provisioningRateLimit = createRateLimit({ windowMs: 60_000, max: 5, keyPrefix: "prov-ip", keyFn: (req) => req.ip });

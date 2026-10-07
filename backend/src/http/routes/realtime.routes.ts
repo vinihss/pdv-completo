@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { verifyTokenRaw, type AuthUser } from "../middlewares/auth.middleware.js";
+import { assertUserActive } from "../../infra/auth/active-user-check.js";
 import { wsGateway } from "../../infra/realtime/ws-gateway.js";
 import { alertsUserRoomFor } from "../../application/alert/alert.usecases.js";
 
@@ -49,7 +50,7 @@ function canJoinRoom(user: AuthUser, room: string): boolean {
 }
 
 export async function realtimeRoutes(app: FastifyInstance) {
-  app.get("/realtime", { websocket: true }, (socket, req) => {
+  app.get("/realtime", { websocket: true }, async (socket, req) => {
     // 2.3 — token via subprotocol (Sec-WebSocket-Protocol), não na query string
     // (que vaza em logs de proxy). O client chama new WebSocket(url, [token]);
     // o ws aceita o primeiro protocolo oferecido e o reflete no handshake.
@@ -63,6 +64,17 @@ export async function realtimeRoutes(app: FastifyInstance) {
       authUser = null;
     }
     if (!authUser) {
+      socket.close(4001, "unauthorized");
+      return;
+    }
+
+    // Mesma revogação de sessão aberta do authMiddleware (docs/21 §5.4): o
+    // handshake de uma conexão NOVA de usuário desativado é recusado. Conexões
+    // já abertas não são cortadas ativamente — isso é o ws-gateway, fora do
+    // escopo deste PR (ver relatório).
+    try {
+      await assertUserActive(authUser.sub);
+    } catch {
       socket.close(4001, "unauthorized");
       return;
     }

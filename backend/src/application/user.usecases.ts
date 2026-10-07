@@ -4,6 +4,9 @@ import { db } from "../infra/db/client.js";
 import { users } from "../infra/db/schema.js";
 import { Errors } from "../domain/errors.js";
 import { logAction } from "../infra/audit-log.js";
+import { enqueueEvent } from "../infra/realtime/outbox-dispatcher.js";
+import { invalidateActiveUser } from "../infra/auth/active-user-check.js";
+import { revokeAllDevicesTx } from "./provisioning/device-state.js";
 import {
   getStorage,
   isSafeFilename,
@@ -100,7 +103,8 @@ export async function updateUserUsecase(
     phone?: string | null;
     email?: string | null;
     pin?: string;
-  }
+  },
+  actorId?: string
 ) {
   const existing = await db.query.users.findFirst({ where: eq(users.id, id) });
   if (!existing) throw Errors.notFound("Usuário");
@@ -123,19 +127,45 @@ export async function updateUserUsecase(
     lockedUntil = null;
   }
 
-  const [updated] = await db
-    .update(users)
-    .set({
-      ...(input.name !== undefined ? { name: input.name } : {}),
-      ...(input.role !== undefined ? { role: input.role } : {}),
-      ...(input.active !== undefined ? { active: input.active } : {}),
-      ...(phoneDigits !== undefined ? { phone: phoneDigits } : {}),
-      ...(email !== undefined ? { email } : {}),
-      ...(pinHash !== existing.pinHash ? { pinHash, failedAttempts, lockedUntil } : {}),
-      updatedAt: new Date().toISOString(),
-    })
-    .where(eq(users.id, id))
-    .returning();
+  // Desativar usuário é a lacuna fechada do docs/21 §5.4: além do login
+  // negar, os aparelhos provisionados do usuário são revogados NA MESMA
+  // transação (+ audit + evento pro gerente) e o cache de sessão aberta do
+  // middleware é invalidado. Reativar NÃO devolve aparelhos (decisão do
+  // plano — exige novo provisionamento).
+  const deactivating = input.active === false && existing.active === true;
+
+  const updated = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(users)
+      .set({
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.role !== undefined ? { role: input.role } : {}),
+        ...(input.active !== undefined ? { active: input.active } : {}),
+        ...(phoneDigits !== undefined ? { phone: phoneDigits } : {}),
+        ...(email !== undefined ? { email } : {}),
+        ...(pinHash !== existing.pinHash ? { pinHash, failedAttempts, lockedUntil } : {}),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(users.id, id))
+      .returning();
+
+    if (deactivating) {
+      const revokedDevices = await revokeAllDevicesTx(tx, id, new Date().toISOString());
+      await logAction(tx, actorId ?? id, "user_access_toggled", null, {
+        userId: id,
+        active: false,
+        revokedDevices,
+      });
+      await enqueueEvent(tx, "alerts:manager", "user_access_changed", {
+        userId: id,
+        active: false,
+        revokedDevices,
+      });
+      // Sessões JWT abertas caem na próxima requisição (não espera os 30s do cache).
+      invalidateActiveUser(id);
+    }
+    return row;
+  });
   return serialize(updated);
 }
 
