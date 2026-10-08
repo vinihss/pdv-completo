@@ -15,6 +15,7 @@ import {
 import { authMiddleware } from "../middlewares/auth.middleware.js";
 import { loginRateLimit } from "../middlewares/rate-limit.middleware.js";
 import { imageExtByMime } from "./misc.routes.js";
+import { tenantMiddleware } from "../../http/middlewares/tenant.middleware.js";
 
 const loginSchema = z.object({
   userId: z.string(),
@@ -45,7 +46,11 @@ export async function authRoutes(app: FastifyInstance) {
   // toggles de rollout, escondendo usuários de módulos desligados: "kitchen"
   // quando kitchen_enabled=false e "courier" quando uses_delivery=false —
   // mesmo filtro por configuração que rege o resto do produto.
-  app.get("/auth/users", async (_req) => {
+  //
+  // O tenantMiddleware garante que o schema do tenant esteja ativo no ALS
+  // antes da consulta ao banco, para que o `db` Proxy fale com o schema
+  // correto (por ex. `tenant_ana_terra` em vez de `umami1`).
+  app.get("/auth/users", { preHandler: tenantMiddleware }, async (req) => {
     const settings = await db.query.storeSettings.findFirst({
       where: eq(storeSettings.id, "singleton"),
     });
@@ -64,7 +69,6 @@ export async function authRoutes(app: FastifyInstance) {
     const result = await loginUsecase(body.userId, body.pin, body.deviceId);
     return reply.code(200).send(result);
   });
-=======
 
   // Perfil do próprio usuário logado. `authMiddleware` por rota (não por
   // plugin) porque os endpoints públicos do arquivo (GET /auth/users e

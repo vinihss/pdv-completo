@@ -38,6 +38,7 @@ import { startIfoodSync } from "../integrations/ifood/worker.js";
 import { startPagarmeWorkers } from "../integrations/pagarme/worker.js";
 import { getStoreSettingsUsecase } from "../application/store-settings.usecases.js";
 import { listActiveTenants } from "../infra/tenant/registry.js";
+import { tenantMiddleware } from "./middlewares/tenant.middleware.js";
 import { enterTenantScope, exitTenantScope } from "../infra/db/tenant-context.js";
 import { resolveTenant } from "../application/tenant/resolve-tenant.usecase.js";
 import { resolveTenantSchema } from "../infra/storage/index.js";
