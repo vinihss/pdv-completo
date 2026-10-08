@@ -24,12 +24,12 @@ import { publicRoutes } from "./routes/public.routes.js";
 import { tenantRoutes } from "./routes/tenant.routes.js";
 import { courierRoutes } from "./routes/courier.routes.js";
 import { deliveryManagerRoutes } from "./routes/delivery-manager.routes.js";
-
+import { whatsappWebhookRoutes } from "./routes/whatsapp-webhook.routes.js";
 import { ifoodRoutes } from "./routes/ifood.routes.js";
 import { paymentRoutes } from "./routes/payment.routes.js";
 import { pagarmeWebhookRoutes } from "./routes/pagarme-webhook.routes.js";
 import { pagarmeInternalRoutes } from "./routes/pagarme-internal.routes.js";
-
+import { whatsappRoutes } from "./routes/whatsapp.routes.js";
 import { printRoutes } from "./routes/print.routes.js";
 import { alertRoutes } from "./routes/alert.routes.js";
 import { provisioningRoutes } from "./routes/provisioning.routes.js";
@@ -180,6 +180,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(tenantRoutes);
   await app.register(courierRoutes);
   await app.register(deliveryManagerRoutes);
+  await app.register(whatsappWebhookRoutes);
   await app.register(ifoodRoutes);
   await app.register(paymentRoutes);
   // Webhook do Pagar.me: SEM autenticação (quem se prova é a assinatura), então
@@ -189,6 +190,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   // faz a transação. Auth é token de serviço (não JWT), e o Caddy não roteia
   // `/internal/*` — o Go chega pela rede interna. Ver o doc comment do arquivo.
   await app.register(pagarmeInternalRoutes);
+  await app.register(whatsappRoutes);
   await app.register(printRoutes);
   await app.register(alertRoutes);
   // Provisionamento de aparelho por usuário (docs/21) — mistura rotas de
