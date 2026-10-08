@@ -42,6 +42,13 @@ import { resolveTenantSchema } from "../infra/storage/index.js";
 import { enterTenantScope, exitTenantScope } from "../infra/db/tenant-context.js";
 import { resolveTenant } from "../application/tenant/resolve-tenant.usecase.js";
 
+// Escapa metacaracteres de regex para montar o matcher do ask do Caddy a
+// partir do domínio raiz (vem de env, ex.: `umamisushiarte.com.br` — os
+// pontos casariam com qualquer caractere sem isto).
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // Monta o app Fastify com todas as rotas/plugins, sem escutar. Exportado
 // para os testes (vitest) injetarem requests via `app.inject()`.
 export async function buildApp(): Promise<FastifyInstance> {
@@ -155,10 +162,17 @@ export async function buildApp(): Promise<FastifyInstance> {
   // ---------- Permissão para on-demand TLS do Caddy (§wildcard) ----------
   // O Caddy consulta GET /internal/caddy-on-demand-tls?domain=<host> antes
   // de emitir um certificado sob demanda; 2xx libera, demais bloqueia.
-  // Só subdomínios de UMA label de *.labolabe.tech passam.
+  // Libera subdomínios de UMA label de *.labolabe.tech e de UMA label do
+  // domínio raiz da plataforma: app/api/www e os tenants do wildcard
+  // *.ROOT_DOMAIN passam por aqui no on_demand, e sem isso o emitidor é
+  // barrado. Apex (`<raiz>`) e rótulos múltiplos (`foo.bar.<raiz>`) ficam
+  // de fora.
   app.get("/internal/caddy-on-demand-tls", async (req, reply) => {
     const domain = String((req.query as Record<string, unknown>)?.domain ?? "").toLowerCase();
-    const ok = /^[a-z0-9-]+\.labolabe\.tech$/.test(domain);
+    const root = (
+      process.env.PLATFORM_ROOT_DOMAIN?.trim() || "umamisushiarte.com.br"
+    ).toLowerCase();
+    const ok = new RegExp(`^[a-z0-9-]+\\.(labolabe\\.tech|${escapeRegExp(root)})$`).test(domain);
     return reply.code(ok ? 204 : 403).send();
   });
 
