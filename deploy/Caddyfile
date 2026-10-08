@@ -159,6 +159,8 @@ api.{$ROOT_DOMAIN} {
 # ---------- Bloco 3: Domínio próprio do Umami Sushi Arte ----------
 # Acessar https://umamisushiarte.com.br → tela de pedido pública do tenant "umami"
 umamisushiarte.com.br {
+    # Redirect para WhatsApp
+    redir https://wa.me/5551997506070?type=phone_number&app_absent=0 302
     encode gzip zstd
     redir https://wa.me/5551997506070?type=phone_number&app_absent=0 permanent
 }

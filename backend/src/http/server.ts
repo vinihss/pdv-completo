@@ -38,9 +38,10 @@ import { startIfoodSync } from "../integrations/ifood/worker.js";
 import { startPagarmeWorkers } from "../integrations/pagarme/worker.js";
 import { getStoreSettingsUsecase } from "../application/store-settings.usecases.js";
 import { listActiveTenants } from "../infra/tenant/registry.js";
-import { resolveTenantSchema } from "../infra/storage/index.js";
+import { tenantMiddleware } from "./middlewares/tenant.middleware.js";
 import { enterTenantScope, exitTenantScope } from "../infra/db/tenant-context.js";
 import { resolveTenant } from "../application/tenant/resolve-tenant.usecase.js";
+import { resolveTenantSchema } from "../infra/storage/index.js";
 
 // Escapa metacaracteres de regex para montar o matcher do ask do Caddy a
 // partir do domínio raiz (vem de env, ex.: `umamisushiarte.com.br` — os
@@ -71,7 +72,6 @@ export async function buildApp(): Promise<FastifyInstance> {
     exitTenantScope();
   });
 
-  // ---------- Error handler — envelope padrão da §7.0 ----------
   // Registrado antes dos plugins/rotas: o handler do contexto raiz precisa
   // existir quando os contextos encapsulados são criados pra ser aplicado.
   app.setErrorHandler((err, _req, reply) => {
