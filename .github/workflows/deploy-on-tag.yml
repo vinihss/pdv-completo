@@ -440,8 +440,10 @@ jobs:
             # e só então para a antiga. Se a instância nova não ficar
             # healthy, ele aborta ANTES do reload — o app antigo continua no
             # ar e o job falha, sem janela de erro.
-            # `git checkout -f` e o bind mount de diretório: o container do
-            # Caddy lê a Caddyfile nova no reload, sem precisar ser recriado
+            # `git checkout -f` e o caminho por arquivo (não por inode): o
+            # proxy lê a Caddyfile nova no reload, sem precisar ser recriado —
+            # no host, o unit `pdv-caddy` (WorkingDirectory do deploy); no
+            # stack local, o bind mount de diretório do container do Caddy.
             # (o truque antigo de `--force-recreate caddy` custava ~2s de
             # proxy fora do ar).
             echo "[deploy] Switch (instância nova + reload do proxy)..."
