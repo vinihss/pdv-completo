@@ -17,7 +17,7 @@ import type { PaymentEventStatus } from "../../domain/payment.js";
 
 // ============================================================
 // Schema Postgres — banco OFICIAL do PDV (o SQLite foi removido).
-//
+//pgTable
 // Este schema é o mesmo contrato de dados que o app já consome, para
 // que a migração não exigisse reescrever serializadores, comparações
 // de tempo nem o seed:

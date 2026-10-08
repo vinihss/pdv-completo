@@ -1,243 +1,85 @@
-# Manutenção de Banco de Dados — Agente
+# Manutenção de banco de dados — guia seguro
 
-Guia para o agente realizar operações de manutenção no banco de produção do cliente Umami diretamente via Docker/PSQL.
+Este guia cobre consultas e alterações de dados do PDV. **Não concede autorização para acessar ou modificar produção.** O ambiente precisa ser identificado e autorizado pelo responsável antes de qualquer conexão ou escrita.
 
-## Acesso
+## Limites obrigatórios
 
-```bash
-# 1. Conectar na VPS
-ssh <vps-host>
+- **Padrão: trabalhar em banco local/de teste.** Não acessar VPS, produção ou dados de clientes por iniciativa própria.
+- Operação em produção exige pedido explícito do responsável autorizado, identificação inequívoca do ambiente/tenant e confirmação do plano final. A confirmação deve ocorrer antes da escrita e incluir o conjunto de registros, campos, valores e impacto.
+- Uma solicitação genérica para “corrigir” ou “atualizar” dados não autoriza acesso a produção, exportação de dados pessoais ou alteração de registros.
+- Nunca imprimir, copiar ou incluir credenciais, tokens, dados pessoais desnecessários ou conteúdo de `.env` em respostas, arquivos ou logs.
+- Se ambiente, tenant, alvo, impacto ou autorização forem incertos: **parar e pedir esclarecimento**. Não inferir pelo nome do container, host ou banco.
+- Preferir a API/administração do produto quando disponível. SQL direto só quando necessário e autorizado.
 
-# 2. Encontrar o container do PostgreSQL
-docker ps --format '{{.Names}}' | grep -i postgres
+## Fluxo de leitura
 
-# 3. Executar psql dentro do container
-docker exec -it <container-name> psql -U pdv -d pdv
-```
+1. Identifique se a solicitação é apenas consulta e qual o escopo mínimo necessário.
+2. Confirme que a conexão aponta para o ambiente autorizado; não confie apenas no nome do container.
+3. Use `SELECT` somente, limite resultados, selecione apenas campos necessários e evite dados pessoais irrelevantes.
+4. Apresente o resultado com contexto e indique o ambiente consultado sem revelar segredos.
 
-Para operações em lote, o agente pode usar `docker exec` com `psql -c "SQL"` ou criar um arquivo SQL temporário e executá-lo com `docker exec -i <container> psql -U pdv -d pdv < script.sql`.
-
-## Schema Resumido
-
-O banco do Umami é uma instância deste mesmo PDV. Schema completo em `backend/migrations/0001_init.sql`.
-
-### Tabelas Principais
-
-| Tabela | Descrição | Coluna de soft-delete |
-|---|---|---|
-| `category` | Categorias de produtos | `active` (boolean) |
-| `product` | Produtos do cardápio | `active` (boolean) |
-| `kitchen_group` | Grupos de cozinha | `active` (boolean) |
-| `customer` | Clientes | `active` (boolean) |
-| `user` | Usuários da equipe | `active` (boolean) |
-| `supplier` | Fornecedores | `active` (boolean) |
-| `order` | Comandas | `status` (enum: open/closed/cancelled) |
-| `order_item` | Itens de comanda | `status` (enum: ordered/ready/delivered/cancelled) |
-| `restaurant_table` | Mesas físicas | `status` (enum: free/occupied/closing) |
-
-### Relacionamentos Críticos
-
-```
-category 1───* product *───1 kitchen_group
-                    │
-                    * (ON DELETE RESTRICT)
-                    │
-              order_item *───1 order *───1 restaurant_table
-                    │              │
-                    │              *───1 customer
-                    │
-stock_movement (ledger) *───1 product
-```
-
-### Convenções Importantes
-
-| Convenção | Detalhe |
-|---|---|
-| **Soft-delete** | Nunca usar `DELETE` em entidades de domínio. Usar `UPDATE ... SET active = false` |
-| **Timestamps** | TEXT em ISO-8601 UTC (`YYYY-MM-DDTHH:MM:SS.mmmZ`) |
-| **IDs** | TEXT, gerados via `crypto.randomUUID()` na aplicação |
-| **JSON** | Armazenado como TEXT (string JSON) |
-| **Money/Quantity** | REAL (double precision) |
-| **Enums** | Enums nativos do PostgreSQL |
-| **Estoque** | Ledger: saldo = SUM(`quantity_delta`) de `stock_movement` |
-
-## Regras de Manutenção
-
-### Operações Permitidas
-
-| Operação | Permissão | Confirmação |
-|---|---|---|
-| `SELECT` | Livre | Não precisa |
-| `UPDATE` | Permitida | Em lote |
-| `INSERT` | Permitida | Em lote |
-| `DELETE` | **Apenas com justificativa** | Em lote + justificativa |
-
-### Regras de Ouro
-
-1. **Sempre usar transações** para operações de escrita: `BEGIN; ... COMMIT;`
-2. **Nunca hard-delete** entidades de domínio (category, product, customer, user, supplier). Usar soft-delete (`active = false`)
-3. **Sempre verificar antes**: rodar `SELECT` para confirmar o que será afetado
-4. **Confirmar em lote**: mostrar todas as operações planejadas e pedir uma única confirmação
-5. **Backup antes de operações destrutivas**: se possível, criar snapshot antes de DELETEs
-6. **Respeitar FKs**: verificar referências antes de alterar/deletar registros
-
-## Fluxo de Trabalho
-
-### 1. Consulta (SELECT)
+Exemplo para ambiente **local de desenvolvimento** (ajuste banco/credenciais segundo a configuração local; não copie para produção sem autorização):
 
 ```bash
-# Listar produtos de uma categoria
-docker exec <container> psql -U pdv -d pdv -c "
-  SELECT p.id, p.name, p.price, p.active
-  FROM product p
-  JOIN category c ON p.category_id = c.id
-  WHERE c.name = 'Nome da Categoria'
-  ORDER BY p.name;
-"
+docker compose -f deploy/docker-compose.dev.yml ps
+# Após confirmar visualmente que é o stack local de desenvolvimento:
+docker compose -f deploy/docker-compose.dev.yml exec -T postgres \
+  psql -U pdv -d pdv -c \
+  "SELECT id, name, price, active FROM product ORDER BY name LIMIT 100;"
 ```
 
-### 2. Operação de Escrita (UPDATE/INSERT/DELETE)
+Os nomes de serviço e variáveis podem variar; confirme no compose e no `.env.example` sem exibir valores secretos.
 
-**Passo 1 — Planejar**: escrever todas as operações SQL em um arquivo temporário.
+## Fluxo de escrita autorizado
 
-**Passo 2 — Mostrar plano**: apresentar ao usuário o que será afetado (SELECTs de verificação + operações planejadas).
+1. **Identificar ambiente e autorização.** Confirmar explicitamente o ambiente e, para produção, a autorização do responsável.
+2. **Inspecionar schema e regra de domínio.** Conferir migration/schema atuais, restrições, triggers, soft-delete, auditoria e ledger relacionados.
+3. **Planejar sem escrever.** Preparar `SELECT` que conte e mostre exatamente os registros alvo, além do SQL pretendido. Garantir predicado seletivo; nunca executar `UPDATE`/`DELETE` sem `WHERE`.
+4. **Apresentar o plano final.** Informar ambiente, tenant, contagem, registros/campos atingidos, valores antes/depois, riscos, backup/recuperação e validações. Pedir confirmação explícita para esse plano exato.
+5. **Backup verificável.** Para alterações de alto impacto/destrutivas em produção, assegurar backup recente, íntegro e com recuperação testada conforme runbook da operação. Se isso não for possível, interromper e escalar; não substituir por um backup improvisado.
+6. **Executar atomicamente.** Usar transação, bloquear ou validar o conjunto alvo, verificar quantidade afetada (`RETURNING` quando aplicável) e fazer `ROLLBACK` se o resultado divergir do plano. Não fazer commit parcial.
+7. **Verificar.** Consultar estado final, confirmar invariantes/auditoria e reportar o resultado. Não afirmar sucesso sem evidência.
 
-**Passo 3 — Confirmar**: pedir confirmação única para o lote.
+A confirmação cobre apenas o plano apresentado. Se o alvo ou o SQL mudar, apresentar o plano atualizado e pedir nova confirmação.
 
-**Passo 4 — Executar**: rodar o arquivo SQL dentro de transação.
+## Regras de domínio
 
-**Passo 5 — Verificar**: rodar SELECTs de confirmação.
+- Não fazer hard-delete de entidades de domínio (`product`, `category`, `customer`, `user`, `supplier`) salvo procedimento formal autorizado e comprovadamente necessário. Prefira soft-delete conforme o schema e as regras da aplicação.
+- Estoque é ledger: saldo deriva de `SUM(quantity_delta)` em `stock_movement`. Não “corrigir saldo” editando/deletando movimentos antigos; use o fluxo de ajuste documentado.
+- Não alterar manualmente `order_item.version`, `stock_movement.seq` ou dados de auditoria/outbox para contornar regras.
+- Não presumir tipos, enums, colunas de timestamp, esquema/tenant ou relacionamentos deste resumo. Confirme migrations e código atuais. Este banco é PostgreSQL; consulte schema vigente em `backend/migrations/`.
+- Mudança que represente regra de negócio deve preferir endpoint/use case, para preservar validação, auditoria, outbox e idempotência.
 
-## Exemplos Práticos
-
-### Exemplo 1: Listar produtos da categoria "Porções"
+## Consultas de exemplo (somente local/teste autorizado)
 
 ```sql
-SELECT p.id, p.name, p.price, p.active, p.track_stock
+-- Produtos de uma categoria; limite os resultados
+SELECT p.id, p.name, p.price, p.active
 FROM product p
-JOIN category c ON p.category_id = c.id
+JOIN category c ON c.id = p.category_id
 WHERE c.name = 'Porções'
-ORDER BY p.display_order, p.name;
-```
+ORDER BY p.name
+LIMIT 100;
 
-### Exemplo 2: Renomear categoria
-
-```sql
--- Verificar
-SELECT id, name FROM category WHERE name = 'Nome Antigo';
-
--- Renomear
-BEGIN;
-UPDATE category SET name = 'Nome Novo' WHERE name = 'Nome Antigo';
-COMMIT;
-
--- Confirmar
-SELECT id, name FROM category WHERE name = 'Nome Novo';
-```
-
-### Exemplo 3: Mover produtos para outra categoria
-
-```sql
--- Verificar produtos atuais
-SELECT p.id, p.name, c.name AS categoria_atual
-FROM product p
-JOIN category c ON p.category_id = c.id
-WHERE p.name IN ('Produto X', 'Produto Y', 'Produto Z');
-
--- Verificar categoria de destino
-SELECT id, name FROM category WHERE name = 'Categoria B';
-
--- Mover
-BEGIN;
-UPDATE product p
-SET category_id = (SELECT id FROM category WHERE name = 'Categoria B')
-WHERE p.name IN ('Produto X', 'Produto Y', 'Produto Z');
-COMMIT;
-
--- Confirmar
-SELECT p.id, p.name, c.name AS categoria
-FROM product p
-JOIN category c ON p.category_id = c.id
-WHERE p.name IN ('Produto X', 'Produto Y', 'Produto Z');
-```
-
-### Exemplo 4: Desativar produto (soft-delete)
-
-```sql
--- Verificar
-SELECT id, name, active FROM product WHERE name = 'Produto Z';
-
--- Desativar
-BEGIN;
-UPDATE product SET active = false WHERE name = 'Produto Z';
-COMMIT;
-```
-
-### Exemplo 5: Atualizar preço de produtos
-
-```sql
--- Verificar preços atuais
-SELECT p.id, p.name, p.price
-FROM product p
-WHERE p.name IN ('Produto X', 'Produto Y');
-
--- Atualizar
-BEGIN;
-UPDATE product SET price = 25.90 WHERE name = 'Produto X';
-UPDATE product SET price = 18.50 WHERE name = 'Produto Y';
-COMMIT;
-```
-
-## Comandos PSQL Úteis
-
-```bash
-# Listar tabelas
-\dt
-
-# Descrever tabela
-\d product
-
-# Listar categorias
-SELECT id, name, display_order, active FROM category ORDER BY display_order;
-
-# Listar produtos com categoria
-SELECT p.name, p.price, c.name AS categoria, p.active
-FROM product p
-LEFT JOIN category c ON p.category_id = c.id
-ORDER BY c.name, p.name;
-
-# Buscar produto por nome (parcial)
-SELECT id, name, price FROM product WHERE name ILIKE '%frango%';
-
-# Verificar estoque de um produto
-SELECT p.name, COALESCE(SUM(sm.quantity_delta), 0) AS saldo
+-- Saldo derivado do ledger para um produto
+SELECT p.id, p.name, COALESCE(SUM(sm.quantity_delta), 0) AS saldo
 FROM product p
 LEFT JOIN stock_movement sm ON sm.product_id = p.id
-WHERE p.name = 'Produto X'
-GROUP BY p.name;
-
-# Sair do psql
-\q
+WHERE p.id = '<id-confirmado>'
+GROUP BY p.id, p.name;
 ```
 
-## Avisos e Cuidados
+## Checklist antes de parar
 
-| Cuidado | Por quê |
-|---|---|
-| Nunca `DELETE FROM product` | Quebra FK de `order_item` e `stock_movement` |
-| Nunca `DELETE FROM category` | FK de `product` usa `ON DELETE SET NULL` (produtos ficam sem categoria) |
-| Nunca `DELETE FROM customer` | Tem histórico de pedidos |
-| Nunca `DELETE FROM user` | Tem histórico de ações (audit_log, orders, etc.) |
-| Cuidado com `UPDATE sem WHERE` | Afeta todas as linhas da tabela |
-| Verificar `updated_at` | Algumas tabelas têm essa coluna; atualizar manualmente se necessário |
-| `order_item.version` | Lock otimista; não alterar manualmente |
-| `stock_movement.seq` | Ordem de inserção para custo médio; não alterar |
+- [ ] Ambiente e tenant identificados e autorizados.
+- [ ] Consulta limitada ao mínimo necessário, ou escrita coberta por plano exato confirmado.
+- [ ] Schema e regras atuais conferidos.
+- [ ] Backup/recuperação verificados quando exigidos.
+- [ ] Predicados seletivos e transação utilizados; quantidade afetada conferida.
+- [ ] Estado final verificado e resultado reportado sem segredos.
 
-## Checklist Antes de Executar
+## Referências
 
-1. [ ] Rodei SELECTs de verificação para confirmar o que será afetado?
-2. [ ] Todas as operações estão em uma transação (`BEGIN/COMMIT`)?
-3. [ ] Não estou fazendo hard-delete em entidade de domínio?
-4. [ ] Mostrei o plano completo ao usuário?
-5. [ ] Recebi confirmação do usuário?
-6. [ ] Rodei SELECTs de confirmação após executar?
+- Schema e migrations: `backend/migrations/`.
+- Regras de negócio e padrões do backend: `agent-backend.md`.
+- Segurança e procedimentos de produção: `agent-deploy.md` e `../deploy/README.md`.

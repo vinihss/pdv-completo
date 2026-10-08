@@ -38,7 +38,7 @@ COMMENT ON EXTENSION unaccent IS 'text search dictionary that removes accents';
 -- Name: cash_drawer_status; Type: TYPE; Schema: public; Owner: -
 --
 
-DO $$ BEGIN CREATE TYPE public.cash_drawer_status AS ENUM (
+DO $$ BEGIN CREATE TYPE cash_drawer_status AS ENUM (
     'open',
     'closed'
 ); EXCEPTION WHEN OTHERS THEN NULL; END $$;
@@ -48,7 +48,7 @@ DO $$ BEGIN CREATE TYPE public.cash_drawer_status AS ENUM (
 -- Name: cash_movement_type; Type: TYPE; Schema: public; Owner: -
 --
 
-DO $$ BEGIN CREATE TYPE public.cash_movement_type AS ENUM (
+DO $$ BEGIN CREATE TYPE cash_movement_type AS ENUM (
     'sangria',
     'suprimento'
 ); EXCEPTION WHEN OTHERS THEN NULL; END $$;
@@ -58,7 +58,7 @@ DO $$ BEGIN CREATE TYPE public.cash_movement_type AS ENUM (
 -- Name: channel; Type: TYPE; Schema: public; Owner: -
 --
 
-DO $$ BEGIN CREATE TYPE public.channel AS ENUM (
+DO $$ BEGIN CREATE TYPE channel AS ENUM (
     'balcao',
     'whatsapp',
     'web',
@@ -70,7 +70,7 @@ DO $$ BEGIN CREATE TYPE public.channel AS ENUM (
 -- Name: delivery_status; Type: TYPE; Schema: public; Owner: -
 --
 
-DO $$ BEGIN CREATE TYPE public.delivery_status AS ENUM (
+DO $$ BEGIN CREATE TYPE delivery_status AS ENUM (
     'awaiting_courier',
     'out_for_delivery',
     'delivered',
@@ -83,7 +83,7 @@ DO $$ BEGIN CREATE TYPE public.delivery_status AS ENUM (
 -- Name: idempotency_status; Type: TYPE; Schema: public; Owner: -
 --
 
-DO $$ BEGIN CREATE TYPE public.idempotency_status AS ENUM (
+DO $$ BEGIN CREATE TYPE idempotency_status AS ENUM (
     'processing',
     'completed',
     'failed'
@@ -94,7 +94,7 @@ DO $$ BEGIN CREATE TYPE public.idempotency_status AS ENUM (
 -- Name: ifood_event_status; Type: TYPE; Schema: public; Owner: -
 --
 
-DO $$ BEGIN CREATE TYPE public.ifood_event_status AS ENUM (
+DO $$ BEGIN CREATE TYPE ifood_event_status AS ENUM (
     'received',
     'processed',
     'ignored',
@@ -107,7 +107,7 @@ DO $$ BEGIN CREATE TYPE public.ifood_event_status AS ENUM (
 -- Name: order_item_status; Type: TYPE; Schema: public; Owner: -
 --
 
-DO $$ BEGIN CREATE TYPE public.order_item_status AS ENUM (
+DO $$ BEGIN CREATE TYPE order_item_status AS ENUM (
     'ordered',
     'ready',
     'delivered',
@@ -119,7 +119,7 @@ DO $$ BEGIN CREATE TYPE public.order_item_status AS ENUM (
 -- Name: order_status; Type: TYPE; Schema: public; Owner: -
 --
 
-DO $$ BEGIN CREATE TYPE public.order_status AS ENUM (
+DO $$ BEGIN CREATE TYPE order_status AS ENUM (
     'open',
     'closed',
     'cancelled'
@@ -130,7 +130,7 @@ DO $$ BEGIN CREATE TYPE public.order_status AS ENUM (
 -- Name: payment_method; Type: TYPE; Schema: public; Owner: -
 --
 
-DO $$ BEGIN CREATE TYPE public.payment_method AS ENUM (
+DO $$ BEGIN CREATE TYPE payment_method AS ENUM (
     'cash',
     'card',
     'pix',
@@ -142,7 +142,7 @@ DO $$ BEGIN CREATE TYPE public.payment_method AS ENUM (
 -- Name: pix_key_type; Type: TYPE; Schema: public; Owner: -
 --
 
-DO $$ BEGIN CREATE TYPE public.pix_key_type AS ENUM (
+DO $$ BEGIN CREATE TYPE pix_key_type AS ENUM (
     'cpf',
     'cnpj',
     'email',
@@ -155,7 +155,7 @@ DO $$ BEGIN CREATE TYPE public.pix_key_type AS ENUM (
 -- Name: stock_movement_type; Type: TYPE; Schema: public; Owner: -
 --
 
-DO $$ BEGIN CREATE TYPE public.stock_movement_type AS ENUM (
+DO $$ BEGIN CREATE TYPE stock_movement_type AS ENUM (
     'sale',
     'refund',
     'purchase',
@@ -167,7 +167,7 @@ DO $$ BEGIN CREATE TYPE public.stock_movement_type AS ENUM (
 -- Name: table_status; Type: TYPE; Schema: public; Owner: -
 --
 
-DO $$ BEGIN CREATE TYPE public.table_status AS ENUM (
+DO $$ BEGIN CREATE TYPE table_status AS ENUM (
     'free',
     'occupied',
     'closing'
@@ -178,7 +178,7 @@ DO $$ BEGIN CREATE TYPE public.table_status AS ENUM (
 -- Name: user_role; Type: TYPE; Schema: public; Owner: -
 --
 
-DO $$ BEGIN CREATE TYPE public.user_role AS ENUM (
+DO $$ BEGIN CREATE TYPE user_role AS ENUM (
     'waiter',
     'kitchen',
     'manager',
@@ -192,7 +192,7 @@ DO $$ BEGIN CREATE TYPE public.user_role AS ENUM (
 -- Name: whatsapp_connection_status; Type: TYPE; Schema: public; Owner: -
 --
 
-DO $$ BEGIN CREATE TYPE public.whatsapp_connection_status AS ENUM (
+DO $$ BEGIN CREATE TYPE whatsapp_connection_status AS ENUM (
     'active',
     'expired',
     'revoked',
@@ -204,7 +204,7 @@ DO $$ BEGIN CREATE TYPE public.whatsapp_connection_status AS ENUM (
 -- Name: whatsapp_message_kind; Type: TYPE; Schema: public; Owner: -
 --
 
-DO $$ BEGIN CREATE TYPE public.whatsapp_message_kind AS ENUM (
+DO $$ BEGIN CREATE TYPE whatsapp_message_kind AS ENUM (
     'notification',
     'bot_reply'
 ); EXCEPTION WHEN OTHERS THEN NULL; END $$;
@@ -214,7 +214,7 @@ DO $$ BEGIN CREATE TYPE public.whatsapp_message_kind AS ENUM (
 -- Name: whatsapp_message_status; Type: TYPE; Schema: public; Owner: -
 --
 
-DO $$ BEGIN CREATE TYPE public.whatsapp_message_status AS ENUM (
+DO $$ BEGIN CREATE TYPE whatsapp_message_status AS ENUM (
     'sent',
     'delivered',
     'read',
@@ -226,7 +226,7 @@ DO $$ BEGIN CREATE TYPE public.whatsapp_message_status AS ENUM (
 -- Name: whatsapp_state; Type: TYPE; Schema: public; Owner: -
 --
 
-DO $$ BEGIN CREATE TYPE public.whatsapp_state AS ENUM (
+DO $$ BEGIN CREATE TYPE whatsapp_state AS ENUM (
     'welcome',
     'browsing',
     'cart',
@@ -247,7 +247,7 @@ SET default_table_access_method = heap;
 -- Name: alert; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.alert (
+CREATE TABLE IF NOT EXISTS alert (
     id text NOT NULL,
     seq bigint NOT NULL,
     kind text DEFAULT 'order_created'::text NOT NULL,
@@ -265,7 +265,7 @@ CREATE TABLE IF NOT EXISTS public.alert (
 -- Name: alert_seq_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
-CREATE SEQUENCE IF NOT EXISTS public.alert_seq_seq
+CREATE SEQUENCE IF NOT EXISTS alert_seq_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -277,14 +277,14 @@ CREATE SEQUENCE IF NOT EXISTS public.alert_seq_seq
 -- Name: alert_seq_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
-ALTER SEQUENCE public.alert_seq_seq OWNED BY public.alert.seq;
+ALTER SEQUENCE alert_seq_seq OWNED BY alert.seq;
 
 
 --
 -- Name: audit_log; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.audit_log (
+CREATE TABLE IF NOT EXISTS audit_log (
     id text NOT NULL,
     user_id text NOT NULL,
     action text NOT NULL,
@@ -298,9 +298,9 @@ CREATE TABLE IF NOT EXISTS public.audit_log (
 -- Name: cash_drawer; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.cash_drawer (
+CREATE TABLE IF NOT EXISTS cash_drawer (
     id text NOT NULL,
-    status public.cash_drawer_status DEFAULT 'open'::public.cash_drawer_status NOT NULL,
+    status cash_drawer_status DEFAULT 'open'::cash_drawer_status NOT NULL,
     opened_at text DEFAULT to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'::text) NOT NULL,
     opened_by text NOT NULL,
     opening_amount real DEFAULT 0 NOT NULL,
@@ -319,10 +319,10 @@ CREATE TABLE IF NOT EXISTS public.cash_drawer (
 -- Name: cash_drawer_movement; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.cash_drawer_movement (
+CREATE TABLE IF NOT EXISTS cash_drawer_movement (
     id text NOT NULL,
     drawer_id text NOT NULL,
-    type public.cash_movement_type NOT NULL,
+    type cash_movement_type NOT NULL,
     amount real NOT NULL,
     note text,
     ref_order_id text,
@@ -335,7 +335,7 @@ CREATE TABLE IF NOT EXISTS public.cash_drawer_movement (
 -- Name: category; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.category (
+CREATE TABLE IF NOT EXISTS category (
     id text NOT NULL,
     name text NOT NULL,
     display_order integer DEFAULT 0 NOT NULL,
@@ -348,7 +348,7 @@ CREATE TABLE IF NOT EXISTS public.category (
 -- Name: customer; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.customer (
+CREATE TABLE IF NOT EXISTS customer (
     id text NOT NULL,
     name text NOT NULL,
     phone text,
@@ -365,7 +365,7 @@ CREATE TABLE IF NOT EXISTS public.customer (
 -- Name: customer_address; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.customer_address (
+CREATE TABLE IF NOT EXISTS customer_address (
     id text NOT NULL,
     customer_id text NOT NULL,
     label text,
@@ -388,29 +388,24 @@ CREATE TABLE IF NOT EXISTS public.customer_address (
 -- Name: customer_cart; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.customer_cart (
+CREATE TABLE IF NOT EXISTS customer_cart (
     phone text NOT NULL,
     items text DEFAULT '[]'::text NOT NULL,
     updated_at text DEFAULT to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'::text) NOT NULL,
     expires_at text NOT NULL
 );
-
-
---
--- Name: delivery; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE IF NOT EXISTS public.delivery (
+CREATE TABLE IF NOT EXISTS delivery (
     id text NOT NULL,
     order_id text NOT NULL,
     courier_id text,
     address text NOT NULL,
     distance_km real,
     estimated_minutes integer,
-    status public.delivery_status DEFAULT 'awaiting_courier'::public.delivery_status NOT NULL,
+    status delivery_status DEFAULT 'awaiting_courier'::delivery_status NOT NULL,
     dispatched_at text,
     delivered_at text,
     notes text,
+    arrival_alert_sent BOOLEAN NOT NULL DEFAULT FALSE,
     created_at text DEFAULT to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'::text) NOT NULL
 );
 
@@ -419,7 +414,7 @@ CREATE TABLE IF NOT EXISTS public.delivery (
 -- Name: geocoding_cache; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.geocoding_cache (
+CREATE TABLE IF NOT EXISTS geocoding_cache (
     cache_key text NOT NULL,
     response text NOT NULL,
     created_at text DEFAULT to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'::text) NOT NULL,
@@ -431,13 +426,13 @@ CREATE TABLE IF NOT EXISTS public.geocoding_cache (
 -- Name: idempotency_key; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.idempotency_key (
+CREATE TABLE IF NOT EXISTS idempotency_key (
     correlation_id text NOT NULL,
     endpoint text NOT NULL,
     request_hash text NOT NULL,
     response_body text,
     response_status integer,
-    status public.idempotency_status DEFAULT 'processing'::public.idempotency_status NOT NULL,
+    status idempotency_status DEFAULT 'processing'::idempotency_status NOT NULL,
     created_at text DEFAULT to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'::text) NOT NULL,
     expires_at text NOT NULL
 );
@@ -447,12 +442,12 @@ CREATE TABLE IF NOT EXISTS public.idempotency_key (
 -- Name: ifood_event; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.ifood_event (
+CREATE TABLE IF NOT EXISTS ifood_event (
     id text NOT NULL,
     order_ref text,
     code text NOT NULL,
     full_code text,
-    status public.ifood_event_status DEFAULT 'received'::public.ifood_event_status NOT NULL,
+    status ifood_event_status DEFAULT 'received'::ifood_event_status NOT NULL,
     raw text DEFAULT '{}'::text NOT NULL,
     processed_at text,
     created_at text DEFAULT to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'::text) NOT NULL
@@ -463,7 +458,7 @@ CREATE TABLE IF NOT EXISTS public.ifood_event (
 -- Name: ifood_state; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.ifood_state (
+CREATE TABLE IF NOT EXISTS ifood_state (
     key text NOT NULL,
     value text NOT NULL,
     updated_at text DEFAULT to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'::text) NOT NULL
@@ -474,7 +469,7 @@ CREATE TABLE IF NOT EXISTS public.ifood_state (
 -- Name: kitchen_group; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.kitchen_group (
+CREATE TABLE IF NOT EXISTS kitchen_group (
     id text NOT NULL,
     name text NOT NULL,
     display_order integer DEFAULT 0 NOT NULL,
@@ -487,19 +482,19 @@ CREATE TABLE IF NOT EXISTS public.kitchen_group (
 -- Name: order; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public."order" (
+CREATE TABLE IF NOT EXISTS "order" (
     id text NOT NULL,
     table_id text,
     customer_id text,
     tab_label text,
     waiter_id text NOT NULL,
-    status public.order_status DEFAULT 'open'::public.order_status NOT NULL,
+    status order_status DEFAULT 'open'::order_status NOT NULL,
     opened_at text DEFAULT to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'::text) NOT NULL,
     closed_at text,
-    payment_method public.payment_method,
+    payment_method payment_method,
     payment_confirmed_at text,
     payment_confirmed_by text,
-    channel public.channel DEFAULT 'balcao'::public.channel NOT NULL,
+    channel channel DEFAULT 'balcao'::channel NOT NULL,
     external_ref text,
     delivery_fee real,
     cancel_reason text,
@@ -513,7 +508,7 @@ CREATE TABLE IF NOT EXISTS public."order" (
 -- Name: order_item; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.order_item (
+CREATE TABLE IF NOT EXISTS order_item (
     id text NOT NULL,
     order_id text NOT NULL,
     product_id text NOT NULL,
@@ -522,7 +517,7 @@ CREATE TABLE IF NOT EXISTS public.order_item (
     cost_price real DEFAULT 0 NOT NULL,
     selected_variations text DEFAULT '{}'::text NOT NULL,
     notes text,
-    status public.order_item_status DEFAULT 'ordered'::public.order_item_status NOT NULL,
+    status order_item_status DEFAULT 'ordered'::order_item_status NOT NULL,
     version integer DEFAULT 1 NOT NULL,
     created_by text NOT NULL,
     created_at text DEFAULT to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'::text) NOT NULL,
@@ -535,10 +530,10 @@ CREATE TABLE IF NOT EXISTS public.order_item (
 -- Name: order_payment; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.order_payment (
+CREATE TABLE IF NOT EXISTS order_payment (
     id text NOT NULL,
     order_id text NOT NULL,
-    method public.payment_method NOT NULL,
+    method payment_method NOT NULL,
     amount real NOT NULL,
     received real,
     change real,
@@ -555,7 +550,7 @@ CREATE TABLE IF NOT EXISTS public.order_payment (
 -- Name: outbox_event; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.outbox_event (
+CREATE TABLE IF NOT EXISTS outbox_event (
     id text NOT NULL,
     seq bigint NOT NULL,
     event_type text NOT NULL,
@@ -570,7 +565,7 @@ CREATE TABLE IF NOT EXISTS public.outbox_event (
 -- Name: outbox_event_seq_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
-CREATE SEQUENCE IF NOT EXISTS public.outbox_event_seq_seq
+CREATE SEQUENCE IF NOT EXISTS outbox_event_seq_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -582,14 +577,14 @@ CREATE SEQUENCE IF NOT EXISTS public.outbox_event_seq_seq
 -- Name: outbox_event_seq_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
-ALTER SEQUENCE public.outbox_event_seq_seq OWNED BY public.outbox_event.seq;
+ALTER SEQUENCE outbox_event_seq_seq OWNED BY outbox_event.seq;
 
 
 --
 -- Name: product; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.product (
+CREATE TABLE IF NOT EXISTS product (
     id text NOT NULL,
     category_id text,
     kitchen_group_id text,
@@ -616,7 +611,7 @@ CREATE TABLE IF NOT EXISTS public.product (
 -- Name: purchase; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.purchase (
+CREATE TABLE IF NOT EXISTS purchase (
     id text NOT NULL,
     supplier_id text,
     invoice_number text,
@@ -632,7 +627,7 @@ CREATE TABLE IF NOT EXISTS public.purchase (
 -- Name: purchase_item; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.purchase_item (
+CREATE TABLE IF NOT EXISTS purchase_item (
     id text NOT NULL,
     seq bigint NOT NULL,
     purchase_id text NOT NULL,
@@ -651,7 +646,7 @@ CREATE TABLE IF NOT EXISTS public.purchase_item (
 -- Name: purchase_item_seq_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
-CREATE SEQUENCE IF NOT EXISTS public.purchase_item_seq_seq
+CREATE SEQUENCE IF NOT EXISTS purchase_item_seq_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -663,17 +658,17 @@ CREATE SEQUENCE IF NOT EXISTS public.purchase_item_seq_seq
 -- Name: purchase_item_seq_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
-ALTER SEQUENCE public.purchase_item_seq_seq OWNED BY public.purchase_item.seq;
+ALTER SEQUENCE purchase_item_seq_seq OWNED BY purchase_item.seq;
 
 
 --
 -- Name: restaurant_table; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.restaurant_table (
+CREATE TABLE IF NOT EXISTS restaurant_table (
     id text NOT NULL,
     number text NOT NULL,
-    status public.table_status DEFAULT 'free'::public.table_status NOT NULL,
+    status table_status DEFAULT 'free'::table_status NOT NULL,
     created_at text DEFAULT to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'::text) NOT NULL
 );
 
@@ -682,11 +677,11 @@ CREATE TABLE IF NOT EXISTS public.restaurant_table (
 -- Name: stock_movement; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.stock_movement (
+CREATE TABLE IF NOT EXISTS stock_movement (
     id text NOT NULL,
     seq bigint NOT NULL,
     product_id text NOT NULL,
-    type public.stock_movement_type NOT NULL,
+    type stock_movement_type NOT NULL,
     quantity_delta real NOT NULL,
     unit_cost real,
     purchase_item_id text,
@@ -702,7 +697,7 @@ CREATE TABLE IF NOT EXISTS public.stock_movement (
 -- Name: stock_movement_seq_seq; Type: SEQUENCE; Schema: public; Owner: -
 --
 
-CREATE SEQUENCE IF NOT EXISTS public.stock_movement_seq_seq
+CREATE SEQUENCE IF NOT EXISTS stock_movement_seq_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -714,21 +709,21 @@ CREATE SEQUENCE IF NOT EXISTS public.stock_movement_seq_seq
 -- Name: stock_movement_seq_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
-ALTER SEQUENCE public.stock_movement_seq_seq OWNED BY public.stock_movement.seq;
+ALTER SEQUENCE stock_movement_seq_seq OWNED BY stock_movement.seq;
 
 
 --
 -- Name: store_settings; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.store_settings (
+CREATE TABLE IF NOT EXISTS store_settings (
     id text DEFAULT 'singleton'::text NOT NULL,
     merchant_name text NOT NULL,
     merchant_city text NOT NULL,
     logo_path text,
     brand_color text DEFAULT '#f59e0b'::text NOT NULL,
     pix_key text DEFAULT ''::text NOT NULL,
-    pix_key_type public.pix_key_type DEFAULT 'phone'::public.pix_key_type NOT NULL,
+    pix_key_type pix_key_type DEFAULT 'phone'::pix_key_type NOT NULL,
     uses_tables boolean DEFAULT true NOT NULL,
     kitchen_enabled boolean DEFAULT true NOT NULL,
     uses_delivery boolean DEFAULT true NOT NULL,
@@ -756,7 +751,7 @@ CREATE TABLE IF NOT EXISTS public.store_settings (
 -- Name: supplier; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.supplier (
+CREATE TABLE IF NOT EXISTS supplier (
     id text NOT NULL,
     name text NOT NULL,
     phone text,
@@ -771,10 +766,10 @@ CREATE TABLE IF NOT EXISTS public.supplier (
 -- Name: user; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public."user" (
+CREATE TABLE IF NOT EXISTS "user" (
     id text NOT NULL,
     name text NOT NULL,
-    role public.user_role NOT NULL,
+    role user_role NOT NULL,
     pin_hash text NOT NULL,
     failed_attempts integer DEFAULT 0 NOT NULL,
     locked_until text,
@@ -791,7 +786,7 @@ CREATE TABLE IF NOT EXISTS public."user" (
 -- Name: whatsapp_connection; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.whatsapp_connection (
+CREATE TABLE IF NOT EXISTS whatsapp_connection (
     id text NOT NULL,
     waba_id text NOT NULL,
     phone_number_id text NOT NULL,
@@ -801,7 +796,7 @@ CREATE TABLE IF NOT EXISTS public.whatsapp_connection (
     display_name text,
     access_token text NOT NULL,
     token_expires_at text,
-    status public.whatsapp_connection_status DEFAULT 'active'::public.whatsapp_connection_status NOT NULL,
+    status whatsapp_connection_status DEFAULT 'active'::whatsapp_connection_status NOT NULL,
     last_error text,
     created_at text DEFAULT to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'::text) NOT NULL,
     updated_at text DEFAULT to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'::text) NOT NULL
@@ -812,9 +807,9 @@ CREATE TABLE IF NOT EXISTS public.whatsapp_connection (
 -- Name: whatsapp_conversation; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.whatsapp_conversation (
+CREATE TABLE IF NOT EXISTS whatsapp_conversation (
     phone text NOT NULL,
-    state public.whatsapp_state DEFAULT 'welcome'::public.whatsapp_state NOT NULL,
+    state whatsapp_state DEFAULT 'welcome'::whatsapp_state NOT NULL,
     cart_items text DEFAULT '[]'::text NOT NULL,
     customer_name text,
     delivery_address text,
@@ -828,7 +823,7 @@ CREATE TABLE IF NOT EXISTS public.whatsapp_conversation (
 -- Name: whatsapp_inbound_message; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.whatsapp_inbound_message (
+CREATE TABLE IF NOT EXISTS whatsapp_inbound_message (
     id text NOT NULL,
     waba_id text NOT NULL,
     from_phone text NOT NULL,
@@ -841,13 +836,13 @@ CREATE TABLE IF NOT EXISTS public.whatsapp_inbound_message (
 -- Name: whatsapp_outbound_message; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE IF NOT EXISTS public.whatsapp_outbound_message (
+CREATE TABLE IF NOT EXISTS whatsapp_outbound_message (
     id text NOT NULL,
     waba_id text NOT NULL,
     order_id text,
     to_phone text NOT NULL,
-    kind public.whatsapp_message_kind NOT NULL,
-    status public.whatsapp_message_status DEFAULT 'sent'::public.whatsapp_message_status NOT NULL,
+    kind whatsapp_message_kind NOT NULL,
+    status whatsapp_message_status DEFAULT 'sent'::whatsapp_message_status NOT NULL,
     error_code integer,
     error_message text,
     created_at text DEFAULT to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'::text) NOT NULL,
@@ -859,28 +854,28 @@ CREATE TABLE IF NOT EXISTS public.whatsapp_outbound_message (
 -- Name: alert seq; Type: DEFAULT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.alert ALTER COLUMN seq SET DEFAULT nextval('public.alert_seq_seq'::regclass);
+ALTER TABLE ONLY alert ALTER COLUMN seq SET DEFAULT nextval('alert_seq_seq'::regclass);
 
 
 --
 -- Name: outbox_event seq; Type: DEFAULT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.outbox_event ALTER COLUMN seq SET DEFAULT nextval('public.outbox_event_seq_seq'::regclass);
+ALTER TABLE ONLY outbox_event ALTER COLUMN seq SET DEFAULT nextval('outbox_event_seq_seq'::regclass);
 
 
 --
 -- Name: purchase_item seq; Type: DEFAULT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.purchase_item ALTER COLUMN seq SET DEFAULT nextval('public.purchase_item_seq_seq'::regclass);
+ALTER TABLE ONLY purchase_item ALTER COLUMN seq SET DEFAULT nextval('purchase_item_seq_seq'::regclass);
 
 
 --
 -- Name: stock_movement seq; Type: DEFAULT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.stock_movement ALTER COLUMN seq SET DEFAULT nextval('public.stock_movement_seq_seq'::regclass);
+ALTER TABLE ONLY stock_movement ALTER COLUMN seq SET DEFAULT nextval('stock_movement_seq_seq'::regclass);
 
 
 
@@ -888,770 +883,770 @@ ALTER TABLE ONLY public.stock_movement ALTER COLUMN seq SET DEFAULT nextval('pub
 -- Name: alert alert_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.alert ADD CONSTRAINT alert_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY alert ADD CONSTRAINT alert_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: audit_log audit_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.audit_log ADD CONSTRAINT audit_log_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY audit_log ADD CONSTRAINT audit_log_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: cash_drawer_movement cash_drawer_movement_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.cash_drawer_movement ADD CONSTRAINT cash_drawer_movement_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY cash_drawer_movement ADD CONSTRAINT cash_drawer_movement_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: cash_drawer cash_drawer_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.cash_drawer ADD CONSTRAINT cash_drawer_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY cash_drawer ADD CONSTRAINT cash_drawer_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: category category_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.category ADD CONSTRAINT category_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY category ADD CONSTRAINT category_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: customer_address customer_address_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.customer_address ADD CONSTRAINT customer_address_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY customer_address ADD CONSTRAINT customer_address_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: customer_cart customer_cart_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.customer_cart ADD CONSTRAINT customer_cart_pkey PRIMARY KEY (phone); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY customer_cart ADD CONSTRAINT customer_cart_pkey PRIMARY KEY (phone); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: customer customer_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.customer ADD CONSTRAINT customer_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY customer ADD CONSTRAINT customer_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: delivery delivery_order_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.delivery ADD CONSTRAINT delivery_order_id_key UNIQUE (order_id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY delivery ADD CONSTRAINT delivery_order_id_key UNIQUE (order_id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: delivery delivery_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.delivery ADD CONSTRAINT delivery_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY delivery ADD CONSTRAINT delivery_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: geocoding_cache geocoding_cache_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.geocoding_cache ADD CONSTRAINT geocoding_cache_pkey PRIMARY KEY (cache_key); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY geocoding_cache ADD CONSTRAINT geocoding_cache_pkey PRIMARY KEY (cache_key); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: idempotency_key idempotency_key_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.idempotency_key ADD CONSTRAINT idempotency_key_pkey PRIMARY KEY (correlation_id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY idempotency_key ADD CONSTRAINT idempotency_key_pkey PRIMARY KEY (correlation_id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: ifood_event ifood_event_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.ifood_event ADD CONSTRAINT ifood_event_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY ifood_event ADD CONSTRAINT ifood_event_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: ifood_state ifood_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.ifood_state ADD CONSTRAINT ifood_state_pkey PRIMARY KEY (key); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY ifood_state ADD CONSTRAINT ifood_state_pkey PRIMARY KEY (key); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: kitchen_group kitchen_group_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.kitchen_group ADD CONSTRAINT kitchen_group_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY kitchen_group ADD CONSTRAINT kitchen_group_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: order_item order_item_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.order_item ADD CONSTRAINT order_item_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY order_item ADD CONSTRAINT order_item_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: order_payment order_payment_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.order_payment ADD CONSTRAINT order_payment_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY order_payment ADD CONSTRAINT order_payment_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: order order_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public."order" ADD CONSTRAINT order_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY "order" ADD CONSTRAINT order_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: outbox_event outbox_event_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.outbox_event ADD CONSTRAINT outbox_event_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY outbox_event ADD CONSTRAINT outbox_event_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: product product_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.product ADD CONSTRAINT product_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY product ADD CONSTRAINT product_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: purchase_item purchase_item_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.purchase_item ADD CONSTRAINT purchase_item_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY purchase_item ADD CONSTRAINT purchase_item_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: purchase purchase_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.purchase ADD CONSTRAINT purchase_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY purchase ADD CONSTRAINT purchase_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: restaurant_table restaurant_table_number_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.restaurant_table ADD CONSTRAINT restaurant_table_number_key UNIQUE (number); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY restaurant_table ADD CONSTRAINT restaurant_table_number_key UNIQUE (number); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: restaurant_table restaurant_table_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.restaurant_table ADD CONSTRAINT restaurant_table_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY restaurant_table ADD CONSTRAINT restaurant_table_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: stock_movement stock_movement_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.stock_movement ADD CONSTRAINT stock_movement_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY stock_movement ADD CONSTRAINT stock_movement_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: store_settings store_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.store_settings ADD CONSTRAINT store_settings_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY store_settings ADD CONSTRAINT store_settings_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: supplier supplier_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.supplier ADD CONSTRAINT supplier_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY supplier ADD CONSTRAINT supplier_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: user user_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public."user" ADD CONSTRAINT user_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY "user" ADD CONSTRAINT user_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: whatsapp_connection whatsapp_connection_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.whatsapp_connection ADD CONSTRAINT whatsapp_connection_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY whatsapp_connection ADD CONSTRAINT whatsapp_connection_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: whatsapp_connection whatsapp_connection_waba_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.whatsapp_connection ADD CONSTRAINT whatsapp_connection_waba_id_key UNIQUE (waba_id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY whatsapp_connection ADD CONSTRAINT whatsapp_connection_waba_id_key UNIQUE (waba_id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: whatsapp_conversation whatsapp_conversation_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.whatsapp_conversation ADD CONSTRAINT whatsapp_conversation_pkey PRIMARY KEY (phone); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY whatsapp_conversation ADD CONSTRAINT whatsapp_conversation_pkey PRIMARY KEY (phone); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: whatsapp_inbound_message whatsapp_inbound_message_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.whatsapp_inbound_message ADD CONSTRAINT whatsapp_inbound_message_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY whatsapp_inbound_message ADD CONSTRAINT whatsapp_inbound_message_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: whatsapp_outbound_message whatsapp_outbound_message_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.whatsapp_outbound_message ADD CONSTRAINT whatsapp_outbound_message_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY whatsapp_outbound_message ADD CONSTRAINT whatsapp_outbound_message_pkey PRIMARY KEY (id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: idx_alert_created_at; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_alert_created_at ON public.alert USING btree (created_at, seq);
+CREATE INDEX IF NOT EXISTS idx_alert_created_at ON alert USING btree (created_at, seq);
 
 
 --
 -- Name: idx_alert_order; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_alert_order ON public.alert USING btree (order_id);
+CREATE INDEX IF NOT EXISTS idx_alert_order ON alert USING btree (order_id);
 
 
 --
 -- Name: idx_alert_unread; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_alert_unread ON public.alert USING btree (created_at) WHERE (read_at IS NULL);
+CREATE INDEX IF NOT EXISTS idx_alert_unread ON alert USING btree (created_at) WHERE (read_at IS NULL);
 
 
 --
 -- Name: idx_audit_log_created; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_audit_log_created ON public.audit_log USING btree (created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log USING btree (created_at);
 
 
 --
 -- Name: idx_audit_log_order; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_audit_log_order ON public.audit_log USING btree (order_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_order ON audit_log USING btree (order_id);
 
 
 --
 -- Name: idx_audit_log_user; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_audit_log_user ON public.audit_log USING btree (user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log USING btree (user_id);
 
 
 --
 -- Name: idx_cash_drawer_movement_drawer; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_cash_drawer_movement_drawer ON public.cash_drawer_movement USING btree (drawer_id);
+CREATE INDEX IF NOT EXISTS idx_cash_drawer_movement_drawer ON cash_drawer_movement USING btree (drawer_id);
 
 
 --
 -- Name: idx_cash_drawer_opened_at; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_cash_drawer_opened_at ON public.cash_drawer USING btree (opened_at);
+CREATE INDEX IF NOT EXISTS idx_cash_drawer_opened_at ON cash_drawer USING btree (opened_at);
 
 
 --
 -- Name: idx_customer_address_customer; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_customer_address_customer ON public.customer_address USING btree (customer_id);
+CREATE INDEX IF NOT EXISTS idx_customer_address_customer ON customer_address USING btree (customer_id);
 
 
 --
 -- Name: idx_customer_cart_expires; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_customer_cart_expires ON public.customer_cart USING btree (expires_at);
+CREATE INDEX IF NOT EXISTS idx_customer_cart_expires ON customer_cart USING btree (expires_at);
 
 
 --
 -- Name: idx_customer_name; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_customer_name ON public.customer USING btree (name);
+CREATE INDEX IF NOT EXISTS idx_customer_name ON customer USING btree (name);
 
 
 --
 -- Name: idx_customer_phone; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_customer_phone ON public.customer USING btree (phone);
+CREATE INDEX IF NOT EXISTS idx_customer_phone ON customer USING btree (phone);
 
 
 --
 -- Name: idx_delivery_courier; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_delivery_courier ON public.delivery USING btree (courier_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_courier ON delivery USING btree (courier_id);
 
 
 --
 -- Name: idx_delivery_status; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_delivery_status ON public.delivery USING btree (status);
+CREATE INDEX IF NOT EXISTS idx_delivery_status ON delivery USING btree (status);
 
 
 --
 -- Name: idx_geocoding_cache_expires; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_geocoding_cache_expires ON public.geocoding_cache USING btree (expires_at);
+CREATE INDEX IF NOT EXISTS idx_geocoding_cache_expires ON geocoding_cache USING btree (expires_at);
 
 
 --
 -- Name: idx_idempotency_key_expires; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_idempotency_key_expires ON public.idempotency_key USING btree (expires_at);
+CREATE INDEX IF NOT EXISTS idx_idempotency_key_expires ON idempotency_key USING btree (expires_at);
 
 
 --
 -- Name: idx_ifood_event_status; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_ifood_event_status ON public.ifood_event USING btree (status);
+CREATE INDEX IF NOT EXISTS idx_ifood_event_status ON ifood_event USING btree (status);
 
 
 --
 -- Name: idx_order_customer; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_order_customer ON public."order" USING btree (customer_id);
+CREATE INDEX IF NOT EXISTS idx_order_customer ON "order" USING btree (customer_id);
 
 
 --
 -- Name: idx_order_item_order; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_order_item_order ON public.order_item USING btree (order_id);
+CREATE INDEX IF NOT EXISTS idx_order_item_order ON order_item USING btree (order_id);
 
 
 --
 -- Name: idx_order_item_product; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_order_item_product ON public.order_item USING btree (product_id);
+CREATE INDEX IF NOT EXISTS idx_order_item_product ON order_item USING btree (product_id);
 
 
 --
 -- Name: idx_order_payment_order; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_order_payment_order ON public.order_payment USING btree (order_id);
+CREATE INDEX IF NOT EXISTS idx_order_payment_order ON order_payment USING btree (order_id);
 
 
 --
 -- Name: idx_order_status; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_order_status ON public."order" USING btree (status);
+CREATE INDEX IF NOT EXISTS idx_order_status ON "order" USING btree (status);
 
 
 --
 -- Name: idx_order_table; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_order_table ON public."order" USING btree (table_id);
+CREATE INDEX IF NOT EXISTS idx_order_table ON "order" USING btree (table_id);
 
 
 --
 -- Name: idx_order_waiter; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_order_waiter ON public."order" USING btree (waiter_id);
+CREATE INDEX IF NOT EXISTS idx_order_waiter ON "order" USING btree (waiter_id);
 
 
 --
 -- Name: idx_outbox_event_unpublished; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_outbox_event_unpublished ON public.outbox_event USING btree (created_at, seq) WHERE (published = false);
+CREATE INDEX IF NOT EXISTS idx_outbox_event_unpublished ON outbox_event USING btree (created_at, seq) WHERE (published = false);
 
 
 --
 -- Name: idx_product_category; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_product_category ON public.product USING btree (category_id);
+CREATE INDEX IF NOT EXISTS idx_product_category ON product USING btree (category_id);
 
 
 --
 -- Name: idx_product_kitchen_group; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_product_kitchen_group ON public.product USING btree (kitchen_group_id);
+CREATE INDEX IF NOT EXISTS idx_product_kitchen_group ON product USING btree (kitchen_group_id);
 
 
 --
 -- Name: idx_purchase_item_purchase; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_purchase_item_purchase ON public.purchase_item USING btree (purchase_id);
+CREATE INDEX IF NOT EXISTS idx_purchase_item_purchase ON purchase_item USING btree (purchase_id);
 
 
 --
 -- Name: idx_stock_movement_order; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_stock_movement_order ON public.stock_movement USING btree (order_id);
+CREATE INDEX IF NOT EXISTS idx_stock_movement_order ON stock_movement USING btree (order_id);
 
 
 --
 -- Name: idx_stock_movement_order_item; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_stock_movement_order_item ON public.stock_movement USING btree (order_item_id);
+CREATE INDEX IF NOT EXISTS idx_stock_movement_order_item ON stock_movement USING btree (order_item_id);
 
 
 --
 -- Name: idx_stock_movement_product; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_stock_movement_product ON public.stock_movement USING btree (product_id);
+CREATE INDEX IF NOT EXISTS idx_stock_movement_product ON stock_movement USING btree (product_id);
 
 
 --
 -- Name: idx_stock_movement_product_seq; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_stock_movement_product_seq ON public.stock_movement USING btree (product_id, seq);
+CREATE INDEX IF NOT EXISTS idx_stock_movement_product_seq ON stock_movement USING btree (product_id, seq);
 
 
 --
 -- Name: idx_whatsapp_inbound_waba; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_whatsapp_inbound_waba ON public.whatsapp_inbound_message USING btree (waba_id);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_inbound_waba ON whatsapp_inbound_message USING btree (waba_id);
 
 
 --
 -- Name: idx_whatsapp_outbound_order; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_whatsapp_outbound_order ON public.whatsapp_outbound_message USING btree (order_id);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_outbound_order ON whatsapp_outbound_message USING btree (order_id);
 
 
 --
 -- Name: idx_whatsapp_outbound_waba_created; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX IF NOT EXISTS idx_whatsapp_outbound_waba_created ON public.whatsapp_outbound_message USING btree (waba_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_outbound_waba_created ON whatsapp_outbound_message USING btree (waba_id, created_at);
 
 
 --
 -- Name: uq_cash_drawer_single_open; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_cash_drawer_single_open ON public.cash_drawer USING btree (status) WHERE (status = 'open'::public.cash_drawer_status);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cash_drawer_single_open ON cash_drawer USING btree (status) WHERE (status = 'open'::cash_drawer_status);
 
 
 --
 -- Name: uq_customer_cpf; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_cpf ON public.customer USING btree (cpf) WHERE (cpf IS NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_cpf ON customer USING btree (cpf) WHERE (cpf IS NOT NULL);
 
 
 --
 -- Name: uq_customer_email; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_email ON public.customer USING btree (email) WHERE (email IS NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_customer_email ON customer USING btree (email) WHERE (email IS NOT NULL);
 
 
 --
 -- Name: uq_order_channel_external_ref; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_order_channel_external_ref ON public."order" USING btree (channel, external_ref);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_order_channel_external_ref ON "order" USING btree (channel, external_ref);
 
 
 --
 -- Name: uq_user_email; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_user_email ON public."user" USING btree (email) WHERE (email IS NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_user_email ON "user" USING btree (email) WHERE (email IS NOT NULL);
 
 
 --
 -- Name: uq_whatsapp_single_active; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_whatsapp_single_active ON public.whatsapp_connection USING btree ((true)) WHERE (status = 'active'::public.whatsapp_connection_status);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_whatsapp_single_active ON whatsapp_connection USING btree ((true)) WHERE (status = 'active'::whatsapp_connection_status);
 
 
 --
 -- Name: alert alert_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.alert ADD CONSTRAINT alert_order_id_fkey FOREIGN KEY (order_id) REFERENCES public."order"(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY alert ADD CONSTRAINT alert_order_id_fkey FOREIGN KEY (order_id) REFERENCES "order"(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: audit_log audit_log_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.audit_log ADD CONSTRAINT audit_log_order_id_fkey FOREIGN KEY (order_id) REFERENCES public."order"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY audit_log ADD CONSTRAINT audit_log_order_id_fkey FOREIGN KEY (order_id) REFERENCES "order"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: audit_log audit_log_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.audit_log ADD CONSTRAINT audit_log_user_id_fkey FOREIGN KEY (user_id) REFERENCES public."user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY audit_log ADD CONSTRAINT audit_log_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: cash_drawer cash_drawer_closed_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.cash_drawer ADD CONSTRAINT cash_drawer_closed_by_fkey FOREIGN KEY (closed_by) REFERENCES public."user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY cash_drawer ADD CONSTRAINT cash_drawer_closed_by_fkey FOREIGN KEY (closed_by) REFERENCES "user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: cash_drawer_movement cash_drawer_movement_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.cash_drawer_movement ADD CONSTRAINT cash_drawer_movement_created_by_fkey FOREIGN KEY (created_by) REFERENCES public."user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY cash_drawer_movement ADD CONSTRAINT cash_drawer_movement_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: cash_drawer_movement cash_drawer_movement_drawer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.cash_drawer_movement ADD CONSTRAINT cash_drawer_movement_drawer_id_fkey FOREIGN KEY (drawer_id) REFERENCES public.cash_drawer(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY cash_drawer_movement ADD CONSTRAINT cash_drawer_movement_drawer_id_fkey FOREIGN KEY (drawer_id) REFERENCES cash_drawer(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: cash_drawer_movement cash_drawer_movement_ref_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.cash_drawer_movement ADD CONSTRAINT cash_drawer_movement_ref_order_id_fkey FOREIGN KEY (ref_order_id) REFERENCES public."order"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY cash_drawer_movement ADD CONSTRAINT cash_drawer_movement_ref_order_id_fkey FOREIGN KEY (ref_order_id) REFERENCES "order"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: cash_drawer cash_drawer_opened_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.cash_drawer ADD CONSTRAINT cash_drawer_opened_by_fkey FOREIGN KEY (opened_by) REFERENCES public."user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY cash_drawer ADD CONSTRAINT cash_drawer_opened_by_fkey FOREIGN KEY (opened_by) REFERENCES "user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: customer_address customer_address_customer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.customer_address ADD CONSTRAINT customer_address_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.customer(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY customer_address ADD CONSTRAINT customer_address_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES customer(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: delivery delivery_courier_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.delivery ADD CONSTRAINT delivery_courier_id_fkey FOREIGN KEY (courier_id) REFERENCES public."user"(id) ON DELETE SET NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY delivery ADD CONSTRAINT delivery_courier_id_fkey FOREIGN KEY (courier_id) REFERENCES "user"(id) ON DELETE SET NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: delivery delivery_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.delivery ADD CONSTRAINT delivery_order_id_fkey FOREIGN KEY (order_id) REFERENCES public."order"(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY delivery ADD CONSTRAINT delivery_order_id_fkey FOREIGN KEY (order_id) REFERENCES "order"(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: order order_customer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public."order" ADD CONSTRAINT order_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.customer(id) ON DELETE SET NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY "order" ADD CONSTRAINT order_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES customer(id) ON DELETE SET NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: order_item order_item_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.order_item ADD CONSTRAINT order_item_created_by_fkey FOREIGN KEY (created_by) REFERENCES public."user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY order_item ADD CONSTRAINT order_item_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: order_item order_item_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.order_item ADD CONSTRAINT order_item_order_id_fkey FOREIGN KEY (order_id) REFERENCES public."order"(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY order_item ADD CONSTRAINT order_item_order_id_fkey FOREIGN KEY (order_id) REFERENCES "order"(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: order_item order_item_product_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.order_item ADD CONSTRAINT order_item_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.product(id) ON DELETE RESTRICT; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY order_item ADD CONSTRAINT order_item_product_id_fkey FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE RESTRICT; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: order order_payment_confirmed_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public."order" ADD CONSTRAINT order_payment_confirmed_by_fkey FOREIGN KEY (payment_confirmed_by) REFERENCES public."user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY "order" ADD CONSTRAINT order_payment_confirmed_by_fkey FOREIGN KEY (payment_confirmed_by) REFERENCES "user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: order_payment order_payment_confirmed_by_fkey1; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.order_payment ADD CONSTRAINT order_payment_confirmed_by_fkey1 FOREIGN KEY (confirmed_by) REFERENCES public."user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY order_payment ADD CONSTRAINT order_payment_confirmed_by_fkey1 FOREIGN KEY (confirmed_by) REFERENCES "user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: order_payment order_payment_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.order_payment ADD CONSTRAINT order_payment_created_by_fkey FOREIGN KEY (created_by) REFERENCES public."user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY order_payment ADD CONSTRAINT order_payment_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: order_payment order_payment_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.order_payment ADD CONSTRAINT order_payment_order_id_fkey FOREIGN KEY (order_id) REFERENCES public."order"(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY order_payment ADD CONSTRAINT order_payment_order_id_fkey FOREIGN KEY (order_id) REFERENCES "order"(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: order order_table_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public."order" ADD CONSTRAINT order_table_id_fkey FOREIGN KEY (table_id) REFERENCES public.restaurant_table(id) ON DELETE RESTRICT; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY "order" ADD CONSTRAINT order_table_id_fkey FOREIGN KEY (table_id) REFERENCES restaurant_table(id) ON DELETE RESTRICT; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: order order_waiter_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public."order" ADD CONSTRAINT order_waiter_id_fkey FOREIGN KEY (waiter_id) REFERENCES public."user"(id) ON DELETE RESTRICT; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY "order" ADD CONSTRAINT order_waiter_id_fkey FOREIGN KEY (waiter_id) REFERENCES "user"(id) ON DELETE RESTRICT; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: product product_category_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.product ADD CONSTRAINT product_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.category(id) ON DELETE SET NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY product ADD CONSTRAINT product_category_id_fkey FOREIGN KEY (category_id) REFERENCES category(id) ON DELETE SET NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: product product_kitchen_group_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.product ADD CONSTRAINT product_kitchen_group_id_fkey FOREIGN KEY (kitchen_group_id) REFERENCES public.kitchen_group(id) ON DELETE SET NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY product ADD CONSTRAINT product_kitchen_group_id_fkey FOREIGN KEY (kitchen_group_id) REFERENCES kitchen_group(id) ON DELETE SET NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: purchase purchase_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.purchase ADD CONSTRAINT purchase_created_by_fkey FOREIGN KEY (created_by) REFERENCES public."user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY purchase ADD CONSTRAINT purchase_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: purchase_item purchase_item_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.purchase_item ADD CONSTRAINT purchase_item_created_by_fkey FOREIGN KEY (created_by) REFERENCES public."user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY purchase_item ADD CONSTRAINT purchase_item_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: purchase_item purchase_item_product_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.purchase_item ADD CONSTRAINT purchase_item_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.product(id) ON DELETE RESTRICT; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY purchase_item ADD CONSTRAINT purchase_item_product_id_fkey FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE RESTRICT; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: purchase_item purchase_item_purchase_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.purchase_item ADD CONSTRAINT purchase_item_purchase_id_fkey FOREIGN KEY (purchase_id) REFERENCES public.purchase(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY purchase_item ADD CONSTRAINT purchase_item_purchase_id_fkey FOREIGN KEY (purchase_id) REFERENCES purchase(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: purchase purchase_supplier_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.purchase ADD CONSTRAINT purchase_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES public.supplier(id) ON DELETE SET NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY purchase ADD CONSTRAINT purchase_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES supplier(id) ON DELETE SET NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: stock_movement stock_movement_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.stock_movement ADD CONSTRAINT stock_movement_created_by_fkey FOREIGN KEY (created_by) REFERENCES public."user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY stock_movement ADD CONSTRAINT stock_movement_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id); EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: stock_movement stock_movement_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.stock_movement ADD CONSTRAINT stock_movement_order_id_fkey FOREIGN KEY (order_id) REFERENCES public."order"(id) ON DELETE SET NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY stock_movement ADD CONSTRAINT stock_movement_order_id_fkey FOREIGN KEY (order_id) REFERENCES "order"(id) ON DELETE SET NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: stock_movement stock_movement_order_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.stock_movement ADD CONSTRAINT stock_movement_order_item_id_fkey FOREIGN KEY (order_item_id) REFERENCES public.order_item(id) ON DELETE SET NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY stock_movement ADD CONSTRAINT stock_movement_order_item_id_fkey FOREIGN KEY (order_item_id) REFERENCES order_item(id) ON DELETE SET NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: stock_movement stock_movement_product_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.stock_movement ADD CONSTRAINT stock_movement_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.product(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY stock_movement ADD CONSTRAINT stock_movement_product_id_fkey FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: stock_movement stock_movement_purchase_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.stock_movement ADD CONSTRAINT stock_movement_purchase_item_id_fkey FOREIGN KEY (purchase_item_id) REFERENCES public.purchase_item(id) ON DELETE SET NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY stock_movement ADD CONSTRAINT stock_movement_purchase_item_id_fkey FOREIGN KEY (purchase_item_id) REFERENCES purchase_item(id) ON DELETE SET NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: whatsapp_inbound_message whatsapp_inbound_message_waba_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.whatsapp_inbound_message ADD CONSTRAINT whatsapp_inbound_message_waba_id_fkey FOREIGN KEY (waba_id) REFERENCES public.whatsapp_connection(waba_id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY whatsapp_inbound_message ADD CONSTRAINT whatsapp_inbound_message_waba_id_fkey FOREIGN KEY (waba_id) REFERENCES whatsapp_connection(waba_id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: whatsapp_outbound_message whatsapp_outbound_message_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.whatsapp_outbound_message ADD CONSTRAINT whatsapp_outbound_message_order_id_fkey FOREIGN KEY (order_id) REFERENCES public."order"(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY whatsapp_outbound_message ADD CONSTRAINT whatsapp_outbound_message_order_id_fkey FOREIGN KEY (order_id) REFERENCES "order"(id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 --
 -- Name: whatsapp_outbound_message whatsapp_outbound_message_waba_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-DO $$ BEGIN ALTER TABLE ONLY public.whatsapp_outbound_message ADD CONSTRAINT whatsapp_outbound_message_waba_id_fkey FOREIGN KEY (waba_id) REFERENCES public.whatsapp_connection(waba_id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE ONLY whatsapp_outbound_message ADD CONSTRAINT whatsapp_outbound_message_waba_id_fkey FOREIGN KEY (waba_id) REFERENCES whatsapp_connection(waba_id) ON DELETE CASCADE; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 
 -- Conta técnica usada pelos pedidos self-service (migrada da cadeia antiga).
@@ -1664,3 +1659,189 @@ ON CONFLICT (id) DO NOTHING;
 --
 
 
+
+CREATE TABLE IF NOT EXISTS provisioning_key (
+                                                       id              text PRIMARY KEY,
+                                                       user_id         text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    code_hash       text NOT NULL,      -- argon2 do código; texto puro nunca persiste
+    code_hint       text NOT NULL,      -- sufixo p/ exibir sem expor ("…K7QF")
+    created_by      text REFERENCES "user"(id),
+    expires_at      text,               -- null = sem expiração
+    revoked_at      text,
+    email_sent_at   text,
+    created_at      text NOT NULL,
+    updated_at      text NOT NULL
+    );
+-- no máximo 1 chave ativa por usuário (índice único parcial)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_provisioning_key_active
+    ON provisioning_key (user_id) WHERE revoked_at IS NULL;
+
+-- Aparelho autenticado
+CREATE TABLE IF NOT EXISTS user_device (
+                                                  id                  text PRIMARY KEY,
+                                                  user_id             text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    provisioning_key_id text REFERENCES provisioning_key(id),
+    label               text,            -- "Galaxy A54", tirado do user-agent/app
+    platform            text NOT NULL,   -- android | ios | web | desktop
+    app_profile         text NOT NULL,   -- pdv | kds
+    device_secret_hash  text NOT NULL,   -- argon2 do device token (texto puro só 1x)
+    active              boolean NOT NULL DEFAULT true,
+    last_seen_at        text,
+    revoked_at          text,
+    created_at          text NOT NULL,
+    updated_at          text NOT NULL
+    );
+CREATE INDEX IF NOT EXISTS ix_user_device_user
+    ON user_device (user_id) WHERE active = true;
+
+
+CREATE TABLE IF NOT EXISTS courier_location (
+                                                courier_id  TEXT PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
+    latitude    REAL NOT NULL,
+    longitude   REAL NOT NULL,
+    accuracy    REAL,                       -- metros, opcional (nem todo device informa)
+    updated_at  TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+
+    CONSTRAINT chk_courier_location_lat CHECK (latitude BETWEEN -90 AND 90),
+    CONSTRAINT chk_courier_location_long CHECK (longitude BETWEEN -180 AND 180)
+    );
+
+-- ============================================================
+-- Pagar.me V5 - consolidado do antigo `0002_pagarme.sql` (baseline unico):
+-- `payment`, `payment_event`, `payment_refund` + coluna
+-- `store_settings.pagarme_enabled`. Tudo idempotente e SEM prefixo de
+-- schema, para valer dentro de cada schema de tenant (6.1 do doc 15).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS payment (
+  id                       TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id                 TEXT NOT NULL REFERENCES "order"(id) ON DELETE CASCADE,
+  -- Numeração da tentativa (1, 2, 3...): "essa comanda já foi cobrada uma vez e
+  -- o cliente mandou outro Pix" é um SEGUNDO pagamento, não uma sobrescrita.
+  attempt                  INTEGER NOT NULL DEFAULT 1,
+  provider                 TEXT NOT NULL,                          -- 'pagarme'
+  -- IDs externos são SEMPRE string. A doc do V5 usa prefixo por tipo (`or_`
+  -- pedido, `ch_` charge, `pay_` pagamento): guardar como número perderia o
+  -- prefixo e a comparação com o webhook deixaria de bater.
+  provider_order_id        TEXT,
+  provider_charge_id       TEXT,
+  provider_payment_id      TEXT,
+  -- Só o que o gateway faz: 'pix' | 'credit_card'. O enum `payment_method` do
+  -- repo é o do balcão (cash/card/pix/other) e pertence a `order_payment`.
+  method                   TEXT NOT NULL,
+  amount                   REAL NOT NULL,                          -- CHECK > 0
+  currency                 TEXT NOT NULL DEFAULT 'BRL',
+  status                   TEXT NOT NULL DEFAULT 'pending',
+  -- Acumulado dos estornos. O CHECK amarra ao amount: estornar mais do que foi
+  -- cobrado é sempre erro de bug/concorrência, não estado legítimo.
+  refunded_amount          REAL NOT NULL DEFAULT 0,
+  failure_reason           TEXT,
+  -- QR do GATEWAY. O repo já tem QR PIX local (BR Code gerado no client, ver
+  -- docs/11-pix-pendencias.md) que é a chave estática da loja; este é o QR da
+  -- COBRANÇA, com txid e expiração próprios. Os dois coexistem e não se
+  -- confundem — a doc do Pagar.me é omissa sobre onde esse QR vem no corpo da
+  -- criação (ver mapper.ts), então as colunas são nullable.
+  qr_code                  TEXT,
+  qr_code_base64           TEXT,
+  qr_code_url              TEXT,
+  pix_txid                 TEXT,
+  pix_expires_at           TEXT,
+  paid_at                  TEXT,
+  canceled_at              TEXT,
+  metadata                 TEXT NOT NULL DEFAULT '{}',             -- JSON string
+  created_at               TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+  updated_at               TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+
+  CONSTRAINT chk_payment_amount        CHECK (amount > 0),
+  CONSTRAINT chk_payment_refunded      CHECK (refunded_amount >= 0 AND refunded_amount <= amount)
+);
+
+-- Uma comanda tem uma lista de cobranças (idx_payment_order) e a lista de
+-- "o que ainda está esperando o cliente" sai daqui (idx_payment_status).
+CREATE INDEX IF NOT EXISTS idx_payment_order ON payment(order_id);
+CREATE INDEX IF NOT EXISTS idx_payment_status ON payment(status);
+
+-- O webhook chega com o id do pagamento (`pay_`/`ch_`), não com o nosso id, e
+-- é por ele que o evento acha a linha para atualizar.
+CREATE INDEX IF NOT EXISTS idx_payment_provider_payment_id ON payment(provider_payment_id);
+
+-- A trava de idempotência estrutural: duas cobranças para a MESMA tentativa
+-- são impossível no banco, sem depender de todo caminho de criação lembrar de
+-- checar. `withIdempotency` (http/middlewares/idempotency.middleware.ts)
+-- resolve o retry do MESMO request; este índice resolve o "dois requests
+-- diferentes convergentem para a mesma tentativa". Não existe tabela
+-- `payment_operations` da spec: a unicidade aqui é o que ela faria.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_order_attempt ON payment(order_id, attempt);
+
+-- ---------------------------------------------------------------- inbox do webhook
+-- Gravada ANTES do HTTP 200 (o mesmo desenho de `ifood_event`: o provedor
+-- reenvia o evento enquanto não recebe 200, então persistir depois do ACK
+-- perde evento).
+CREATE TABLE IF NOT EXISTS payment_event (
+  id                 TEXT PRIMARY KEY,
+  -- Ordem de inserção. `created_at` é texto com precisão de milissegundo e dois
+  -- eventos no mesmo ms empatariam num ORDER BY só por ele — mesma razão do
+  -- `seq` de outbox_event/alert/stock_movement.
+  seq                BIGSERIAL NOT NULL,
+  provider           TEXT NOT NULL,
+  event_id           TEXT NOT NULL,                              -- id do Pagar.me
+  event_type         TEXT NOT NULL,
+  -- payment_id é NULL enquanto o evento não casou com uma cobrança nossa
+  -- (evento de outro pedido, ou de um pedido que nem criamos). SET NULL: o
+  -- evento NÃO pode ser apagado junto com a cobrança — é a prova do que o
+  -- gateway mandou, e o worker ainda precisa dele.
+  payment_id         TEXT REFERENCES payment(id) ON DELETE SET NULL,
+  provider_order_id  TEXT,
+  provider_payment_id TEXT,
+  payload            TEXT NOT NULL,                              -- JSON string cru
+  status             TEXT NOT NULL DEFAULT 'received',           -- received|processing|processed|ignored|failed
+  attempts           INTEGER NOT NULL DEFAULT 0,
+  processed_at       TEXT,
+  error_message      TEXT,
+  -- Backoff do worker: NULL = elegível agora.
+  next_attempt_at    TEXT,
+  created_at         TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+);
+
+-- A idempotência do webhook: o mesmo event_id do mesmo provider entra uma vez
+-- só, e o reenvio colide no índice em vez de duplicar pagamento.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payment_event_provider_event_id
+  ON payment_event(provider, event_id);
+
+CREATE INDEX IF NOT EXISTS idx_payment_event_status_next ON payment_event(status, next_attempt_at);
+-- Um índice só, e composto: o ciclo do worker pergunta "status IN
+-- ('received','failed') E next_attempt_at vencido" — a coluna de status na
+-- frente faz o filtro ser resolvido no índice e a de data segura a faixa.
+-- (Não é parcial como o do outbox: aqui `failed` também é pendente, então o
+-- predicado seria uma lista que muda com cada status novo.)
+CREATE INDEX IF NOT EXISTS idx_payment_event_payment ON payment_event(payment_id);
+
+-- ---------------------------------------------------------------- estornos
+CREATE TABLE IF NOT EXISTS payment_refund (
+  id                  TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+  payment_id          TEXT NOT NULL REFERENCES payment(id) ON DELETE CASCADE,
+  amount              REAL NOT NULL,                              -- CHECK > 0
+  provider_refund_id  TEXT,
+  -- requested (pedido, ainda sem resposta) → succeeded | failed. A linha é
+  -- escrita ANTES da chamada ao gateway: é o que impede um "estornei e não
+  -- sei" quando a resposta se perde, porque o próximo ciclo reconcilia por
+  -- status em vez de confiar na memória do processo.
+  status              TEXT NOT NULL DEFAULT 'requested',
+  reason              TEXT,
+  requested_by        TEXT REFERENCES "user"(id),
+  requested_at        TEXT,
+  settled_at          TEXT,
+  created_at          TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+  updated_at          TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+
+  CONSTRAINT chk_payment_refund_amount CHECK (amount > 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_refund_payment ON payment_refund(payment_id);
+
+-- ---------------------------------------------------------------- master switch
+-- Opt-in por loja, mesmo desenho do `whatsapp_integration_enabled` (0007): o
+-- painel de pagamento no gateway só existe para quem liga o toggle. DEFAULT
+-- false de propósito — nenhuma instalação existente passa a cobrar no gateway
+-- sem alguém decidir isso.
+ALTER TABLE store_settings
+  ADD COLUMN IF NOT EXISTS pagarme_enabled BOOLEAN NOT NULL DEFAULT false;

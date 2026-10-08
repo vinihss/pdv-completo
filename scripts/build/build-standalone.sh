@@ -6,13 +6,13 @@
 #   bash scripts/build/build-standalone.sh --app pdv --release   # build de entrega: exige chave
 #   bash scripts/build/build-standalone.sh --app kds --bundles nsis
 #
-# Os 4 apps da família (pdv, kds, garcon, entregador) são crates
+# Os apps da família (pdv, kds) são crates
 # independentes na raiz do repo, cada um com seu tauri.conf.json e seu
 # Cargo.toml. Este script deriva tudo a partir do --app e invoca a CLI de
 # DENTRO do crate — da raiz, a busca por tauri.conf.json desce 3 níveis e
 # acha frontend/src-tauri, buildando o app v1 em silêncio.
 #
-# ONDE O BUNDLE NASCE (e por que NÃO é no crate): os 4 são members do
+# ONDE O BUNDLE NASCE (e por que NÃO é no crate): os apps são members do
 # workspace Cargo declarado no `Cargo.toml` da raiz, e o Cargo compila
 # SEMPRE no `target/` da RAIZ do workspace — o `target/` do member nunca é
 # criado. Não existe `.cargo/config.toml` no repo (nenhum `target-dir`
@@ -39,7 +39,7 @@ RELEASE=0
 BUNDLES=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --app) APP="${2:?--app precisa do nome: pdv|kds|garcon|entregador}"; shift 2 ;;
+    --app) APP="${2:?--app precisa do nome: pdv|kds}"; shift 2 ;;
     --release) RELEASE=1; shift ;;
     --bundles) BUNDLES="--bundles ${2:?--bundles precisa do tipo}"; shift 2 ;;
     -h|--help) sed -n '3,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
@@ -48,7 +48,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$APP" ]; then
-  die "--app é obrigatório (pdv|kds|garcon|entregador)."
+  die "--app é obrigatório (pdv|kds)."
 fi
 
 CRATE_DIR="$ROOT/standalone-$APP"
@@ -61,7 +61,7 @@ LOCAL_KEY="$CRATE_DIR/.local-signing.key"
 BUNDLE_DIR="$ROOT/target/release/bundle"
 
 for f in "$TAURI_CONF" "$CARGO_TOML"; do
-  [ -f "$f" ] || die "$f não existe. --app válidos: pdv|kds|garcon|entregador."
+  [ -f "$f" ] || die "$f não existe. --app válidos: pdv|kds."
 done
 
 # A CLI do Tauri mora em node_modules/ na RAIZ do repo (o package.json da raiz

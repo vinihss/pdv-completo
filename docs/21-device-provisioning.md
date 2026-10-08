@@ -217,8 +217,9 @@ por design). `correlationId` segue opcional no corpo.
   (mobile-only; verificar compatibilidade com Tauri 2.12 na implementação).
 - Registro em `standalone-shared/src/plugins.rs` (gate mobile, como os demais);
   capabilities em `standalone-*/capabilities/default.json`; `CAMERA` no
-  `AndroidManifest.xml` do `standalone-garcon/gen/android` (e init do Android do
-  `standalone-entregador` quando sair do papel).
+- Para efeitos deste doc, **apenas o app `standalone-pdv` é relevante para o
+  provisioning** — os apps RN (Garçom/Entregador) não usam esses manifests e moram
+  no repo `pdv-mobile-apps`.
 - Scan de QR só onde há câmera — desktop segue com código digitado.
 
 ## 10. Realtime e audit

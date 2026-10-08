@@ -10,7 +10,7 @@
          src-tauri/tauri.conf.json abre, com as 4 telas em 1. Num build de app
          isolado (`npm run build:kds`) o index.html é reusado como entrada e
          quem manda é o VITE_APP_PROFILE, não esta tag. As outras 3 entries
-         (kds/garcon/entregador.html) declaram o perfil delas. O par meta+script
+         (kds.html) declaram o perfil delas. O par meta+script
          é reescrito pelo vite/app-profiles.js; o app lê em
          src/shared/lib/appProfile.js. -->
     <meta name="app-profile" content="all" />

@@ -4,22 +4,19 @@ Resumo do runbook completo em `deploy/README.md`.
 
 ## Visão geral
 
-Deploy azul/verde com gap HTTP zero usando Docker Compose + Caddy (HTTPS automático via Let's Encrypt). Em **produção o Caddy não é container**: roda no **host** como unit systemd `pdv-caddy` (ver `deploy/caddy-host.sh`); no stack **local** continua container. Os dois leem a mesma `Caddyfile` do git.
+Deploy azul/verde com gap HTTP zero usando Docker Compose + Caddy (HTTPS automático via Let's Encrypt).
 
 ## Estrutura
 
 ```
 deploy/
-├── docker-compose.yml         # produção (postgres + backend + frontend + pedidopublic + ws-gateway[profile];
-│                              #   SEM caddy — em produção o proxy é o unit pdv-caddy do host)
-├── docker-compose.dev.yml     # desenvolvimento (postgres + backend + frontend + caddy)
-├── docker-compose.local.yml   # stack local completo (com caddy em container)
-├── Caddyfile                  # config do proxy (upstream por variável) — mesma para host e container
+├── docker-compose.yml         # produção (postgres + backend + frontend + caddy + ws-gateway[profile])
+├── docker-compose.dev.yml     # desenvolvimento (postgres + backend + frontend)
+├── docker-compose.local.yml   # stack local completo
+├── Caddyfile                  # config do proxy (upstream por variável)
 ├── Caddyfile.dev
 ├── Caddyfile.local
-├── caddy-assemble.sh          # resolve o upstream ativo e valida antes de aplicar (unit no host; container no local)
-├── caddy-host.sh              # instala/migra o proxy para o host: unit pdv-caddy, binário 2.x, /etc/hosts, certs
-├── pdv-caddy.service          # template versionado do unit systemd (placeholders @DEPLOY_DIR@)
+├── caddy-assemble.sh          # resolve o upstream ativo e valida antes de aplicar
 ├── switch.sh                  # deploy sem downtime (switch/install/rollback/status)
 ├── deploy-pedido-public.sh    # republica SÓ o app público (npm run deploy:pedido)
 ├── probe-availability.sh      # mede o gap de downtime real
@@ -43,46 +40,16 @@ O serviço `ws-gateway` não tem arquivo aqui: a fonte é o módulo Go
 
 | Comando | O que faz |
 |---|---|
-| `./switch.sh` | Deploy sem downtime (instância nova + reload do proxy: `systemctl reload pdv-caddy` no host, `docker exec` no local). Sobe também o app público (`pedidopublic`). **Não** mexe no `ws-gateway` |
-| `./switch.sh --status` | Mostra qual instância está ativa, quem serve o `/realtime*` e o estado do unit `pdv-caddy` |
+| `./switch.sh` | Deploy sem downtime (instância nova + `caddy reload`). Sobe também o app público (`pedidopublic`). **Não** mexe no `ws-gateway` |
+| `./switch.sh --status` | Mostra qual instância está ativa e quem serve o `/realtime*` |
 | `./switch.sh --rollback` | Reverte para a instância anterior (backend/frontend; não mexe no gateway) |
 | `./switch.sh --install` | Instala sem rebuild (usa imagem existente) |
 | `./switch.sh --no-build` | Switch sem rebuild |
 | `./probe-availability.sh --url <url> --seconds N` | Mede o gap de downtime real (sai != 0 se houve falha) |
 | `docker compose --profile ws-gateway up -d --build ws-gateway` | Sobe **só** o gateway WS em Go — o `up` normal não o cria (está atrás de `profiles`) |
-| `sudo systemctl reload pdv-caddy` (host) / `docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload` (local) | Aplica a config do proxy sem derrubar WebSocket (caminho quente) |
-| `sudo bash deploy/caddy-host.sh` | (uma vez por servidor) instala/migra o proxy para o host — ver `deploy/README.md` § "O proxy (Caddy) mora no HOST" |
+| `docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload` | Aplica a config do proxy sem derrubar WebSocket (caminho quente) |
 | `bash deploy/backup.sh` | Faz pg_dump do banco |
 | `bash deploy/install.sh` | Seed de produção + load-menu |
-
-## O proxy (Caddy) mora no HOST em produção
-
-O `docker-compose.yml` de produção **não tem serviço `caddy`** (os stacks
-`local`/`dev` têm). Em produção o proxy roda no host:
-
-- **Unit**: `pdv-caddy.service`, gerado de `deploy/pdv-caddy.service` (template
-  versionado) por `deploy/caddy-host.sh`, que também instala o binário Caddy 2.x
-  (repo oficial), migra os certs do volume `pdv_caddy_data` para
-  `/var/lib/caddy`, cria o bloco `# BEGIN/END PDV caddy-host` no `/etc/hosts`
-  (e no cloud-init `hosts.debian.tmpl`), faz symlink
-  `/srv/pdv-updates → <deploy>/updates` e **troca as portas 80/443 com o
-  container antigo ainda no ar** (start do unit → probe → stop do container;
-  falha = rollback automático).
-- **Migração em produção**: `git checkout` da tag → `sudo bash
-  deploy/caddy-host.sh` → `./deploy/switch.sh`. O `switch.sh --install` e o
-  `install.sh` chamam o `caddy-host.sh` sozinhos quando detectam que o compose
-  não tem mais o serviço (`has_service caddy` é o gate — stacks `local`/`dev`
-  caem fora).
-- **Reload**: `sudo systemctl reload pdv-caddy` (root, ou `sudo -n` no CI). O
-  `switch.sh` faz isso sozinho quando o unit existe.
-- **`ROOT_DOMAIN`, `WS_BACKEND` e `PAGARME_WEBHOOK_BACKEND`** vêm do `.env` do
-  deploy (o `caddy-assemble.sh` lê `PDV_ENV_FILE` no host, com parser próprio —
-  nunca `source`).
-- **Caddyfile é a mesma do git**, montada por caminho (não por inode): o
-  `git checkout -f` da tag troca o inode e o unit lê o arquivo novo no reload.
-
-Runbook completo (cutover, rollback, comandos lado a lado) em
-`deploy/README.md` § "O proxy (Caddy) mora no HOST — instalação e migração".
 
 ## Regras que não mudam
 
@@ -130,16 +97,14 @@ endereço antes de culpar o boot**: `docker exec <c> netstat -lnt` e
 `pedidopublic` é nginx de estático: sem banco, sem migration, sem estado, sem
 WebSocket. Não ganha instância `-next` (não há o que drenar, e bundle velho é
 menos grave que schema sem migration), mas **tem que existir** — a Caddyfile
-faz `reverse_proxy pedidopublic:80` em dois blocos.
+faz `reverse_proxy pedidopublic:80` em três blocos.
 
 O switch então: constrói no passo 1, sobe com `--no-deps` no passo 2 e espera
 o healthcheck no passo 3. Regras que não podem quebrar:
 
-- `--no-deps` é obrigatório: sem ele o compose recriaria o **proxy** (no stack
-  `local`/`dev`, onde o serviço `caddy` existe) para trocar um nginx de estático
-  — derrubando o reload e as conexões WS do salão por causa de um cardápio. Em
-  produção nem existe o serviço no compose, e o `--no-deps` vira redundante (e
-  inofensivo) — o gate é o `has_service`
+- `--no-deps` é obrigatório: o serviço declara `depends_on: caddy`, e sem o
+  `--no-deps` o compose recriaria o PROXY para trocar um nginx de estático
+  (derrubando `caddy reload` e as conexões WS do salão por causa de um cardápio)
 - O `COMPOSE` usado é perguntado antes: os stacks `local`/`dev`
   (`docker-compose.local.yml`, `docker-compose.dev.yml`) **não** declaram o
   serviço, e `compose build pedidopublic` lá morre com "no such service". É o
@@ -164,20 +129,11 @@ o healthcheck no passo 3. Regras que não podem quebrar:
 ### Caddyfile com upstream por variável
 
 - A Caddyfile do repo tem `{$PDV_BACKEND_UPSTREAM:backend:3000}` e, no bloco `/realtime*`, um upstream próprio, `{$PDV_WS_UPSTREAM:backend:3000}`
-- Quem monta a config efetiva é `deploy/caddy-assemble.sh` (no host, pelo unit
-  `pdv-caddy`; no stack local, de dentro do container), a partir do ponteiro
-  `deploy/state/active-upstream` — **3 chaves**: `PDV_BACKEND_UPSTREAM` e
-  `PDV_FRONTEND_UPSTREAM` (as duas do azul/verde, reescritas a cada switch) e
-  `PDV_WS_UPSTREAM`, que só existe quando alguém a escreveu à mão
-- As chaves são uma **allowlist** no script (`caddy-assemble.sh`, bloco
-  `case`): chave fora da lista é logada como `chave ignorada` e o proxy fica no
-  default da Caddyfile. Chave nova entra no `case`, não no `.env`
+- Quem monta a config efetiva é `deploy/caddy-assemble.sh`, **dentro** do container, a partir do ponteiro `deploy/state/active-upstream` — **3 chaves**: `PDV_BACKEND_UPSTREAM` e `PDV_FRONTEND_UPSTREAM` (as duas do azul/verde, reescritas a cada switch) e `PDV_WS_UPSTREAM`, que só existe quando alguém a escreveu à mão
+- As chaves são uma **allowlist** no script (`caddy-assemble.sh:44`): chave fora da lista é logada como `chave ignorada` e o proxy fica no default da Caddyfile. Chave nova entra no `case`, não no `.env`
 - `caddy validate` é o portão do switch, mas **não resolve upstream** (ver armadilhas em [Gateway WebSocket em Go](#duas-armadilhas-do-validate)): ele pega sintaxe e chave errada, não nome de serviço errado
-- O host não gera Caddyfile (o unit lê a do git, por caminho)
-- No stack local o compose monta o **diretório** `deploy/`
-  (`./:/srv/pdv-deploy:ro`), não arquivo: o `git checkout -f` da tag troca o
-  inode do arquivo e um mount de arquivo deixaria o proxy servindo a config
-  antiga em silêncio
+- O host não gera Caddyfile
+- O compose monta o **diretório** `deploy/` (`./:/srv/pdv-deploy:ro`), não arquivo: o `git checkout -f` da tag troca o inode do arquivo e um mount de arquivo deixaria o proxy servindo a config antiga em silêncio
 
 ### `ROOT_DOMAIN` — variável de ambiente, sintaxe `{$...}`, e ela é do Caddyfile
 
@@ -189,28 +145,25 @@ subdomínio). Três regras, e cada uma delas já parou um deploy:
   `${...}` é substituição de *argumento de placeholder* em diretiva, não env.
   O `caddy validate` (o portão do switch) morre com
   `subject does not qualify for certificate: 'app.'`.
-- **Ela precisa chegar no processo**: no host, o `caddy-assemble.sh` lê o
-  `.env` do deploy (`PDV_ENV_FILE`) antes de montar a config — sem o `ROOT_DOMAIN`
-  no `.env` o `validate` barra com a mensagem dos dois mundos. No stack local,
-  ela está no `environment` do serviço `caddy` no compose, com default.
-- **No container, chegar não basta: ela é do BOOT, e o switch troca a
-  configuração por `reload`.** O passo 4/5 do switch é o reload do proxy (e não
-  `recreate`, por causa dos 1-3s de queda e do WebSocket do salão), e no
-  container o `docker exec` herda o `Config.Env` — que só muda quando o
-  container é criado. Um container criado **antes** da linha `ROOT_DOMAIN=`
-  existir no compose nunca recebe a variável, mesmo que o `.env` do host esteja
-  correto e o compose novo já tenha o default. O sintoma é o do `${...}` com o
+- **Ela precisa chegar no container**: está no `environment` do serviço `caddy`
+  no compose, com default. Sem isso, um `.env` do VPS escrito antes da variável
+  existir reprova o deploy no portão — que é a mesma classe de falha do
+  `${...}`, só adiada.
+- **Chegar no container não basta: ela é do BOOT dele, e o switch troca a
+  configuração por `reload`.** O passo 4/5 do switch é `docker exec … caddy
+  reload` (e não `recreate`, por causa dos 1-3s de queda e do WebSocket do
+  salão), e `docker exec` herda o `Config.Env` do container — que só muda quando
+  ele é criado. Um container criado **antes** da linha `ROOT_DOMAIN=` existir no
+  compose nunca recebe a variável, mesmo que o `.env` do host esteja correto e
+  o compose novo já tenha o default. O sintoma é o do `${...}` com o
   `{$...}` de verdade: `subject does not qualify for certificate: 'app.'`, o
   switch aborta no passo 4/5 e o proxy antigo continua no ar. Medido no run
   `37412852257` (tag `v1.29.1`).
-  Por isso o `switch.sh` (mundo container) **lê o valor efetivo no
-  `docker compose config`** (que já aplica o `${ROOT_DOMAIN:-...}` e o `.env` do
-  host) e o injeta no `reload` com `docker exec -e ROOT_DOMAIN=…`. Não é
-  recreate: o processo do proxy continua o mesmo, e o WebSocket aberto não cai.
-  **No host essa armadilha não existe**: o processo do `pdv-caddy` lê o `.env`
-  no `ExecReload`/`ExecStart` (via `caddy-assemble.sh`), então editar o `.env` +
-  `systemctl reload pdv-caddy` já aplica. O `caddy-assemble.sh`, pelos dois
-  lados, barra o `validate` antes do `caddy validate` quando a variável está
+  Por isso o `switch.sh` **lê o valor efetivo no `docker compose config`** (que
+  já aplica o `${ROOT_DOMAIN:-...}` e o `.env` do host) e o injeta no `reload`
+  com `docker exec -e ROOT_DOMAIN=…`. Não é recreate: o processo do proxy
+  continua o mesmo, e o WebSocket aberto não cai. O `caddy-assemble.sh`, pelo
+  lado dele, barra o `validate` antes do `caddy validate` quando a variável está
   vazia **e** a config em uso referencia `{$ROOT_DOMAIN}` — sem default
   silencioso, porque servir o domínio errado é pior que não servir. Ele também
   avisa quando o container e o compose discordam, que é o estado invisível que
@@ -262,15 +215,14 @@ campo `outboxEnabled` e por que sem `DATABASE_URL` ele é 200) está em
 
 ### Quem serve o `/realtime*`
 
-O Caddy tem um upstream só para essa rota, resolvido pelo
-`caddy-assemble.sh` (no host, pelo unit `pdv-caddy`; no stack local, de dentro
-do container), nesta ordem:
+O Caddy tem um upstream só para essa rota, resolvido dentro do container pelo
+`caddy-assemble.sh` (`deploy/caddy-assemble.sh:53-83`), nesta ordem:
 
 1. **`PDV_WS_UPSTREAM` no ponteiro** — o botão de emergência; vale até o
    próximo switch.
-2. **`WS_BACKEND=go`** no ambiente do proxy (no host: o `.env` do deploy; no
-   stack local: o ambiente do container, que vem do `.env` via compose) — a
-   decisão que sobrevive a recreate e a deploy. Default `node`.
+2. **`WS_BACKEND=go`** no ambiente do container (vem do `.env`,
+   `deploy/docker-compose.yml:53`) — a decisão que sobrevive a recreate e a
+   deploy. Default `node`.
 3. **Sem nada disso, acompanha `PDV_BACKEND_UPSTREAM`** — o mesmo valor do
    backend, e **não** um literal.
 
@@ -288,7 +240,7 @@ problema" — sem o aviso o operador ia caçar bug no gateway.
 
 ### Duas armadilhas do `validate`
 
-O `caddy validate` é o portão do switch (chamado pelo `caddy-assemble.sh`), mas o
+O `caddy validate` é o portão do switch (`caddy-assemble.sh:87-91`), mas o
 Caddy resolve upstream **preguiçosamente**: o `validate` não abre conexão nem
 consulta DNS, então **um nome de serviço errado passa**. Medido com
 `caddy:2-alpine` na Caddyfile real:
@@ -302,7 +254,7 @@ consulta DNS, então **um nome de serviço errado passa**. Medido com
   (`docker-compose.dev.yml:19-25`), e o `caddy-assemble.sh` trata vazio como
   ausente.
 
-O portão **pega** chave errada no ponteiro (a allowlist do `caddy-assemble.sh`
+O portão **pega** chave errada no ponteiro (a allowlist do `caddy-assemble.sh:44`
 loga `chave ignorada`) e porta não numérica (`ws-gateway:http` reprova com erro
 de parse). O que ele **não** pega é o **nome** do serviço — nem com porta, nem
 sem ela: `backend` e `:3000` também passam (medido). Confirme o destino pela
@@ -360,15 +312,14 @@ gateway (`docker compose --profile ws-gateway up -d --build ws-gateway`),
 **ligar o gate** (`WS_DISPATCH=1` no `.env` + um `up` do gateway, porque a env
 só entra no container no `up` dele), conferir o `/health` dele com
 `outboxEnabled:true`, decidir no `.env` (`WS_BACKEND=go`) e, se quiser o
-efeito imediato, pôr `PDV_WS_UPSTREAM=ws-gateway:8080` no ponteiro e rodar o
-reload do proxy (`sudo systemctl reload pdv-caddy` no host; no stack local,
-`caddy-assemble.sh reload` no container) — sem recriar o proxy, que custaria os
+efeito imediato, pôr `PDV_WS_UPSTREAM=ws-gateway:8080` no ponteiro e rodar
+`caddy-assemble.sh reload` — sem recriar o container do Caddy, que custaria os
 1–3s de queda que o switch existe para evitar.
 
 A diferença entre as duas é o prazo de validade: a **flag** é o que sobrevive a
 deploy, a **linha do ponteiro** é o que vale na hora. E o `write_pointer` do
-switch **descarta** essa linha de propósito (o `switch.sh` reescreve o arquivo
-inteiro) para um override de emergência não virar configuração
+switch **descarta** essa linha de propósito (`switch.sh:434-438`, que reescreve
+o arquivo inteiro) para um override de emergência não virar configuração
 permanente em silêncio.
 
 ### Rollback do realtime não é `--rollback`
@@ -383,14 +334,14 @@ Node. Comandos no README §"Como desligar".
 
 ### O que o switch faz com o gateway
 
-- **Não** o reconstrói (o build do switch é `backend frontend`),
+- **Não** o reconstrói (o build do switch é `backend frontend`, `switch.sh:618`),
   **não** o recria e **não** o inclui no `wait_healthy` — só backend e frontend
-  são esperados (as instâncias `-next` é que estão no
-  profile `canary`). Então uma mudança só em `ws-gateway/` não
+  são esperados (`switch.sh:594-595,633`; as instâncias `-next` é que estão no
+  profile `canary`, `switch.sh:152`). Então uma mudança só em `ws-gateway/` não
   entra no deploy sozinha; quando o gateway é quem serve o realtime, o switch
-  avisa no fim, com o comando para publicar.
+  avisa no fim, com o comando para publicar (`switch.sh:678-683`).
 - `--status` mostra `realtime=<upstream efetivo>` na primeira linha, o
-  container na tabela e a **linha de verificação do gate** (com
+  container na tabela e a **linha de verito do gate** (`switch.sh:546-578`, com
   `gate_status_line`). O `live_ws_upstream` replica a ordem do
   `caddy-assemble.sh` de propósito: se as duas regras divergirem, o `--status`
   mente.
@@ -401,9 +352,8 @@ Node. Comandos no README §"Como desligar".
 
 ### Dev e local
 
-- **local** (`docker-compose.local.yml`): o Caddy em container (como o dev
-  antigo), rodando o mesmo `caddy-assemble.sh` que o unit do host — então
-  `WS_BACKEND=go` funciona igual. É onde se testa um
+- **local** (`docker-compose.local.yml`): igual à produção, roda o mesmo
+  `caddy-assemble.sh`, então `WS_BACKEND=go` funciona igual. É onde se testa um
   switch com o gateway no ar antes do VPS.
 - **dev** (`docker-compose.dev.yml`): o Caddy **não** roda o
   `caddy-assemble.sh` (a config é montada direto do `Caddyfile.dev`), então

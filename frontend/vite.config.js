@@ -15,7 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 //     `frontendDist: "../dist"` em src-tauri/tauri.conf.json aponta para a
 //     raiz, então `dist/index.html` não pode sumir nem mudar de lugar.
 //   VITE_APP_PROFILE=kds         → dist/kds/index.html, só a entry da cozinha
-//   ...idem para pdv, garcon e entregador
+//   ...idem para pdv e kds
 const appProfile = resolveAppProfile(process.env.VITE_APP_PROFILE)
 const isSingleApp = appProfile !== ALL
 
@@ -30,8 +30,7 @@ const input = isSingleApp
   : {
       index: path.resolve(__dirname, 'index.html'),
       kds: path.resolve(__dirname, 'kds.html'),
-      garcon: path.resolve(__dirname, 'garcon.html'),
-      entregador: path.resolve(__dirname, 'entregador.html'),
+
     }
 
 // https://vite.dev/config/
@@ -63,8 +62,8 @@ export default defineConfig({
     __APP_PROFILE__: JSON.stringify(appProfile),
   },
   build: {
-    // `dist/kds`, `dist/garcon`... Um app por diretório, então publicar os
-    // 4 é copiar `dist/` inteiro. `emptyOutDir` explícito porque o outDir
+    // `dist/kds`, `dist/pdv`... Um app por diretório, então publicar os
+    // apps é copiar `dist/` inteiro. `emptyOutDir` explícito porque o outDir
     // está dentro da root e o Vite não adivinha a intenção.
     outDir: isSingleApp ? path.join('dist', appProfile) : 'dist',
     emptyOutDir: true,

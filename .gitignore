@@ -56,9 +56,9 @@ standalone-*/gen/
 # release e a correção do BuildTask (o template chama `node tauri`, que não
 # resolve com `@tauri-apps/cli`). Versionado do mesmo jeito que
 # `frontend/src-tauri/gen/`. Os descartáveis continuam fora: `/gen/schemas`
-# (standalone-garcon/.gitignore) e build/, .gradle, local.properties,
+# e build/, .gradle, local.properties,
 # keystore.properties, *.keystore (gen/android/.gitignore).
-!standalone-garcon/gen/
+
 # Chave de assinatura local por app (build local sem chave de entrega)
 standalone-*/.local-signing.key
 standalone-*/.local-signing.key.pub

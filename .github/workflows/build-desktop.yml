@@ -18,11 +18,9 @@ name: Instalador Windows (Tauri)
 # assina, o outro não; um publica no servidor, o outro não) e quem for
 # publicar a próxima versão acaba escolhendo o caminho errado.
 #
-# A matriz `app: [pdv, kds]` cobre os dois apps DESKTOP da família. Os
-# mobile (garcon, entregador) não buildam aqui: o runner Windows gera
-# instaladores NSIS, e o alvo deles é Android/iOS — o build de mobile
-# exige toolchain que não está no runner. Quando precisar, o build é
-# local com `scripts/build/build-standalone.sh --app garcon`.
+# A matriz `app: [pdv, kds]` cobre os dois apps DESKTOP da família (PDV Caixa e
+# KDS Cozinha). Os apps mobile (Garçom/Entregador) moram no repo separado
+# `pdv-mobile-apps`.
 #
 # O que este workflow garante:
 # - assina o artefato com a chave Ed25519 do secret; sem o secret o
@@ -108,8 +106,7 @@ jobs:
       #
       # O caminho é a RAIZ do workspace Cargo, NÃO `<crate>/target`. Isto NÃO
       # é bug, é a regra do Cargo, e já custou um run inteiro (37390730557):
-      # `standalone-pdv`, `standalone-kds`, `standalone-garcon` e
-      # `standalone-entregador` são MEMBERS do workspace declarado no
+      # `standalone-pdv` e `standalone-kds` são MEMBERS do workspace declarado no
       # `Cargo.toml` da raiz, e o Cargo SEMPRE compila no `target/` da raiz
       # do workspace — o `target/` do member nunca é criado. Não existe
       # `.cargo/config.toml` no repo (nenhum `target-dir` customizado), então

@@ -2,6 +2,8 @@
 
 Como rodar e adicionar testes no projeto.
 
+> As contagens de testes variam entre branches e com o tempo. Use os comandos e a saída atual como evidência; não use contagens copiadas em outros documentos como critério de aprovação.
+
 ## Backend
 
 ```bash
@@ -20,7 +22,7 @@ public` e não encontra migration nenhuma para reaplicar. É um sintoma que
 parece bug de código e não é.
 
 ```bash
-docker run -d --name pdv-test-db -p 55432:5432 \
+docker run -d --name pdv-test-db -p 127.0.0.1:55432:5432 \
   -e POSTGRES_USER=pdv -e POSTGRES_PASSWORD=pdv_test_pw -e POSTGRES_DB=pdv_test \
   postgres:16
 
@@ -36,7 +38,7 @@ Este banco **não pode ser compartilhado** com um servidor de dev: as suítes
 publicam de verdade e disputam o advisory lock `pdv:payment:worker` e o
 `pdv:outbox:owner`, os mesmos que o backend usa em produção.
 
-### Suítes (21 arquivos)
+### Cobertura por arquivo (a lista pode não refletir todos os testes da branch)
 
 | Arquivo | Cobertura |
 |---|---|
@@ -100,7 +102,7 @@ npm run test
 
 **Framework**: vitest + jsdom + Testing Library.
 
-### Suítes (44 arquivos)
+### Cobertura por arquivo (a lista pode não refletir todos os testes da branch)
 
 | Cobertura | Arquivos |
 |---|---|

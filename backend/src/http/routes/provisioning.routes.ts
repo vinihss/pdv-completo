@@ -42,7 +42,7 @@ const keyGenSchema = z.object({
 const exchangeSchema = z.object({
   code: z.string().min(1),
   platform: z.enum(["android", "ios", "web", "desktop"]),
-  appProfile: z.enum(["garcon", "entregador", "pdv", "kds"]),
+  appProfile: z.enum(["pdv", "kds"]),
   deviceLabel: z.string().optional().nullable(),
 });
 

@@ -7,7 +7,7 @@
 // cache-first, já que o hash muda quando o conteúdo muda.
 //
 // CACHE_PREFIX e STATIC_CACHE são trocados pelo `vite/app-profiles.js` no
-// build: os 4 apps (caixa/cozinha/garçom/entregador) convivem na mesma
+// build: os 3 apps (caixa, cozinha, web único) convivem na mesma
 // origem e `caches` é por origem, então com o mesmo nome um app sobrescreve o
 // cache do outro. Os prefixos também não podem se cruzar, porque a limpeza do
 // `activate` abaixo apaga tudo que começa com o prefixo — um prefixo comum

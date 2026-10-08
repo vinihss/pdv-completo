@@ -10,27 +10,7 @@ on:
       - 'app-v*.*.*'   # linha APP (publica o instalador Windows)
 
 jobs:
-  # As suítes moram em `tests.yml` (reusable workflow), e não aqui: o mesmo
-  # gate roda na PR (ci-pr.yml) e na tag. Se cada caller carregasse uma
-  # cópia dos corpos, a CI de PR e o gate de release iam divergir em
-  # silêncio — o merge deixaria passar exatamente o que o deploy rejeita.
-  # As CHAVES dos jobs continuam `test-backend`/`test-frontend` porque o
-  # `needs:` abaixo resolve pelo nome do job NESTE arquivo, não pelo do
-  # workflow chamado.
-  #
-  # E `test-pedido-public` (que existe dentro do `tests.yml` desde o PR #85)
-  # NÃO ganha uma chave aqui de propósito. Cada chave deste arquivo é uma
-  # chamada INTEIRA ao workflow reusable, e o GitHub roda TODOS os jobs de
-  # dentro a cada chamada: acrescentar a chave não "rodaria o build do app
-  # público uma vez a mais", rodaria as três suítes de novo. O build do app
-  # público já roda nestas chamadas, porque o `tests.yml` o tem como job — e o
-  # `deploy` NÃO depende dele: o `switch.sh` não sobe o container
-  # `pedidopublic` (ele é `docker compose up` do serviço, fora do rodízio
-  # azul/verde), então um `needs:` nele não protegeria nada e custaria uma
-  # execução extra de tudo. Se um dia o app público entrar no caminho do
-  # deploy, aí sim ele entra no `needs:` — e o jeito barato de fazer isso sem
-  # triplicar runner é `needs: [tag-info, test-backend]` mais uma condição,
-  # não uma chave nova.
+
   test-backend:
     uses: ./.github/workflows/tests.yml
 
@@ -50,41 +30,7 @@ jobs:
           fi
           echo "Tag $TAG OK"
 
-  # ============================================================
-  # O NOME DA TAG É O PORTÃO. O DIFF É A AUDITORIA.
-  # ============================================================
-  # Duas linhas de versão, um prefixo cada:
-  #
-  #   v1.0.17      linha BACKEND  -> publica o backend (job `deploy`)
-  #   app-v1.4.2   linha APP      -> publica o instalador Windows
-  #
-  # Antes these duas linhas dividiam o MESMO namespace e o MESMO formato
-  # `vX.Y.Z`, e isso já causou incidente: `git push origin v1.4.1` (tag de
-  # app) casou com `tags: ['v*.*.*']` e o job `deploy` RODOU — o log mostra
-  # "[deploy] Deploy da tag: v1.4.1" e um switch azul/verde bem-sucedido em
-  # produção. Um push meanto só para compilar o instalador publicava backend.
-  #
-  # POR QUE O PREFIXO DECIDE, E O DIFF SÓ FISCALIZA
-  # A alternativa "descobrir o que mudou e decidir pelo diff" foi testada e
-  # descartada por dois motivos medidos neste repo:
-  #
-  #   1. Falso positivo caro. `printer/asdasda.md` (zero bytes, commitado por
-  #      engano no PR #7) mora dentro de `printer/`, que está no escopo do
-  #      app: um arquivo inútil sozinho disparava ~20 min de compilação Rust.
-  #   2. Falso negativo silencioso é pior. A lista de caminhos é inferência
-  #      sobre arquivos, e inferência erra quieta.
-  #
-  # Quem decide é a tag, que é uma afirmação explícita do humano. O diff
-  # vira fiscal: quando as duas coisas discordam, este job FALHA com a lista
-  # dos arquivos, em vez de escolher sozinho e errar em silêncio.
-  #
-  # Viés deliberado: na dúvida, gritar. Erro de configuração custa um run
-  # vermelho que alguém lê; o inverso custa cliente sem instalador.
-  #
-  # Sem `dorny/paths-filter` nem action de terceiros: dependência externa de
-  # Action é superfície de supply chain, e este repo não usa nenhuma. Só
-  # `actions/checkout` e shell.
-  # ============================================================
+
   tag-info:
     runs-on: ubuntu-latest
     outputs:
@@ -114,22 +60,7 @@ jobs:
           # backend (os globs são disjuntos — `v*.*.*` NÃO casa `app-v1.4.2`,
           # porque o padrão exige `v` no primeiro caractere).
           #
-          # `MATCH` da linha backend é `v*.*.*`, com `EXCLUDE='v1.4.*'`: a
-          # família do app usou `v1.4.x` até a separação de prefixo (#27), e
-          # sem o exclude essas tags legadas de app seriam casadas como se
-          # fossem de backend. As tags de app novas já usam o prefixo `app-v`,
-          # que o glob `v*.*.*` não casa.
-          if [[ "$TAG" == app-v* ]]; then
-            IS_APP=true
-            IS_BACKEND=false
-            MATCH='app-v*.*.*'
-            EXCLUDE='__none__'
-          else
-            IS_APP=false
-            IS_BACKEND=true
-            MATCH='v*.*.*'
-            EXCLUDE='v1.4.*'
-          fi
+    
 
           # Tag anterior DA MESMA LINHA, e só entre ancestrais: `HEAD^` como
           # ponto de partida garante que o resultado descreve um commit que
@@ -164,7 +95,7 @@ jobs:
           # NÃO entram: `.githooks/**` e `scripts/dev/dev-worktree.sh` — são
           # ferramentas de desenvolvimento, não componentes do artefato.
           # ==========================================================
-          APP_SCOPE_RE='^(?:standalone-pdv/|standalone-kds/|frontend/|printer/|scripts/build/)|^(?:Cargo\.toml|Cargo\.lock|\.github/workflows/build-desktop\.yml)$'
+          APP_SCOPE_RE='^(?:frontend/|printer/|scripts/build/)|^(?:Cargo\.toml|Cargo\.lock|\.github/workflows/build-desktop\.yml)$'
 
           APP_CHANGED=false
           TOTAL_CHANGED=0
@@ -188,36 +119,6 @@ jobs:
             # travava a linha backend desde a v1.0.15, quando a última tag de
             # backend foi publicada.
             #
-            # Mudança que só o instalador Windows consome (os crates, `printer/`,
-            # `Cargo.toml`/`Cargo.lock`, o próprio `build-desktop.yml`) NÃO é erro
-            # numa tag de backend. As duas linhas são independentes: a separação de
-            # prefixo (#27) existe para o push de `app-` não disparar deploy de
-            # backend — o incidente foi `git push origin v1.4.1` publicar backend.
-            # O inverso (backend mudando enquanto o app também mudou) é a situação
-            # NORMAL de um time que trabalha nas duas frentes, e tratar isso como
-            # erro travava a linha backend: entre a v1.0.15 e esta tag entravam
-            # as PRs #20/#21, que mexiam em `Cargo.lock` e `build-desktop.yml`
-            # justamente para consertar o build do instalador. Exigir a `app-` antes
-            # da `v-` era um deadlock — a auditoria da linha backend sempre
-            # compara com a tag backend anterior, então publicar a `app-` primeiro
-            # não muda nada e o `v1.0.15` continuava no meio.
-            #
-            # Fica como AVISO, com o caminho de saída explícito: quem quiser o
-            # instalador publicado publica a tag `app-` na MESMA tag de backend.
-            INSTALADOR_RE='^(?:standalone-pdv/|standalone-kds/|printer/|scripts/build/)|^(?:Cargo\.toml|Cargo\.lock|\.github/workflows/build-desktop\.yml)$'
-            SO_INSTALADOR="$(printf '%s\n' "$DIFF" | grep -E "$INSTALADOR_RE" || true)"
-
-            if [[ "$IS_BACKEND" == true && -n "$SO_INSTALADOR" ]]; then
-              AVISO="tag de backend '$TAG' e o diff $PREV..$TAG também toca $(printf '%s\n' "$SO_INSTALADOR" | wc -l) arquivo(s) de escopo do instalador Windows: $(printf '%s\n' "$SO_INSTALADOR" | head -10 | tr '\n' ' ')|| O deploy segue (backend e web). O instalador NÃO sai com esta tag — se ele também precisa ir, publique 'app-<versão>' na MESMA tag de backend."
-            fi
-
-            if [[ "$IS_APP" == true && "$APP_CHANGED" == false ]]; then
-              # NÃO falha: release forçado/rebuild é legítimo, e o
-              # `workflow_dispatch` do build-desktop.yml já é o escape.
-              AVISO="tag de app '$TAG' mas NENHUM arquivo do escopo do instalador mudou entre $PREV e $TAG ($TOTAL_CHANGED arquivo(s) no total). Seguindo com o build mesmo assim — se foi rebuild forçado, tudo bem."
-            fi
-          else
-            AVISO="primeira tag da linha '$MATCH' neste repo: não há tag anterior para comparar, então a auditoria NÃO foi verificada. O portão (o prefixo da tag) segue valendo."
           fi
 
           # O portão. Só o prefixo decide o que é publicado.
@@ -258,64 +159,8 @@ jobs:
             echo "::warning::$AVISO"
           fi
 
-  build-desktop:
-    # `needs` + `if` no job CHAMADOR, e não dentro do `build-desktop.yml`:
-    # a regra do repo é uma única definição de build, e `if:` em job de
-    # `workflow_call` é do chamador por definição. `needs.<job>.outputs`
-    # resolve no contexto do chamador (o contexto `needs` está disponível em
-    # `jobs.<job_id>.if`), então o resultado do `tag-info` chega aqui
-    # normalmente.
-    #
-    # O `needs` também é o freio de segurança do resto do workflow: se a
-    # auditoria falhar, este job não roda mesmo que o `if`-passasse.
-    needs: tag-info
-    if: needs.tag-info.outputs.build-desktop-should-run == 'true'
-    # Os instaladores da família standalone (PDV Caixa + KDS Cozinha) é o
-    # workflow `build-desktop.yml`, que também pode ser disparado sozinho
-    # ("gerar só o instalador", sem tag e sem deploy do backend). Aqui ele
-    # roda a cada tag: o manifesto do auto-update é publicado junto com o
-    # deploy do backend, e o app instalado pergunta "existe <versão>?"
-    # comparando com ele.
-    #
-    # A versão publicada é a do tauri.conf.json de CADA crate (conferida
-    # contra o Cargo.toml do crate), não a tag — a tag é do app v1/backend,
-    # e cada app da família tem sua própria versão. O app v1
-    # (frontend/src-tauri, em produção) tem o seu próprio script de build:
-    # `scripts/build/build-app.sh`.
-    uses: ./.github/workflows/build-desktop.yml
-    # `contents: write` precisa estar AQUI, não só no workflow chamado: em
-    # `workflow_call` o token é a interseção das permissões de quem chama com
-    # as do chamado, então sem isto o `gh release create` do instalador falha
-    # com "resource not accessible by integration" — e o passo do manifesto
-    # vem antes dele, ou seja, o run só quebra no fim, com tudo pronto.
-    permissions:
-      contents: write
-    with:
-      publicar_no_servidor: true
-    secrets:
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      UPDATE_BASE_URL: ${{ secrets.UPDATE_BASE_URL }}
-      HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
-      HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
-      HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
-      HOSTINGER_SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
-      # É o secret que o `build-desktop.yml` lê no input `fingerprint` dos
-      # três steps appleboy do job `publish` (ver o bloco de comentário dele).
-      # Passar o nome errado aqui — o que era `HOSTINGER_KNOWN_HOSTS`, que não
-      # verifica nada — deixa o `fingerprint` vazio no workflow chamado sem
-      # erro visível: em `workflow_call` o secret do chamador é a interseção
-      # das permissões, então o que não for declarado no bloco `secrets:` do
-      # `build-desktop.yml` nem chega lá.
-      HOSTINGER_SSH_FINGERPRINT: ${{ secrets.HOSTINGER_SSH_FINGERPRINT }}
-      HOSTINGER_APP_PATH: ${{ secrets.HOSTINGER_APP_PATH }}
-
   deploy:
-    # `tag-info` entra no `needs` e ganha um `if:` — as DUAS linhas
-    # são o mínimo estrito para a mudança de gatilho: sem elas, uma
-    # tag `app-v*.*.*` casaria no `on:` e este job continuaria
-    # publicando o backend, que é exatamente o incidente que o
-    # prefixo veio para fechar. O script SSH abaixo não foi tocado.
+
     needs: [test-backend, test-frontend, tag-info]
     if: needs.tag-info.outputs.deploy-should-run == 'true'
     runs-on: ubuntu-latest
@@ -327,41 +172,7 @@ jobs:
           port: ${{ secrets.HOSTINGER_PORT || '22' }}
           username: ${{ secrets.HOSTINGER_USER }}
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
-          # `fingerprint` é o input que VERIFICA a host key — e o único que
-          # esta action tem para isso. A linha que estava aqui passava o
-          # secret `HOSTINGER_KNOWN_HOSTS` no input `known_hosts`, e isso
-          # não fazia NADA: `known_hosts` não é um input do
-          # appleboy/ssh-action@v1, a action o ignora e segue conectando sem
-          # conferir a host key.
-          #
-          # O aviso é SILENCIOSO, que é o que torna isso pior do que openly
-          # não passar: no run de produção 37244228557 (v1.21.0) a action
-          # imprimiu "Unexpected input(s) 'known_hosts', valid inputs are
-          # ['host', 'port', ..., 'fingerprint', ...]" e o job foi VERDE. O
-          # deploy mandava a chave privada de produção para qualquer coisa que
-          # se fizesse passar pelo Hostinger no meio da rede — e o log dizia
-          # que estava protegido.
-          #
-          # O formato é o segundo campo do `ssh-keygen -lf`, o "SHA256:...":
-          #   ssh-keyscan -p 22 SEU_HOST_OU_IP | ssh-keygen -lf -
-          # Cuidado ao escolher a linha: o `ssh-keyscan` imprime UMA LINHA
-          # POR TIPO de chave, e a action compara com a chave que o cliente SSH
-          # dela (drone-ssh, em Go) REALMENTE negocia — cuja preferência é
-          # ecdsa-sha2-nistp256 > ecdsa-384 > ecdsa-521 > rsa-sha2-256/512 >
-          # ssh-rsa > ssh-ed25519. O valor é o da linha `ecdsa-sha2-nistp256`;
-          # o ed25519 é a ÚLTIMA preferência, então o `-t ed25519`, que parece
-          # o óbvio, dá mismatch. Se connectar estiver falhando, o erro é
-          # "ssh: host key fingerprint mismatch", e ele acontece NO HANDSHAKE,
-          # antes de qualquer comando rodar no servidor: errar o fingerprint
-          # custa um run vermelho, não um deploy pela metade.
-          #
-          # POR QUE FALLBACK EM SECRET VAZIO, E NÃO VALOR FIXO AQUI
-          # O fingerprint nasce do `ssh-keyscan` no host, não deste
-          # repositório: cadastrá-lo é decisão de quem opera o deploy, e o
-          # custo de errar é o deploy parar. Secret vazio = comportamento de
-          # hoje (sem verificação), ou seja, sem regressão e sem deploy
-          # quebrado. Com o secret criado, a verificação passa a valer sem
-          # ninguém mexer neste arquivo de novo.
+
           fingerprint: ${{ secrets.HOSTINGER_SSH_FINGERPRINT }}
           script: |
             set -Eeuo pipefail
@@ -440,10 +251,8 @@ jobs:
             # e só então para a antiga. Se a instância nova não ficar
             # healthy, ele aborta ANTES do reload — o app antigo continua no
             # ar e o job falha, sem janela de erro.
-            # `git checkout -f` e o caminho por arquivo (não por inode): o
-            # proxy lê a Caddyfile nova no reload, sem precisar ser recriado —
-            # no host, o unit `pdv-caddy` (WorkingDirectory do deploy); no
-            # stack local, o bind mount de diretório do container do Caddy.
+            # `git checkout -f` e o bind mount de diretório: o container do
+            # Caddy lê a Caddyfile nova no reload, sem precisar ser recriado
             # (o truque antigo de `--force-recreate caddy` custava ~2s de
             # proxy fora do ar).
             echo "[deploy] Switch (instância nova + reload do proxy)..."

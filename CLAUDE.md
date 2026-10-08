@@ -1,55 +1,15 @@
 # Instruções para Claude Code
 
-Projeto: PDV Restaurante/Pub (backend Node.js + frontend React)
+Leia [`AGENTS.md`](AGENTS.md) para as regras globais e [`docs/README.md`](docs/README.md) para localizar a fonte canônica da tarefa. Carregue apenas os guias da área afetada.
 
-## Leia antes de começar
+> Os apps mobile saíram para **`pdv-mobile-apps`** (repo separado). As cascas Tauri
+> Os crates Tauri dos apps Garçom/Entregador foram **removidos** deste repositório
+> (RN/Expo vive em `pdv-mobile-apps`). A família Tauri standalone restante é apenas
+> `standalone-pdv` e `standalone-kds`.
 
-1. `AGENTS.md` — guia de trabalho essencial
-2. `docs/agent-backend.md` — convenções backend detalhadas
-3. `docs/agent-frontend.md` — convenções frontend detalhadas
-4. `docs/agent-testing.md` — como rodar testes
+## Regras desta ferramenta
 
-## Convenções gerais
-
-- Idioma do repositório: **PT-BR** (docs, comentários, UI, mensagens)
-- Backend: ESM + NodeNext (imports com extensão `.js`)
-- Frontend: FSD (Feature-Sliced Design), sem TypeScript, sem lib de estado
-
-## Backend
-
-- **Camadas**: `domain` → `application` → `infra` → `http`
-- **Transações**: todo acesso dentro de `db.transaction` é `await tx...`
-- **Migrations**: próximo número é `0005_*`. Escrever idempotente. O boot falha se a migration falhar
-- **Erros**: usar `AppError` com código do catálogo em `src/domain/errors.ts`
-- **Idempotência**: endpoints marcados devem usar `withIdempotency` com `correlationId`
-- **Lock otimista**: toda mutação de `order_item` exige `expectedVersion`
-- **Estoque é ledger**: saldo = soma dos `quantity_delta` de `stock_movement`
-- **Audit log + outbox na mesma transação** da escrita de domínio
-- **Sem lint/typecheck** — rode `npm run build` (tsc) para validar
-
-## Frontend
-
-- **FSD**: `app → pages → widgets → features → entities → shared`
-- **Sem lib de estado**: server-authoritative, mutation `await` + reload via REST
-- **Realtime**: usar `useRealtime(token, rooms, onEvent, onReconnect)` — token como subprotocol
-- **Mutations**: aguardar e recarregar; sem otimismo
-- **Botão de ação fora do `<form>`**: vincular por `form="<idForm>"` + `noValidate`
-- **UI em PT-BR**; ícones via `lucide-react`; estilos com Tailwind 4
-- **Sobreposição tem dono**: `Modal`, `Drawer`, `ScreenHeader` ou `ConfirmModal` — nada de overlay ad-hoc
-- **Menu principal = accordion** na esquerda (desktop) ou `Drawer` (mobile)
-- **Login por PIN**: envio explícito (botão ou Enter), sem auto-envio em 6 dígitos
-- Rodar `npm run lint` (oxlint) antes de terminar
-
-## Testes
-
-- Backend: `npm run test` (vitest, 21 suítes, Postgres dedicado `pdv_test`)
-- Frontend: `npm run test` (vitest, 34 suítes, jsdom + Testing Library)
-- Printer: `go test ./...` em `printer/daemon/`
-
-## Documentação
-
-- Specs do produto: `docs/00-overview.md` até `docs/22-mobile-react-native.md`
-- Guias para agentes: `docs/agent-backend.md`, `docs/agent-frontend.md`, `docs/agent-deploy.md`, `docs/agent-testing.md`
-- Índice de endpoints: `docs/agent-api-index.md`
-- Mapa de módulos: `docs/agent-backend-map.md`, `docs/agent-frontend-map.md`
-
+- Antes de editar, verifique o escopo e as instruções aplicáveis mais próximas dos arquivos-alvo.
+- Para estado atual, valide código, testes, `package.json`, scripts e CI; não repita contagens de testes ou versões sem conferir.
+- Siga o protocolo de validação e relato em `AGENTS.md`. Se documentação e implementação divergirem em comportamento, dados ou segurança, sinalize o conflito em vez de escolher silenciosamente.
+- A documentação não autoriza acesso a produção. Operações de banco seguem `docs/agent-db-maintenance.md`; pare se autorização, ambiente ou tenant não estiverem claros.

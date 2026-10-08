@@ -463,10 +463,9 @@ o de conveniência, então ele não pode ser o de erro. (E vale notar: `127.0.0.
 - **Zero `header_up`/`header_down` em todo o `deploy/`** (verificado por grep): o Caddy não reescreve
   nada, então o `Host` chega **intacto** no backend, que é exatamente o que o `resolveTenant` (§3.1)
   quer ler. Não há e não será proxy de tenant no edge.
-- **O backend não é exposto no host**: o serviço `backend` (`deploy/docker-compose.yml`) não tem
-  `ports:` nem `expose:`, e o compose de produção nem tem serviço de proxy — em produção o único
-  que publica `80`/`443` é o Caddy no **host** (unit systemd `pdv-caddy`; local, o serviço `caddy`
-  do compose). Ou seja, não existe caminho alternativo para o `Host` vir de outro
+- **O backend não é exposto no host**: o serviço `backend` (`deploy/docker-compose.yml:73`) não tem
+  `ports:` nem `expose:`; o único serviço que publica portas é o Caddy (`80`/`443`,
+  `docker-compose.yml:38-40`). Ou seja, não existe caminho alternativo para o `Host` vir de outro
   lugar.
 - **O único ponto do Caddy que muda é o `ask` do TLS on-demand** (`deploy/Caddyfile:15-18`): ele
   continua apontando para `GET /internal/caddy-on-demand-tls`, mas esse endpoint passa a consultar o
@@ -602,11 +601,9 @@ resolver o schema do tenant e ele não estiver provisionado → 503 → deploy a
 ### 5.7 🟠 Os 3 composes dividem os mesmos volumes
 
 `docker-compose.yml`, `.local.yml` e `.dev.yml` declaram todos `pdv_postgres_data`,
-`pdv_backend_uploads` (o `pdv_caddy_data` agora só nos composes `local`/`dev`: em produção o
-proxy sai do Docker e os certs moram em `/var/lib/caddy` no host — ver `deploy/caddy-host.sh`).
-Consequência **já presente**: subir o stack de dev aplica
+`pdv_backend_uploads`, `pdv_caddy_data`. Consequência **já presente**: subir o stack de dev aplica
 `runMigrations()` **nos schemas de tenant da produção**. Com multi-tenant isso vira incidente de
-dados. O `deploy/reset.sh` apaga os volumes `pdv_*`, incluindo o de produção — só os de certs do proxy (`pdv_caddy_*`) ficam de fora.
+dados. `deploy/reset.sh:45` apaga **todo** volume `pdv_*`, incluindo o de produção.
 → Antes de qualquer código: dar nome próprio ao stack de dev e exigir confirmação por nome no
 `reset.sh`.
 
@@ -724,6 +721,44 @@ O `0001_init.sql` consolidado passa a ser o **DDL que cada schema de tenant rece
 schema exato de hoje numa única passada, sem replay da cadeia velha. Roles `pdv_app`/`pdv_dba`
 e ajuste do `backup.sh` (retenção + manifesto) ficam como P1, **não** neste passo — sobe com sido,
 sem mexer em conexão do app.
+
+### 6.0.3 Provisionar uma loja nova — comando único
+
+```bash
+./pdv db provision umami "Umami Sushi"        # atalho pelo dispatcher
+npm run db:provision -- umami "Umami Sushi"   # direto no backend (mesma coisa)
+```
+
+Ordem do que roda (`backend/src/infra/db/provision-tenant.ts`):
+
+1. `runRegistryMigrations()` — garante `public.tenant` (roda antes de qualquer tenant);
+2. `CREATE SCHEMA tenant_umami`;
+3. `runMigrations({ schema: tenant_umami })` — o baseline inteiro **dentro** do schema da loja;
+4. `INSERT ... ON CONFLICT` em `public.tenant` (status `active`) — o resolve do subdomínio passa a aceitar;
+5. bootstrap no escopo ALS do schema novo: `store_settings` + um manager inicial, com o PIN impresso
+   uma única vez no log. Sem este passo a loja abre e estoura
+   `store_settings não inicializado — rode o seed` (`order.usecases.ts`). `SEED=0` pula.
+
+O nome do estabelecimento vem do `<nome>` da linha de comando; `MERCHANT_CITY` e `MANAGER_NAME`
+vêm do ambiente. O script é idempotente: rodar de novo com o mesmo slug só reaplica migrations
+não aplicadas e, se `store_settings` já existir, não toca em nada.
+
+**Verificação pós-provisionamento**
+
+```sql
+SELECT count(*) FROM pg_tables WHERE schemaname = 'tenant_umami';   -- 37 (_migrations + as 36 de public)
+SELECT merchant_name FROM tenant_umami.store_settings;              -- o nome que você passou
+```
+
+> ⚠️ **Defeito que este passo revelou e que foi corrigido**: o baseline veio de `pg_dump` e saía com
+> `CREATE TABLE IF NOT EXISTS public.x`. Qualificado assim, o DDL **sempre** caía em `public` — num
+> tenant era no-op (a tabela já existia lá) e o schema novo nascia com 2 tabelas (`_migrations` + a
+> única sem prefixo, `courier_location`). Como o `search_path` do pool é `tenant_x, public`, a loja
+> leria os dados de `public` em vez de falhar: isolamento nenhum, silenciosamente. Os prefixos
+> `public.` foram removidos do `0001_init.sql` (mantendo `WITH SCHEMA public` da extensão `unaccent`,
+> §5.1 — ela precisa morar em `public`). O mesmo padrão aparece em `0004_device_provisioning.sql`
+> do repo canônico. Como o runner é idempotente e o arquivo já está aplicado em produção, a troca
+> **não** reexecuta lá; ela vale para tenants novos e para bancos novos.
 
 ---
 
