@@ -62,10 +62,12 @@ log "Domínio: $DOMAIN"
 log "Estabelecimento: $MERCHANT_NAME"
 
 # ---------- 2. Diretório de artefatos do instalador Windows ----------
-# O compose monta ./updates no Caddy. Se o diretório não existir, o Docker o
-# cria como root e o job build-desktop não consegue publicar o instalador por
-# SSH depois (o scp roda com o usuário do CI, não com root). Criar aqui, com o
-# dono certo, é o que evita o "permission denied" no primeiro deploy.
+# O proxy serve ./updates em /srv/pdv-updates (no host: o symlink que o
+# caddy-host.sh cria; no stack local: bind mount do container). Se o
+# diretório não existir, ele é criado com o dono errado e o job
+# build-desktop não consegue publicar o instalador por SSH depois (o scp
+# roda com o usuário do CI, não com root). Criar aqui, com o dono certo, é o
+# que evita o "permission denied" no primeiro deploy.
 log "Preparando deploy/updates (instalador do app Windows)..."
 mkdir -p updates/files/windows-x86_64 || err "Não consegui criar deploy/updates"
 # Família standalone: um diretório por app (ver Caddyfile e o job publish do
@@ -75,11 +77,34 @@ for app in caixa kds; do
 done
 [ -w updates ] || err "deploy/updates sem permissão de escrita. Se o Docker o criou como root: sudo chown \"\$(id -u):\$(id -g)\" updates"
 
+# ---------- 2.5. Proxy no host (unit pdv-caddy) ----------
+# ANTES do passo 3 de propósito: o `up --remove-orphans` derrubaria um
+# container do caddy ainda no ar (reinstalação sobre sistema vivo), e
+# ficaria um vazio de proxy até o unit assumir. A ordem certa é o unit
+# assumir 80/443 primeiro e o `--remove-orphans` depois só limpar o órfão —
+# que já não serve ninguém. Em instalação do zero não há container antigo: o
+# unit sobe respondendo 502 até o passo 3 trazer o app (o `caddy-host.sh`
+# tolera 502 nesse caso — é o probe "leniente sem app"). No stack local
+# (compose que ainda declara o serviço `caddy`) não há o que preparar: o
+# proxy continua sendo o container de sempre (a porta do `if` já trata disso).
+if ! docker compose -f docker-compose.yml config --services 2>/dev/null | grep -qx caddy; then
+  log "Preparando proxy no host (pdv-caddy)..."
+  if [ "$(id -u)" -eq 0 ]; then
+    bash ./caddy-host.sh --deploy-dir "$PWD"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo bash ./caddy-host.sh --deploy-dir "$PWD"
+  else
+    err "caddy-host.sh precisa de root (unit em /etc/systemd/system) e este shell não é root nem tem sudo"
+  fi
+fi
+
 # ---------- 3. Subir containers ----------
 # Os profiles `ws-gateway` e `pagarme-webhook` são subidos junto: o gateway
 # serve o realtime (com o gate WS_DISPATCH desligado por padrão) e o webhook
 # processa os eventos do Pagar.me (com o gate PAGARME_DRAIN desligado).
-log "Subindo containers (caddy + backend + frontend + postgres + ws-gateway + pagarme-webhook)..."
+# O proxy de produção não é container (é o unit pdv-caddy, no passo 2.5) —
+# ele não aparece nesta lista por desenho.
+log "Subindo containers (backend + frontend + postgres + pedidopublic + ws-gateway + pagarme-webhook)..."
 docker compose -f docker-compose.yml --profile ws-gateway --profile pagarme-webhook up -d --build --remove-orphans
 
 # ---------- 4. Aguardar health check ----------

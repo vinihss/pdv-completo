@@ -15,7 +15,9 @@ frontend/   App React (Vite) — login, garçom, cozinha, gerente — instaláve
 mobile/      Apps mobile (React Native + Expo SDK 57) — Garçom e Entregador em um codebase,
             com build por APP_VARIANT (com.pdvapp.garcon / com.pdvapp.entregador)
 frontend/src-tauri/  App desktop v1 (Tauri) — desacoplado do web app, em manutenção
-deploy/     Deploy em nuvem: Dockerfiles, Caddy (HTTPS automático), docker-compose
+deploy/     Deploy em nuvem: Dockerfiles, docker-compose, Caddy no HOST
+            (unit systemd `pdv-caddy`, instalado por `caddy-host.sh`; os
+            stacks local/dev ainda rodam o Caddy em container)
 docs/       Specs originais + guias para agentes
 printer/    Daemon Go para impressão térmica (ESC/POS)
             Também tem um renderizador ESC/POS em Rust (o app Caixa,
@@ -26,7 +28,7 @@ printer/    Daemon Go para impressão térmica (ESC/POS)
 ws-gateway/ Gateway WebSocket em Go (módulo Go independente, como o `printer/`):
             mesmo handshake, mesmas rooms e mesmo outbox do backend Node, para
             substituir o `backend/src/infra/realtime/`. Plugado no `deploy/`
-            (Caddy + os três compose) atrás da flag `WS_BACKEND=go` (default
+            (proxy + os três compose) atrás da flag `WS_BACKEND=go` (default
             `node`) e de `profiles: ["ws-gateway"]`, e com o gate de posse
             `WS_DISPATCH` (desligado por padrão) decidindo se o dispatcher
             publica: subir o stack **não** liga o gateway — o realtime vivo
@@ -191,7 +193,7 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `node_modules/.bin/tauri <cmd>` | raiz | CLI do Tauri (na raiz do repo, não em `frontend/node_modules`; rodar com cwd=`frontend/` para o app v1) |
 | `go test ./...` | `printer/daemon` | suíte do daemon |
 | `go build ./...` / `go vet ./...` / `go test ./...` | `ws-gateway` | portão do gateway WS: build, vet e suíte (é o que o CI roda, junto com `gofmt -l .`) |
-| `./switch.sh` | deploy | deploy sem downtime (instância nova + `caddy reload`); `--status`, `--rollback`, `--install`, `--no-build`. Não mexe no `ws-gateway` |
+| `./switch.sh` | deploy | deploy sem downtime (instância nova + reload do proxy); `--status`, `--rollback`, `--install`, `--no-build`. Não mexe no `ws-gateway` |
 | `docker compose --profile ws-gateway up -d --build ws-gateway` | deploy | sobe **só** o gateway WS em Go — o `up` normal não o cria (está atrás de `profiles`) |
 | `./probe-availability.sh --url <url> --seconds N` | deploy | mede o gap de downtime real (sai != 0 se houve falha) |
 | `cd mobile && npm run start:garcon` / `start:entregador` | mobile | roda app RN Expo (SDK 57) com variante definida |
@@ -309,6 +311,11 @@ automático via Semantic Release no merge da `main` — a tag nasce sozinha.
 ### Deploy (resumo)
 
 - **Healthcheck é o portão**: verde = schema aplicado. Verde doente → switch aborta antes do reload
+- **Caddy no HOST em produção**: o compose de produção não tem serviço `caddy` — o proxy é o unit
+  systemd `pdv-caddy`, instalado/migrado por `deploy/caddy-host.sh` (binário 2.x, certs em
+  `/var/lib/caddy`, bloco `/etc/hosts` com marcadores, portas 80/443 com rollback). Reload:
+  `sudo systemctl reload pdv-caddy`; stacks `local`/`dev` seguem com container. Cutover e
+  comandos lado a lado: `deploy/README.md` § "O proxy (Caddy) mora no HOST"
 - **Sem `lb_retries` no Caddy**: retentativa repetiria POST
 - **`stream_close_delay 5m` em `/realtime*`**: não remover
 - **Migrations expand/contract**: a versão antiga precisa continuar compatível com o schema novo

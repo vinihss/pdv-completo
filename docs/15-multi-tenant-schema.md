@@ -463,9 +463,10 @@ o de conveniência, então ele não pode ser o de erro. (E vale notar: `127.0.0.
 - **Zero `header_up`/`header_down` em todo o `deploy/`** (verificado por grep): o Caddy não reescreve
   nada, então o `Host` chega **intacto** no backend, que é exatamente o que o `resolveTenant` (§3.1)
   quer ler. Não há e não será proxy de tenant no edge.
-- **O backend não é exposto no host**: o serviço `backend` (`deploy/docker-compose.yml:73`) não tem
-  `ports:` nem `expose:`; o único serviço que publica portas é o Caddy (`80`/`443`,
-  `docker-compose.yml:38-40`). Ou seja, não existe caminho alternativo para o `Host` vir de outro
+- **O backend não é exposto no host**: o serviço `backend` (`deploy/docker-compose.yml`) não tem
+  `ports:` nem `expose:`, e o compose de produção nem tem serviço de proxy — em produção o único
+  que publica `80`/`443` é o Caddy no **host** (unit systemd `pdv-caddy`; local, o serviço `caddy`
+  do compose). Ou seja, não existe caminho alternativo para o `Host` vir de outro
   lugar.
 - **O único ponto do Caddy que muda é o `ask` do TLS on-demand** (`deploy/Caddyfile:15-18`): ele
   continua apontando para `GET /internal/caddy-on-demand-tls`, mas esse endpoint passa a consultar o
@@ -601,9 +602,11 @@ resolver o schema do tenant e ele não estiver provisionado → 503 → deploy a
 ### 5.7 🟠 Os 3 composes dividem os mesmos volumes
 
 `docker-compose.yml`, `.local.yml` e `.dev.yml` declaram todos `pdv_postgres_data`,
-`pdv_backend_uploads`, `pdv_caddy_data`. Consequência **já presente**: subir o stack de dev aplica
+`pdv_backend_uploads` (o `pdv_caddy_data` agora só nos composes `local`/`dev`: em produção o
+proxy sai do Docker e os certs moram em `/var/lib/caddy` no host — ver `deploy/caddy-host.sh`).
+Consequência **já presente**: subir o stack de dev aplica
 `runMigrations()` **nos schemas de tenant da produção**. Com multi-tenant isso vira incidente de
-dados. `deploy/reset.sh:45` apaga **todo** volume `pdv_*`, incluindo o de produção.
+dados. O `deploy/reset.sh` apaga os volumes `pdv_*`, incluindo o de produção — só os de certs do proxy (`pdv_caddy_*`) ficam de fora.
 → Antes de qualquer código: dar nome próprio ao stack de dev e exigir confirmação por nome no
 `reset.sh`.
 
