@@ -29,6 +29,9 @@ Domínios:
                                  ws-gateway (mesmo contrato do CI)
   db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo|provision>
                                  wrappers dos scripts npm do backend
+  tenant <add|verify|restart|health>
+                                 Rotina completa de onboarding do novo tenant
+                                 (provision + verificação SQL + restart + health)
   check [backend|frontend|all]   critérios de verificação gerais do AGENTS.md
                                  (pré-PR); default: all
   release bump <versão>          Bump de versão da família standalone
@@ -80,6 +83,7 @@ func init() {
 	rootCmd.AddCommand(releaseCmd)
 	rootCmd.AddCommand(deployCmd)
 	rootCmd.AddCommand(printerCmd)
+	rootCmd.AddCommand(tenantCmd)
 }
 
 // Execute inicializa e despacha a execução da árvore de comandos do CLI.
