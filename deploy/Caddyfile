@@ -114,12 +114,22 @@
 # IMPORTANTE: este bloco DEVE vir ANTES do wildcard *.ROOT_DOMAIN
 # para que o Caddy faça o match correto (especificidade > wildcard)
 app.{$ROOT_DOMAIN} {
+	# TLS: on-demand. Site "managed" (sem `tls`) com cache miss NO handshake
+	# não carrega o cert do storage — `no certificate available` → `tlsv1 alert
+	# internal error` silencioso. Com on_demand o handshake carrega (medido;
+	# ver bloco do wildcard).
+	tls {
+		on_demand
+	}
 	import site
 }
 
 # ---------- Bloco 2: API pública com contexto de tenant ----------
 # Injeta header X-Tenant-Host para o backend identificar o tenant
 api.{$ROOT_DOMAIN} {
+	tls {
+		on_demand
+	}
     encode gzip zstd
     header {
         Access-Control-Allow-Origin https://*.{$ROOT_DOMAIN} https://app.{$ROOT_DOMAIN} https://umamisushiarte.com.br https://www.umamisushiarte.com.br
@@ -154,6 +164,9 @@ umamisushiarte.com.br {
 }
 
 www.umamisushiarte.com.br {
+	tls {
+		on_demand
+	}
     redir https://umamisushiarte.com.br{uri} permanent
 }
 
