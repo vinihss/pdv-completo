@@ -176,13 +176,10 @@ describe("AppMenu", () => {
     expect(asideOf(container).getByText("Início").closest("button").getAttribute("aria-current")).toBe("page");
   });
 
-  it("perfil de tela única: trilho de 64px, sem seções", () => {
+  it("perfil de tela única (courier): o menu inteiro some — nem trilho nem seções", () => {
     const { container } = setup("courier");
-    expect(container.querySelector("aside").className).toContain("w-16");
-    expect(container.querySelector("aside").className).not.toContain("w-72");
-    const aside = asideOf(container);
-    expect(aside.getByTitle("Entregas")).toBeTruthy();
-    expect(aside.queryByRole("button", { name: /Operação/ })).toBeNull();
+    // Um item só não justifica 288px (nem 64px): o AppMenu devolve null.
+    expect(container.querySelector("aside")).toBeNull();
   });
 
   it("caixa tem duas telas: coluna de 72px com Caixa e Clientes", () => {
@@ -197,8 +194,10 @@ describe("AppMenu", () => {
     const gerente = setup("manager");
     expect(asideOf(gerente.container).getByText("Roberto Alves")).toBeTruthy();
     cleanup();
-    const caixa = setup("courier");
-    expect(asideOf(caixa.container).queryByText("Roberto Alves")).toBeNull();
+    // Perfil de tela única não tem coluna nenhuma (menu escondido).
+    const courier = setup("courier");
+    expect(courier.container.querySelector("aside")).toBeNull();
+    expect(screen.queryByText("Roberto Alves")).toBeNull();
   });
 
   it("a identidade mostra a foto de quem está logado (a sessão carrega photoPath)", () => {
@@ -223,11 +222,12 @@ describe("AppMenu", () => {
   });
 
   it("no celular o menu vira painel inteiro, sem repetir o 'Sair' do header", () => {
-    const { container } = setup("courier");
+    // Caixa tem 2 itens → tem menu (coluna + painel). Courier (1 item) não tem.
+    const { container } = setup("cashier");
     fireEvent.click(screen.getByText("abrir"));
     const painel = within(screen.getByRole("dialog"));
     expect(screen.getByRole("dialog").getAttribute("aria-label")).toBe("Menu principal");
-    expect(painel.getByTitle("Entregas")).toBeTruthy();
+    expect(painel.getByRole("button", { name: "Caixa" })).toBeTruthy();
     expect(painel.getByText("Roberto Alves")).toBeTruthy();
     // O "Sair" mora no canto do header (o scrim do painel o cobre), então o
     // rodapé do painel é só a identidade.
@@ -236,10 +236,16 @@ describe("AppMenu", () => {
     expect(container.querySelector("aside")).toBeTruthy();
   });
 
-  it("escolher uma tela no painel fecha o painel", () => {
+  it("perfil de tela única não abre painel no celular (não há o que escolher)", () => {
     setup("courier");
     fireEvent.click(screen.getByText("abrir"));
-    fireEvent.click(within(screen.getByRole("dialog")).getByTitle("Entregas"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("escolher uma tela no painel fecha o painel", () => {
+    setup("cashier");
+    fireEvent.click(screen.getByText("abrir"));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Clientes" }));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

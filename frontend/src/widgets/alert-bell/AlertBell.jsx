@@ -9,9 +9,48 @@ import { canOpenAlert } from "@/entities/alert";
 import AlertList from "./AlertList.jsx";
 
 /**
- * Sino do header, com o contador de não visualizados. Vive na casca
- * (`app/router.jsx`) porque é o header — e não uma página — que o desenha nos
- * 5 perfis.
+ * Estado "online" do navegador (navigator.onLine + eventos online/offline).
+ *
+ * É o único sinal de conexão observável sem mexer no `useRealtime`: cobre
+ * o caso extremo de "sem sinal nenhum", quando o usuário precisa saber que
+ * a tela mostra dados de antes da queda.
+ */
+function useNetworkOnline() {
+  const [online, setOnline] = React.useState(() =>
+    typeof navigator === "undefined" ? true : navigator.onLine !== false
+  );
+  React.useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+    };
+  }, []);
+  return online;
+}
+
+/**
+ * LED indicador de conexão. Verde = online, vermelho = offline.
+ * Tooltip nativo (title) com a mensagem em PT-BR.
+ */
+function ConnectionLed({ online }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="absolute -bottom-0.5 -left-0.5 w-3 h-3 rounded-full border-2 border-stone-900"
+      style={{ backgroundColor: online ? "#22c55e" : "#ef4444", transition: "background-color 150ms ease" }}
+      title={online ? "Conectado ao servidor" : "Sem conexao com o servidor"}
+    />
+  );
+}
+
+/**
+ * Sino do header, com o contador de não visualizados e o LED de conexão.
+ * Vive na casca (`app/router.jsx`) porque é o header — e não uma página —
+ * que o desenha nos 5 perfis.
  *
  * O sino é visível para todo mundo, mesmo para quem (hoje: o garçom) não tem
  * audiência em nenhum alerta — a central vazia é informação ("nada chegou pra
@@ -27,6 +66,7 @@ export default function AlertBell() {
   const { alerts, unreadCount, loading, toast, soundEnabled, toggleSound, markRead, openAlert } = useAlerts();
   const { focusOrder } = useOrderFocus();
   const [open, setOpen] = React.useState(false);
+  const online = useNetworkOnline();
 
   function handleSelect(alert) {
     // Marca lido sempre (é a regra do alerta) e abre a comanda só quando faz
@@ -58,6 +98,7 @@ export default function AlertBell() {
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
+        <ConnectionLed online={online} />
       </button>
       {typeof document !== "undefined" &&
         createPortal(

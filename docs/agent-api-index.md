@@ -24,6 +24,10 @@ perl -0777 -ne 'while (/app\.(get|post|patch|put|delete)\s*\(\s*"([^"]*)"/g) {
 |---|---|---|---|
 | GET | `/auth/users` | público | Lista usuários ativos (respeita toggles de rollout) |
 | POST | `/auth/login` | público | Login por PIN (rate limit) |
+| GET | `/auth/me` | autenticado\* | Perfil fresco do usuário logado (`serialize` completo — é dele que a tela de perfil tira `phone`/`email`, que o login não devolve) |
+| PATCH | `/auth/me` | autenticado\* | Atualizar o próprio perfil (`name`, `phone`, `email`; id vem do token, campos de poder fora do contrato) |
+| POST | `/auth/me/photo` | autenticado\* | Upload da própria foto (multipart, campo `photo`; jpeg/png/webp; id vem do token — par self-service de `/users/:id/photo`) |
+| DELETE | `/auth/me/photo` | autenticado\* | Remover a própria foto (id vem do token) |
 
 ## Comandas (Orders)
 
@@ -169,7 +173,9 @@ listadas nas seções **Comandas** e **Catálogo** — não são repetidas aqui.
 \* Exige token, mas **sem `requireRole`**: qualquer perfil autenticado entra e o
 recorte é feito no usecase (por `audience_roles` nos alertas, por regra própria
 em cada caso). "autenticado" ≠ "público": rota sem token nenhum é só a de
-`/auth/*`, `/public/*`, `/webhooks/*`, `/realtime/public` e `/health`.
+`/public/*`, `/webhooks/*`, `/realtime/public` e `/health` — em `/auth/*`, só
+`GET /auth/users` e `POST /auth/login` são públicos (`GET`/`PATCH /auth/me` e
+`POST`/`DELETE /auth/me/photo` exigem sessão).
 
 ## Impressão (Print)
 
