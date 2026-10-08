@@ -23,6 +23,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
 import { withIdempotency } from "../middlewares/idempotency.middleware.js";
+import { ensureTenantScope } from "../../infra/db/tenant-context.js";
 import {
   openOrderUsecase,
   addItemsUsecase,
@@ -98,19 +99,24 @@ export async function orderRoutes(app: FastifyInstance) {
 
   app.get("/orders/:id", async (req) => {
     const { id } = req.params as { id: string };
-    return getOrderUsecase(id);
+    const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+    return ensureTenantScope(host, () => getOrderUsecase(id));
   });
 
   app.get("/orders", async (req) => {
     const q = req.query as { status?: "open" | "closed"; limit?: string; offset?: string };
-    return listOrdersUsecase({
+    const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+    return ensureTenantScope(host, () => listOrdersUsecase({
       status: q.status,
       limit: Math.min(Number(q.limit ?? 50), 200),
       offset: Number(q.offset ?? 0),
-    });
+    }));
   });
 
-  app.get("/tables", async () => listTablesUsecase());
+  app.get("/tables", async (req) => {
+    const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+    return ensureTenantScope(host, () => listTablesUsecase());
+  });
 
   app.post(
     "/orders/:id/items",

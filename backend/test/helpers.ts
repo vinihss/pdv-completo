@@ -7,6 +7,8 @@ import { buildApp } from "../src/http/server.js";
 import { config } from "../src/config/env.js";
 import { resetCache } from "../src/infra/cache/index.js";
 import { clearActiveUserCache } from "../src/infra/auth/active-user-check.js";
+import { runInTenantScope } from "../src/infra/db/tenant-context.js";
+import { resolveTenant } from "../src/application/tenant/resolve-tenant.usecase.js";
 import {
   categories,
   kitchenGroups,
@@ -50,8 +52,8 @@ export const raw = {
   },
 };
 
-export function tokenOf(userId: string, role: string) {
-  return jwt.sign({ sub: userId, role }, config.jwtSecret);
+export function tokenOf(userId: string, role: string, tenant: string = "default") {
+  return jwt.sign({ sub: userId, role, tenant }, config.jwtSecret);
 }
 
 // Fixture mínima para os fluxos de comanda + caixa: usuários pelos 3 perfis
@@ -211,16 +213,30 @@ export async function api(
   url: string,
   opts: { token?: string; body?: any; ip?: string; headers?: Record<string, string> } = {}
 ): Promise<ApiResult> {
-  const res = await (await testApp()).inject({
-    method,
-    url,
-    headers: {
-      ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
-      ...(opts.ip ? { "x-forwarded-for": opts.ip } : {}),
-      ...(opts.headers ?? {}),
-    },
-    payload: opts.body,
-  });
+  // Determina o host a partir dos headers (x-tenant-host ou host)
+  const host = opts.headers?.["x-tenant-host"] || opts.headers?.["host"];
+  
+  // Resolve o tenant baseado no host
+  const tenant = await resolveTenant(host);
+  
+  // Usa runInTenantScope para configurar o ALS antes de chamar o inject()
+  // Isso garante que o ALS tenha o tenant correto quando o handler for executado
+  const res = await runInTenantScope(
+    { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault },
+    async () => {
+      return await (await testApp()).inject({
+        method,
+        url,
+        headers: {
+          ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
+          ...(opts.ip ? { "x-forwarded-for": opts.ip } : {}),
+          ...(opts.headers ?? {}),
+        },
+        payload: opts.body,
+      });
+    }
+  );
+  
   let json: any = null;
   if (res.statusCode !== 204 && res.body.length > 0) {
     try {
@@ -230,6 +246,36 @@ export async function api(
     }
   }
   return { status: res.statusCode, json, body: res.body };
+}
+
+// Helper para upload de arquivos (multipart/form-data) que configura o ALS corretamente.
+// Similar ao `api()`, mas para requests com FormData/multipart.
+export async function upload(
+  url: string,
+  opts: { token?: string; form?: any; ip?: string; headers?: Record<string, string> } = {}
+): Promise<{ statusCode: number; json: () => any; body: string }> {
+  // Determina o host a partir dos headers (x-tenant-host ou host)
+  const host = opts.headers?.["x-tenant-host"] || opts.headers?.["host"];
+  
+  // Resolve o tenant baseado no host
+  const tenant = await resolveTenant(host);
+  
+  // Usa runInTenantScope para configurar o ALS antes de chamar o inject()
+  return await runInTenantScope(
+    { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault },
+    async () => {
+      return await (await testApp()).inject({
+        method: "POST",
+        url,
+        headers: {
+          ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
+          ...(opts.ip ? { "x-forwarded-for": opts.ip } : {}),
+          ...(opts.headers ?? {}),
+        },
+        payload: opts.form,
+      });
+    }
+  );
 }
 
 export const cashier = tokenOf(FIXTURE.cashier, "cashier");

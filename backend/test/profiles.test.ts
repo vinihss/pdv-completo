@@ -1,6 +1,7 @@
 import { beforeAll, afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   api,
+  upload,
   seedFixture,
   resetState,
   closeTestApp,
@@ -97,20 +98,17 @@ describe("tela de login por perfil (GET /auth/users)", () => {
     // Upload de verdade (não um UPDATE em photo_path): o que se quer garantido
     // é o caminho público no formato que o <img> do app consome, e a
     // nomenclatura do arquivo é o que faz o login não dar 404 na foto.
-    const app = await testApp();
     const form = new FormData();
     form.append(
       "photo",
       new Blob([Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64")], { type: "image/png" }),
       "foto.png"
     );
-    const upload = await app.inject({
-      method: "POST",
-      url: `/users/${criado.json.id}/photo`,
-      headers: { authorization: `Bearer ${manager}` },
-      payload: form,
+    const uploadRes = await upload(`/users/${criado.json.id}/photo`, {
+      token: manager,
+      form,
     });
-    expect(upload.statusCode).toBe(200);
+    expect(uploadRes.statusCode).toBe(200);
 
     const eu = (await loginSurface()).find((u) => u.id === criado.json.id);
     expect(eu?.photoPath).toBe(`/uploads/user/${criado.json.id}.png`);
@@ -244,7 +242,6 @@ describe("perfil self-service (GET/PATCH/POST/DELETE /auth/me)", () => {
     token?: string,
     opts: { type?: string; filename?: string; form?: FormData } = {}
   ) {
-    const app = await testApp();
     const form = opts.form ?? new FormData();
     if (!opts.form) {
       form.append(
@@ -253,11 +250,9 @@ describe("perfil self-service (GET/PATCH/POST/DELETE /auth/me)", () => {
         opts.filename ?? "foto.png"
       );
     }
-    return app.inject({
-      method: "POST",
-      url: "/auth/me/photo",
-      ...(token ? { headers: { authorization: `Bearer ${token}` } } : {}),
-      payload: form,
+    return upload("/auth/me/photo", {
+      token,
+      form,
     });
   }
 

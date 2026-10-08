@@ -27,8 +27,10 @@ export async function authMiddleware(req: FastifyRequest, _reply: FastifyReply) 
     const payload = jwt.verify(token, config.jwtSecret) as AuthUser;
 
     const tenant = currentTenantScope();
-
-    if (tenant && payload.tenant !== tenant.slug) {
+    if (!tenant) {
+      throw Errors.unauthorized();
+    }
+    if (payload.tenant !== tenant.slug) {
       throw Errors.unauthorized();
     }
 

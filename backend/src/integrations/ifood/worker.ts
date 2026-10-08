@@ -1,6 +1,8 @@
 import { db } from "../../infra/db/client.js";
 import { ifoodEvents } from "../../infra/db/schema.js";
+import { runInTenantScope } from "../../infra/db/tenant-context.js";
 import { LOCKS, tryWithAdvisoryLock } from "../../infra/locks.js";
+import { listActiveTenants } from "../../infra/tenant/registry.js";
 import { eq, inArray } from "drizzle-orm";
 import { ifoodConfig, isIfoodEnabled, isIfoodMock } from "./config.js";
 import { ifoodFetch } from "./client.js";
@@ -34,13 +36,32 @@ export function startIfoodSync(): { stop: () => void } {
     if (running) return;
     running = true;
     try {
-      // O `running` acima é POR PROCESSO: evita o ciclo se sobrepor a si
-      // mesmo, mas não serializa contra outra instância apontada pro mesmo
-      // banco. O advisory lock de transação (`pdv:ifood:worker`) é o que faz
-      // isso — segurar o lock durante as chamadas HTTP ao iFood é o ponto:
-      // é o que impede duas instâncias de buscarem/ACKarem o mesmo evento.
-      // Réplica sem o lock pula o ciclo em silêncio (nada de erro no log).
-      await tryWithAdvisoryLock(LOCKS.ifoodWorker, () => pollOnce());
+      // Itera sobre todos os tenants ativos e roda o poll dentro do escopo
+      // de cada um. Erros em um tenant não derrubam o processamento dos outros.
+      const tenants = await listActiveTenants();
+      for (const tenant of tenants) {
+        try {
+          await runInTenantScope(
+            { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: false },
+            async () => {
+              // Verifica se iFood está habilitado globalmente (o isIfoodEnabled
+              // lê do config de env, não é por-tenant ainda). Se desabilitado,
+              // pula este tenant sem adquirir lock.
+              if (!isIfoodEnabled()) return;
+              // O `running` acima é POR PROCESSO: evita o ciclo se sobrepor a si
+              // mesmo, mas não serializa contra outra instância apontada pro mesmo
+              // banco. O advisory lock de transação (`pdv:ifood:worker`) é o que faz
+              // isso — segurar o lock durante as chamadas HTTP ao iFood é o ponto:
+              // é o que impede duas instâncias de buscarem/ACKarem o mesmo evento.
+              // Réplica sem o lock pula o ciclo em silêncio (nada de erro no log).
+              await tryWithAdvisoryLock(LOCKS.ifoodWorker, () => pollOnce());
+            }
+          );
+        } catch (err) {
+          // Erro de um tenant não derruba os outros — loga e continua.
+          console.error(`[ifood] erro ao processar tenant ${tenant.slug}:`, err);
+        }
+      }
     } catch (err) {
       // Um erro de ciclo não pode derrubar o processo — é a regra 1.5, e o
       // dispatcher e a maintenance já têm exatamente este `.catch()`. O iFood

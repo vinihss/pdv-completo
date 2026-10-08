@@ -80,3 +80,25 @@ export function resolveTenantSchemaInScope(): string {
 export function hasTenantScope(): boolean {
   return currentTenantScope() !== undefined;
 }
+
+/**
+ * Workaround para problema de propagação do ALS no Fastify.
+ * Garante que o tenant scope esteja ativo antes de executar uma função.
+ * Se o ALS já está ativo, executa a função diretamente.
+ * Caso contrário, resolve o tenant pelo host e usa store.run() para garantir propagação.
+ */
+export async function ensureTenantScope<T>(
+  host: string | undefined,
+  fn: () => Promise<T>
+): Promise<T> {
+  if (currentTenantScope()) {
+    return fn();
+  }
+  // Importação dinâmica para evitar ciclo de dependência
+  const { resolveTenant } = await import("../../application/tenant/resolve-tenant.usecase.js");
+  const tenant = await resolveTenant(host);
+  return store.run(
+    { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault },
+    fn
+  );
+}
