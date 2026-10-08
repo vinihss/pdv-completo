@@ -6,7 +6,6 @@ import { users, storeSettings } from "../../infra/db/schema.js";
 import { loginUsecase } from "../../application/auth/login.usecase.js";
 import { photoUrl } from "../../application/user.usecases.js";
 import { loginRateLimit } from "../middlewares/rate-limit.middleware.js";
-import { tenantMiddleware } from "../../http/middlewares/tenant.middleware.js";
 
 const loginSchema = z.object({
   userId: z.string(),
@@ -25,11 +24,7 @@ export async function authRoutes(app: FastifyInstance) {
   // toggles de rollout, escondendo usuários de módulos desligados: "kitchen"
   // quando kitchen_enabled=false e "courier" quando uses_delivery=false —
   // mesmo filtro por configuração que rege o resto do produto.
-  //
-  // O tenantMiddleware garante que o schema do tenant esteja ativo no ALS
-  // antes da consulta ao banco, para que o `db` Proxy fale com o schema
-  // correto (por ex. `tenant_ana_terra` em vez de `umami1`).
-  app.get("/auth/users", { preHandler: tenantMiddleware }, async (req) => {
+  app.get("/auth/users", async (_req) => {
     const settings = await db.query.storeSettings.findFirst({
       where: eq(storeSettings.id, "singleton"),
     });

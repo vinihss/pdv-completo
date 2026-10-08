@@ -58,7 +58,7 @@ export async function provisionTenantSchema(slug: string, displayName: string): 
   if (skipSeed) {
     console.log(`[provision] SEED=0 — bootstrap pulado (schema vazio de dados)`);
   } else {
-    await runInTenantScope({ schemaName, isDefault: false }, () =>
+    await runInTenantScope({ schemaName, slug, isDefault: false }, () =>
       runProdSeed({ merchantName: displayName }),
     );
   }

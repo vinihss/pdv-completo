@@ -38,7 +38,6 @@ import { startIfoodSync } from "../integrations/ifood/worker.js";
 import { startPagarmeWorkers } from "../integrations/pagarme/worker.js";
 import { getStoreSettingsUsecase } from "../application/store-settings.usecases.js";
 import { listActiveTenants } from "../infra/tenant/registry.js";
-import { tenantMiddleware } from "./middlewares/tenant.middleware.js";
 import { enterTenantScope, exitTenantScope } from "../infra/db/tenant-context.js";
 import { resolveTenant } from "../application/tenant/resolve-tenant.usecase.js";
 import { resolveTenantSchema } from "../infra/storage/index.js";
@@ -59,11 +58,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.addHook("onRequest", async (req) => {
     if (NO_TENANT_RESOLVE.has(req.url.split("?")[0])) return;
     const rawHost =
-      (req.query as Record<string, unknown> | undefined)?.host ??
       req.headers["x-tenant-host"] ??
       req.hostname;
     const tenant = await resolveTenant(typeof rawHost === "string" ? rawHost : undefined);
-    enterTenantScope({ schemaName: tenant.schemaName, isDefault: tenant.isDefault });
+    enterTenantScope({ schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault });
   });
   // Limpa o escopo ao fim do request: sem isto, o ALS guardaria a loja
   // do request anterior para o código que roda depois (inclusive testes
