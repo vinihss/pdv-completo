@@ -15,6 +15,8 @@ import { isSafeSchemaName } from "../../domain/tenant.js";
 export type TenantScope = {
   /** Nome do schema Postgres que o processo fala para esta requisição. */
   schemaName: string;
+  /** Slug do tenant (ex.: "umami", "pdv1"). Necessário para JWT e validação. */
+  slug: string;
   /** `true` quando veio do ambiente (apex/localhost/kill-switch). */
   isDefault: boolean;
 };

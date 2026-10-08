@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { eq } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { users } from "../../infra/db/schema.js";
+import { currentTenantScope } from "../../infra/db/tenant-context.js";
 import { Errors } from "../../domain/errors.js";
 import { config } from "../../config/env.js";
 import { photoUrl } from "../user.usecases.js";
@@ -48,7 +49,16 @@ export async function loginUsecase(userId: string, rawPin: string, deviceId?: st
 
   if (deviceId) await assertDeviceForLogin(userId, deviceId);
 
-  const token = jwt.sign({ sub: u.id, role: u.role }, config.jwtSecret, { expiresIn: "12h" });
+  const tenant = currentTenantScope();
+  const token = jwt.sign(
+    {
+      sub: u.id,
+      role: u.role,
+      ...(tenant ? { tenant: tenant.slug } : {}),
+    },
+    config.jwtSecret,
+    { expiresIn: "12h" }
+  );
   // A foto vai na sessão (não no JWT) para a identidade do app logado mostrar
   // o avatar sem uma segunda chamada.
   return { token, user: { id: u.id, name: u.name, role: u.role, photoPath: photoUrl(u.photoPath, "user") } };
