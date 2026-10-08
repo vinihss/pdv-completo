@@ -8,6 +8,7 @@ import { loginUsecase } from "../../application/auth/login.usecase.js";
 import {
   photoUrl,
   getOwnProfileUsecase,
+import { tenantMiddleware } from "../../http/middlewares/tenant.middleware.js";
   updateOwnProfileUsecase,
   saveUserPhotoUsecase,
   clearUserPhotoUsecase,
@@ -45,7 +46,7 @@ export async function authRoutes(app: FastifyInstance) {
   // toggles de rollout, escondendo usuários de módulos desligados: "kitchen"
   // quando kitchen_enabled=false e "courier" quando uses_delivery=false —
   // mesmo filtro por configuração que rege o resto do produto.
-  app.get("/auth/users", async (req) => {
+  app.get("/auth/users", { preHandler: tenantMiddleware }, async (req) => {
     const settings = await db.query.storeSettings.findFirst({
       where: eq(storeSettings.id, "singleton"),
     });
