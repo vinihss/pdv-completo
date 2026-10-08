@@ -36,7 +36,14 @@ class MMKV {
   }
 }
 
-module.exports = { MMKV, __esModule: true };
+// O app real usa a factory `createMMKV` (v4 do react-native-mmkv não exporta
+// classe `MMKV` em runtime — só type). A classe acima é a implementação; a
+// factory devolve uma instância dela, igual ao módulo real faz.
+function createMMKV(config) {
+  return new MMKV(config);
+}
+
+module.exports = { MMKV, createMMKV, __esModule: true };
 
 // Helper dos testes: todas as instâncias criadas nesta suíte (limpas via
 // storage.clear() ou resetMocks).

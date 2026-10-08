@@ -11,9 +11,9 @@
 // config e sessão. A decisão sobre onde fica o TOKEN está comentada no
 // AuthProvider (app/providers/auth/AuthProvider.jsx).
 
-import { MMKV } from "react-native-mmkv";
+import { createMMKV } from "react-native-mmkv";
 
-const store = new MMKV({ id: "pdv-storage" });
+const store = createMMKV({ id: "pdv-storage" });
 
 export const storage = {
   getItem(key) {

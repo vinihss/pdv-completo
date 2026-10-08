@@ -55,6 +55,7 @@ const IOS_MICROPHONE_DESCRIPTION =
 
 module.exports = ({ config }) => ({
   ...config,
+  owner: "vinihss",
   name: META.name,
   slug: META.slug,
   scheme: META.slug,
@@ -74,6 +75,13 @@ module.exports = ({ config }) => ({
       ...(VARIANT === "entregador"
         ? { NSLocationWhenInUseUsageDescription: IOS_LOCATION_DESCRIPTION }
         : {}),
+    },
+  },
+  extra: {
+    ...config.extra,
+    eas: {
+      ...config.extra?.eas,
+      projectId: "52e128de-1e0e-40d9-b76f-22236e94ae40",
     },
   },
   android: {
