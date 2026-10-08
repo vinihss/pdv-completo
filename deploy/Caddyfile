@@ -159,9 +159,20 @@ www.umamisushiarte.com.br {
 
 # ---------- Bloco 4: Wildcard para demais tenants (subdomínio) ----------
 # Qualquer subdomínio de ROOT_DOMAIN (exceto app, api, www) cai no pedido público
+#
+# TLS: on-demand, igual ao *.labolabe.tech lá embaixo. Sem isto o Caddy tenta
+# emitir o cert WILDCARD (*.ROOT_DOMAIN), que exige dns-01 (o binário stock não
+# tem plugin DNS) — e a falha sequestra o handshake de TODO subdomínio:
+# app/api/www caem com `tlsv1 alert internal error` mesmo com o cert exato
+# no storage (bug desde o PR #108). Com on_demand o handshake serve o cert
+# exato do cache (app/www) ou emite por HTTP-01 sob demanda (api, tenants),
+# gateado pelo `ask` global.
 *.{$ROOT_DOMAIN} {
-    encode gzip zstd
-    reverse_proxy pedidopublic:80
+	encode gzip zstd
+	tls {
+		on_demand
+	}
+	reverse_proxy pedidopublic:80
 }
 
 # ============================================================
