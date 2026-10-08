@@ -207,8 +207,12 @@ const stockMovementCreateSchema = z.object({
   correlationId: z.string().min(1),
 });
 
-// MIME aceitos no upload de foto → extensão de arquivo
-const imageExtByMime: Record<string, string> = {
+// MIME aceitos no upload de foto → extensão de arquivo.
+// Exportado porque o self-service de foto (`POST /auth/me/photo`, em
+// `auth.routes.ts`) valida com a MESMA régua — a lista precisa ser idêntica
+// nas duas rotas, senão o usuário não consegue subir a foto que o gerente
+// subiria por ele.
+export const imageExtByMime: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",

@@ -191,8 +191,8 @@ export default function DeliveriesTab({ showToast }) {
       <div className="flex items-center gap-4 text-sm text-stone-400">
         <span>{awaitingCount} aguardando</span>
         <span>{outCount} a caminho</span>
-        <button onClick={reload} className="ml-auto flex items-center gap-1.5 text-stone-500 hover:text-stone-300">
-          <RefreshCcw size={13} /> Atualizar
+        <button onClick={reload} aria-label="Atualizar entregas" className="ml-auto flex items-center gap-1.5 text-stone-500 hover:text-stone-300">
+          <RefreshCcw size={13} />
         </button>
       </div>
 

@@ -1,5 +1,6 @@
 import React from "react";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ auth: null }));
@@ -34,30 +35,34 @@ describe("AppFrame", () => {
   beforeEach(() => sessionStorage.clear());
   afterEach(cleanup);
 
-  it("header com logo, nome e saída, e a tela do papel ao lado do menu", () => {
+  it("header com logo, nome e menu do usuário, e a tela do papel ao lado do menu", () => {
     session("waiter");
     const { container } = render(
-      <Root />
+      <MemoryRouter>
+        <Root />
+      </MemoryRouter>
     );
     expect(screen.getByText("Unami")).toBeTruthy();
-    expect(screen.getByLabelText("Trocar usuário")).toBeTruthy();
+    // O "Sair" saiu do header: agora é a foto do usuário que abre o menu.
+    expect(screen.getByLabelText("Menu do usuário")).toBeTruthy();
     expect(screen.getByText("tela: garçom")).toBeTruthy();
-    // Coluna do menu à esquerda, conteúdo no resto da largura.
-    expect(container.querySelector("aside")).toBeTruthy();
+    // Garçom tem 1 item de menu: o AppMenu (e o `aside`) não é desenhado —
+    // só o `main` ocupa a largura (regra de menu único, veja AppMenu/router).
+    expect(container.querySelector("aside")).toBeNull();
     expect(container.querySelector("main")).toBeTruthy();
     expect(container.querySelector("main").className).toContain("flex-1");
   });
 
   it("o header é h-14 e a coluna do menu começa logo abaixo dele", () => {
     session("manager");
-    const { container } = render(<Root />);
+    const { container } = render(<MemoryRouter><Root /></MemoryRouter>);
     expect(container.querySelector("header, .sticky")?.className).toContain("h-14");
     expect(container.querySelector("aside").className).toContain("top-14");
   });
 
   it("botão de menu abre o painel e escolher a tela fecha", () => {
     session("cashier");
-    render(<Root />);
+    render(<MemoryRouter><Root /></MemoryRouter>);
     const botao = screen.getByLabelText("Abrir menu");
     expect(botao.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(botao);
@@ -77,7 +82,7 @@ describe("AppFrame", () => {
       ["waiter", "tela: garçom"],
     ]) {
       session(role);
-      const { unmount } = render(<Root />);
+      const { unmount } = render(<MemoryRouter><Root /></MemoryRouter>);
       expect(screen.getByText(texto)).toBeTruthy();
       unmount();
     }
@@ -85,7 +90,7 @@ describe("AppFrame", () => {
 
   it("sem sessão, mostra o login — e nenhuma tela nem menu", () => {
     mocks.auth = { session: null, booting: false, storeSettings: null };
-    const { container } = render(<Root />);
+    const { container } = render(<MemoryRouter><Root /></MemoryRouter>);
     expect(screen.getByText("tela: login")).toBeTruthy();
     expect(container.querySelector("aside")).toBeNull();
   });
@@ -98,15 +103,17 @@ describe("AppFrame", () => {
     const { OrderFocusProvider } = await import("@/app/providers/order-focus");
     session("manager");
     render(
-      <NavProvider role="manager">
-        <AlertsProvider>
-          <OrderFocusProvider>
-            <AppFrame>
-              <p>conteúdo</p>
-            </AppFrame>
-          </OrderFocusProvider>
-        </AlertsProvider>
-      </NavProvider>
+      <MemoryRouter>
+        <NavProvider role="manager">
+          <AlertsProvider>
+            <OrderFocusProvider>
+              <AppFrame>
+                <p>conteúdo</p>
+              </AppFrame>
+            </OrderFocusProvider>
+          </AlertsProvider>
+        </NavProvider>
+      </MemoryRouter>
     );
     expect(screen.getByText("conteúdo")).toBeTruthy();
     expect(screen.getByText("Ana Ribeiro")).toBeTruthy();

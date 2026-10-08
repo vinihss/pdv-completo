@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AccordionMenu, Drawer, UserAvatar } from "@/shared/components";
 import { useAuth } from "@/app/providers/auth";
-import { useNav, menuSectionsFor, hasExpandableSections, firstItemId, allItems, sectionOwning } from "@/app/providers/nav";
+import { useNav, hasExpandableSections, firstItemId, allItems, sectionOwning, useMenuSections } from "@/app/providers/nav";
 import { useLowStockCount } from "@/entities/stock";
 
 const ROLE_LABEL = {
@@ -29,24 +29,13 @@ const ROLE_LABEL = {
  * "Gestão" ao mesmo tempo.
  */
 export default function AppMenu() {
-  const { session, storeSettings } = useAuth();
+  const { session } = useAuth();
   const { activeId, setActiveId, drawerOpen, closeDrawer } = useNav();
   const lowCount = useLowStockCount();
 
-  const sections = useMemo(
-    () =>
-      menuSectionsFor(session?.user?.role, {
-        inventoryEnabled: storeSettings?.inventoryEnabled ?? false,
-        purchaseEnabled: storeSettings?.purchaseEnabled ?? false,
-        ifoodIntegrationEnabled: storeSettings?.ifoodIntegrationEnabled ?? false,
-      }),
-    [
-      session?.user?.role,
-      storeSettings?.inventoryEnabled,
-      storeSettings?.purchaseEnabled,
-      storeSettings?.ifoodIntegrationEnabled,
-    ]
-  );
+  const sections = useMenuSections();
+
+  const totalItems = useMemo(() => sections.flatMap((s) => s.items).length, [sections]);
 
   const variant = hasExpandableSections(sections) ? "full" : "rail";
 
@@ -129,6 +118,8 @@ export default function AppMenu() {
 
   // Mesma identidade na coluna do desktop e no painel do celular.
   const identity = <Identity name={session?.user?.name} role={session?.user?.role} photoPath={session?.user?.photoPath} />;
+
+  if (totalItems === 1) return null;
 
   return (
     <>
