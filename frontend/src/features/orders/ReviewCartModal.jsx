@@ -1,10 +1,12 @@
-import React from "react";
-import { Trash2 } from "lucide-react";
+import React, { useState } from "react";
+import { Pencil, Check, Trash2 } from "lucide-react";
 import { variationsText } from "@/entities/order";
 import { formatBRL } from "@/shared/lib";
 import { Modal } from "@/shared/components";
 
 export default function ReviewCartModal({ lines, total, onClose, onRemoveLine, onChangeNotes, onConfirm }) {
+  const [editingNotes, setEditingNotes] = useState(null); // key da linha sendo editada
+
   return (
     <Modal
       title="Revisar itens"
@@ -42,12 +44,31 @@ export default function ReviewCartModal({ lines, total, onClose, onRemoveLine, o
                   </button>
                 </div>
               </div>
-              <input
-                value={line.notes ?? ""}
-                onChange={(e) => onChangeNotes(key, e.target.value)}
-                placeholder="Observações (ex.: sem cebola, ponto mal passado)"
-                className="mt-2 w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2 text-xs outline-none focus:border-amber-500/50"
-              />
+              {/* Trigger: pencil + "observações" texto */}
+              {editingNotes !== key ? (
+                <div
+                  onClick={() => setEditingNotes(key)}
+                  className="mt-2 flex items-center gap-2 cursor-pointer select-none"
+                  title="Adicionar observação"
+                >
+                  <Pencil size={14} className="text-stone-400" />
+                  <span className="text-xs text-stone-400">Observações</span>
+                </div>
+              ) : (
+                /* Campo de observação aberto */
+                <>
+                  <input
+                    value={line.notes ?? ""}
+                    onChange={(e) => onChangeNotes(key, e.target.value)}
+                    placeholder="Observações (ex.: sem cebola, ponto mal passado)"
+                    className="mt-2 w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2 text-xs outline-none focus:border-amber-500/50"
+                  />
+                  <div className="mt-1 flex items-center gap-1">
+                    <Check size={12} className="text-emerald-400 hover:text-emerald-500" onClick={() => setEditingNotes(null)} />
+                    <span className="text-xs text-stone-400">Confirmar</span>
+                  </div>
+                </>
+              )}
             </div>
           );
         })}

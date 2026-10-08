@@ -169,6 +169,65 @@ export async function updateUserUsecase(
   return serialize(updated);
 }
 
+/**
+ * Leitura do próprio perfil (GET /auth/me): o mesmo `serialize` do PATCH,
+ * para a tela de perfil abrir com telefone/e-mail reais — o login devolve só
+ * `{ id, name, role, photoPath }` e inicializar o formulário com a sessão
+ * deixaria os campos vazios (um salvar apagaria o que já está no banco).
+ * 404 quando o usuário do token não existe mais (mesma régua do PATCH).
+ */
+export async function getOwnProfileUsecase(id: string) {
+  const existing = await db.query.users.findFirst({ where: eq(users.id, id) });
+  if (!existing) throw Errors.notFound("Usuário");
+  return serialize(existing);
+}
+
+/**
+ * Self-service de perfil (PATCH /auth/me): o usuário logado atualiza os
+ * PRÓPRIOS dados de contato — `name`, `phone` e `email`.
+ *
+ * Diferença em relação ao `updateUserUsecase` (manager-only): o id vem do
+ * token, nunca do body, e o conjunto de campos é fechado por construção —
+ * `role`, `active` e `pin` nem entram na assinatura, então não há caminho
+ * (nem por body estranho) para um garçom se promover. Normalização de
+ * email/telefone é a mesma do update de gerente (fonte única em
+ * `normalizeEmail`/`normalizePhone`/`assertEmailAvailable`).
+ *
+ * Audit log na MESMA transação do UPDATE (convenção de escrita de domínio em
+ * docs/agent-backend.md): o `updateUserUsecase` de gerente só audita a cascata
+ * de desativação; aqui o registro é a trilha do que o próprio usuário mudou.
+ */
+export async function updateOwnProfileUsecase(
+  id: string,
+  input: { name: string; phone?: string | null; email?: string | null }
+) {
+  const existing = await db.query.users.findFirst({ where: eq(users.id, id) });
+  if (!existing) throw Errors.notFound("Usuário");
+
+  const email = input.email !== undefined ? normalizeEmail(input.email) : undefined;
+  if (input.email !== undefined) await assertEmailAvailable(email, id);
+  const phoneDigits = input.phone !== undefined ? normalizePhone(input.phone) : undefined;
+
+  const updated = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(users)
+      .set({
+        name: input.name,
+        ...(phoneDigits !== undefined ? { phone: phoneDigits } : {}),
+        ...(email !== undefined ? { email } : {}),
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(users.id, id))
+      .returning();
+    await logAction(tx, id, "user_profile_updated", null, {
+      userId: id,
+      fields: ["name", ...(phoneDigits !== undefined ? ["phone"] : []), ...(email !== undefined ? ["email"] : [])],
+    });
+    return row;
+  });
+  return serialize(updated);
+}
+
 export async function resetPinUsecase(id: string) {
   const existing = await db.query.users.findFirst({ where: eq(users.id, id) });
   if (!existing) throw Errors.notFound("Usuário");

@@ -16,7 +16,7 @@ export default function OrderBoard() {
   const { markRead } = useAlerts();
   const { focusedOrderId, clearFocus } = useOrderFocus();
   const [openOrderId, setOpenOrderId] = useState(null);
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState("open");
   const [search, setSearch] = useState("");
   const [newOrderOpen, setNewOrderOpen] = useState(false);
 
@@ -49,6 +49,12 @@ export default function OrderBoard() {
     if (openOrderIdShown) markRead(openOrderIdShown);
   }, [openOrderIdShown, markRead]);
 
+  async function handleItemsConfirmed() {
+    setOpenOrderId(null);
+    showToast("Itens lançados com sucesso.", "success");
+    await reloadAll();
+  }
+
   async function handleOpenNewOrder(identification) {
     try {
       const order = await openOrder(identification);
@@ -68,6 +74,7 @@ export default function OrderBoard() {
           kitchenEnabled={kitchenEnabled}
           onBack={() => setOpenOrderId(null)}
           onReload={() => reloadOne(openOrderRecord.id)}
+          onItemsConfirmed={handleItemsConfirmed}
           showToast={showToast}
         />
         <Toast toast={toast} />

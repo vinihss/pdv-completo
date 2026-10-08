@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
-import { login as loginApi } from "@/entities/session";
+import { login as loginApi, updateMe } from "@/entities/session";
 import { getStoreSettings } from "@/entities/store";
 import { setAuthToken, setUnauthorizedHandler } from "@/shared/api/http";
 import { applyBrandPrimary } from "@/shared/lib";
@@ -69,8 +69,24 @@ getStoreSettings()
     return s;
   }, []);
 
+  // PATCH /auth/me: atualiza name/phone/email do próprio usuário e reflete na
+  // sessão (header, menu e telas) sem precisar de logout/login.
+  const updateProfile = useCallback(async (patch) => {
+    const res = await updateMe(patch);
+    setSession((prev) => {
+      if (!prev) return prev;
+      const next = {
+        ...prev,
+        user: { ...prev.user, ...(res && typeof res === "object" ? res : {}), ...patch },
+      };
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+    return res;
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ session, login, logout, booting, storeSettings, refreshStoreSettings }}>
+    <AuthContext.Provider value={{ session, login, logout, booting, storeSettings, refreshStoreSettings, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );

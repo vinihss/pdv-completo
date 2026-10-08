@@ -58,8 +58,8 @@ export function StaleWarning({ onRetry }) {
     <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
       <RefreshCcw size={14} className="text-amber-400 shrink-0" />
       <p className="text-xs text-amber-200 flex-1">Não consegui atualizar a lista.</p>
-      <button type="button" onClick={onRetry} className="text-xs font-bold text-amber-300 underline underline-offset-2">
-        Atualizar
+      <button type="button" onClick={onRetry} aria-label="Atualizar entregas" className="text-xs font-bold text-amber-300 underline underline-offset-2 inline-flex items-center gap-1.5">
+        <RefreshCcw size={13} />
       </button>
     </div>
   );

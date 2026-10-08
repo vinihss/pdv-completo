@@ -16,6 +16,7 @@ import StockTab from "./tabs/inventory/StockTab.jsx";
 import PurchaseTab from "./tabs/purchase/PurchaseTab.jsx";
 import CustomersTab from "./tabs/customers/CustomersTab.jsx";
 import ManagerHome from "./tabs/home/ManagerHome.jsx";
+import ProfilePage from "./tabs/profile/ProfilePage";
 import { useAuth } from "@/app/providers/auth";
 import { useNav } from "@/app/providers/nav";
 
@@ -53,6 +54,7 @@ export default function ManagerApp() {
     "reports.cashflow": <CashFlowReportTab showToast={showToast} />,
     ifood: <IfoodTab showToast={showToast} />,
     audit: <AuditTab />,
+    profile: <ProfilePage showToast={showToast} />,
     // Sem tela "whatsapp": o painel do WhatsApp mora em Configurações
     // (SettingsTab), atrás do toggle "Integração WhatsApp". Um activeId
     // guardado de uma versão antiga cai em Comandas pelo fallback do AppMenu.
