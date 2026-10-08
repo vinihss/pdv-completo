@@ -32,6 +32,67 @@ mas isso é trabalho adicional não incluído aqui.
 > com Docker + SSH). **Não use em hospedagem compartilhada/hPanel sem Docker e
 > sem acesso SSH adequado**.
 
+## O proxy (Caddy) mora no HOST — instalação e migração
+
+Em produção o Caddy **não é mais um container**: ele roda no host como unit
+systemd **`pdv-caddy`**, instalado pelo `deploy/caddy-host.sh`, e resolve os
+upstreams dos containers pelo **`/etc/hosts` do host** — o bloco
+`# BEGIN PDV caddy-host`, com IPs fixos da bridge (`172.18.0.241 backend`, …,
+declarados no `docker-compose.yml`), gravado pelo mesmo script. Os stacks
+locais (`--profile local`) continuam com o container, e o `switch.sh` escolhe
+o caminho sozinho: o teste é `has_service caddy` (o compose da produção não
+declara mais o serviço).
+
+**Instalação nova** (o `./deploy/install.sh` e o `./switch.sh --install` já
+fazem isto sozinhos, na ordem certa):
+
+```bash
+cd /root/pdv-completo && git fetch --prune origin && git checkout -f <tag-nova>
+sudo bash deploy/caddy-host.sh
+./deploy/switch.sh --status     # → proxy (systemd pdv-caddy): ativo
+```
+
+**Migração de um VPS que ainda roda o Caddy como container.** A ordem importa
+— é o `git checkout` da tag nova que tira o serviço `caddy` do compose, e o
+script recusa rodar com o compose antigo (senão ele criaria IPs fixos num
+serviço que ainda publica porta):
+
+```bash
+cd /root/pdv-completo
+git fetch --prune origin && git checkout -f <tag-nova>
+sudo bash deploy/caddy-host.sh   # binário, unit, /etc/hosts, certs, troca da porta
+./deploy/switch.sh --status      # deve mostrar "proxy (systemd pdv-caddy): ativo"
+./deploy/switch.sh               # o primeiro switch já fala com o unit
+```
+
+O `caddy-host.sh` é idempotente (rodar de novo é seguro) e faz, nesta ordem:
+pré-condições (rede, compose sem serviço `caddy`, curl) → binário 2.x do
+repositório oficial do Caddy (o apt do Ubuntu só tem 2.6.2, dois anos atrás)
+→ unit gerado do versionado `deploy/pdv-caddy.service` → cópia dos
+certificados do volume `pdv_caddy_data` para `/var/lib/caddy` (**sem reemitir
+TLS** — o rate limit do Let's Encrypt é de 5 certificados/semana por domínio)
+→ garantia de `ROOT_DOMAIN`/`WS_BACKEND`/`PAGARME_WEBHOOK_BACKEND` no `.env`
+(só append, nunca sobrescreve) → bloco no `/etc/hosts` **e** no template do
+cloud-init (senão o bloco sumiria no primeiro reboot) → symlink
+`/srv/pdv-updates` → recria os serviços que estão rodando com IP fixo →
+`caddy validate` → **troca da porta 80/443**: para o container antigo (ele
+fica PARADO como rollback, não é removido), sobe o unit, confere HTTP e
+HTTPS. O resumo final imprime o comando de rollback à mão.
+
+**Comandos — o que mudou no dia a dia:**
+
+| Antes (container) | Agora (produção — host) |
+|---|---|
+| `docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload` | `sudo systemctl reload pdv-caddy` |
+| `docker compose logs caddy \| grep "upstream ativo"` | `journalctl -u pdv-caddy -n 200 \| grep "upstream ativo"` |
+| `docker compose exec caddy wget -qO- http://ws-gateway:8080/health` | `docker exec "$(docker compose ps -q ws-gateway)" wget -qO- http://127.0.0.1:8080/health` |
+
+Os dois lados executam o **mesmo** `caddy-assemble.sh` sobre o mesmo
+ponteiro `state/active-upstream` — só muda quem recebe o reload. No stack
+local os comandos da coluna da esquerda continuam valendo. Detalhe operacional:
+o reload do host **precisa de root** (o `switch.sh` tenta `sudo -n` quando o
+shell não é root e, se falhar, diz exatamente qual sudoers criar).
+
 ## DNS obrigatório (por que o HTTPS não sobe)
 
 O Caddy emite o certificado do Let's Encrypt por desafio **HTTP-01**: a
@@ -65,7 +126,9 @@ apontando para o IP público do VPS:
 
 A Caddyfile tem três endereços parametrizados: `app.$ROOT_DOMAIN`,
 `api.$ROOT_DOMAIN` e o wildcard `*.$ROOT_DOMAIN`. Eles saem da variável de
-ambiente **`ROOT_DOMAIN`** do container do Caddy:
+ambiente **`ROOT_DOMAIN`** — no host, do `.env` lido pelo `caddy-assemble.sh`
+no boot e a cada reload; no stack local, do `environment` do container do
+Caddy:
 
 ```bash
 # deploy/.env
@@ -79,10 +142,12 @@ Três coisas que já custaram um deploy inteiro:
   diretiva — o Caddy não entende como variável de ambiente e o
   `caddy validate` morre com
   `subject does not qualify for certificate: 'app.'`.
-- **A variável tem que chegar no container.** Ela está no `environment` do
-  serviço `caddy` (`docker-compose.yml`), e por isso também pode ser
-  sobrescrita no `.env`. Sem ela o `caddy validate` — que é o portão do
-  `switch.sh` — reprova o deploy com o proxy velho ainda no ar.
+- **A variável tem que chegar ao `caddy-assemble.sh`.** No host ela vem do
+  `.env` do deploy (o `caddy-host.sh` garante a linha lá, com o mesmo default
+  do compose); no stack local ela está no `environment` do serviço `caddy`
+  (`docker-compose.yml`), e por isso também pode ser sobrescrita no `.env`.
+  Sem ela o `caddy validate` — que é o portão do `switch.sh` — reprova o
+  deploy com o proxy velho ainda no ar.
 - **O `caddy validate` NÃO resolve upstream, mas resolve endereço.** Um nome
   de serviço errado passa; um domínio que não existe no DNS não.
 
@@ -113,13 +178,12 @@ Depois de criar/alterar, é só recarregar o Caddy — ele pega os certificados
 sozinho, sem reiniciar containers:
 
 ```bash
-# Pelo caddy-assemble.sh, e NÃO um `caddy reload` direto: quem resolve os
-# upstreams (o ponteiro e a flag WS_BACKEND) é o script, e um reload
-# cru pula essa resolução — o /realtime* voltaria sozinho para o backend
-# Node, sem erro em lugar nenhum. (O caminho `/etc/caddy/Caddyfile` do
-# comando antigo também não existe neste stack: a config é montada em
-# /srv/pdv-deploy/Caddyfile.)
-docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload
+# Pelo caddy-assemble.sh (via unit), e NUNCA um `caddy reload` cru: quem
+# resolve os upstreams (o ponteiro e a flag WS_BACKEND) é o script, e um
+# reload direto pula essa resolução — o /realtime* voltaria sozinho para o
+# backend Node, sem erro em lugar nenhum. No stack local o mesmo efeito:
+#   docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload
+sudo systemctl reload pdv-caddy
 ```
 
 > ⚠️ **O `umamisushiarte.com.br` e o `www` compartilham um único certificado**
@@ -192,6 +256,10 @@ curl -s -o /dev/null -D - -H "Origin: https://app.seudominio.com.br" \
 > (`./:/srv/pdv-deploy:ro`) e a config é aplicada por `caddy reload` dentro do
 > container (`deploy/caddy-assemble.sh`). A armadilha do inode não existe mais
 > porque o inode trocado é o de um arquivo *dentro* de um diretório montado.
+> No host (proxy `pdv-caddy`) não há bind mount nenhum: o Caddy abre o caminho
+> do deploy a cada `run`/`reload`, então um `git checkout` troca o inode em
+>baixo dele e o **`systemctl reload pdv-caddy` é o que passa a valer a config
+> nova** — mesma regra prática: editar sem reload não muda nada.
 > O texto abaixo fica como registro do sintoma e do porquê — ele é a razão de
 > o compose montar diretório em vez de arquivo.
 
@@ -251,8 +319,10 @@ após restart            80ee0b41…   <- restart já resolve
 após --force-recreate   80ee0b41…   <- idem
 ```
 
-**Hoje:** confira com o `md5sum` dos dois lados depois de mexer no Caddyfile,
-mas o `switch.sh` já aplica a config nova por `reload` como parte do deploy.
+**Hoje:** no stack local, confira com o `md5sum` dos dois lados depois de mexer
+no Caddyfile; no host não há dois lados (o unit lê o mesmo arquivo do git) — o
+que importa é o reload. E o `switch.sh` já aplica a config nova por `reload`
+como parte do deploy.
 
 
 ## Deploy automático por tag (GitHub Actions → Hostinger VPS)
@@ -284,9 +354,9 @@ app da família tem sua própria versão.
 O job Windows acima **não tem steps próprios**: ele chama
 **`.github/workflows/build-desktop.yml`**, que é a definição única dos
 instaladores da família standalone. O workflow builda os dois apps
-desktop (PDV Caixa + KDS Cozinha) em uma matriz; os apps
-React Native/Expo (Garçom/Entregador) moram no projeto separado
-`pdv-mobile-apps`.)
+desktop (PDV Caixa + KDS Cozinha) em uma matriz; os mobile (Garçom,
+Entregador) não buildam no runner Windows — o alvo deles é Android/iOS,
+e o build de mobile exige toolchain que não está no runner.
 
 O mesmo arquivo tem `workflow_dispatch`, então dá para gerar só o
 instalador quando quiser, sem tag e sem deploy do backend:
@@ -502,12 +572,14 @@ git clone https://github.com/vinihss/pdv-completo.git /opt/pdv-completo
 cd /opt/pdv-completo
 
 # Diretório de artefatos dos apps Windows (instalador + latest.json). Precisa
-# existir COM O DONO CERTO antes do primeiro `docker compose up`: o compose
-# monta ./updates no Caddy, e bind mount de diretório inexistente faz o
-# Docker criá-lo como root — aí o scp do job build-desktop (que roda com o
-# usuário do CI, não com root) falha com "permission denied" e o instalador
-# nunca chega ao servidor. O switch.sh e o install.sh já criam e checam isso;
-# o comando abaixo é para um clone manual.
+# existir COM O DONO CERTO antes do primeiro `docker compose up`: no stack
+# local o bind mount do Caddy cria diretório inexistente como root, e aí o
+# scp do job build-desktop (que roda com o usuário do CI, não com root) falha
+# com "permission denied" e o instalador nunca chega ao servidor. No host o
+# proxy lê pelo symlink `/srv/pdv-updates` (criado pelo caddy-host.sh), mas o
+# dono do diretório continua sendo quem o CI escreve — mesma armadilha.
+# O switch.sh e o install.sh já criam e checam isso; o comando abaixo é para
+# um clone manual.
 #
 # Um diretório por app: o Caddy espera latest.json em deploy/updates/<app>/ e
 # os artefatos em deploy/updates/files/<app>/windows-x86_64/ (ver Caddyfile).
@@ -779,8 +851,9 @@ docker compose up -d --build --remove-orphans
 
 # 3b. Aplica a Caddyfile nova por reload (o `up` acima não recria o proxy,
 #     porque o hash do container não depende do conteúdo do arquivo — ver
-#     a seção "Caddyfile não atualiza sozinho").
-docker exec "$(docker compose ps -q caddy)" sh /srv/pdv-deploy/caddy-assemble.sh reload
+#     a seção "Caddyfile não atualiza sozinho"). No stack local:
+#     docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload
+sudo systemctl reload pdv-caddy
 
 # 3c. Se o gateway WebSocket em Go é quem serve o /realtime (WS_BACKEND=go),
 #     o `up --build` acima NÃO o reconstrói: o serviço está atrás de
@@ -866,7 +939,7 @@ jeito que o `stream_close_delay` segura as do backend.
 1. build da imagem nova ............ nada em produção é tocado
 2. up -d backend-next frontend-next  o tráfego segue na instância atual
    pedidopublic ..................... o cardápio público entra no mesmo
-                                     passo (--no-deps: nem o caddy nem o
+                                     passo (--no-deps: nem o proxy nem o
                                      postgres são recriados)
 3. espera o healthcheck dos três ... verde doente = ABORTA aqui, com o
                                      proxy velho no ar (nada foi trocado)
@@ -888,8 +961,8 @@ um nginx servindo bundle estático, sem banco, sem migration, sem estado e sem
 WebSocket. Ele **não** ganha uma instância `-next` — o que ele serve não tem
 migration para drenar, e "bundle velho no ar" é muito menos grave que "schema
 sem migration". O que ele precisa é **existir**: a Caddyfile faz
-`reverse_proxy pedidopublic:80` em três blocos (`umamisushiarte.com.br`, `www`
-e o wildcard `*.ROOT_DOMAIN`), e sem container o cardápio é 502 no ar.
+`reverse_proxy pedidopublic:80` em dois blocos (`umamisushiarte.com.br`
+e o wildcard `*.ROOT_DOMAIN`; o `www` só redireciona), e sem container o cardápio é 502 no ar.
 
 O switch então o constrói (passo 1), sobe com `--no-deps` (passo 2) e espera o
 **mesmo portão** dos outros dois (passo 3). O healthcheck dele é
@@ -940,9 +1013,10 @@ continua onde estava.
 A Caddyfile do repo tem o upstream como variável
 (`{$PDV_BACKEND_UPSTREAM:backend:3000}`). Quem decide o valor é
 `deploy/state/active-upstream` — duas linhas, escrita pelo `switch.sh` e lida
-pelo container do Caddy (`caddy-assemble.sh`), que monta a config efetiva
-**dentro do container** e roda `caddy validate` antes de aplicar. Não existe
-Caddyfile gerado no host: o do git é o que roda.
+pelo `caddy-assemble.sh` (no host, pelo unit `pdv-caddy`; no stack local, de
+dentro do container do Caddy), que monta a config efetiva e roda
+`caddy validate` antes de aplicar. Não existe Caddyfile gerada no host: a do
+git é a que roda.
 
 O ponteiro é versionado com o valor padrão (`backend`/`frontend`) para que o
 diretório já venha com o dono certo — se ele não existisse, o Docker criaria
@@ -950,11 +1024,14 @@ diretório já venha com o dono certo — se ele não existisse, o Docker criari
 usuário do deploy) não conseguiria escrever nele. Como o switch reescreve o
 arquivo a cada deploy, ele aparece como modificado no `git status` entre um
 deploy e outro: isso é estado, não drift. Verificar os dois hashes ainda é
-válido, o caminho é que mudou:
+válido (stack local); no host o proxy lê este MESMO arquivo do git, então o
+que importa é o reload depois do checkout:
 
 ```bash
 md5sum Caddyfile
-docker exec deploy-caddy-1 md5sum /srv/pdv-deploy/Caddyfile
+# stack local: docker exec deploy-caddy-1 md5sum /srv/pdv-deploy/Caddyfile
+# host: sem comparação — o unit lê este caminho; `systemctl reload pdv-caddy`
+# é quem passa a valer o arquivo novo
 ```
 
 ### WebSocket no reload: por que o `stream_close_delay`
@@ -1109,15 +1186,16 @@ gate com o upstream.
 
 ### Quem serve o `/realtime*`
 
-O Caddy tem um upstream só para essa rota, resolvido dentro do container por
-`caddy-assemble.sh`:
+O Caddy tem um upstream só para essa rota, resolvido pelo `caddy-assemble.sh`
+(no host, pelo unit `pdv-caddy`; no stack local, de dentro do container):
 
 ```
 PDV_WS_UPSTREAM   →   /realtime*   (Caddyfile)
        ↑
    quem decide, nesta ordem:
    1. linha PDV_WS_UPSTREAM em state/active-upstream   (emergência)
-   2. WS_BACKEND=go no ambiente do container do Caddy  (a decisão do .env)
+   2. WS_BACKEND=go no ambiente do PROXY               (a decisão do .env:
+      no host é o .env do deploy; no stack local, o ambiente do container)
    3. senão: o mesmo valor de PDV_BACKEND_UPSTREAM      (acompanha o switch)
 ```
 
@@ -1132,8 +1210,8 @@ Para ver quem está no ar agora:
 ./switch.sh --status | head -1
 # Caddy aponta para: backend=backend frontend=frontend realtime=ws-gateway:8080
 
-# e o log do container do Caddy, que é onde a resolução acontece:
-docker compose logs caddy | grep "upstream ativo" | tail -1
+# e o log do proxy, que é onde a resolução acontece:
+journalctl -u pdv-caddy -n 200 | grep "upstream ativo" | tail -1
 ```
 
 ### Por que ele não sobe sozinho
@@ -1188,17 +1266,17 @@ docker compose --profile ws-gateway up -d ws-gateway
 #    `outboxEnabled:false` = gateway de pé e mudo (o estado que não pode
 #    virar tráfego). As duas causas são `WS_DISPATCH` desligado no container ou
 #    DATABASE_URL ausente — o `./switch.sh --status` diz qual das duas é.
-docker compose exec caddy wget -qO- http://ws-gateway:8080/health
+docker exec "$(docker compose ps -q ws-gateway)" wget -qO- http://127.0.0.1:8080/health
 # {"status":"ok","version":"dev","uptimeSeconds":12,"connections":0,"users":0,
 #  "databaseLastOkSeconds":0,"outboxEnabled":true}
 
 # 4. a decisão que sobrevive a deploy, no .env:
 #    WS_BACKEND=go
 
-# 5. e o caminho quente: aponta o proxy sem recriar o container do Caddy
+# 5. e o caminho quente: aponta o proxy sem derrubar WebSocket
 #    (recreate custa os 1-3s de queda que o switch existe para evitar).
 printf 'PDV_WS_UPSTREAM=ws-gateway:8080\n' >> state/active-upstream
-docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload
+sudo systemctl reload pdv-caddy   # stack local: docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload
 ```
 
 Os passos 2 e 5 são o mesmo instante lógico: o gate liga **junto** com a
@@ -1235,8 +1313,9 @@ cd /opt/pdv-completo/deploy
 # 1. tira a linha de emergência do ponteiro
 grep -v '^PDV_WS_UPSTREAM=' state/active-upstream > /tmp/up && cat /tmp/up > state/active-upstream
 
-# 2. e garante que o .env não traz o gateway de volta no próximo recreate
-#    do Caddy
+# 2. e garante que o .env não traz o gateway de volta no próximo reload do
+#    proxy (no host, cada reload relê o .env; no stack local, o próximo
+#    recreate do container)
 sed -i 's/^WS_BACKEND=.*/WS_BACKEND=node/' .env
 
 # 3. e desliga o gate. É este passo que fecha a janela, não o proxy: com
@@ -1246,9 +1325,9 @@ sed -i 's/^WS_BACKEND=.*/WS_BACKEND=node/' .env
 sed -i 's/^WS_DISPATCH=.*/# WS_DISPATCH=/' .env
 docker compose --profile ws-gateway up -d --no-deps ws-gateway   # só se ele estiver de pé
 
-docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload
-docker compose logs caddy | grep "upstream ativo" | tail -1   # conferindo
-./switch.sh --status                                         # o verito do gate
+sudo systemctl reload pdv-caddy
+journalctl -u pdv-caddy -n 200 | grep "upstream ativo" | tail -1   # conferindo
+./switch.sh --status                                         # o veredito do gate
 ```
 
 O gateway pode continuar de pé nesse meio-tempo (o rollback aqui é do proxy,
@@ -1352,10 +1431,10 @@ verdade** precisam de configuração adicional. Este checklist cobre os dois.
 | 1 | Subir o container | `docker compose --profile ws-gateway up -d --build ws-gateway` | — |
 | 2 | Ligar o gate | `.env` | `WS_DISPATCH=1` |
 | 3 | Subir de novo (gate só entra no `up`) | `docker compose --profile ws-gateway up -d ws-gateway` | — |
-| 4 | Portão: `/health` com `outboxEnabled:true` | `docker compose exec caddy wget -qO- http://ws-gateway:8080/health` | — |
+| 4 | Portão: `/health` com `outboxEnabled:true` | `docker exec "$(docker compose ps -q ws-gateway)" wget -qO- http://127.0.0.1:8080/health` | — |
 | 5 | Decisão que sobrevive a deploy | `.env` | `WS_BACKEND=go` |
 | 6 | Caminho quente (proxy) | `state/active-upstream` | `PDV_WS_UPSTREAM=ws-gateway:8080` |
-| 7 | Recarregar o Caddy | `docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload` | — |
+| 7 | Recarregar o proxy | `sudo systemctl reload pdv-caddy` (local: `docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload`) | — |
 
 **Ordem importa:** o gate (passo 2) liga **junto** com a virada do proxy (passo 6).
 Cada um dos dois errados sozinho é o defeito medido (gate ligado com proxy no Node
@@ -1375,10 +1454,10 @@ de pé (o rollback é do proxy, não do container).
 | 4 | Mesmo token no backend | `.env` do backend | `PAGARME_INTERNAL_TOKEN=<mesmo valor>` |
 | 5 | Ligar o drain | `.env` | `PAGARME_DRAIN=1` |
 | 6 | Subir de novo (drain só entra no `up`) | `docker compose --profile pagarme-webhook up -d pagarme-webhook` | — |
-| 7 | Portão: `/health` com `drainEnabled:true` | `docker compose exec caddy wget -qO- http://pagarme-webhook:8080/health` | — |
+| 7 | Portão: `/health` com `drainEnabled:true` | `docker exec "$(docker compose ps -q pagarme-webhook)" wget -qO- http://127.0.0.1:8080/health` | — |
 | 8 | Decisão que sobrevive a deploy | `.env` | `PAGARME_WEBHOOK_BACKEND=go` |
 | 9 | Caminho quente (proxy) | `state/active-upstream` | `PDV_PAGARME_UPSTREAM=pagarme-webhook:8080` |
-| 10 | Recarregar o Caddy | `docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload` | — |
+| 10 | Recarregar o proxy | `sudo systemctl reload pdv-caddy` (local: `docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload`) | — |
 
 **Diferente do ws-gateway:** o `PAGARME_DRAIN` desligado **não é perigoso** — o
 webhook continua funcionando porque o worker do Node assume a fila. Então o
@@ -1394,11 +1473,11 @@ recarregar o Caddy.
 cd /opt/pdv-completo/deploy
 
 # ws-gateway
-docker compose exec caddy wget -qO- http://ws-gateway:8080/health
+docker exec "$(docker compose ps -q ws-gateway)" wget -qO- http://127.0.0.1:8080/health
 # esperado: {"status":"ok",...,"outboxEnabled":true}
 
 # pagarme-webhook
-docker compose exec caddy wget -qO- http://pagarme-webhook:8080/health
+docker exec "$(docker compose ps -q pagarme-webhook)" wget -qO- http://127.0.0.1:8080/health
 # esperado: {"status":"ok",...,"drainEnabled":true}
 
 # proxy

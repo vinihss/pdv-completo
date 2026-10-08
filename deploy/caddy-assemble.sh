@@ -1,22 +1,27 @@
 #!/bin/sh
 # ============================================================
-# caddy-assemble.sh — monta a configuração do Caddy DENTRO do
-# container e sobe/recarrega o proxy a partir dela.
+# caddy-assemble.sh — monta a configuração do Caddy e sobe/recarrega o
+# proxy a partir dela. Roda em DOIS lugares, com o mesmo conteúdo:
+#
+#   - produção: no HOST, pelo unit systemd `pdv-caddy` (Rota B — o Caddy
+#     saiu do Docker; o env vem do `.env` via PDV_ENV_FILE, passo 0);
+#   - stack local/dev: DENTRO do container do Caddy, como antes (o env vem
+#     do `environment:` do serviço no compose).
 #
 # Por que existir: a Caddyfile do repo tem o upstream como variável
 # (`{$PDV_BACKEND_UPSTREAM:backend:3000}`, e `{$PDV_WS_UPSTREAM:...}`
 # para o /realtime, que tem duas implementações possíveis), e o nome do
 # serviço ativo muda a cada deploy sem downtime (backend ↔ backend-next).
-# Montar a config no container significa que:
+# Montar a config no momento do run/reload significa que:
 #   - o repo no VPS continua sendo a fonte da verdade (a Caddyfile do
 #     git é a que roda, sem arquivo gerado no host);
 #   - o host só guarda o PONTEIRO de 1 linha por chave (qual serviço
-#     está no ar), e esse ponteiro sobrevive a restart do container;
+#     está no ar), e esse ponteiro sobrevive a restart do proxy;
 #   - a troca acontece por `caddy reload` (gracioso), e não por
-#     recriar o container — que era 1-3s de queda total.
+#     recriar o processo/container — que era 1-3s de queda total.
 #
-# Uso (chamado pelo compose e pelo deploy/switch.sh):
-#   caddy-assemble.sh run       → entrypoint do container
+# Uso (chamado pelo compose, pelo unit pdv-caddy e pelo deploy/switch.sh):
+#   caddy-assemble.sh run       → entrypoint (boot)
 #   caddy-assemble.sh reload    → aplica a config nova sem derrubar o proxy
 #   caddy-assemble.sh validate  → só valida (não sobe nem recarrega)
 #
@@ -36,6 +41,84 @@ CONFIG="${PDV_CADDY_CONFIG:-/etc/caddy/Caddyfile}"
 MODE="${1:-run}"
 GATEWAY_UPSTREAM="ws-gateway:8080"
 PAGARME_UPSTREAM="pagarme-webhook:8080"
+
+# ---------- 0. env file (o caminho do HOST, sem mudar o do container) ----------
+# Desde a Rota B o proxy de produção NÃO é container: o unit `pdv-caddy`
+# roda este script no host, e lá não existe o `environment:` do serviço
+# `caddy` do compose para fornecer `ROOT_DOMAIN`/`WS_BACKEND`/etc. O unit —
+# e, no cutover, o `caddy-host.sh` — seta `PDV_ENV_FILE` apontando para o
+# `.env` do deploy, e este bloco carrega dele: só as 4 chaves do allowlist,
+# e só o que já não estiver preenchido no ambiente (env existente vence; o
+# unit pode exportar um valor à mão).
+#
+# POR QUE ISSO NÃO MUDA NADA NO MODO CONTAINER: o carregamento só acontece
+# quando `PDV_ENV_FILE` está definido, e ninguém o define no container (os
+# composes `local`/`dev` nem citam a variável). Sem `PDV_ENV_FILE` este
+# bloco é pulado inteiro (o guard abaixo usa `${PDV_ENV_FILE:-}`) e o
+# `environment:` de sempre dos composes vale, inalterado — o auto-detect foi
+# removido de propósito: ler o `.env` do deploy dentro do container (ex.:
+# `PAGARME_WEBHOOK_BACKEND=go` no `.env`, hoje ignorado no stack local)
+# mudaria o comportamento do que já roda.
+#
+# Parser próprio, NÃO `source` e NÃO `.`: um `.env` é texto de configuração,
+# não script — `source` executaria o que estiver escrito lá (e o `.env` de
+# produção tem valores com `$`, aspas e `#`). O formato aceito é o mesmo que
+# o compose aceita em `.env`: `CHAVE=VALOR` em linha inteira, com aspas
+# duplas/simples extremas removidas; comentário à direita só em valor não
+# aspas. Qualquer outra linha é ignorada sem erro (é o mesmo tratamento
+# "chave fora da allowlist" do ponteiro, abaixo).
+if [ -r "${PDV_ENV_FILE:-}" ]; then
+  while IFS= read -r pdv_line || [ -n "$pdv_line" ]; do
+    # O `case` duplo é proposital: o primeiro reconhece a chave (só linhas
+    # `CHAVE=…` com chave da allowlist entram) e o segundo garante que o
+    # strip é da chave EXATA — `WS_BACKEND_X=…` não pode ser lido como
+    # `WS_BACKEND`.
+    case "$pdv_line" in
+      DOMAIN=*) pdv_key="DOMAIN" ;;
+      ROOT_DOMAIN=*) pdv_key="ROOT_DOMAIN" ;;
+      WS_BACKEND=*) pdv_key="WS_BACKEND" ;;
+      PAGARME_WEBHOOK_BACKEND=*) pdv_key="PAGARME_WEBHOOK_BACKEND" ;;
+      *) continue ;;
+    esac
+    pdv_value="${pdv_line#"$pdv_key"=}"
+    case "$pdv_value" in
+      \'*\')
+        pdv_value="${pdv_value#\'}"
+        pdv_value="${pdv_value%\'}"
+        ;;
+      \"*\")
+        pdv_value="${pdv_value#\"}"
+        pdv_value="${pdv_value%\"}"
+        ;;
+      *) pdv_value="${pdv_value%% #*}" ;;
+    esac
+    # Aparar as pontas (mesma regra do parse do compose e do gate do
+    # switch.sh): `KEY= valor` com espaço é válido, e o espaço não pode virar
+    # parte do valor.
+    pdv_value="${pdv_value#"${pdv_value%%[![:space:]]*}"}"
+    pdv_value="${pdv_value%"${pdv_value##*[![:space:]]}"}"
+    [ -n "$pdv_value" ] || continue
+    # Só preenche o que está VAZIO/indefinido — um valor já exportado (pelo
+    # unit, pelo `-e` de um `docker exec` ou pelo ambiente de quem chamou)
+    # nunca é sobrescrito.
+    case "$pdv_key" in
+      DOMAIN)
+        if [ -z "${DOMAIN:-}" ]; then DOMAIN="$pdv_value"; export DOMAIN; fi
+        ;;
+      ROOT_DOMAIN)
+        if [ -z "${ROOT_DOMAIN:-}" ]; then ROOT_DOMAIN="$pdv_value"; export ROOT_DOMAIN; fi
+        ;;
+      WS_BACKEND)
+        if [ -z "${WS_BACKEND:-}" ]; then WS_BACKEND="$pdv_value"; export WS_BACKEND; fi
+        ;;
+      PAGARME_WEBHOOK_BACKEND)
+        if [ -z "${PAGARME_WEBHOOK_BACKEND:-}" ]; then
+          PAGARME_WEBHOOK_BACKEND="$pdv_value"; export PAGARME_WEBHOOK_BACKEND
+        fi
+        ;;
+    esac
+  done <"$PDV_ENV_FILE"
+fi
 
 # ---------- 1. ponteiro de upstream ----------
 # Arquivo de poucas linhas no formato CHAVE=VALOR. Ausente = primeira
@@ -139,9 +222,10 @@ echo "[caddy] upstream ativo — backend: ${PDV_BACKEND_UPSTREAM:-backend:3000 (
 # `app.<dominio-errado>` enquanto o domínio certo continua no ar do proxy
 # velho — que é a mesma classe de falha que o `stream_close_delay` existe para
 # não produzir (uma troca que "funciona" e corta quem está conectado).
-# O valor padrão pertence a UM lugar só, que é o compose
-# (`ROOT_DOMAIN=${ROOT_DOMAIN:-...}`); aqui a única regra é: vazio é erro, e o
-# erro diz como resolver.
+# O valor padrão pertence a UM lugar por modo, nunca a este script: no
+# container é o `ROOT_DOMAIN=${ROOT_DOMAIN:-...}` do compose (`local`/`dev`),
+# no host é a linha do `.env` (garantida pelo `caddy-host.sh` e lida pelo
+# passo 0); aqui a única regra é: vazio é erro, e o erro diz como resolver.
 #
 # A condição é o próprio arquivo de config, e não "a variável existe": o
 # `Caddyfile.local` (stack de `--profile local`) e o `Caddyfile.dev` não usam
@@ -158,21 +242,29 @@ if [ -z "${ROOT_DOMAIN:-}" ] && sed 's/^[[:space:]]*#.*$//' "$CONFIG" 2>/dev/nul
   # Caddyfile, `$(docker compose ps -q caddy)` é o comando que o operador
   # precisa colar) — com `<<EOF` o shell expandiria os dois no `set -u` e a
   # mensagem morreria com "parameter not set" em vez de chegar ao operador.
+  # O script serve os DOIS mundos (host systemd e container), então a
+  # mensagem cita as duas correções.
   cat >&2 <<'EOF'
 [caddy] ERRO: ROOT_DOMAIN vazio, e a Caddyfile usa {$ROOT_DOMAIN} (blocos app./api./*.)
    Sem ela o 'caddy validate' morre com:
      subject does not qualify for certificate: 'app.'
    — e o switch.sh aborta no passo 4/5, com o proxy antigo no ar.
 
-   Por que ela está vazia: variável de ambiente do container só entra no BOOT
-   dele. Um 'caddy reload' (docker exec) NÃO injeta env nova, e o container em
-   pé pode ter sido criado antes desta linha existir no compose — nesse caso a
-   variável nunca chega, mesmo que o .env do host esteja correto.
+   Neste HOST (proxy systemd pdv-caddy): a variável vem do .env do deploy
+   (PDV_ENV_FILE), e a linha pode simplesmente não existir nele. Corrija no
+   arquivo (é lá que a decisão mora) — ou exporte na chamada para um teste:
+     echo 'ROOT_DOMAIN=<seu-dominio>' >> <deploy>/.env
+     systemctl reload pdv-caddy
+   O `sudo sh deploy/caddy-host.sh` garante a linha com o mesmo default do
+   compose, sem sobrescrever uma existente.
 
-   O switch.sh já resolve isso (lê o valor efetivo no 'docker compose config'
-   e injeta com 'docker exec -e'). Se você está rodando o reload na mão, use a
-   mesma forma, com o valor que o .env do host define:
-     docker exec -e ROOT_DOMAIN=<seu-dominio> \$(docker compose ps -q caddy) \
+   No CONTAINER (stacks local/dev): variável de ambiente só entra no BOOT
+   dele. Um 'caddy reload' (docker exec) NÃO injeta env nova, e o container
+   em pé pode ter sido criado antes da linha existir no compose — nesse caso
+   a variável nunca chega, mesmo que o .env do host esteja correto. O
+   switch.sh já resolve isso (lê o valor efetivo no 'docker compose config'
+   e injeta com 'docker exec -e'); se você está rodando o reload na mão:
+     docker exec -e ROOT_DOMAIN=<seu-dominio> $(docker compose ps -q caddy) \
        sh /srv/pdv-deploy/caddy-assemble.sh reload
 EOF
   exit 1
