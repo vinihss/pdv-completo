@@ -13,7 +13,7 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { config } from "../../config/env.js";
-import { isValidTenantSchemaName } from "../../domain/tenant.js";
+import { isSafeSchemaName } from "../../domain/tenant.js";
 import * as schema from "./schema.js";
 
 // Cada tenant tem o seu `Pool` com `max: TENANT_POOL_MAX`.
@@ -68,10 +68,13 @@ function evictLRU(): void {
 }
 
 function createPool(schemaName: string): Pool {
-  // Validação em camada: o schemaName vem do registry (CHECK do banco) OU do
-  // ambiente (DEFAULT_TENANT_SCHEMA). As duas passam pelo mesmo filtro antes
-  // de entrar num `-c search_path=...`.
-  if (!isValidTenantSchemaName(schemaName) && schemaName !== "public") {
+  // Validação em camada: o `search_path` vai para um `-c search_path=...` do
+  // startup packet, então o nome precisa ser identificador seguro (mesmo
+  // filtro do `resolveTenantSchemaInScope`). O `isValidTenantSchemaName`
+  // (`tenant_*`) é regra do REGISTRY e vale na resolução por Host
+  // (`resolve-tenant.usecase.ts`), não aqui: o `DEFAULT_TENANT_SCHEMA` é
+  // operação e aceita qualquer schema seguro — ex.: `public` ou `umami1`.
+  if (!isSafeSchemaName(schemaName)) {
     throw new Error(`[tenant-db] schema_name inválido para pool: ${JSON.stringify(schemaName)}`);
   }
 
