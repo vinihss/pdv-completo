@@ -71,6 +71,13 @@ services:
       - CORS_ORIGIN=${CORS_ORIGIN:-https://${DOMAIN}}
       - PORT=3000
       - LOG_LEVEL=info
+      # Schema que o processo fala enquanto `TENANT_ROUTING` estiver
+      # desligado (kill-switch, default off). Produção usa `umami1` (o dado
+      # do Umami saiu de `public`); vazio/ausente = `public` (o backend trata
+      # "" como unset). Precisa estar listado AQUI: o `backend-next` herda
+      # só o que está neste bloco via `extends` — sem a chave o canary
+      # subiria em `public` enquanto o azul ficaria no schema novo.
+      - DEFAULT_TENANT_SCHEMA=${DEFAULT_TENANT_SCHEMA:-}
       # ---------- WhatsApp Cloud API (Embedded Signup) ----------
       # Sem isto a aba 'WhatsApp' do gerente mostra 'não configurado' — o
       # resto do app funciona normal.
