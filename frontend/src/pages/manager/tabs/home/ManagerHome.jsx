@@ -136,7 +136,6 @@ export default function ManagerHome({ showToast }) {
         actions={(
           <Button variant="secondary" size="sm" onClick={load} disabled={loading} aria-label="Atualizar indicadores">
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} aria-hidden="true" />
-            Atualizar
           </Button>
         )}
       />

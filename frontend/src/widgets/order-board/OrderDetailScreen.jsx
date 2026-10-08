@@ -17,7 +17,7 @@ import {
 import { AddItemScreen } from "@/features/orders";
 import { PaymentModal, PrintLayoutModal } from "@/features/orders";
 
-export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onReload, showToast }) {
+export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onReload, onItemsConfirmed, showToast }) {
   const { storeSettings } = useAuth();
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -261,7 +261,11 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
           onClose={() => setAddItemOpen(false)}
           onConfirmed={async () => {
             setAddItemOpen(false);
-            await onReload();
+            if (onItemsConfirmed) {
+              await onItemsConfirmed();
+            } else {
+              await onReload();
+            }
           }}
           showToast={showToast}
         />

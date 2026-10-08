@@ -83,6 +83,7 @@ services:
       # `TENANT_ROUTING=true` mas o processo não vê — e todo host cai no
       # schema default. `backend-next` herda via `extends`.
       - TENANT_ROUTING=${TENANT_ROUTING:-false}
+
       # ---------- WhatsApp Cloud API (Embedded Signup) ----------
       # Sem isto a aba 'WhatsApp' do gerente mostra 'não configurado' — o
       # resto do app funciona normal.
