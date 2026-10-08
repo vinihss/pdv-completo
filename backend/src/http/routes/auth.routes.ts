@@ -8,11 +8,11 @@ import { loginUsecase } from "../../application/auth/login.usecase.js";
 import {
   photoUrl,
   getOwnProfileUsecase,
-import { tenantMiddleware } from "../../http/middlewares/tenant.middleware.js";
   updateOwnProfileUsecase,
   saveUserPhotoUsecase,
   clearUserPhotoUsecase,
 } from "../../application/user.usecases.js";
+import { tenantMiddleware } from "../../http/middlewares/tenant.middleware.js";
 import { authMiddleware } from "../middlewares/auth.middleware.js";
 import { loginRateLimit } from "../middlewares/rate-limit.middleware.js";
 import { imageExtByMime } from "./misc.routes.js";
