@@ -484,9 +484,17 @@ step10_swap() {
 
   # Domínio para os probes: HOST: certo no HTTP e SNI certo no HTTPS (um
   # `curl https://127.0.0.1/` levaria cert errado e falharia à toa).
+  # Preferir ROOT_DOMAIN: ele é o apex que TEM site na Caddyfile. O apex de
+  # DOMAIN pode não ter bloco nenhum (ex.: `labolabe.tech` sem bloco, só
+  # `*.labolabe.tech`) e o probe HTTPS daria 000/exit 35, abortando o cutover
+  # com rollback. ROOT_DOMAIN vazio/ausente → aí sim DOMAIN.
   if [ -f "$ENV_FILE" ]; then
-    domain="$(grep -E '^[[:space:]]*(DOMAIN|ROOT_DOMAIN)=' "$ENV_FILE" | head -1 | cut -d= -f2- |
+    domain="$(grep -E '^[[:space:]]*ROOT_DOMAIN=' "$ENV_FILE" | head -1 | cut -d= -f2- |
       sed 's/^[[:space:]]*["'"'"']//; s/["'"'"'][[:space:]]*$//; s/[[:space:]]*#.*$//' || true)"
+    if [ -z "$domain" ]; then
+      domain="$(grep -E '^[[:space:]]*DOMAIN=' "$ENV_FILE" | head -1 | cut -d= -f2- |
+        sed 's/^[[:space:]]*["'"'"']//; s/["'"'"'][[:space:]]*$//; s/[[:space:]]*#.*$//' || true)"
+    fi
   else
     domain=""
   fi
