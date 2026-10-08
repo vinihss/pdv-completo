@@ -7,7 +7,12 @@
 -- permanece em rota.
 --
 -- Sem audit_log — muda de estado do pedido, não de dados sensíveis.
+--
+-- Idempotente: o runner de migrations re-tenta qualquer arquivo sem linha em
+-- `_migrations`, e o drift já aconteceu em produção — esta migration abortou o
+-- boot em 08/10 com "column already exists" e derrubou o deploy da tag (o gate
+-- de saúde do switch abortou). `IF NOT EXISTS` heal o drift em vez de quebrar.
 -- ============================================================
 
 ALTER TABLE delivery
-  ADD COLUMN arrival_alert_sent BOOLEAN NOT NULL DEFAULT FALSE;
+  ADD COLUMN IF NOT EXISTS arrival_alert_sent BOOLEAN NOT NULL DEFAULT FALSE;
