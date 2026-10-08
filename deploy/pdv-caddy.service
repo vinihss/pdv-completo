@@ -1,0 +1,66 @@
+# ============================================================
+# pdv-caddy.service — TEMPLATE versionado do unit do proxy de produção.
+#
+# Por que versionado (e não gerado inline no install): o conteúdo do unit é
+# parte do deploy como qualquer outro arquivo — ele tem que aparecer em
+# review, no diff da PR e no histórico, do mesmo jeito que o compose. O
+# `caddy-host.sh` é quem o materializa em /etc/systemd/system/, trocando os
+# `@DEPLOY_DIR@` pelo caminho real do checkout (sed simples; nada de
+# template engine para 5 placeholders).
+#
+# RODA COMO ROOT, e não como usuário dedicado: o diretório do deploy em
+# produção fica em /root/pdv-completo/deploy (ou /root/pdv/deploy), e /root
+# é 0700 — nenhum usuário atravessaria até o diretório. É o mesmo motivo de
+# o `caddy-host.sh` exigir root.
+#
+# Este arquivo NÃO é um unit instalável direto: os `@DEPLOY_DIR@` o
+# invalidariam como está. Instale com:
+#   sudo sh deploy/caddy-host.sh
+# ============================================================
+
+[Unit]
+Description=PDV - proxy Caddy de produção (fora do Docker)
+Documentation=https://caddyserver.com/docs/install
+# A rede tem que estar ONLINE (não só "existe"): os upstreams do Caddy são
+# IPs da bridge do Docker lidos do /etc/hosts (172.18.0.241 backend, …), e
+# /etc/hosts só resolve depois que a interface está de pé. O docker.service
+# entra no Wants/After porque os containers que servem 80/443 por trás do
+# proxy são dele — no boot o proxy pode subir antes dos containers (o
+# reverse_proxy responde 502 poucos segundos e se recupera sozinho), mas a
+# REDE do Docker precisa existir para o /etc/hosts fazer sentido.
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=@DEPLOY_DIR@
+# Os três caminhos do próprio deploy: a Caddyfile do git (fonte da
+# verdade), o ponteiro de upstream (estado gravado pelo switch.sh) e o
+# .env (de onde saem ROOT_DOMAIN/WS_BACKEND/PAGARME_WEBHOOK_BACKEND/DOMAIN
+# — ver o passo 0 do caddy-assemble.sh).
+Environment=PDV_CADDY_CONFIG=@DEPLOY_DIR@/Caddyfile
+Environment=PDV_UPSTREAM_STATE=@DEPLOY_DIR@/state/active-upstream
+Environment=PDV_ENV_FILE=@DEPLOY_DIR@/.env
+# Mesmo layout de dados do container para o binário no host. No container
+# `XDG_DATA_HOME=/data` (volume pdv_caddy_data) ⇒ certs em /data/caddy/...;
+# aqui `/var/lib/caddy` ⇒ /var/lib/caddy/caddy/... — o `caddy-host.sh`
+# copia o volume para cá na primeira migração justamente para que os
+# certificados emitidos pelo Let's Encrypt continuem válidos (reemitir
+# estoura o rate limit de 5 certificados/semana por domínio).
+Environment=XDG_DATA_HOME=/var/lib/caddy
+Environment=XDG_CONFIG_HOME=/var/lib/caddy/config
+# `run`/`reload` são os modos do próprio caddy-assemble.sh (o reload do
+# ExecReload roda o MESMO script com o MESMO env do unit, então o ponteiro
+# e o .env são relidos a cada recarga — nada de env congelado como no
+# `docker exec`).
+ExecStart=/bin/sh @DEPLOY_DIR@/caddy-assemble.sh run
+ExecReload=/bin/sh @DEPLOY_DIR@/caddy-assemble.sh reload
+# on-failure e não always: um `caddy reload` mal-sucedido não derruba o
+# processo (o sinal só chega se a config validar), e um crash de boot tem
+# que ser reincidente para o systemd intervir — o proxy caindo de propósito
+# não é um estado que este unit deve manter tentando em loop.
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

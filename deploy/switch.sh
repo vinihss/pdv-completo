@@ -21,6 +21,22 @@
 # Em nenhum momento existe um instante em que o Caddy aponte para algo
 # que não está respondendo — por isso o gap de HTTP é 0, e não "quase 0".
 #
+# ---------- Onde mora o proxy (Caddy) ----------
+# Em produção o Caddy NÃO é mais um container: ele roda no host, como unit
+# systemd `pdv-caddy` (instalado/migrado pelo `caddy-host.sh`), e resolve os
+# upstreams pelo /etc/hosts do host (`172.18.0.241 backend`, … — IPs fixos no
+# docker-compose.yml). Os stacks locais (`--profile local`) continuam com o
+# container, e é o próprio compose que diz qual dos dois mundos está valendo:
+# `has_service caddy` = falso ⇒ proxy no host.
+#
+# O fluxo do switch é o MESMO nos dois — a única diferença é o endereço do
+# reload no passo 4: `systemctl reload pdv-caddy` (host) ou
+# `docker exec caddy …` (container). Nos dois lados roda o mesmo
+# `caddy-assemble.sh` sobre o mesmo ponteiro `state/active-upstream`, com os
+# mesmos `stream_close_delay`/health gates; quem escreve o ponteiro não muda.
+# O reload do host exige root (ver `reload_caddy`), e `--status` mostra de
+# qual dos dois mundos ele está falando.
+#
 # ---------- O que este script NÃO troca: o gateway WebSocket em Go ----------
 # (e, pelo mesmo motivo, o app público de pedidos — ver a seção seguinte)
 # O `ws-gateway` não entra no rodízio azul/verde, e a decisão é deliberada.
@@ -65,8 +81,8 @@
 # WebSocket. Ele NÃO ganha uma instância "-next": o que ele serve é um bundle
 # estático, e o modo de falha de "bundle velho no ar" é muito menos grave que
 # o do backend (schema sem migration). O que ele PRECISA é existir, porque a
-# Caddyfile faz `reverse_proxy pedidopublic:80` em três blocos (`umamisushiarte.com.br`,
-# `www` e o wildcard `*.ROOT_DOMAIN`) — sem container, 502 no ar.
+# Caddyfile faz `reverse_proxy pedidopublic:80` em dois blocos (`umamisushiarte.com.br`
+# e o wildcard `*.ROOT_DOMAIN`; o `www` só redireciona) — sem container, 502 no ar.
 #
 # Então o switch o carrega dentro dos MESMOS passos, sem sair da semântica:
 #   passo 1 — `compose build backend frontend pedidopublic`: a imagem entra
@@ -74,8 +90,10 @@
 #     com o bundle da versão anterior — ou, na primeira vez, sem container
 #     nenhum;
 #   passo 2 — `compose up -d --no-deps ... pedidopublic`: `--no-deps` é a
-#     regra do passo, nada aqui pode recriar o postgres nem o caddy (recriar
-#     o proxy derrubaria os WebSocket do salão por causa de um cardápio);
+#     regra do passo, nada aqui pode recriar o postgres nem o proxy (no
+#     compose da produção o Caddy nem é serviço mais — é o unit do host; no
+#     stack local, recriar o container do caddy derrubaria os WebSocket do
+#     salão por causa de um cardápio);
 #   passo 3 — `wait_healthy pedidopublic`: o MESMO portão dos outros dois, e
 #     aqui ele finalmente significa alguma coisa — o `/healthz` passou a ser
 #     servido de verdade pelo nginx (antes o healthcheck batia no
@@ -143,8 +161,8 @@ while [ $# -gt 0 ]; do
       # perdia as seções "Uso" e "Variáveis de ambiente", que é justamente o
       # corte no meio. Regra: o primeiro número é 2, o segundo é a linha do
       # ÚLTIMO `#` do cabeçalho, uma antes do `set -euo pipefail` — que hoje
-      # está na linha 115, então o cabeçalho fecha na 114.
-      sed -n '2,114p' "$0" | sed 's/^# \{0,1\}//'
+      # está na linha 133, então o cabeçalho fecha na 132.
+      sed -n '2,132p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -180,7 +198,9 @@ COMPOSE+=(--profile canary)
 STATE_DIR="state"
 STATE_FILE="$STATE_DIR/active-upstream"
 # Onde o CI (job build-desktop) publica o instalador e o latest.json, por
-# SSH. O compose monta este diretório em /srv/pdv-updates no Caddy.
+# SSH. O proxy serve este diretório em /srv/pdv-updates: no host é o symlink
+# que o `caddy-host.sh` cria (→ <deploy>/updates), no stack local é o bind
+# mount do container.
 UPDATES_DIR="updates"
 
 # Os dois nomes possíveis, e o papel de cada um. "live" é quem o Caddy está
@@ -268,9 +288,10 @@ live_frontend() {
 # caddy-assemble.sh (ponteiro > flag WS_BACKEND > seguir o backend). Aqui
 # é só para o --status e o aviso do switch mostrarem a verdade; se as duas
 # regras divergirem, o --status mente — daí o comentário, e a ordem ser
-# idêntica. A flag vem do ambiente do container do Caddy porque é de lá que
-# o caddy-assemble.sh lê (e é o único lugar onde ela existe depois do
-# boot).
+# idêntica. A flag vem do ambiente do PROXY: no stack local é o container do
+# Caddy (é de lá que o caddy-assemble.sh lê); no host não há container, e o
+# assemble lê o `.env` — a mesma fonte que este fallback passa a ler quando
+# não há container, para os dois mundos responderem a mesma coisa.
 live_ws_upstream() {
   local value=""
   if [ -r "$STATE_FILE" ]; then
@@ -285,6 +306,19 @@ live_ws_upstream() {
   if [ -n "$id" ]; then
     flag="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$id" 2>/dev/null |
       sed -n 's/^WS_BACKEND=//p' | head -1 || true)"
+  fi
+  # Sem container do Caddy (produção: o proxy é o unit do host) a flag mora
+  # no `.env`, que é exatamente de onde o caddy-assemble.sh do host a lê.
+  # A remoção de ` #` e as aspas espelham o parser do próprio assemble —
+  # os dois têm que devolver o mesmo veredito para o mesmo arquivo.
+  if [ -z "$flag" ] && [ -r .env ]; then
+    flag="$(grep -E '^[[:space:]]*WS_BACKEND=' .env | tail -1 | cut -d= -f2- || true)"
+    flag="${flag%% #*}"
+    flag="${flag#\"}"
+    flag="${flag%%\"}"
+    flag="${flag#\'}"
+    flag="${flag%\'}"
+    flag="$(printf '%s' "$flag" | tr -d '[:space:]')"
   fi
   if [ "$flag" = "go" ]; then
     echo "ws-gateway:8080"
@@ -453,7 +487,17 @@ gate_status_line() {
   [ -n "$origem" ] || origem="não definida (nem ambiente nem .env)"
   printf 'gate do realtime: %s (%s; %s) — %s%s\n' "$word" "$valor" "$origem" "$porque" "$marker"
   if [ -n "$marker" ]; then
-    printf '  o valor acima é a env do container em execução, e o /health do gateway a corrobora: outboxEnabled é o gate lido no processo (docker compose exec caddy wget -qO- http://ws-gateway:8080/health)\n'
+    # O comando de corroboração é de um mundo só: no stack local quem tem
+    # wget e rota de rede é o container do caddy; no host ele não existe, e
+    # a mesma leitura sai do próprio container do gateway (alpine/busybox
+    # wget, imagem final do ws-gateway).
+    local exemplo_wget
+    if has_service caddy; then
+      exemplo_wget="docker compose exec caddy wget -qO- http://ws-gateway:8080/health"
+    else
+      exemplo_wget="docker exec \$(docker compose ps -q ws-gateway) wget -qO- http://127.0.0.1:8080/health"
+    fi
+    printf '  o valor acima é a env do container em execução, e o /health do gateway a corrobora: outboxEnabled é o gate lido no processo (%s)\n' "$exemplo_wget"
     printf '  o .env não entra nesta conta de propósito: ele responde o que o PRÓXIMO up vai aplicar, não o que está rodando — as duas divergem quando alguém edita o .env sem rodar up\n'
   fi
 }
@@ -483,8 +527,9 @@ write_pointer() {
    O arquivo é versionado no repo justamente para não depender disso."
   fi
   cat >"$STATE_FILE" <<EOF
-# Gerado por switch.sh — qual instância está no ar. Lido pelo container do
-# Caddy (caddy-assemble.sh). Não editar à mão.
+# Gerado por switch.sh — qual instância está no ar. Lido pelo
+# caddy-assemble.sh: no host pelo unit pdv-caddy, no stack local pelo
+# container do Caddy. Não editar à mão.
 PDV_BACKEND_UPSTREAM=${backend_name}:3000
 PDV_FRONTEND_UPSTREAM=${frontend_name}:80
 EOF
@@ -511,11 +556,13 @@ svc_field() {
 }
 
 # Garante que o diretório de artefatos do auto-update exista E seja gravável
-# pelo usuário do deploy. Sem isso o bind mount do Caddy cria o diretório como
-# root (`./updates:/srv/pdv-updates:ro`) e o scp do job build-desktop — que
-# roda com o usuário do CI — toma "permission denied", derrubando o job
-# inteiro: o instalador não chega ao servidor e o cliente não tem o que
-# baixar. Mesma armadilha do `state/`, mesmo remedy.
+# pelo usuário do deploy. No stack local o bind mount do Caddy ainda cria o
+# diretório como root (`./updates:/srv/pdv-updates:ro`) e o scp do job
+# build-desktop — que roda com o usuário do CI — toma "permission denied",
+# derrubando o job inteiro: o instalador não chega ao servidor e o cliente
+# não tem o que baixar. No host o proxy lê pelo symlink que o caddy-host.sh
+# cria, mas o dono do diretório continua sendo quem o CI escreve — mesma
+# armadilha do `state/`, mesmo remedy.
 ensure_updates_dir() {
   mkdir -p "$UPDATES_DIR" 2>/dev/null ||
     fail "não consegui criar $UPDATES_DIR (gravável pelo usuário atual?)."
@@ -562,6 +609,11 @@ ensure_updates_dir() {
 # `docker exec -e` não é recrear o container: o processo novo (o `caddy reload`)
 # recebe a env, o proxy continua o MESMO processo — é o mesmo motivo pelo qual
 # o `exec` já é o mecanismo do reload.
+#
+# Esta função só é chamada quando o compose AINDA declara o serviço caddy
+# (stack local e a fase de migração): no modo host o `reload_caddy` nem chega
+# aqui — quem lê ROOT_DOMAIN é o `.env`, via passo 0 do próprio
+# caddy-assemble.sh, relido a cada `systemctl reload`.
 caddy_root_domain() {
   "${COMPOSE[@]}" config 2>/dev/null | awk '
     /^  [a-zA-Z]/ { svc = $1 }
@@ -571,9 +623,43 @@ caddy_root_domain() {
   '
 }
 
-# Recarrega o proxy. A config é montada DENTRO do container do Caddy a
-# partir do ponteiro acima (caddy-assemble.sh valida antes de aplicar).
+# Recarrega o proxy. A config é montada a partir do ponteiro acima
+# (caddy-assemble.sh valida antes de aplicar) — nos DOIS mundos, com o mesmo
+# script; o que muda é quem recebe o reload.
 reload_caddy() {
+  # ---------- Mundo host (produção): proxy é o unit pdv-caddy ----------
+  # O compose da produção não tem o serviço `caddy`, então não há container
+  # para `docker exec` — e não é um caso de "container sumiu", é o desenho
+  # novo (ver cabeçalho, seção "Onde mora o proxy"). O unit invoca o MESMO
+  # caddy-assemble.sh com PDV_CADDY_CONFIG/PDV_UPSTREAM_STATE/PDV_ENV_FILE
+  # do deploy, então o ponteiro já escrito é aplicado igual; o `.env` é
+  # relido a cada reload (diferente do `docker exec`, que fica com a env do
+  # boot — é justamente o defeito que `caddy_root_domain` contorna no outro
+  # caminho, e aqui não existe).
+  if ! has_service caddy; then
+    [ -f /etc/systemd/system/pdv-caddy.service ] ||
+      fail "o compose desta versão não tem o serviço 'caddy' e o host não tem o unit pdv-caddy.
+   Sem proxy nenhum neste estado — instale/migre primeiro:
+     sudo bash deploy/caddy-host.sh"
+    # Root obrigatório: `systemctl reload` para usuário comum exige regra de
+    # polkit/sudoers que nenhum VPS traz de fábrica. O CI e o `--install`
+    # costumam rodar como root; quando não rodam, o sudo sem senha resolve —
+    # e se nem ele existir, o fail diz o que fazer em vez de morrer com
+    # "Access denied" no meio do passo 4/5.
+    if [ "$(id -u)" -eq 0 ]; then
+      systemctl reload pdv-caddy ||
+        fail "systemctl reload pdv-caddy falhou — veja: journalctl -u pdv-caddy -n 50"
+    elif sudo -n true 2>/dev/null; then
+      sudo -n systemctl reload pdv-caddy ||
+        fail "systemctl reload pdv-caddy falhou — veja: journalctl -u pdv-caddy -n 50"
+    else
+      fail "o reload do proxy (unit pdv-caddy) precisa de root, e este shell não é root nem tem sudo sem senha.
+   Rode o switch como root, ou libere só este comando para o usuário $(id -un):
+     echo '$(id -un) ALL=(root) NOPASSWD: /usr/bin/systemctl reload pdv-caddy' | sudo tee /etc/sudoers.d/pdv-reload"
+    fi
+    return 0
+  fi
+  # ---------- Mundo container (stack local / fase de migração) ----------
   local id
   id="$(svc_id caddy)"
   [ -n "$id" ] || fail "container do caddy não encontrado (o stack está no ar?)"
@@ -654,19 +740,47 @@ container_image() {
   svc_field "$1" '{{.Config.Image}}'
 }
 
+# Estado do proxy quando ele está fora do Docker (unit pdv-caddy no host).
+# "não instalado" é um estado legítimo — o `--status` tem que responder em
+# qualquer máquina (inclusive numa sem o host migrado) sem quebrar, e é o
+# que o operador precisa fazer a seguir: rodar o caddy-host.sh.
+proxy_status_systemd() {
+  if [ ! -f /etc/systemd/system/pdv-caddy.service ]; then
+    printf 'proxy (systemd pdv-caddy): não instalado (unit ausente — rode: sudo bash deploy/caddy-host.sh)\n'
+    return 0
+  fi
+  local state
+  if ! command -v systemctl >/dev/null 2>&1; then
+    state="systemd indisponível neste ambiente"
+  else
+    # `is-active` sai != 0 para inactive/failed — o `|| true` é para o
+    # set -e, não para esconder o estado: o texto (inactive, failed, …)
+    # continua indo para a tela, que é onde ele explica o problema.
+    state="$(systemctl is-active pdv-caddy 2>/dev/null || true)"
+    [ -n "$state" ] || state="desconhecido"
+  fi
+  printf 'proxy (systemd pdv-caddy): %s\n' "$state"
+}
+
 do_status() {
   local be fe ws
   be="$(live_backend)"
   fe="$(live_frontend)"
   ws="$(live_ws_upstream)"
+  if ! has_service caddy; then proxy_status_systemd; fi
   printf 'Caddy aponta para: backend=%s frontend=%s realtime=%s\n' "$be" "$fe" "$ws"
   gate_status_line "$ws"
   printf '\n%-16s %-22s %-12s %s\n' SERVIÇO IMAGEM ESTADO SAÚDE
-  # O app público entra na lista: ele é destino de três blocos da Caddyfile
-  # (`umamisushiarte.com.br`, `www` e `*.ROOT_DOMAIN`), então "não existe" ou
-  # "unhealthy" nele é 502 no ar — e o operador precisa ver isso no `--status`,
-  # não descobrir pela tela do cliente.
-  local -a status_servicos=(postgres caddy "${BACKEND_SERVICES[@]}" "${FRONTEND_SERVICES[@]}" ws-gateway)
+  # O app público entra na lista: ele é destino de dois blocos da Caddyfile
+  # (`umamisushiarte.com.br` e `*.ROOT_DOMAIN`; o `www` só redireciona), então
+  # "não existe" ou "unhealthy" nele é 502 no ar — e o operador precisa ver
+  # isso no `--status`, não descobrir pela tela do cliente.
+  # O `caddy` só entra enquanto ele é serviço do compose (stack local/fase de
+  # migração); no modo host a linha do proxy é a do systemd, acima — listar
+  # "caddy … não existe" ali seria ruído, o container não é esperado.
+  local -a status_servicos=(postgres)
+  if has_service caddy; then status_servicos+=(caddy); fi
+  status_servicos+=("${BACKEND_SERVICES[@]}" "${FRONTEND_SERVICES[@]}" ws-gateway)
   if has_service "$PEDIDO_SERVICE"; then status_servicos+=("$PEDIDO_SERVICE"); fi
   for svc in "${status_servicos[@]}"; do
     if [ -z "$(svc_id "$svc")" ]; then
@@ -699,7 +813,26 @@ do_install() {
   # Antes do `up`: o bind mount ./updates é o que cria o diretório como root
   # quando ele não existe, e aí o CI não consegue publicar o instalador.
   ensure_updates_dir
-  info "o Caddy sobe com a config montada no container, sem ponteiro (defaults backend/frontend)"
+  # Proxy fora do Docker: prepara o host ANTES do `up`, e a ordem é o ponto.
+  # O `up --remove-orphans` abaixo enxergaria o container do caddy antigo
+  # como órfão (o serviço sumiu do compose) e o REMOVERIA enquanto ele ainda
+  # serve tráfego — a janela seria a do build + healthcheck inteira. Com o
+  # caddy-host.sh antes, a porta 80/443 já trocou de dono (container parado,
+  # unit pdv-caddy no ar) e o `up` só limpa um container que não serve mais
+  # ninguém. Em instalação de verdade não há container antigo, e o script é
+  # idempotente. No stack local (`has_service caddy` true) não há o que
+  # preparar: o proxy continua sendo o container de sempre.
+  if ! has_service caddy; then
+    say "proxy fora do Docker — preparando o host (caddy-host.sh)"
+    if [ "$(id -u)" -eq 0 ]; then
+      bash ./caddy-host.sh --deploy-dir "$PWD"
+    elif command -v sudo >/dev/null 2>&1; then
+      sudo bash ./caddy-host.sh --deploy-dir "$PWD"
+    else
+      fail "o caddy-host.sh precisa de root (unit em /etc/systemd/system) e este shell não é root nem tem sudo"
+    fi
+  fi
+  info "o proxy sobe com a config sem ponteiro (defaults backend/frontend)"
   # --remove-orphans não remove as instâncias "-next": elas são serviços do
   # próprio compose (profile `canary`), não órfãos — medido, o `up` sem o
   # profile as deixa intactas. Sem isso, o ponteiro poderia ficar apontando
@@ -711,7 +844,7 @@ do_install() {
   wait_healthy backend
   wait_healthy frontend
   # O `up` acima já sobe o app público (ele não está atrás de profile), mas
-  # o portão é o mesmo dos outros dois: o Caddy tem três blocos com
+  # o portão é o mesmo dos outros dois: o Caddy tem dois blocos com
   # `reverse_proxy pedidopublic:80`, e um cardápio que não sobe é 502 no ar.
   if has_service "$PEDIDO_SERVICE"; then
     wait_healthy "$PEDIDO_SERVICE"
@@ -768,7 +901,7 @@ do_switch() {
   # atende. Sem o segundo, o reload podia apontar para um nginx que ainda
   # não subiu e o navegador levava 502 no primeiro F5.
   # O app público entra no MESMO portão: o `/healthz` do nginx dele é o que
-  # impede que o passo 4 recarregue o proxy com três blocos
+  # impede que o passo 4 recarregue o proxy com dois blocos
   # `reverse_proxy pedidopublic:80` apontando para um cardápio que não sobe.
   say "3/5 aguardando a instância nova ficar healthy"
   if ! wait_healthy "$new_be" || ! wait_healthy "$new_fe"; then
