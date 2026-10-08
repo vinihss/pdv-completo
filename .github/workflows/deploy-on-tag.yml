@@ -447,13 +447,24 @@ jobs:
             # (o truque antigo de `--force-recreate caddy` custava ~2s de
             # proxy fora do ar).
             echo "[deploy] Switch (instância nova + reload do proxy)..."
-            PDV_PROBE_URL="https://$(grep '^DOMAIN=' deploy/.env | cut -d= -f2)" \
+            # Domínio do probe: preferir ROOT_DOMAIN — é o apex que TEM site
+            # na Caddyfile. O apex de DOMAIN pode não ter bloco nenhum (ex.:
+            # `labolabe.tech` sem bloco, só `*.labolabe.tech`), o cert não
+            # existe e o HTTPS volta 525/000 pela Cloudflare — o switch
+            # abortaria o deploy com rollback à toa depois de tudo certo.
+            # ROOT_DOMAIN vazio/ausente → aí sim DOMAIN. Mesma preferência
+            # do probe do caddy-host.sh (#144).
+            PROBE_DOMAIN="$(grep '^ROOT_DOMAIN=' deploy/.env | cut -d= -f2 || true)"
+            if [ -z "$PROBE_DOMAIN" ]; then
+              PROBE_DOMAIN="$(grep '^DOMAIN=' deploy/.env | cut -d= -f2 || true)"
+            fi
+            PDV_PROBE_URL="https://$PROBE_DOMAIN" \
               ./deploy/switch.sh
 
             echo "[deploy] Estado final:"
             ./deploy/switch.sh --status
 
             echo "[deploy] Deploy da tag $TAG concluído com sucesso."
-            echo "[deploy] URL: https://$(grep '^DOMAIN=' deploy/.env | cut -d= -f2)"
+            echo "[deploy] URL: https://$PROBE_DOMAIN"
             echo "[deploy] Se algo parecer errado no app: cd $APP_PATH && ./deploy/switch.sh --rollback"
 
