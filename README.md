@@ -5,6 +5,10 @@
 Implementação completa (backend real + frontend consumindo a API, sem mocks)
 das specs em `docs/`. Ver `docs/00-overview.md` pra contexto do produto.
 
+**Documentação por tarefa:** consulte [`docs/README.md`](docs/README.md) para encontrar guias de produto, desenvolvimento, testes, operações e agentes. Para contribuir, veja [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+> **Desenvolvimento local:** o seed cria usuários e dados fictícios. Nunca use esses PINs nem rode `npm run seed` em produção. A documentação não concede autorização para acessar ou alterar banco de produção.
+
 ## Estrutura
 
 ```
@@ -16,6 +20,10 @@ printer/    Daemon Go para impressão térmica (ESC/POS)
 deploy/     Deploy em nuvem: Dockerfiles, Caddy (HTTPS automático), docker-compose
 docs/       Specs originais (backend, frontend, critérios de aceite)
 ```
+
+> Os apps mobile (Garçom/Entregador, React Native/Expo) **não estão mais neste
+> repositório** — vivem no projeto separado **`pdv-mobile-apps`**
+> (`~/Downloads/pdv-mobile-apps`), com o doc 22 da migração RN.
 
 ## Modos de execução
 
@@ -61,7 +69,7 @@ npm run seed               # aplica migrations + dados de demonstração
 npm run dev                 # http://localhost:3000
 ```
 
-O seed cria 5 usuários de teste:
+O seed de desenvolvimento cria usuários de teste (os perfis e PINs podem mudar; confira a saída e o código atual do seed):
 
 | Nome | Perfil | PIN |
 |---|---|---|
@@ -325,7 +333,7 @@ impressoras), ver **`printer/README.md`**.
 | `deploy/backup.sh` | deploy | Backup do banco (pg_dump) |
 | `deploy/backup-fetch.sh` | deploy | Download do backup |
 | `deploy/probe-availability.sh` | deploy | Mede downtime real |
-| `scripts/build/build-app.sh` | `frontend/` | Build do app desktop v1 (Tauri): `--release` para entrega, `--appimage-docker` para AppImage |
+| `deploy/switch.sh` | deploy | deploy sem downtime (azul/verde) |
 | `printer/scripts/install-linux.sh` | printer | Instala daemon como serviço Linux |
 | `printer/scripts/install-windows.ps1` | printer | Instala daemon como serviço Windows |
 

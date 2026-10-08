@@ -2,7 +2,7 @@
  * Um build, quatro apps.
  *
  * O MESMO bundle React sobe nas 4 entries (`index.html` = frente de caixa,
- * `kds.html` = cozinha, `garcon.html`, `entregador.html`) — nada de app
+ * `kds.html` = cozinha) — nada de app
  * duplicado. O que precisa variar por app é só o que o navegador guarda por
  * instalação:
  *
@@ -58,20 +58,7 @@ const APP_PROFILES = {
     description: "Tela de produção da cozinha",
     cachePrefix: "pdv-static-kds-v",
   },
-  garcon: {
-    name: "PDV — Garçom",
-    shortName: "Garçom",
-    title: "Garçom",
-    description: "Comandas do garçom",
-    cachePrefix: "pdv-static-garcon-v",
-  },
-  entregador: {
-    name: "PDV — Entregador",
-    shortName: "Entregador",
-    title: "Entregador",
-    description: "Acompanhamento de entregas",
-    cachePrefix: "pdv-static-entregador-v",
-  },
+
 };
 
 /** Os profiles aceitos em `VITE_APP_PROFILE` (o `all` inclusive). */

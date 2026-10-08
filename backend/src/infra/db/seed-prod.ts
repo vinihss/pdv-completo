@@ -8,6 +8,13 @@
 // Uso (dentro do container, uma única vez, no primeiro deploy):
 //   MERCHANT_NAME="Bar do Zé" MERCHANT_CITY="Sao Paulo" MANAGER_NAME="Roberto" \
 //   node dist/infra/db/seed-prod.js
+//
+// Também é o BOOTSTRAP do provisionamento de loja nova
+// (`./pdv db provision <slug> "<nome>"` → `provision-tenant.ts`), que o chama
+// dentro do escopo ALS do schema recém-criado: como `db`/`pool` são Proxies
+// que resolvem o schema pelo ALS (`client.ts`), o MESMO código grava em
+// `tenant_<slug>` sem mudar uma linha. Rodar de novo é seguro: o guard de
+// `store_settings` faz nothing-to-do.
 import argon2 from "argon2";
 import { eq } from "drizzle-orm";
 import { runMigrations } from "./migrate.js";
@@ -18,7 +25,14 @@ function randomPin(): string {
   return String(Math.floor(1000 + Math.random() * 9000));
 }
 
-async function seedProd() {
+export type ProdSeedOptions = {
+  /** Nome do estabelecimento; cai no `MERCHANT_NAME` do ambiente, depois no default. */
+  merchantName?: string;
+  /** Nome do primeiro manager; cai no `MANAGER_NAME` do ambiente, depois no default. */
+  managerName?: string;
+};
+
+export async function runProdSeed(opts: ProdSeedOptions = {}): Promise<void> {
   // migrations são async no Postgres: sem await o seed competiria com o DDL.
   await runMigrations();
 
@@ -28,9 +42,9 @@ async function seedProd() {
     return;
   }
 
-  const merchantName = process.env.MERCHANT_NAME ?? "Meu Estabelecimento";
+  const merchantName = opts.merchantName ?? process.env.MERCHANT_NAME ?? "Meu Estabelecimento";
   const merchantCity = process.env.MERCHANT_CITY ?? "";
-  const managerName = process.env.MANAGER_NAME ?? "Gerente";
+  const managerName = opts.managerName ?? process.env.MANAGER_NAME ?? "Gerente";
 
   await db.insert(storeSettings).values({
     id: "singleton",
@@ -58,13 +72,18 @@ async function seedProd() {
   console.log("[seed-prod] ANOTE ESSE PIN AGORA — não será mostrado de novo. Troque-o na tela de Equipe assim que entrar.");
 }
 
-seedProd()
-  .then(async () => {
-    await closeDatabase();
-    process.exit(0);
-  })
-  .catch(async (err) => {
-    console.error(err);
-    await closeDatabase();
-    process.exit(1);
-  });
+// CLI próprio. Precisa do guard: `provision-tenant.ts` importa este arquivo
+// para reutilizar o bootstrap, e sem o guard o import dispararia um seed no
+// schema default (public) no meio do provisionamento.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  runProdSeed()
+    .then(async () => {
+      await closeDatabase();
+      process.exit(0);
+    })
+    .catch(async (err) => {
+      console.error(err);
+      await closeDatabase();
+      process.exit(1);
+    });
+}

@@ -1,24 +1,4 @@
-// Runner do REGISTRY de tenants (`public.tenant`) — Fase 1 do
-// `docs/15-multi-tenant-schema.md` §6.
-//
-// ⚠️ ESTE RUNNER É SEPARADO DO DE TENUT DE PROPÓSITO.
-// `migrate.ts` (o runner de `migrations/*.sql`) vai, na Fase 3, rodar o mesmo
-// arquivo dentro de cada schema de tenant (`runMigrations({ schema })`). O
-// registry é o índice desses schemas: se ele entrasse no mesmo glob, cada
-// tenant criaria a SUA própria tabela `tenant`, e o `slug` de uma loja
-// resolveria para o schema de outra. Por isso:
-//   - os arquivos moram em `backend/migrations/registry/` (diretório — o glob
-//     do `migrate.ts` é `migrations/*.sql`, um nível, só `.sql`), e
-//   - o controle é `public._registry_migrations`, não o `_migrations` que o
-//     runner de tenant cria (que na Fase 3 passa a ser POR SCHEMA).
-//
-// `SET LOCAL search_path = public` em toda transação é a segunda barreira: se
-// alguém chamar este runner numa conexão já apontada para um schema de tenant,
-// o DDL ainda cai em `public`. E como é `LOCAL`, o `search_path` da sessão volta
-// ao valor anterior no COMMIT — não suja a conexão devolvida ao pool.
-//
-// Idempotente e serializado por advisory lock, como o runner de tenant: dois
-// containers subindo ao mesmo tempo não aplicam o mesmo arquivo duas vezes.
+
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

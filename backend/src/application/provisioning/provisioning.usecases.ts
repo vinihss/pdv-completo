@@ -133,7 +133,7 @@ export async function generateProvisioningKeyUsecase(input: {
 export async function exchangeProvisioningCodeUsecase(input: {
   code: string;
   platform: "android" | "ios" | "web" | "desktop";
-  appProfile: "garcon" | "entregador" | "pdv" | "kds";
+  appProfile: "pdv" | "kds";
   deviceLabel?: string | null;
 }) {
   const canonical = normalizeProvisioningCode(input.code);

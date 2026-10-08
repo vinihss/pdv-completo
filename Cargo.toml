@@ -12,8 +12,6 @@ members = [
   "standalone-shared",
   "standalone-pdv",
   "standalone-kds",
-  "standalone-garcon",
-  "standalone-entregador",
 ]
 
 # Versão única da família standalone. Os 4 apps herdam via `version.workspace

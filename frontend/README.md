@@ -23,17 +23,16 @@ npm run dev                # http://localhost:5173
 
 O Vite já proxeia `/api` e `/realtime` para `localhost:3000` (`vite.config.js`).
 
-No `dev` as 4 entradas ficam disponíveis: `/`, `/kds.html`, `/garcon.html` e `/entregador.html`.
+No `dev` as entradas ficam disponíveis: `/`, `/kds.html`. (Apps mobile em `pdv-mobile-apps`.)
 
-## Os 4 apps
+## Os apps
 
-Um build só, quatro apps Tauri (caixa, cozinha, garçom, entregador) — o **mesmo**
-código React nas 4 entradas (`index.html`, `kds.html`, `garcon.html`,
-`entregador.html`), sem app duplicado. O que muda por app é o `outDir` e o PWA
+Um build só, apps Tauri standalone (caixa, cozinha) — o **mesmo**
+código React nas entradas (`index.html`, `kds.html`), sem app duplicado. O que muda por app é o `outDir` e o PWA
 (`manifest.json` + cache do service worker, que são por origem e se sobrescrevem
 se compartilhados). Detalhes em `vite/app-profiles.js`; qual entrada abriu o app
 está em `src/shared/lib/appProfile.js` (`window.__APP_PROFILE__`, injetado no
-HTML — não se deduz da URL, que no desktop é `tauri://localhost`).
+HTML — não se deduz da URL, que no desktop é `tauri://localhost`). (Garçom/Entregador são apps RN em `pdv-mobile-apps`.)
 
 ## Scripts
 
@@ -44,8 +43,7 @@ HTML — não se deduz da URL, que no desktop é `tauri://localhost`).
 | `npm run build:all` | Igual ao `build`, explicitado |
 | `npm run build:pdv` | App da caixa em `dist/pdv/` |
 | `npm run build:kds` | App da cozinha em `dist/kds/` |
-| `npm run build:garcon` | App do garçom em `dist/garcon/` |
-| `npm run build:entregador` | App do entregador em `dist/entregador/` |
+
 | `npm run preview` | Preview do build de produção |
 | `npm run lint` | oxlint |
 | `npm run test` | vitest (jsdom + Testing Library) |

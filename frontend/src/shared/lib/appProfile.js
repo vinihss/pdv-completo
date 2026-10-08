@@ -20,7 +20,7 @@
 const BUILD_PROFILE = typeof __APP_PROFILE__ === "string" ? __APP_PROFILE__ : "all";
 
 /** Os profiles de `VITE_APP_PROFILE` (o `all` inclusive). */
-export const APP_PROFILES = ["all", "pdv", "kds", "garcon", "entregador"];
+export const APP_PROFILES = ["all", "pdv", "kds"];
 
 /** O profile do app aberto, resolvido na ordem acima. */
 export function appProfile() {

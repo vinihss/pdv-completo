@@ -17,7 +17,7 @@ As telas autenticadas são selecionadas pelo papel da sessão em `src/app/router
 - Router, seleção por papel e `AppFrame`: `src/app/router.jsx`.
 - Menu, seções e itens permitidos por papel: `src/app/providers/nav/` e `src/widgets/app-menu/`.
 - `ManagerApp` e `CashierApp` mostram a tela escolhida pelo `NavProvider`.
-- As quatro entradas web/Tauri (`index.html`, `kds.html`, `garcon.html`, `entregador.html`) compartilham React; metadados/perfil por entrada são definidos em `vite/app-profiles.js`.
+- As entradas web/Tauri (`index.html`, `kds.html`) compartilham React; metadados/perfil por entrada são definidos em `vite/app-profiles.js`. (Os perfis Garçom/Entregador migraram para `pdv-mobile-apps`.)
 - Providers de sessão, configuração, alertas e foco de comanda: `src/app/providers/`.
 
 Para detalhes das regras de camadas, consulte `agent-frontend.md`; para execução de verificações, `agent-testing.md`.

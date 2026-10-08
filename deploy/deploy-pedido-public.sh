@@ -23,33 +23,31 @@
 #     diretório morto — o deploy "terminava com sucesso" e nada mudava
 #     no ar, que é o modo de falha mais caro: um deploy verde que não
 #     deployou.
-#   - o Caddy deste stack NÃO é servido pelo systemd de fábrica do VPS. Em
-#     produção ele é o unit `pdv-caddy` (fora do Docker, ver
-#     `caddy-host.sh`); no stack local é um container com `entrypoint:
-#     caddy-assemble.sh`. Nos DOIS casos `systemctl reload caddy` (sem o
-#     `pdv-`) ou não encontra o serviço, ou recarregaria um binário que não
+#   - o Caddy deste stack NÃO é gerenciado por systemd. Ele roda como
+#     container com `entrypoint: caddy-assemble.sh`, e a config é montada
+#     dentro dele. `systemctl reload caddy` ou não encontra o serviço
+#     (o VPS usa o Docker) ou, se findsse, recarregaria um Caddy que não
 #     é o que está no ar.
 #
-# O caminho certo de recarregar o proxy é o do próprio stack — e é o que o
-# `reload_caddy` do switch.sh faz, escolhendo o lado certo:
-#   host:       systemctl reload pdv-caddy
-#   container:  docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload
-# Vale o mesmo aviso nos dois: um `caddy reload` cru pula a resolução de
-# upstream — o `/realtime*` voltaria sozinho para o backend Node, sem erro
-# em lugar nenhum.
+# O caminho certo de recarregar o proxy é o do próprio stack:
+#   docker compose exec caddy sh /srv/pdv-deploy/caddy-assemble.sh reload
+# (é o `reload_caddy` do switch.sh, e vale o mesmo aviso: um `caddy reload`
+# cru pula a resolução de upstream — o `/realtime*` voltaria sozinho para o
+# backend Node, sem erro em lugar nenhum).
 # ============================================================
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-# `up` só deste serviço. `--no-deps` é a mesma regra do switch.sh: sem ele
-# o compose recriaria o postgres (e, no stack local, o próprio container do
-# caddy) para trocar um nginx de estático — derrubando o reload do proxy e
-# as conexões WebSocket do salão por causa de uma página de cardápio.
+# `up` só deste serviço. `--no-deps` é a mesma regra do switch.sh: o
+# `pedidopublic` declara `depends_on: caddy`, e sem o `--no-deps` o
+# compose recriaria o PROXY para trocar um nginx de estático — derrubando
+# o `caddy reload` e as conexões WebSocket do salão por causa de uma
+# página de cardápio.
 echo "==> reconstruindo a imagem do pedido-public..."
 docker compose -f docker-compose.yml build pedidopublic
 
-echo "==> subindo o container do pedido-public (--no-deps: postgres e proxy ficam intocados)"
+echo "==> subindo o container do pedido-public (--no-deps: o caddy e o postgres ficam intocados)"
 docker compose -f docker-compose.yml up -d --no-deps pedidopublic
 
 # O mesmo portão do switch.sh: o `/healthz` do nginx é servido de verdade

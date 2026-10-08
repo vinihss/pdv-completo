@@ -30,6 +30,8 @@ Projeto: PDV Restaurante/Pub (backend Node.js + frontend React)
 - **UI em PT-BR**; ícones via `lucide-react`; estilos com Tailwind 4
 - **Sobreposição tem dono**: `Modal`, `Drawer`, `ScreenHeader` ou `ConfirmModal` — nada de overlay ad-hoc
 - **Menu principal = accordion** na esquerda (desktop) ou `Drawer` (mobile)
+
+Os apps mobile (Garçom/Entregador, RN/Expo) não estão mais neste repo — vivem em `pdv-mobile-apps`. Usar o Drawer no web não inclui instruções de mobile.
 - **Login por PIN**: envio explícito (botão ou Enter), sem auto-envio em 6 dígitos
 - Rodar `npm run lint` (oxlint) antes de terminar
 

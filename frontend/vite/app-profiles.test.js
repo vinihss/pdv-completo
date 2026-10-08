@@ -41,8 +41,8 @@ async function runPlugin(profile) {
 }
 
 describe("VITE_APP_PROFILE", () => {
-  it("conhece os 5 profiles e só eles", () => {
-    expect(APP_PROFILE_IDS).toEqual(["all", "pdv", "kds", "garcon", "entregador"]);
+  it("conhece os 3 profiles e só eles", () => {
+    expect(APP_PROFILE_IDS).toEqual(["all", "pdv", "kds"]);
   });
 
   it("valor desconhecido, vazio ou herdado do prototype vira o app único", () => {
@@ -77,7 +77,7 @@ describe("profile injetado na entry", () => {
     // `frontendDist: "../dist"` abre. Se virasse `pdv`, o app de produção
     // passaria a se chamar "Caixa" na janela e no menu do sistema.
     expect(plugin.transformIndexHtml(entry("all"))).toContain('window.__APP_PROFILE__ = "all"');
-    for (const id of ["kds", "garcon", "entregador"]) {
+    for (const id of ["kds"]) {
       const out = plugin.transformIndexHtml(entry(id));
       expect(out).toContain(`window.__APP_PROFILE__ = "${id}"`);
       expect(out).toContain(`content="${id}"`);
@@ -93,9 +93,9 @@ describe("profile injetado na entry", () => {
   });
 
   it("reescreve o título e o nome do app na tela de início", () => {
-    const out = appProfilePlugin({ appProfile: "entregador" }).transformIndexHtml(entry("all"));
-    expect(out).toContain("<title>Entregador</title>");
-    expect(out).toContain('apple-mobile-web-app-title" content="Entregador"');
+    const out = appProfilePlugin({ appProfile: "kds" }).transformIndexHtml(entry("all"));
+    expect(out).toContain("<title>Cozinha</title>");
+    expect(out).toContain('apple-mobile-web-app-title" content="Cozinha"');
   });
 });
 
@@ -121,8 +121,6 @@ describe("PWA por profile", () => {
     for (const [id, nome] of [
       ["pdv", "PDV — Caixa"],
       ["kds", "PDV — Cozinha"],
-      ["garcon", "PDV — Garçom"],
-      ["entregador", "PDV — Entregador"],
     ]) {
       const parsed = JSON.parse((await run(id)).manifest);
       expect(parsed.name).toBe(nome);

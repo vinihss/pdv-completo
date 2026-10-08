@@ -24,12 +24,12 @@ import { publicRoutes } from "./routes/public.routes.js";
 import { tenantRoutes } from "./routes/tenant.routes.js";
 import { courierRoutes } from "./routes/courier.routes.js";
 import { deliveryManagerRoutes } from "./routes/delivery-manager.routes.js";
-import { whatsappWebhookRoutes } from "./routes/whatsapp-webhook.routes.js";
+
 import { ifoodRoutes } from "./routes/ifood.routes.js";
 import { paymentRoutes } from "./routes/payment.routes.js";
 import { pagarmeWebhookRoutes } from "./routes/pagarme-webhook.routes.js";
 import { pagarmeInternalRoutes } from "./routes/pagarme-internal.routes.js";
-import { whatsappRoutes } from "./routes/whatsapp.routes.js";
+
 import { printRoutes } from "./routes/print.routes.js";
 import { alertRoutes } from "./routes/alert.routes.js";
 import { provisioningRoutes } from "./routes/provisioning.routes.js";
@@ -54,17 +54,6 @@ function escapeRegExp(value: string): string {
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.logLevel }, trustProxy: true });
 
-  // ---------- Fase 2: resolve o tenant do Host e entra no ALS ----------
-  // O ALS é o transporte do tenant (quem diz "esta requisição é da loja X");
-  // o pool dedicado por tenant (`tenant-db.ts`) é a barreira de isolamento.
-  // Qualquer handler que importe `db` passa a falar com o schema certo
-  // sem nenhuma alteração — o Proxy em `client.ts` resolve via ALS.
-  //
-  // Paths que NÃO passam pela resolução: health do switch (§5.6 do doc 15 —
-  // o portão do deploy não pode virar 503 por um host que não é loja), o
-  // endpoint do TLS on-demand do Caddy e o próprio `GET /public/tenants/
-  // resolve` (ele PRECISA responder 404 de tenant sem que o middleware
-  // responda 404 antes — a SPA trata o 404 no corpo, não no status).
   const NO_TENANT_RESOLVE = new Set(["/health", "/internal/caddy-on-demand-tls", "/public/tenants/resolve"]);
   app.addHook("onRequest", async (req) => {
     if (NO_TENANT_RESOLVE.has(req.url.split("?")[0])) return;
@@ -191,7 +180,6 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(tenantRoutes);
   await app.register(courierRoutes);
   await app.register(deliveryManagerRoutes);
-  await app.register(whatsappWebhookRoutes);
   await app.register(ifoodRoutes);
   await app.register(paymentRoutes);
   // Webhook do Pagar.me: SEM autenticação (quem se prova é a assinatura), então
@@ -201,7 +189,6 @@ export async function buildApp(): Promise<FastifyInstance> {
   // faz a transação. Auth é token de serviço (não JWT), e o Caddy não roteia
   // `/internal/*` — o Go chega pela rede interna. Ver o doc comment do arquivo.
   await app.register(pagarmeInternalRoutes);
-  await app.register(whatsappRoutes);
   await app.register(printRoutes);
   await app.register(alertRoutes);
   // Provisionamento de aparelho por usuário (docs/21) — mistura rotas de
