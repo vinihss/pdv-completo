@@ -140,6 +140,11 @@ services:
       # só o que está neste bloco via `extends` — sem a chave o canary
       # subiria em `public` enquanto o azul ficaria no schema novo.
       - DEFAULT_TENANT_SCHEMA=${DEFAULT_TENANT_SCHEMA:-}
+      # Kill-switch do roteamento por Host (tenantRoutingEnabled em
+      # resolve-tenant.usecase.ts): sem esta linha no BLOCO, o .env até tem
+      # `TENANT_ROUTING=true` mas o processo não vê — e todo host cai no
+      # schema default. `backend-next` herda via `extends`.
+      - TENANT_ROUTING=${TENANT_ROUTING:-false}
       # ---------- WhatsApp Cloud API (Embedded Signup) ----------
       # Sem isto a aba 'WhatsApp' do gerente mostra 'não configurado' — o
       # resto do app funciona normal.
