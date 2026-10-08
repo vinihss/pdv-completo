@@ -1,12 +1,13 @@
 # ============================================================
-# Deploy completo: Caddy (HTTPS) + backend + frontend
+# Deploy completo: backend + frontend (o proxy Caddy roda FORA do Docker,
+# como serviço systemd `pdv-caddy` no host — ver caddy-host.sh)
 # Uso: cd deploy && cp .env.example .env && ajuste os valores && docker compose up -d
 #
 # PostgreSQL é o ÚNICO banco suportado (o SQLite foi removido). O serviço
 # `postgres` abaixo sobe junto por padrão e o backend espera o healthcheck.
 # Para usar um Postgres gerenciado (RDS, Neon, etc.), aponte DATABASE_URL para o
 # endpoint externo e suba o backend sem a dependência do serviço local:
-#   docker compose up -d --no-deps backend frontend caddy
+#   docker compose up -d --no-deps backend frontend
 #
 # ---------- Deploy sem downtime ----------
 # A partir do 2º deploy, NÃO use `docker compose up -d --build`: use
@@ -14,96 +15,23 @@
 # instâncias de backend e duas de frontend — `backend`/`frontend` e
 # `backend-next`/`frontend-next` — que saem da MESMA âncora (e da mesma
 # imagem), então "próxima" e "atual" são só nomes. O que decide quem está
-# no ar é o ponteiro `state/active-upstream`, lido pelo container do Caddy
-# (ver caddy-assemble.sh). As instâncias `-next` estão no profile
+# no ar é o ponteiro `state/active-upstream`, lido pelo `caddy-assemble.sh`
+# (no host, pelo unit `pdv-caddy`; no perfil `--profile local`, de dentro do
+# container do Caddy — os dois mundos usam o mesmo script). As instâncias
+# `-next` estão no profile
 # `canary`: um `up` comum não as sobe, o que mantém esta instalação
 # igual à anterior para quem nunca fez um switch.
 # ============================================================
 services:
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    # Monta a config dentro do container e sobe/recarrega por ela. O
-    # `run` é o boot; o `reload` é o que o switch.sh chama para trocar o
-    # upstream sem derrubar quem está conectado.
-    #
-    # O entrypoint e a Caddyfile vêm do DIRETÓRIO montado, não de um
-    # arquivo único: o CI troca o código com `git checkout -f`, que
-    # substitui os arquivos por inodes novos — e um bind mount de arquivo
-    # deixaria o container preso ao inode antigo, servindo a configuração
-    # anterior sem reclamar no log. Montando o diretório, o conteúdo novo
-    # aparece no próximo reload.
-    entrypoint: ["/bin/sh", "/srv/pdv-deploy/caddy-assemble.sh"]
-    command: ["run"]
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      - DOMAIN=${DOMAIN}
-      # Raiz dos blocos parametrizados do Caddyfile (`app.`, `api.` e o
-      # wildcard `*.`). A sintaxe de env do Caddy é `{$VAR}`, então a
-      # variável PRECISA chegar no container: sem ela o `caddy validate` do
-      # caddy-assemble.sh morre com
-      #   subject does not qualify for certificate: 'app.{$ROOT_DOMAIN}'
-      # — que é o portão do switch.sh, ou seja, o deploy inteiro para aí.
-      #
-      # O default NÃO é enfeite: o `.env` do VPS foi escrito antes desta
-      # variável existir e o `deploy-on-tag.yml` PRESERVA as variáveis que já
-      # estão lá. Sem o default, `ROOT_DOMAIN` vazio produziria `app.` no
-      # Caddyfile e o primeiro deploy depois do merge morria no portão — o
-      # mesmo modo de falha que estamos corrigindo aqui, só adiado. Quem
-      # editar o `.env` para outro valor continua prevalecendo sobre ele.
-      - ROOT_DOMAIN=${ROOT_DOMAIN:-umamisushiarte.com.br}
-      - PDV_CADDY_CONFIG=/srv/pdv-deploy/Caddyfile
-      - PDV_UPSTREAM_STATE=/srv/pdv-deploy/state/active-upstream
-      # Qual implementação serve o /realtime* (`node` = a atual, no backend;
-      # `go` = o gateway em Go de ../ws-gateway). O caddy-assemble.sh
-      # traduz isso no upstream `PDV_WS_UPSTREAM` da Caddyfile.
-      #
-      # O `.env` NÃO é lido pelo container em tempo de reload: variável de
-      # ambiente só entra no boot dele. Quem troca o destino do realtime sem
-      # recriar o proxy (e sem os 1-3s de queda do recreate) é a linha
-      # PDV_WS_UPSTREAM no ponteiro state/active-upstream — ver .env.example.
-      - WS_BACKEND=${WS_BACKEND:-node}
-      # Quem serve o `POST /webhooks/pagarme`. `node` (default) ou a variável
-      # ausente: a rota do backend Node, como está hoje. Zero mudança em quem
-      # recebe o webhook — este é o estado em que este arquivo nasce e em que a
-      # produção roda.
-      #
-      # `go`: o serviço de `pagarme-webhook/`. O Caddy para de mandar
-      # `/webhooks/pagarme` para o backend e passa a mandar para o container
-      # `pagarme-webhook`.
-      #
-      # Diferente do `/realtime`, aqui o modo de falha de `go` SEM o container de
-      # pé é VISÍVEL: todo webhook leva 502, e o Pagar.me reenvia (o `payload`
-      # dele não se perde, e o Node reassume a fila assim que o Caddy voltar).
-      # Ainda assim, subir o container antes de virar é o jeito de descobrir isso
-      # no meio de um pico de fechamento de expediente.
-      #
-      # A flag é lida pelo CONTAINER do Caddy, e variável de ambiente só entra
-      # quando ele é criado — então trocar o valor aqui só vale no próximo
-      # recreate do Caddy, que não acontece nos deploys normais (o `switch.sh` faz
-      # `caddy reload`, não recreate). O caminho quente é a linha
-      # `PDV_PAGARME_UPSTREAM` no ponteiro (ver README).
-      #
-      # ⚠️  A URL de callback cadastrada no painel do Pagar.me NÃO muda em
-      # nenhum dos dois casos: o path é o mesmo (`/webhooks/pagarme`) e quem
-      # responde muda. Nenhum passo desta migração exige reconfigurar o painel
-      # do provedor — que é o que torna o rollback gratuito.
-      - PAGARME_WEBHOOK_BACKEND=${PAGARME_WEBHOOK_BACKEND:-node}
-    volumes:
-      # O diretório `deploy/` inteiro, só-leitura: é dele que saem a
-      # Caddyfile, o caddy-assemble.sh e o ponteiro de upstream (o único
-      # estado de deploy que vive no host).
-      - ./:/srv/pdv-deploy:ro
-      # Artefatos do auto-update (latest.json + installer). Escrito pelo CI
-      # em deploy/updates/ via SSH; servido somente-leitura pelo Caddy.
-      - ./updates:/srv/pdv-updates:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - backend
-      - frontend
+  # ---------- O Caddy saiu daqui ----------
+  # Em produção o proxy é o serviço systemd `pdv-caddy` no HOST
+  # (`deploy/caddy-host.sh` + `deploy/pdv-caddy.service`): ele ocupa 80/443
+  # fora do Docker e resolve os nomes dos containers (`backend`,
+  # `pedidopublic`, …) pelo bloco do `/etc/hosts` que o mesmo script grava —
+  # daí os `ipv4_address` fixos lá embaixo. Os stacks `local`/`dev`
+  # (docker-compose.local.yml / .dev.yml) CONTINUAM com o Caddy
+  # containerizado; o `switch.sh` escolhe o caminho por `has_service caddy`.
+  #
 
   # ---------- Backend ----------
   # `backend` e `backend-next` são o MESMO serviço com nomes diferentes
@@ -119,6 +47,16 @@ services:
     # mesmo tag (duas imagens iguais custariam build e disco à toa).
     image: ${BACKEND_IMAGE:-pdv-backend:local}
     restart: unless-stopped
+    # ---------- IP fixo na bridge do Docker ----------
+    # O proxy de produção roda no HOST (unit `pdv-caddy`) e resolve o nome
+    # `backend` pelo bloco que o `caddy-host.sh` grava no `/etc/hosts`
+    # (`172.18.0.241 backend`). Nome de container só dá para prever com IP
+    # fixo — e a faixa começa em `.241` porque a alocação sequencial do
+    # Docker começa em `.2` e sobe: escolher `.2`-`.10` colidiria com o
+    # próximo container que a rede criar.
+    networks:
+      default:
+        ipv4_address: 172.18.0.241
     environment:
       - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-local}
       - DATABASE_URL=${DATABASE_URL:-postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}}
@@ -174,6 +112,13 @@ services:
     extends:
       service: backend
     profiles: ["canary"]
+    # Override OBRIGATÓRIO do `ipv4_address` herdado do `backend`: o
+    # `extends` copia o `networks` do serviço base, e sem esta linha os dois
+    # serviços nasceriam com o MESMO 172.18.0.241 — o Docker recusa o
+    # segundo container ("Pool overlaps"). Mesma razão, faixa contígua.
+    networks:
+      default:
+        ipv4_address: 172.18.0.242
     depends_on:
       postgres:
         condition: service_healthy
@@ -186,6 +131,10 @@ services:
     build: ../frontend
     image: ${FRONTEND_IMAGE:-pdv-frontend:local}
     restart: unless-stopped
+    # IP fixo para o `/etc/hosts` do caddy-host.sh (mesma razão do `backend`).
+    networks:
+      default:
+        ipv4_address: 172.18.0.243
     # nginx serve conteúdo estático, mas "estático" não quer dizer "pronto no
     # instante": o switch espera este healthcheck antes de apontar o proxy,
     # senão o primeiro F5 pós-deploy pega 502. A imagem nginx:alpine traz
@@ -201,6 +150,10 @@ services:
     extends:
       service: frontend
     profiles: ["canary"]
+    # Override obrigatório do `ipv4_address` herdado (ver `backend-next`).
+    networks:
+      default:
+        ipv4_address: 172.18.0.244
 
   # ---------- Gateway WebSocket em Go (opt-in) ----------
   # Servidor WS do PDV escrito em Go: serve `/realtime`, `/realtime/public`
@@ -237,6 +190,13 @@ services:
     image: ${WS_GATEWAY_IMAGE:-pdv-ws-gateway:local}
     profiles: ["ws-gateway"]
     restart: unless-stopped
+    # IP fixo para o `/etc/hosts` do caddy-host.sh (mesma razão do `backend`).
+    # De quebra, o probe do host (`curl http://ws-gateway:8080/health`) passa
+    # a funcionar: a porta 8080 não é publicada, mas o host alcança o IP da
+    # bridge diretamente.
+    networks:
+      default:
+        ipv4_address: 172.18.0.246
     environment:
       # Mesmo banco e mesmo `outbox_event` do backend — o gateway não tem
       # schema próprio, é só um leitor da fila que o backend grava.
@@ -354,6 +314,11 @@ services:
     image: ${PAGARME_WEBHOOK_IMAGE:-pdv-pagarme-webhook:local}
     profiles: ["pagarme-webhook"]
     restart: unless-stopped
+    # IP fixo para o `/etc/hosts` do caddy-host.sh (mesma razão do `backend`);
+    # vale para o probe do host, como no `ws-gateway`.
+    networks:
+      default:
+        ipv4_address: 172.18.0.247
     environment:
       # Mesmo banco e mesma `payment_event` do backend — este serviço é o
       # segundo leitor da fila que o Node já escreve (e, com o drain ligado, o
@@ -484,21 +449,31 @@ services:
       dockerfile: apps/pedido-public/Dockerfile
     container_name: pdv-pedido-public
     restart: unless-stopped
-    # Rede default do projeto, como os outros 10 serviços (caddy incluso, que
-    # é quem faz `reverse_proxy pedidopublic:80`). Este serviço declarava
-    # `networks: [pdv-net]` e o arquivo NÃO tem chave top-level `networks:` —
+    # Rede default do projeto, como os outros serviços. Este serviço declarava
+    # `networks: [pdv-net]` e o arquivo NÃO tinha chave top-level `networks:` —
     # o `docker compose config` morria com
     #   service "pedidopublic" refers to undefined network pdv-net: invalid compose project
     # e o `switch.sh` (que faz `compose build` no passo 1/5, com
-    # `set -euo pipefail`) abortava antes de tocar qualquer container.
+    # `set -euo pipefail`) abortava antes de tocar qualquer container. A chave
+    # top-level `networks:` lá embaixo resolveu isso E ancorou a rede já
+    # existente `deploy_default` (subnet 172.18.0.0/16).
+    #
+    # IP fixo para o `/etc/hosts` do caddy-host.sh: a Caddyfile faz
+    # `reverse_proxy pedidopublic:80` em dois blocos e quem resolve o nome é o
+    # Caddy do host — nome de container só dá para prever com IP fixo.
+    networks:
+      default:
+        ipv4_address: 172.18.0.245
     expose:
       - "80"
-    # `caddy` e não o backend: este nginx só serve arquivos estáticos e fala
-    # com o backend pela API pública ATRAVÉS do Caddy (`/api` → backend), então
-    # a única dependência real de rede é o proxy que o publica. `--no-deps` no
-    # switch.sh garante que subir este serviço não recrie o proxy nem o banco.
-    depends_on:
-      - caddy
+    # Antes havia um `depends_on: caddy` aqui, e a razão era só ORDEM DE BOOT
+    # (subir o proxy junto com o resto numa instalação nova): este nginx não
+    # fala com o Caddy — ele apenas é publicado por ele. O proxy de produção
+    # agora é o unit `pdv-caddy` do host, que não é um serviço do compose, e
+    # `apps/pedido-public/nginx.conf` não faz proxy para o caddy. O
+    # `--no-deps` do switch.sh continua no lugar por segurança (numa instalação
+    # ele impede que um `up` de cardápio toque no postgres ou, no perfil
+    # `local`, no Caddy containerizado).
     # O healthcheck tem que provar que o nginx responde DE VERDADE. `/healthz`
     # não existia: o `location /` do nginx.conf faz `try_files → /index.html`,
     # então QUALQUER caminho devolve 200 com o index — o healthcheck passava
@@ -550,11 +525,46 @@ services:
 volumes:
   # Nomes explícitos (sem prefixo do projeto) para que o backup.sh e os
   # comandos de operação não dependam do nome da pasta do compose.
+  #
+  # Os volumes `caddy_data`/`caddy_config` saíram daqui junto com o serviço:
+  # em produção os certificados vivem em `/var/lib/caddy` (copiados do
+  # `pdv_caddy_data` pelo `caddy-host.sh`, para não reemitir TLS e estourar o
+  # rate limit do Let's Encrypt) e o `down -v` do reset passa a NÃO alcançá-los.
+  # Os composes `local`/`dev` declaram os próprios `caddy_*` (mesmo nome de
+  # volume, `pdv_caddy_data`), então o stack local continua como antes.
   backend_uploads:
     name: pdv_backend_uploads # fotos de produto — incluir no backup junto com o banco
-  caddy_data:
-    name: pdv_caddy_data # certificados TLS emitidos pelo Let's Encrypt, reaproveitados entre restarts
-  caddy_config:
-    name: pdv_caddy_config
   postgres_data:
     name: pdv_postgres_data # dados do Postgres — NUNCA apague sem backup
+
+# ---------- Rede e IPs fixos ----------
+# Rede JÁ EXISTENTE no VPS (`deploy_default`, 172.18.0.0/16, criada pelo
+# primeiro `docker compose up` desta pasta): declará-la com `name:` + o mesmo
+# subnet faz o compose REAPROVEITAR a rede em vez de recriá-la (ele só
+# reclama se a rede existir com um subnet diferente — e aí o erro é bom:
+# significa que os `ipv4_address` abaixo estariam fora da faixa).
+#
+# Em um VPS NOVO o subnet precisa estar livre no host; se 172.18.0.0/16 já
+# for de outra rede Docker, troque a faixa AQUI e nos `ipv4_address` dos 7
+# serviços (e no bloco do `/etc/hosts` que o `caddy-host.sh` grava).
+#
+# ---------- Por que IP fixo em 7 serviços ----------
+# O proxy de produção roda no HOST (systemd, `pdv-caddy`) e não fala com a
+# DNS interna do Docker — ele resolve `backend`, `frontend-next`,
+# `pedidopublic`, `ws-gateway` e `pagarme-webhook` pelo bloco
+# `# BEGIN PDV caddy-host` do `/etc/hosts` (gravado pelo `caddy-host.sh`),
+# que precisa de um endereço PREVISÍVEL. A faixa é `.241`-`.247` porque a
+# alocação automática do Docker começa em `.2` e sobe — usar os primeiros
+# endereços colidiria com o próximo container que a rede criar.
+# (Servidor não continua sendo alcançável por nome: a DNS do Docker resolve
+# os containers entre si pelo nome, como sempre; o `/etc/hosts` é só o que o
+# host precisa.)
+#
+# Os serviços SEM linha (postgres) continuam com IP sequencial — nada fora do
+# Docker resolve o nome deles.
+networks:
+  default:
+    name: deploy_default
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
