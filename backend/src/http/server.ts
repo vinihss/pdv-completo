@@ -11,6 +11,8 @@ import { config } from "../config/env.js";
 import { runMigrations } from "../infra/db/migrate.js";
 import { runRegistryMigrations } from "../infra/db/registry-migrate.js";
 import { checkDatabaseHealth } from "../infra/db/client.js";
+import { getTenantPool } from "../infra/db/tenant-db.js";
+import { resolveTenantSchemaInScope } from "../infra/db/tenant-context.js";
 import { startOutboxDispatcher } from "../infra/realtime/outbox-dispatcher.js";
 import { startMaintenanceJobs } from "../infra/maintenance.js";
 import { initStorage } from "../infra/storage/index.js";
@@ -180,6 +182,46 @@ export async function buildApp(): Promise<FastifyInstance> {
       return reply.code(200).send({ status: "ok", database: "connected", tag: process.env.APP_TAG ?? "" });
     }
     return reply.code(503).send({ status: "degraded", database: "disconnected" });
+  });
+
+  // ---------- Health check detalhado — lista migrations aplicadas ----------
+  // Endpoint para monitoramento e debug: retorna status do banco e lista
+  // completa das migrations aplicadas no schema do tenant. Útil para validar
+  // que novas migrations foram aplicadas após deploy.
+  app.get("/health/detailed", async (_req, reply) => {
+    const healthy = await checkDatabaseHealth();
+    if (!healthy) {
+      return reply.code(503).send({ status: "degraded", database: "disconnected" });
+    }
+
+    try {
+      const schemaName = resolveTenantSchemaInScope();
+      const pool = getTenantPool(schemaName);
+      const client = await pool.connect();
+      try {
+        const { rows } = await client.query<{ name: string; applied_at: string }>(
+          "SELECT name, applied_at FROM _migrations ORDER BY name"
+        );
+        return reply.code(200).send({
+          status: "ok",
+          database: "connected",
+          schema: schemaName,
+          tag: process.env.APP_TAG ?? "",
+          migrations: {
+            total: rows.length,
+            applied: rows.map((r) => ({ name: r.name, appliedAt: r.applied_at })),
+          },
+        });
+      } finally {
+        client.release();
+      }
+    } catch (err) {
+      return reply.code(500).send({
+        status: "error",
+        database: "connected",
+        error: (err as Error).message,
+      });
+    }
   });
 
   // ---------- Permissão para on-demand TLS do Caddy (§wildcard) ----------
