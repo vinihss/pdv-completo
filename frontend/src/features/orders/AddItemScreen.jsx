@@ -21,10 +21,30 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
   const [variationModal, setVariationModal] = useState(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState(false);
+
+  async function loadCatalog() {
+    setCatalogLoading(true);
+    setCatalogError(false);
+    try {
+      const [cats, prods] = await Promise.all([
+        listCategories(),
+        listAllProducts({ active: "true" }),
+      ]);
+      setCategories(cats);
+      setProducts(prods.data);
+    } catch {
+      // Sem estado de erro a falha parecia catálogo vazio ("Nenhum produto
+      // encontrado."): o garçom não sabia se não havia produto ou se a rede caiu.
+      setCatalogError(true);
+    } finally {
+      setCatalogLoading(false);
+    }
+  }
 
   useEffect(() => {
-    listCategories().then(setCategories).catch(() => {});
-    listAllProducts({ active: "true" }).then(({ data }) => setProducts(data)).catch(() => {});
+    loadCatalog();
   }, []);
 
   const filteredProducts = products.filter((p) => {
@@ -46,6 +66,17 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
       const existing = prev[key];
       if (!existing) return prev;
       return { ...prev, [key]: { ...existing, notes } };
+    });
+  }
+
+  // Ajuste de quantidade no carrinho (`− / +`). Mínimo 1: remover é papel do
+  // botão de lixeira, então decrementar abaixo de 1 seria destrutivo e silencioso.
+  function changeQty(key, delta) {
+    setCart((prev) => {
+      const existing = prev[key];
+      if (!existing) return prev;
+      const quantity = Math.max(1, existing.quantity + delta);
+      return { ...prev, [key]: { ...existing, quantity } };
     });
   }
 
@@ -79,7 +110,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
       await addOrderItems(order.id, items);
       setTimeout(async () => {
         setConfirming(false);
-        await onConfirmed();
+        await onConfirmed(cartCount);
       }, 700);
     } catch (e) {
       setConfirming(false);
@@ -160,8 +191,23 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
               </button>
             );
           })}
-          {filteredProducts.length === 0 && (
-            <div className="col-span-2 text-stone-600 text-center py-12 text-sm">Nenhum produto encontrado.</div>
+          {catalogLoading && (
+            <div className="col-span-full text-stone-600 text-center py-12 text-sm">Carregando catálogo…</div>
+          )}
+          {!catalogLoading && catalogError && (
+            <div className="col-span-full flex flex-col items-center gap-3 text-center py-12">
+              <AlertTriangle size={22} className="text-amber-400" />
+              <div className="text-stone-400 text-sm">Não foi possível carregar o catálogo.</div>
+              <button
+                onClick={loadCatalog}
+                className="bg-stone-800 hover:bg-stone-750 border border-stone-700 text-stone-100 text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
+              >
+                Tentar novamente
+              </button>
+            </div>
+          )}
+          {!catalogLoading && !catalogError && filteredProducts.length === 0 && (
+            <div className="col-span-full text-stone-600 text-center py-12 text-sm">Nenhum produto encontrado.</div>
           )}
         </div>
       </div>
@@ -196,9 +242,12 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
         <ReviewCartModal
           lines={cartLines}
           total={cartTotal}
+          count={cartCount}
+          kitchenEnabled={storeSettings?.kitchenEnabled ?? true}
           onClose={() => setReviewOpen(false)}
           onRemoveLine={(key) => setCart((prev) => { const next = { ...prev }; delete next[key]; return next; })}
           onChangeNotes={changeNotes}
+          onChangeQty={changeQty}
           onConfirm={handleConfirmBatch}
         />
       )}
