@@ -80,7 +80,7 @@ export function resolveAppProfile(raw) {
 
 /** Geração viva do cache: prefixo da família + índice. */
 function staticCacheOf(meta) {
-  return `${meta.cachePrefix}1`;
+  return `${meta.cachePrefix}2`;
 }
 
 /** O `<script data-app-profile>` de cada entry — lugar do valor do runtime. */

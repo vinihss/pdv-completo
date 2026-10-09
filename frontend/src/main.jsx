@@ -23,9 +23,11 @@ document.documentElement.dataset.appProfile = appProfile()
 // versão nova depois do auto-update.
 if (!isDesktop() && 'serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
-    // Relativo, não `/sw.js`: no build de um app só o sw fica ao lado do
-    // index (`dist/kds/sw.js`), não na raiz do site.
-    navigator.serviceWorker.register('./sw.js').catch(() => {
+    // Usa query string com timestamp para forçar o navegador a buscar uma nova
+    // versão do SW quando houver atualização, contornando o cache do Cloudflare
+    // que pode estar cacheando o sw.js antigo por até 4 horas.
+    const swVersion = Date.now();
+    navigator.serviceWorker.register(`./sw.js?v=${swVersion}`).catch(() => {
       // instalabilidade é um "nice to have" — se falhar, o app continua
       // funcionando normalmente como página web comum.
     })
