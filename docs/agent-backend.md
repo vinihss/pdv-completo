@@ -107,7 +107,7 @@ O `Dockerfile` faz `npm ci` + `npm prune --omit=dev` no estágio `build` (com to
 
 - Flags: `printer_enabled` / `printer_auto_print` em `store_settings` (default off)
 - Backend envia JSON estruturado para `PRINTER_DAEMON_URL` (default `http://127.0.0.1:8080`)
-- Daemon em Go (`printer/daemon/`) renderiza ESC/POS e envia TCP para a impressora
+- O daemon que renderiza ESC/POS e envia TCP saiu deste repositório (reescrita à parte)
 - Rotas em `print.routes.ts`: `POST /orders/:id/print` (manual), `GET /printers/status|health`
 - Auto-print é pós-commit **fire-and-forget**: cozinha no `addItemsUsecase`, entregador no `dispatchDeliveryUsecase`
 - Erros: comanda inexistente → 404; daemon fora do ar → 503 (`service_unavailable`)

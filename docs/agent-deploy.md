@@ -31,7 +31,7 @@ deploy/
 ```
 
 O serviço `ws-gateway` não tem arquivo aqui: a fonte é o módulo Go
-`ws-gateway/` (irmão do `printer/`), e o compose o builda a partir de
+`ws-gateway/`, e o compose o builda a partir de
 `../ws-gateway`. Ele existe **nos três** compose e está atrás de
 `profiles: ["ws-gateway"]` — o `up` normal não o cria. Ver
 [Gateway WebSocket em Go](#gateway-websocket-em-go-opt-in).

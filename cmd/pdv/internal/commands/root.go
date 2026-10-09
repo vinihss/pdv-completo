@@ -22,9 +22,9 @@ Domínios:
   build <standalone|app|backend|frontend>
                                  standalone/app = Tauri; backend = tsc;
                                  frontend = vite
-  test <backend|frontend|printer|gateway|all>
-                                 suítes: vitest (npm) e go test (daemon e
-                                 gateway); ` + "`all`" + ` roda os quatro nessa ordem
+  test <backend|frontend|gateway|all>
+                                 suítes: vitest (npm) e go test (gateway);
+                                 ` + "`all`" + ` roda os três nessa ordem
   lint <frontend|all>            oxlint; ` + "`all`" + ` soma o gate de gofmt do
                                  ws-gateway (mesmo contrato do CI)
   db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo|provision>
@@ -37,8 +37,6 @@ Domínios:
   release bump <versão>          Bump de versão da família standalone
   deploy <switch|backup|backup-fetch|probe|install|reset|caddy|run-cloud|pedido> [opções]
                                  Deploy em nuvem (os args vão crus ao script)
-  printer <install|package|test-local> [opções]
-                                 Daemon de impressão (Linux)
   -h|--help                      Esta ajuda
 
 Sem argumentos, ./pdv imprime esta ajuda e sai com 0.
@@ -82,7 +80,6 @@ func init() {
 	rootCmd.AddCommand(checkCmd)
 	rootCmd.AddCommand(releaseCmd)
 	rootCmd.AddCommand(deployCmd)
-	rootCmd.AddCommand(printerCmd)
 	rootCmd.AddCommand(tenantCmd)
 }
 

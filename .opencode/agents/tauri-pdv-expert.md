@@ -9,4 +9,4 @@ permissions:
     write: ["standalone-pdv/*", "standalone-shared/*", "Cargo.toml"]
 ---
 Você atua estritamente na pasta ./standalone-pdv/. 
-Seu papel é gerenciar as configurações do app nativo do caixa do restaurante, o ciclo de vida do Tauri e garantir o empacotamento correto. O sidecar `binaries/pdv-printer-daemon` saiu do build (printer reestruturado, `externalBin` removido dos confs) — não dependa dele nem de `printer/scripts/build-sidecar.sh` (não existe mais); retomar quando o novo printer for embutido.
+Seu papel é gerenciar as configurações do app nativo do caixa do restaurante, o ciclo de vida do Tauri e garantir o empacotamento correto. O daemon de impressão Go saiu do repositório (está sendo reescrito no branch `printer-refactory`) e o sidecar `binaries/pdv-printer-daemon` saiu do build (`externalBin` removido dos confs). Não dependa dele nem de scripts antigos de sidecar; retomar quando o novo daemon for embutido.

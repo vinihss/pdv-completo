@@ -24,13 +24,12 @@ frontend/   App React (Vite) — login, garçom, cozinha, gerente — instaláve
 frontend/src-tauri/  App desktop v1 (Tauri) — desacoplado do web app, em manutenção
 deploy/     Deploy em nuvem: Dockerfiles, Caddy (HTTPS automático), docker-compose
 docs/       Specs originais + guias para agentes
-printer/    Daemon Go para impressão térmica (ESC/POS)
-            Também tem um renderizador ESC/POS em Rust (o app Caixa,
-            `standalone-pdv/src/printing/`), que NÃO passa pelo daemon — os
-            dois têm de sair byte a byte iguais e o golden é o mesmo arquivo
-            dos dois lados. Detalhes em `docs/agente-hardware-printing.md`
-            § "Dois renderizadores, uma golden".
-ws-gateway/ Gateway WebSocket em Go (módulo Go independente, como o `printer/`):
+standalone-pdv/  App Caixa (Tauri): tem o renderizador ESC/POS em Rust
+            (`src/printing/`), que imprime direto no spooler/socket TCP. É o
+            único renderizador neste repositório — o daemon Go de impressão
+            saiu daqui para reescrita à parte. Detalhes em
+            `docs/agente-hardware-printing.md`.
+ws-gateway/ Gateway WebSocket em Go (módulo Go independente):
             mesmo handshake, mesmas rooms e mesmo outbox do backend Node, para
             substituir o `backend/src/infra/realtime/`. Plugado no `deploy/`
             (Caddy + os três compose) atrás da flag `WS_BACKEND=go` (default
@@ -83,7 +82,7 @@ ws-gateway/ Gateway WebSocket em Go (módulo Go independente, como o `printer/`)
 | `docs/agent-backend.md` | Convenções backend: camadas, transações, migrations, estoque, alertas, impressão |
 | `docs/agent-frontend.md` | Convenções frontend: FSD, camadas, componentes, overlays, menu, Tauri |
 | `docs/agent-deploy.md` | Deploy azul/verde: switch, healthcheck, regras, backup, os dois portões que falhavam em silêncio (título da PR = mensagem do squash; tag publicada sem deploy) |
-| `docs/agent-testing.md` | Como descobrir e rodar os testes de backend, frontend, gateway WS, Pagar.me e printer |
+| `docs/agent-testing.md` | Como descobrir e rodar os testes de backend, frontend, gateway WS, Pagar.me e impressão |
 | `docs/agent-api-index.md` | Índice de todos os endpoints da API, agrupados por domínio |
 | `docs/agent-glossary.md` | Glossário de termos do domínio (BR Code, FSD, blue/green, …) |
 | `docs/agent-backend-map.md` | Mapa arquivo→conteúdo do backend (onde mexer para cada assunto) |
@@ -99,7 +98,6 @@ ficou pendente. Os dois conjuntos se complementam, não se substituem.
 |---|---|
 | `CHANGELOG.md` | Histórico de versões e fases do roadmap |
 | `deploy/README.md` | Runbook completo de deploy (33 KB) |
-| `printer/README.md` | Documentação do daemon de impressão |
 
 ## Como rodar
 
@@ -164,7 +162,7 @@ agora na **raiz do repo** (`node_modules/.bin/tauri`, `package.json` da raiz).
 
 ```bash
 # a partir da raiz
-bash scripts/build/build-app.sh            # build local (instalador; sem sidecar — printer reestruturado)
+bash scripts/build/build-app.sh            # build local (instalador; sem sidecar — daemon de impressão fora do repo)
 bash scripts/build/build-app.sh --release  # build de entrega: exige chave de assinatura
 (cd frontend && ../node_modules/.bin/tauri dev)  # roda o app no desktop
 ```
@@ -218,7 +216,6 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `bash scripts/build/build-app.sh` | frontend | build do app desktop v1 (Tauri); `--release` = entrega (chave de assinatura), `--appimage-docker` = AppImage |
 | `node_modules/.bin/tauri <cmd>` | raiz | CLI do Tauri (na raiz do repo, não em `frontend/node_modules`; rodar com cwd=`frontend/` para o app v1) |
 | `bash scripts/build/install-cli.sh` | raiz | compila o CLI Go (`cmd/pdv`) e instala o binário `pdv` em `$PREFIX/bin` (default `/usr/local/bin`); `--uninstall` remove |
-| `go test ./...` | `printer/daemon` | suíte do daemon |
 | `go build ./...` / `go vet ./...` / `go test ./...` | `ws-gateway` | portão do gateway WS: build, vet e suíte (é o que o CI roda, junto com `gofmt -l .`) |
 | `./switch.sh` | deploy | deploy sem downtime (instância nova + `caddy reload`); `--status`, `--rollback`, `--install`, `--no-build`. Não mexe no `ws-gateway` |
 | `docker compose --profile ws-gateway up -d --build ws-gateway` | deploy | sobe **só** o gateway WS em Go — o `up` normal não o cria (está atrás de `profiles`) |
@@ -351,11 +348,9 @@ Antes de dar qualquer mudança por feita:
 5. Conferir o critério de aceite correspondente em `docs/03-acceptance-criteria.md`
 6. Toda mudança realtime: garantir que o evento chega a um room que o client realmente assina
 7. Toda mudança de schema: novo arquivo `.sql` numerado em `backend/migrations/`
-8. Impressão (qualquer um dos dois renderizadores):
-   - daemon: `go build`, `go vet`, `test -z "$(gofmt -l .)"` e `go test ./...` em
-     `printer/daemon` — os quatro estão no job `test-printer-daemon` do CI
+8. Impressão (renderizador Rust; o daemon Go saiu deste repo — reescrita à parte):
    - app Rust: `cargo test -p pdv-caixa` na raiz, e **`rust_imprime_o_mesmo_que_o_go`
-     tem que passar** — é o golden byte a byte com o daemon. Ele NÃO pega erro na
+     tem que passar** — é o golden byte a byte do cupom. Ele NÃO pega erro na
      conversão de code page (o golden compara o render lógico, em UTF-8), então
      uma mudança em `codepage.rs` precisa de teste próprio de bytes, não só o green
    - `cargo fmt` em arquivo que você não mexeu reformata código de outra pessoa:

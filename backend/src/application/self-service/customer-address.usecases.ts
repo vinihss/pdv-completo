@@ -48,7 +48,7 @@ function serializeAddress(a: typeof customerAddresses.$inferSelect) {
  *
  * O `cep` entra no tipo mas NÃO no texto: este snapshot é o que o entregador
  * lê (frontend/src/pages/courier/CourierApp.jsx) e o que a bobina imprime em
- * largura fixa (printer/daemon/main.go, seção "delivery"). Empilhar "CEP:
+ * largura fixa (daemon de impressão, seção "delivery"). Empilhar "CEP:
  * 01310100" no fim da linha quebraria a bobina e poluiria a tela sem pedido
  * de ninguém — o CEP fica estruturado na API para quem precisar dele.
  */

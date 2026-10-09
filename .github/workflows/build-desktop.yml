@@ -207,10 +207,10 @@ jobs:
           $cargoVersion = Resolve-CrateVersion 'Cargo.toml'
           Write-Host "Versao: $cargoVersion (do Cargo.toml do crate)"
 
-      # O sidecar do daemon de impressão (printer/) SAIU do build: o printer
-      # foi reestruturado e `printer/scripts/build-sidecar.sh` não existe mais.
-      # Os tauri.conf.json da família não declaram `externalBin`, então nada
-      # aqui depende do Go. Retomar quando o novo printer for embutido.
+      # O daemon de impressão saiu deste repositório (reescrita à parte), então
+      # o sidecar Go não faz mais parte do build. Os tauri.conf.json da família
+      # não declaram `externalBin`, então nada aqui depende do Go. Retomar
+      # quando o novo daemon for embutido.
 
       # Duas instalações, propósitos distintos: a RAIZ traz a CLI do Tauri
       # (@tauri-apps/cli, usada no passo de build via ../node_modules/.bin)
