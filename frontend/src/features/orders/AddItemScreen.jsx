@@ -23,6 +23,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
   const [confirming, setConfirming] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState(false);
+  const [recentlyAdded, setRecentlyAdded] = useState(null); // productId adicionado recentemente
 
   async function loadCatalog() {
     setCatalogLoading(true);
@@ -59,7 +60,17 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
       const existing = prev[key];
       return { ...prev, [key]: { product, quantity: (existing?.quantity ?? 0) + 1, selectedVariations, notes: existing?.notes ?? "" } };
     });
+    // Feedback visual: destacar produto recém-adicionado
+    setRecentlyAdded(product.id);
   }
+
+  // Limpar destaque após 600ms
+  useEffect(() => {
+    if (recentlyAdded) {
+      const timer = setTimeout(() => setRecentlyAdded(null), 600);
+      return () => clearTimeout(timer);
+    }
+  }, [recentlyAdded]);
 
   function changeNotes(key, notes) {
     setCart((prev) => {
@@ -166,9 +177,11 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
                 className={`relative overflow-hidden text-left rounded-2xl p-4 border transition-all active:scale-95 ${
                   outOfStock
                     ? "bg-stone-900 border-stone-800 opacity-50"
-                    : addedQty > 0
-                      ? "bg-emerald-500/10 border-emerald-500/50"
-                      : "bg-stone-800 border-stone-700 hover:bg-stone-750"
+                    : recentlyAdded === p.id
+                      ? "bg-emerald-500/20 border-emerald-400 ring-2 ring-emerald-400 scale-105"
+                      : addedQty > 0
+                        ? "bg-emerald-500/10 border-emerald-500/50"
+                        : "bg-stone-800 border-stone-700 hover:bg-stone-750"
                 }`}
               >
                 {addedQty > 0 && !outOfStock && (

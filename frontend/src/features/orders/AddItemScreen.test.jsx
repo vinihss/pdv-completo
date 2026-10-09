@@ -73,4 +73,39 @@ describe("AddItemScreen — estados do catálogo", () => {
     await waitFor(() => expect(api.listCategories).toHaveBeenCalledTimes(2));
     expect(screen.queryByText("Tentar novamente")).toBeNull();
   });
+
+  it("destaca produto recém-adicionado com feedback visual", async () => {
+    const product = {
+      id: "p1",
+      name: "Cerveja",
+      price: 10,
+      imagePath: null,
+      description: "",
+      variations: [],
+      quantity: 100,
+      trackStock: false,
+    };
+    api.listCategories.mockResolvedValue([]);
+    api.listAllProducts.mockResolvedValue({ data: [product] });
+    setup();
+
+    const button = await screen.findByRole("button", { name: /Cerveja/i });
+    
+    // Antes de adicionar, não tem a classe de destaque
+    expect(button.className).not.toContain("ring-2");
+    expect(button.className).not.toContain("scale-105");
+    
+    // Ao adicionar produto
+    fireEvent.click(button);
+    
+    // Deve ter a classe de destaque temporário
+    expect(button.className).toContain("ring-2");
+    expect(button.className).toContain("ring-emerald-400");
+    expect(button.className).toContain("scale-105");
+    
+    // Após 600ms, deve remover o destaque
+    await waitFor(() => {
+      expect(button.className).not.toContain("scale-105");
+    }, { timeout: 700 });
+  });
 });
