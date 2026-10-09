@@ -81,6 +81,10 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
     setVisibleCount(PAGE_SIZE);
   }, [filter, search, viewMode]);
 
+  // Controle de visualização mais descobrível: menu com opções explícitas em
+  // vez de botão cíclico que escondia as alternativas.
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
+
   // Contagens dos chips vêm da lista COMPLETA (não da já filtrada), senão o
   // número mudaria conforme o filtro selecionado.
   const openCount = orders.filter((o) => o.status === "open").length;
@@ -142,21 +146,56 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
         <div className="flex items-center justify-between mb-4">
           <h1 className="font-display text-xl font-bold">Comandas</h1>
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => {
-                const idx = VIEW_MODES.findIndex((m) => m.id === viewMode);
-                setViewMode(VIEW_MODES[(idx + 1) % VIEW_MODES.length].id);
-              }}
-              aria-label={`Modo de visualização: ${VIEW_MODES.find((m) => m.id === viewMode)?.label ?? "Lista"}`}
-              title={`Modo de visualização: ${VIEW_MODES.find((m) => m.id === viewMode)?.label ?? "Lista"} — clique para alternar`}
-              className="p-1.5 rounded-lg transition-colors text-stone-500 hover:text-stone-300"
-            >
-              {(() => {
-                const current = VIEW_MODES.find((m) => m.id === viewMode) ?? VIEW_MODES[0];
-                const Icon = current.icon;
-                return <Icon size={16} />;
-              })()}
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setViewMenuOpen(!viewMenuOpen)}
+                aria-label={`Modo de visualização: ${VIEW_MODES.find((m) => m.id === viewMode)?.label ?? "Lista"}`}
+                aria-expanded={viewMenuOpen}
+                aria-haspopup="menu"
+                className="p-1.5 rounded-lg transition-colors text-stone-500 hover:text-stone-300"
+              >
+                {(() => {
+                  const current = VIEW_MODES.find((m) => m.id === viewMode) ?? VIEW_MODES[0];
+                  const Icon = current.icon;
+                  return <Icon size={16} />;
+                })()}
+              </button>
+              {viewMenuOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-20"
+                    onClick={() => setViewMenuOpen(false)}
+                  />
+                  <div
+                    role="menu"
+                    className="absolute right-0 top-full mt-1 z-30 bg-stone-900 border border-stone-700 rounded-lg shadow-lg py-1 min-w-[160px]"
+                  >
+                    {VIEW_MODES.map((mode) => {
+                      const Icon = mode.icon;
+                      return (
+                        <button
+                          key={mode.id}
+                          role="menuitemradio"
+                          aria-checked={viewMode === mode.id}
+                          onClick={() => {
+                            setViewMode(mode.id);
+                            setViewMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
+                            viewMode === mode.id
+                              ? "bg-amber-500/10 text-amber-400"
+                              : "text-stone-300 hover:bg-stone-800"
+                          }`}
+                        >
+                          <Icon size={16} />
+                          {mode.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
             <button
               onClick={onReloadAll}
               aria-label="Atualizar"

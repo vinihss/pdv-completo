@@ -165,4 +165,31 @@ describe("OrderListScreen", () => {
     const refreshBtn = screen.getByTitle("Atualizar");
     expect(refreshBtn).toBeTruthy();
   });
+
+  it("menu de visualização abre e mostra opções", () => {
+    render(<OrderListScreen {...defaultProps} />);
+    const menuButton = screen.getByLabelText(/Modo de visualização: Lista/);
+    expect(menuButton).toBeTruthy();
+    
+    fireEvent.click(menuButton);
+    
+    // Menu deve abrir e mostrar as opções
+    expect(screen.getByText("Lista")).toBeTruthy();
+    expect(screen.getByText("Grade pequena")).toBeTruthy();
+    expect(screen.getByText("Grade grande")).toBeTruthy();
+  });
+
+  it("selecionar modo no menu altera visualização", () => {
+    render(<OrderListScreen {...defaultProps} />);
+    const menuButton = screen.getByLabelText(/Modo de visualização: Lista/);
+    
+    fireEvent.click(menuButton);
+    fireEvent.click(screen.getByText("Grade pequena"));
+    
+    // Menu deve fechar
+    expect(screen.queryByText("Grade pequena")).toBeNull();
+    
+    // Deve atualizar o aria-label do botão
+    expect(screen.getByLabelText(/Modo de visualização: Grade pequena/)).toBeTruthy();
+  });
 });
