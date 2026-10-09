@@ -6,6 +6,7 @@ import {
   orderTotal,
   orderHasReady,
   orderAllDelivered,
+  orderItemCounts,
   formatDateTime,
 } from "@/entities/order";
 
@@ -28,6 +29,31 @@ function isOpenOver24h(order) {
   const opened = new Date(order.openedAt).getTime();
   if (Number.isNaN(opened)) return false;
   return Date.now() - opened > 24 * 60 * 60 * 1000;
+}
+
+// Resumo operacional do cartão: estados em TEXTO, nunca só cor. A contagem é
+// por linha de item (`orderItemCounts`), a mesma unidade do "N itens".
+function workSummary(order, kitchenEnabled) {
+  const { ordered, ready } = orderItemCounts(order);
+  if (kitchenEnabled) {
+    if (ready > 0 && ordered > 0) {
+      return { text: `${ready} prontos · ${ordered} em preparo`, tone: "ready" };
+    }
+    if (ready > 0) {
+      return { text: ready === 1 ? "1 pronto para entregar" : `${ready} prontos para entregar`, tone: "ready" };
+    }
+    if (ordered > 0) {
+      return { text: `${ordered} em preparo`, tone: "pending" };
+    }
+    if (orderAllDelivered(order)) {
+      return { text: "Tudo entregue", tone: "done" };
+    }
+    return null;
+  }
+  if (ordered > 0) {
+    return { text: `${ordered} aguardando entrega`, tone: "pending" };
+  }
+  return null;
 }
 
 export default function OrderListScreen({ orders, loading, kitchenEnabled, usesTables, filter, setFilter, search, setSearch, onOpenOrder, onNewOrder, onReloadAll }) {
@@ -55,10 +81,15 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
     setVisibleCount(PAGE_SIZE);
   }, [filter, search, viewMode]);
 
+  // Contagens dos chips vêm da lista COMPLETA (não da já filtrada), senão o
+  // número mudaria conforme o filtro selecionado.
+  const openCount = orders.filter((o) => o.status === "open").length;
+  const readyCount = orders.filter((o) => o.status === "open" && orderHasReady(o)).length;
+
   const chips = [
-    { id: "open", label: "Abertas" },
+    { id: "open", label: "Abertas", count: openCount },
     { id: "closed", label: "Fechadas" },
-    ...(kitchenEnabled ? [{ id: "ready", label: "Com pronto", icon: Zap }] : []),
+    ...(kitchenEnabled ? [{ id: "ready", label: "Com pronto", icon: Zap, count: readyCount }] : []),
     ...(usesTables ? [{ id: "table", label: "Mesa" }] : []),
     { id: "customer", label: "Cliente" },
   ];
@@ -106,7 +137,7 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
   }, [hasMore, visibleCount]);
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-50 pb-24">
+    <div className="min-h-screen bg-stone-950 text-stone-50 pb-40">
       <div className="px-5 pt-6 pb-4 sticky top-14 bg-stone-950/95 backdrop-blur z-10 border-b border-stone-900">
         <div className="flex items-center justify-between mb-4">
           <h1 className="font-display text-xl font-bold">Comandas</h1>
@@ -129,6 +160,7 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
             <button
               onClick={onReloadAll}
               aria-label="Atualizar"
+              title="Atualizar"
               className="p-1.5 rounded-lg text-stone-500 hover:text-stone-300 transition-colors"
             >
               <RefreshCw size={16} />
@@ -156,6 +188,15 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
               >
                 {c.icon && <c.icon size={12} />}
                 {c.label}
+                {c.count != null && (
+                  <span
+                    className={`ml-0.5 min-w-4 px-1 rounded-full text-[10px] leading-4 font-bold ${
+                      filter === c.id ? "bg-stone-950/20 text-stone-900" : "bg-stone-800 text-stone-300"
+                    }`}
+                  >
+                    {c.count}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -177,7 +218,7 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
           {visible.map((o) => {
             const closed = o.status === "closed";
             const hasReady = orderHasReady(o);
-            const allDelivered = orderAllDelivered(o);
+            const summary = workSummary(o, kitchenEnabled);
             const stale = isOpenOver24h(o);
             return (
               <button
@@ -194,14 +235,6 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-display text-lg font-bold flex items-center gap-1.5">
                     {orderLabel(o)}
-                    {stale && (
-                      <AlertTriangle
-                        size={15}
-                        className="text-amber-400"
-                        title="Comanda aberta há mais de 24h"
-                        aria-label="Comanda aberta há mais de 24h"
-                      />
-                    )}
                   </span>
                   <span className="text-stone-500 text-xs">{o.items.length} {o.items.length === 1 ? "item" : "itens"}</span>
                 </div>
@@ -217,17 +250,22 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
                 </div>
                 {stale && (
                   <div className="mt-2 flex items-center gap-1 text-amber-400 text-xs font-semibold">
-                    <AlertTriangle size={12} /> Aberta há mais de 24h
+                    <AlertTriangle size={12} aria-hidden="true" /> Aberta há mais de 24h
                   </div>
                 )}
-                {kitchenEnabled && hasReady && (
-                  <div className="mt-2 flex items-center gap-1 text-emerald-400 text-xs font-semibold">
-                    <Zap size={12} /> Pronto para entregar
-                  </div>
-                )}
-                {kitchenEnabled && allDelivered && !hasReady && (
-                  <div className="mt-2 flex items-center gap-1 text-stone-500 text-xs">
-                    <Check size={12} /> Tudo entregue
+                {summary && (
+                  <div
+                    className={`mt-2 flex items-center gap-1 text-xs ${
+                      summary.tone === "ready"
+                        ? "text-emerald-400 font-semibold"
+                        : summary.tone === "done"
+                          ? "text-stone-500"
+                          : "text-stone-400"
+                    }`}
+                  >
+                    {summary.tone === "ready" && <Zap size={12} aria-hidden="true" />}
+                    {summary.tone === "done" && <Check size={12} aria-hidden="true" />}
+                    {summary.text}
                   </div>
                 )}
               </button>
@@ -239,6 +277,8 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
 
       <button
         onClick={onNewOrder}
+        aria-label="Nova comanda"
+        title="Nova comanda"
         className="fixed bottom-20 right-5 z-30 bg-amber-500 hover:bg-amber-400 text-stone-950 rounded-full p-4 shadow-xl shadow-black/40 active:scale-95 transition-transform"
       >
         <Plus size={22} strokeWidth={2.5} />
