@@ -4,7 +4,6 @@ import { outboxEvents } from "../db/schema.js";
 import { runInTenantScope } from "../db/tenant-context.js";
 import { LOCKS, tryWithAdvisoryLock } from "../locks.js";
 import { listActiveTenants } from "../tenant/registry.js";
-import { wsGateway } from "./ws-gateway.js";
 
 const POLL_MS = 200;
 const BATCH_SIZE = 50;
@@ -64,10 +63,8 @@ export async function pollOutboxForTenant(): Promise<number> {
 
     for (const evt of pending) {
       try {
-        wsGateway.broadcastToRoom(evt.room, {
-          type: evt.eventType,
-          payload: JSON.parse(evt.payload),
-        });
+        // O broadcast é feito pelo Go gateway (WS_BACKEND=go). O dispatcher
+        // do Node apenas marca o evento como publicado para não duplicar.
         await tx.update(outboxEvents).set({ published: true }).where(eq(outboxEvents.id, evt.id));
       } catch (err) {
         console.warn(`[outbox] descartando evento ${evt.id} (${evt.eventType}) com payload corrompido:`, err);

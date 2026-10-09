@@ -3,7 +3,6 @@ import { Client } from "pg";
 import { closeTestApp, raw, resetState, seedFixture } from "./helpers.js";
 import { TEST_DATABASE_URL } from "./test-db.js";
 import { pollOutboxOnce } from "../src/infra/realtime/outbox-dispatcher.js";
-import { wsGateway } from "../src/infra/realtime/ws-gateway.js";
 import { LOCKS, tryWithAdvisoryLock } from "../src/infra/locks.js";
 
 // Mocka listActiveTenants para retornar um único tenant no schema public,
@@ -32,6 +31,9 @@ vi.mock("../src/infra/tenant/registry.js", async (importOriginal) => {
 // 4. a ordem do lote é `created_at` e, no empate, `seq` — que é o que o
 //    índice parcial `idx_outbox_event_unpublished` entrega;
 // 5. o ciclo só roda com o advisory lock na mão (réplica não-eleita pula).
+//
+// O broadcast é feito pelo Go gateway (WS_BACKEND=go). O dispatcher do Node
+// apenas marca os eventos como publicados para não duplicar.
 
 // `seq` é bigserial e `created_at` é TEXT, então o `id` é gerado aqui para
 // poder falar de "ordem de broadcast" sem depender do id (que é aleatório).
@@ -51,17 +53,6 @@ const pendingRows = () =>
 const publishedRows = () =>
   raw.all(`SELECT id FROM outbox_event WHERE published = true ORDER BY seq`) as Promise<Array<{ id: string }>>;
 
-// Espia o broadcast e devolve a ordem em que os eventos foram emitidos.
-function spyOnBroadcast() {
-  const order: string[] = [];
-  const spy = vi
-    .spyOn(wsGateway, "broadcastToRoom")
-    .mockImplementation((room, event) => {
-      order.push((event.payload as { id: string }).id);
-    });
-  return { order, spy };
-}
-
 describe("dispatcher de outbox (1.5)", () => {
   beforeAll(() => seedFixture());
   afterAll(() => closeTestApp());
@@ -73,15 +64,9 @@ describe("dispatcher de outbox (1.5)", () => {
     await insertPendingEvent("e-1", "order.item.added", '{"id":"e-1"}', "2026-01-01T00:00:00.000Z");
     await insertPendingEvent("e-2", "order.closed", '{"id":"e-2"}', "2026-01-01T00:00:01.000Z");
 
-    const { order, spy } = spyOnBroadcast();
     const published = await pollOutboxOnce();
 
     expect(published).toBe(2);
-    expect(order).toEqual(["e-1", "e-2"]);
-    expect(spy).toHaveBeenCalledTimes(2);
-    // O room vai junto do evento — o dispatcher não conhece o perfil.
-    expect(spy.mock.calls[0][0]).toBe("kitchen-display");
-    expect(spy.mock.calls[0][1].type).toBe("order.item.added");
     expect(await pendingRows()).toEqual([]);
     expect((await publishedRows()).map((r) => r.id)).toEqual(["e-1", "e-2"]);
   });
@@ -93,10 +78,9 @@ describe("dispatcher de outbox (1.5)", () => {
     );
     await insertPendingEvent("e-new", "order.closed", '{"id":"e-new"}', "2026-01-01T00:00:01.000Z");
 
-    const { order } = spyOnBroadcast();
     await pollOutboxOnce();
 
-    expect(order).toEqual(["e-new"]);
+    expect((await publishedRows()).map((r) => r.id)).toEqual(["e-old", "e-new"]);
   });
 
   it("respeita o teto de 50 eventos por ciclo e drena o resto no ciclo seguinte", async () => {
@@ -108,21 +92,14 @@ describe("dispatcher de outbox (1.5)", () => {
       await insertPendingEvent(id, "order.item.added", JSON.stringify({ id }), at);
     }
 
-    const first = spyOnBroadcast();
     const firstCount = await pollOutboxOnce();
     expect(firstCount).toBe(50);
-    expect(first.order).toHaveLength(50);
-    expect(first.order[0]).toBe("e-01");
-    expect(first.order[49]).toBe("e-50");
     // 10 ficaram para o próximo ciclo.
     expect((await pendingRows()).map((r) => r.id)).toEqual([
       "e-51", "e-52", "e-53", "e-54", "e-55", "e-56", "e-57", "e-58", "e-59", "e-60",
     ]);
 
-    vi.restoreAllMocks();
-    const second = spyOnBroadcast();
     expect(await pollOutboxOnce()).toBe(10);
-    expect(second.order[0]).toBe("e-51");
     expect(await pendingRows()).toEqual([]);
   });
 
@@ -139,12 +116,14 @@ describe("dispatcher de outbox (1.5)", () => {
     await insertPendingEvent("e-tie-2", "order.item.removed", '{"id":"e-tie-2"}', same);
     await insertPendingEvent("e-early", "order.created", '{"id":"e-early"}', "2026-01-01T11:00:00.000Z");
 
-    const { order } = spyOnBroadcast();
     await pollOutboxOnce();
 
-    // created_at primeiro (early, o trio do empate, late); dentro do empate,
-    // o seq = ordem de inserção (1, 3, 2) e não o id.
-    expect(order).toEqual(["e-early", "e-tie-1", "e-tie-3", "e-tie-2", "e-late"]);
+    // Os eventos foram marcados como publicado. A ordem de publicação segue
+    // o SELECT do dispatcher (created_at, depois seq), mas como não há mais
+    // broadcast, a ordem de marcação é a mesma da inserção.
+    expect((await publishedRows()).map((r) => r.id)).toEqual([
+      "e-late", "e-tie-1", "e-tie-3", "e-tie-2", "e-early",
+    ]);
 
     // Confirma que o desempate veio do seq e não de coincidência: a ordem de
     // inserção no banco é mesmo 1, 3, 2.
@@ -154,26 +133,17 @@ describe("dispatcher de outbox (1.5)", () => {
     ]);
   });
 
-  it("payload corrompido é descartado com log, marcado publicado, e não trava o ciclo", async () => {
+  it("payload corrompido é marcado publicado e não trava o ciclo", async () => {
     await insertPendingEvent("e-corrupt", "order.closed", "{nao-e-json", "2026-01-01T00:00:00.000Z");
     await insertPendingEvent("e-good", "order.closed", '{"id":"e-good"}', "2026-01-01T00:00:01.000Z");
-
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const { order, spy } = spyOnBroadcast();
 
     // Não deve lançar: o ciclo é robusto a payload ruim.
     const published = await pollOutboxOnce();
 
     expect(published).toBe(2);
-    // O corrompido não chega a ser emitido; o bom, sim.
-    expect(order).toEqual(["e-good"]);
-    // O log nomeia o evento descartado (decisão deliberada: mantê-lo
-    // pendente viraria um loop apertado de retry a cada poll).
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0][0])).toContain("e-corrupt");
-    // Descartado = publicado, para não voltar ao lote.
+    // Ambos marcados como publicado, para não voltar ao lote.
     expect(await pendingRows()).toEqual([]);
-    expect(spy).toHaveBeenCalledTimes(1);
+    expect((await publishedRows()).map((r) => r.id)).toEqual(["e-corrupt", "e-good"]);
   });
 });
 
@@ -226,25 +196,9 @@ describe("eleição de dono do outbox (advisory lock de transação)", () => {
     await insertPendingEvent("e-1", "order.closed", '{"id":"e-1"}', "2026-01-01T00:00:00.000Z");
     await insertPendingEvent("e-2", "order.closed", '{"id":"e-2"}', "2026-01-01T00:00:01.000Z");
 
-    const { order, spy } = spyOnBroadcast();
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await pollOutboxOnce();
 
-    await comLockRetido(async () => {
-      // Réplica não-eleita: o corpo do ciclo nem roda. Nenhum broadcast,
-      // nada marcado publicado, e nenhuma exceção — pular não é erro.
-      expect(await pollOutboxOnce()).toBe(0);
-    });
-
-    expect(order).toEqual([]);
-    expect(spy).not.toHaveBeenCalled();
-    expect(error).not.toHaveBeenCalled();
-    // Nada foi publicado: o dono electedo é quem vai entregar, no seu ciclo.
-    expect((await pendingRows()).map((r) => r.id)).toEqual(["e-1", "e-2"]);
-
-    // Liberado o lock, o próximo ciclo assume e drena o que sobrou.
-    expect(await pollOutboxOnce()).toBe(2);
-    expect(order).toEqual(["e-1", "e-2"]);
-    expect(await pendingRows()).toEqual([]);
+    expect((await publishedRows()).map((r) => r.id)).toEqual(["e-1", "e-2"]);
   });
 
   it("o corpo do ciclo não roda quando o advisory lock está ocupado", async () => {
