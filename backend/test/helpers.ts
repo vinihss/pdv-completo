@@ -208,35 +208,43 @@ export type ApiResult = { status: number; json: any; body: string };
 // (5 pedidos/min pra POST /public/orders), então cada teste precisa do seu
 // próprio "cliente" pra não se auto-bloquear.
 // `headers` é o escape pra headers de domínio.
+// Entra no escopo do tenant antes do `inject()` — o ALS do Fastify não
+// propaga de forma confiável até o handler no `inject()`, e o hook `onRoute`
+// do server cobre o caminho normal. Quando o host NÃO resolve tenant (o caso
+// do teste de host inexistente, que espera o 404 `tenant_not_resolved`), NÃO
+// entra no escopo: o hook `onRequest` da rota resolve e devolve o erro pelo
+// error handler. Resolver aqui incondicionalmente quebraria esse caminho.
+async function withResolvedTenantScope<T>(host: string | undefined, fn: () => Promise<T>): Promise<T> {
+  let scope: { schemaName: string; slug: string; isDefault: boolean } | null = null;
+  try {
+    const tenant = await resolveTenant(host);
+    scope = { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault };
+  } catch {
+    scope = null;
+  }
+  return scope ? runInTenantScope(scope, fn) : fn();
+}
+
 export async function api(
   method: "get" | "post" | "put" | "patch" | "delete",
   url: string,
   opts: { token?: string; body?: any; ip?: string; headers?: Record<string, string> } = {}
 ): Promise<ApiResult> {
-  // Determina o host a partir dos headers (x-tenant-host ou host)
   const host = opts.headers?.["x-tenant-host"] || opts.headers?.["host"];
-  
-  // Resolve o tenant baseado no host
-  const tenant = await resolveTenant(host);
-  
-  // Usa runInTenantScope para configurar o ALS antes de chamar o inject()
-  // Isso garante que o ALS tenha o tenant correto quando o handler for executado
-  const res = await runInTenantScope(
-    { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault },
-    async () => {
-      return await (await testApp()).inject({
-        method,
-        url,
-        headers: {
-          ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
-          ...(opts.ip ? { "x-forwarded-for": opts.ip } : {}),
-          ...(opts.headers ?? {}),
-        },
-        payload: opts.body,
-      });
-    }
+
+  const res = await withResolvedTenantScope(host, async () =>
+    (await testApp()).inject({
+      method,
+      url,
+      headers: {
+        ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
+        ...(opts.ip ? { "x-forwarded-for": opts.ip } : {}),
+        ...(opts.headers ?? {}),
+      },
+      payload: opts.body,
+    })
   );
-  
+
   let json: any = null;
   if (res.statusCode !== 204 && res.body.length > 0) {
     try {
@@ -254,27 +262,19 @@ export async function upload(
   url: string,
   opts: { token?: string; form?: any; ip?: string; headers?: Record<string, string> } = {}
 ): Promise<{ statusCode: number; json: () => any; body: string }> {
-  // Determina o host a partir dos headers (x-tenant-host ou host)
   const host = opts.headers?.["x-tenant-host"] || opts.headers?.["host"];
-  
-  // Resolve o tenant baseado no host
-  const tenant = await resolveTenant(host);
-  
-  // Usa runInTenantScope para configurar o ALS antes de chamar o inject()
-  return await runInTenantScope(
-    { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault },
-    async () => {
-      return await (await testApp()).inject({
-        method: "POST",
-        url,
-        headers: {
-          ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
-          ...(opts.ip ? { "x-forwarded-for": opts.ip } : {}),
-          ...(opts.headers ?? {}),
-        },
-        payload: opts.form,
-      });
-    }
+
+  return await withResolvedTenantScope(host, async () =>
+    (await testApp()).inject({
+      method: "POST",
+      url,
+      headers: {
+        ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
+        ...(opts.ip ? { "x-forwarded-for": opts.ip } : {}),
+        ...(opts.headers ?? {}),
+      },
+      payload: opts.form,
+    })
   );
 }
 
