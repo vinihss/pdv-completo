@@ -49,10 +49,19 @@ export default function OrderBoard() {
     if (openOrderIdShown) markRead(openOrderIdShown);
   }, [openOrderIdShown, markRead]);
 
-  async function handleItemsConfirmed() {
-    setOpenOrderId(null);
-    showToast("Itens lançados com sucesso.", "success");
-    await reloadAll();
+  // Depois de confirmar um lote, o garçom continua atendendo a MESMA mesa:
+  // recarregamos só esta comanda e permanecemos no detalhe. Voltar à lista é
+  // decisão dele (`onBack`), não efeito colateral do lançamento.
+  async function handleItemsConfirmed(count) {
+    const message = kitchenEnabled
+      ? count == null
+        ? "Itens enviados para a cozinha."
+        : `${count} ${count === 1 ? "item enviado" : "itens enviados"} para a cozinha.`
+      : count == null
+        ? "Itens confirmados."
+        : `${count} ${count === 1 ? "item confirmado" : "itens confirmados"}.`;
+    showToast(message, "success");
+    if (openOrderId) await reloadOne(openOrderId);
   }
 
   async function handleOpenNewOrder(identification) {
