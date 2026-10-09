@@ -103,7 +103,9 @@
 
 	# Service Worker: não cachear para evitar problemas de atualização
 	# O Cloudflare cacheia por 4h (max-age=14400), mas o SW precisa ser sempre fresco
-	handle /sw.js {
+	# Usa matcher para pegar sw.js, sw-v2.js, sw-v3.js, etc.
+	@swFiles path /sw*.js
+	handle @swFiles {
 		header Cache-Control "no-cache, no-store, must-revalidate"
 		header Pragma "no-cache"
 		header Expires "0"
