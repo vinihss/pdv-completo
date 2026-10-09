@@ -34,13 +34,16 @@ function useNetworkOnline() {
 
 /**
  * LED indicador de conexão. Verde = online, vermelho = offline.
+ * Posicionado no canto superior direito do sino (padrão de indicadores de
+ * status) — antes ficava no canto inferior esquerdo, que competia com o
+ * badge de contagem e destoava do padrão visual.
  * Tooltip nativo (title) com a mensagem em PT-BR.
  */
 function ConnectionLed({ online }) {
   return (
     <span
       aria-hidden="true"
-      className="absolute -bottom-0.5 -left-0.5 w-3 h-3 rounded-full border-2 border-stone-900"
+      className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-stone-900"
       style={{ backgroundColor: online ? "#22c55e" : "#ef4444", transition: "background-color 150ms ease" }}
       title={online ? "Conectado ao servidor" : "Sem conexao com o servidor"}
     />
