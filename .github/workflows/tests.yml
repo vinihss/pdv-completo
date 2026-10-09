@@ -224,119 +224,15 @@ jobs:
         # saúde. Tirar os ~8s não deixa o passo em 4s, deixa em ~16s. Quem
         # quiser esse resto precisa de outra coisa (imagem em registry
         # próprio, ou serviço gerenciado) — mexer neste intervalo não chega lá.
+        # Healthcheck: pg_isready a cada 2s (não 10s) porque o Postgres fica
+        # pronto em ~2,1s. Com 10s, o job esperava ~12s por um banco que já
+        # estava pronto. Detalhes medidos no doc do arquivo.
+        #
+        # O bloco `options` contém APENAS as flags do Docker, sem comentários.
+        # Comentários YAML dentro de folded scalars (>-) quebram a sintaxe.
         options: >-
           --health-cmd "pg_isready -U pdv -d pdv_test"
-          --health-interval 2s        # Sem healthcheck o vitest começa antes do Postgres aceitar conexão e
-          # o job falha de forma intermitente, dependendo da carga do runner.
-          #
-          # ================================================================
-          # OS INTERVALOS DO HEALTHCHECK: 2s, E NÃO 10s — MEDIDO, NÃO PALPITE
-          # ================================================================
-          # ESTE BLOCO É A REFERÊNCIA DOS TRÊS SERVIÇOS DE POSTGRES DESTE
-          # ARQUIVO. O `test-ws-gateway` e o `test-pagarme-webhook` usam as
-          # MESMAS três flags, com os números deles medidos no próprio job.
-          #
-          # POR QUE O INTERVALO PRECISA SER FINO — o tempo é pago no TOPO do job:
-          # o passo "Initialize containers" do runner espera o serviço ficar
-          # `healthy` ANTES do primeiro `actions/checkout`. Portanto este tempo
-          # não é "espera do `go test`": é espera de TODO o job.
-          #
-          # MEDIDO no run 37409580179 (tag v1.29.0), job `test-backend / test-backend`,
-          # log do passo "Initialize containers":
-          #
-          #   03:34:07.5  docker pull postgres:16 começa
-          #   03:34:19.8  "Status: Downloaded newer image"     → 12,3s de rede
-          #   03:34:20.0  container criado, "Up Less than a second (health: starting)"
-          #   03:34:33.9  "postgres service is healthy"         → 13,9s de espera
-          #
-          # E o log do PRÓPRIO Postgres mostra que 13,9s é exagero:
-          #
-          #   03:34:21.4  LOG: starting PostgreSQL 16.15 ... on unix socket
-          #   03:34:22.1  LOG: listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
-          #
-          # Ou seja: o banco ficou ACEITANDO CONEXÃO em ~2,1s e o job esperou
-          # mais 11,8s por causa do relógio do healthcheck — 47% do tempo do
-          # passo foi o contêiner já pronto.
-          #
-          # DE ONDE VEM O ATRASO (são DOIS relógios, e é por isso que "10s" e
-          # "2s" não são a mesma coisa que "10s" e "1s"):
-          #
-          #   1. Docker só faz a PRIMEIRA sondagem do `pg_isready` depois de
-          #      `--health-interval` — o healthcheck não roda no `docker start`.
-          #   2. O runner do Actions tem um backoff PRÓPRIO para perguntar o
-          #      `docker inspect` (não é configurável pelo workflow). Medido nos
-          #      três jobs do run 37411275059: as perguntas saem em ~0,4s, ~2,4s,
-          #      ~6,1s e ~13,6s depois do `docker start`.
-          #
-          # Com 10s, no instante da 3a pergunta do runner (~6,1s) o Docker ainda
-          # nem tinha sondado uma vez; a 1a sondagem saiu em ~10s e o runner só
-          # voltou a perguntar em ~13,6s — e foi aí que ele viu "healthy".
-          # Com 2s, as sondagens saem em 2s, 4s, 6s...; o `pg_isready` passa na
-          # de 4s (o banco já estava de pé desde 2,1s) e o runner, que já
-          # perguntou aos ~6,1s, libera o job ali.
-          #
-          # RESULTADO ESPERADO: o trecho "container criado → healthy" cai de
-          # ~13,9s para ~6,1s, ou seja ~7,8s a MENOS por job com Postgres.
-          # Mais fino que 2s não compra nada: o backoff do runner (~6s) vira o
-          # piso, e o banco só fica pronto em ~2,1s mesmo.
-          #
-          # RESULTADO MEDIDO — melhor do que o previsto. Run 37413096448 (PR
-          # #116), job `tests / test-backend`, mesmo passo, mesmas linhas de log:
-          #
-          #   04:18:50.9  container criado
-          #   04:18:51.3  "Up Less than a second (health: starting)"
-          #   04:18:51.3  "postgres service is starting, waiting 2 seconds..."
-          #   04:18:53.3  "postgres service is healthy"         → 2,4s de espera
-          #
-          # A 2ª pergunta do runner (que cai em ~2,4s depois do `docker start`)
-          # JÁ encontrou o contêiner `healthy`, porque a 1ª sondagem do
-          # `pg_isready` — em 2s — passou. Nos três jobs com Postgres:
-          # 13,9s / 14,9s / 12,9s antes → 2,4s / 2,4s / 2,3s depois (−34,7s).
-          # O passo "Initialize containers" inteiro caiu de 24s/26s/30s para
-          # 11s/13s/13s.
-          #
-          # O resto da diferença é o `docker pull`, que é rede do runner
-          # efêmero e variou entre runs (8,4s nesta execução do backend contra
-          # 10,5s na do run de base) — por isso o número a citar é o do trecho
-          # `docker start → healthy`, que é o que esta mudança controla.
-          #
-          # POR QUE NÃO É MAIS SEGURO COM 10s — "a margem de segurança do
-          # healthcheck" NÃO vem do intervalo, vem do `retries`. Aqui está a
-          # conta, e ela é a razão de o retries ter AUMENTADO em vez de
-          # diminuído:
-          #
-          #   antes:  10s × 10 retries  = 100s até o Docker declarar `unhealthy`
-          #   agora:   2s × 50 retries  = 100s até o Docker declarar `unhealthy`
-          #
-          # Mesma tolerância a runner congestado, mesma tolerância a disco lento
-          # na camada de imagem do Postgres — o que mudou é só a GRANULARIDADE
-          # da detecção (2s em vez de 10s). Se o banco não subir, o job continua
-          # reprovando por falta de saúde em 100s, exatamente como antes.
-          #
-          # POR QUE 50 E NÃO 10 AQUI: o par (intervalo × retries) é o orçamento,
-          # e reduzir o retries junto com o intervalo encolheria esse orçamento —
-          # que é exatamente o "falso negativo em runner lento" que este bloco
-          # existe para não introduzir. 50 é o número que faz 2 × 50 = 100.
-          #
-          # `--health-start-period` FOI AVALIADO E NÃO ENTRA: com ele, o Docker
-          # só faz a primeira sondagem depois de `start-period + interval`
-          # (o intervalo inicial passa a ser a soma), e as falhas da janela de
-          # start não contam para o retries. Aqui isso só ADIARIA a primeira
-          # sondagem — o contrário do que se quer. Ele só pagaria se o
-          # healthcheck fosse barulhento durante o boot; o `pg_isready` é
-          # silencioso até o banco responder.
-          #
-          # `--health-timeout 5s` fica como está, de propósito: `pg_isready`
-          # responde em milissegundos com o banco de pé, e o timeout só conta
-          # quando o servidor está travado — caso em que 5s de paciência não
-          # custam nada, porque o banco não está pronto de qualquer jeito.
-          #
-          # E O RESTO DO PASSO NÃO É HEALTHCHECK: os ~24s do "Initialize
-          # containers" são ~12s de `docker pull postgres:16` (o runner
-          # efêmero não vem com a imagem pré-carregada) + ~14s de espera de
-          # saúde. Tirar os ~8s não deixa o passo em 4s, deixa em ~16s. Quem
-          # quiser esse resto precisa de outra coisa (imagem em registry
-          # próprio, ou serviço gerenciado) — mexer neste intervalo não chega lá.
+          --health-interval 2s
           --health-timeout 5s
           --health-retries 50
     env:
