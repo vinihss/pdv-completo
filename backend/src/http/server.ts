@@ -44,6 +44,10 @@ import { getStoreSettingsUsecase } from "../application/store-settings.usecases.
 import { listActiveTenants } from "../infra/tenant/registry.js";
 import { tenantMiddleware } from "./middlewares/tenant.middleware.js";
 import { enterTenantScope, exitTenantScope } from "../infra/db/tenant-context.js";
+
+// Escapa metacaracteres de regex para montar o matcher do ask do Caddy a
+// a partir do dominio raiz (vem de env, ex.: `umamisushiarte.com.br` — os
+// pontos casariam com qualquer caractere sem isto).
 import { resolveTenant } from "../application/tenant/resolve-tenant.usecase.js";
 import { resolveTenantSchema } from "../infra/storage/index.js";
 import { ensureTenantScope } from "../infra/db/tenant-context.js";
