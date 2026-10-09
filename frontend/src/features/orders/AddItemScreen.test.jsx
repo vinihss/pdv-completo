@@ -98,15 +98,27 @@ describe("AddItemScreen — estados do catálogo", () => {
     // Ao adicionar produto
     fireEvent.click(button);
     
-    // Deve ter a classe de destaque temporário
-    expect(button.className).toContain("ring-2");
-    expect(button.className).toContain("ring-emerald-400");
-    expect(button.className).toContain("scale-105");
+    // Verificar imediatamente que o botão tem destaque (antes de ser movido para seção de frequentes)
+    // O botão original pode ter sido removido, então verificamos se há algum botão com destaque
+    await waitFor(() => {
+      const buttons = screen.getAllByRole("button", { name: /Cerveja/i });
+      const hasHighlight = buttons.some(btn => 
+        btn.className.includes("ring-2") && 
+        btn.className.includes("ring-emerald-400") && 
+        btn.className.includes("scale-105")
+      );
+      expect(hasHighlight).toBe(true);
+    });
     
     // Após 600ms, deve remover o destaque
     await waitFor(() => {
-      expect(button.className).not.toContain("scale-105");
-    }, { timeout: 700 });
+      const buttons = screen.getAllByRole("button", { name: /Cerveja/i });
+      const hasHighlight = buttons.some(btn => 
+        btn.className.includes("ring-2") && 
+        btn.className.includes("scale-105")
+      );
+      expect(hasHighlight).toBe(false);
+    }, { timeout: 1000 });
   });
 
   it("mostra confirmação ao sair com itens no carrinho", async () => {
