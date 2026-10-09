@@ -167,3 +167,6 @@ cat <<EOF
 EOF
 
 wait
+# Nota v1.51.0+: Para testar o Go WebSocket Gateway localmente:
+# docker compose --profile ws-gateway up -d ws-gateway
+# Variaveis: WS_BACKEND=go, WS_DISPATCH=1, PDV_WS_UPSTREAM=ws-gateway:8080

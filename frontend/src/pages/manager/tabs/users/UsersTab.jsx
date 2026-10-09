@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { Pencil, Plus, RefreshCcw } from "lucide-react";
+import { Pencil, Plus, RefreshCcw, UserX, UserCheck } from "lucide-react";
 import { listUsers, updateUser, resetPin } from "@/entities/user";
 import { ConfirmModal, UserAvatar } from "@/shared/components";
 import UserModal from "./UserModal.jsx";
@@ -8,6 +8,7 @@ const ROLE_LABEL = { waiter: "Garçom", kitchen: "Cozinha", manager: "Gerente", 
 
 export default function UsersTab({ showToast }) {
   const [users, setUsers] = useState([]);
+  const [filterRole, setFilterRole] = useState("all");
   const [newUserOpen, setNewUserOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [revealedPin, setRevealedPin] = useState(null);
@@ -50,10 +51,28 @@ export default function UsersTab({ showToast }) {
     }
   }
 
+  const filteredUsers = filterRole === "all" ? users : users.filter((u) => u.role === filterRole);
+
   return (
     <div className="p-5 max-w-lg mx-auto space-y-4">
+      <div className="flex items-center gap-2">
+        <label htmlFor="user-filter" className="text-xs text-stone-500 font-medium">Perfil:</label>
+        <select
+          id="user-filter"
+          value={filterRole}
+          onChange={(e) => setFilterRole(e.target.value)}
+          className="text-xs bg-stone-800 border border-stone-700 rounded-lg px-2 py-1 text-stone-300 focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+        >
+          <option value="all">Todos</option>
+          <option value="waiter">Garçom</option>
+          <option value="kitchen">Cozinha</option>
+          <option value="manager">Gerente</option>
+          <option value="cashier">Caixa</option>
+          <option value="courier">Entregador</option>
+        </select>
+      </div>
       <div className="space-y-2">
-        {users.map((u) => (
+        {filteredUsers.map((u) => (
           <div key={u.id} className={`flex items-center justify-between gap-3 bg-stone-900 border border-stone-800 rounded-xl px-4 py-3 ${!u.active ? "opacity-50" : ""}`}>
             <div className="flex items-center gap-3 min-w-0">
               <UserAvatar name={u.name} photoPath={u.photoPath} className="w-9 h-9 text-xs" />
@@ -63,14 +82,14 @@ export default function UsersTab({ showToast }) {
               </div>
             </div>
             <div className="flex items-center gap-3 shrink-0">
-              <button onClick={() => setEditing(u)} title="Editar usuário" aria-label={`Editar ${u.name}`} className="text-stone-500 hover:text-amber-400">
+              <button onClick={() => setEditing(u)} title="Editar usuário" aria-label={`Editar ${u.name}`} className="text-stone-500 hover:text-amber-400 cursor-pointer">
                 <Pencil size={15} />
               </button>
-              <button onClick={() => handleResetPin(u)} className="text-stone-500 hover:text-amber-400" title="Redefinir PIN" aria-label={`Redefinir PIN de ${u.name}`}>
+              <button onClick={() => handleResetPin(u)} className="text-stone-500 hover:text-amber-400 cursor-pointer" title="Redefinir PIN" aria-label={`Redefinir PIN de ${u.name}`}>
                 <RefreshCcw size={15} />
               </button>
-              <button onClick={() => handleToggleActive(u)} className="text-xs font-semibold text-stone-400 hover:text-stone-200">
-                {u.active ? "Desativar" : "Ativar"}
+              <button onClick={() => handleToggleActive(u)} className="text-stone-500 hover:text-amber-400 cursor-pointer" title={u.active ? "Desativar usuário" : "Ativar usuário"} aria-label={u.active ? `Desativar ${u.name}` : `Ativar ${u.name}`}>
+                {u.active ? <UserX size={15} /> : <UserCheck size={15} />}
               </button>
             </div>
           </div>
