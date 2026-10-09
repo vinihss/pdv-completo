@@ -1,10 +1,10 @@
 ---
 name: sync-sidecar
-description: Conferir e sincronizar mudanças relacionadas ao daemon/sidecar de impressão.
+description: Revisar a integração de impressão desktop e seus artefatos de build.
 ---
-# Sincronização de impressão
+# Impressão desktop e sidecars
 
-1. Leia `docs/agente-hardware-printing.md`, `printer/README.md` e o guia da aplicação afetada antes de editar.
-2. Confirme o estado atual do empacotamento nos manifests e workflows: não presuma que o sidecar está embutido ou que scripts antigos existem.
-3. Preserve compatibilidade dos contratos e renderizações; quando aplicável, rode testes Go e os testes golden ESC/POS do app Caixa.
-4. Atualize documentação canônica e referências quando caminhos, build ou estado do sidecar mudarem. Relate testes não executados.
+1. Leia `docs/agente-hardware-printing.md` e os guias/código dos crates envolvidos.
+2. Confira os manifests Tauri e workflows presentes no checkout antes de afirmar se há sidecar; não dependa de caminhos antigos como `printer/` ou `printer/scripts/`.
+3. Preserve os contratos de impressão e os testes golden existentes. Descubra os testes pelo módulo/fonte atual; não presuma que um daemon Go existe neste checkout.
+4. Atualize o guia e os links de entrada se mudarem os caminhos, o empacotamento ou o estado da integração. Relate validações não executadas.

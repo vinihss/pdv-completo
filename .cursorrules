@@ -18,7 +18,7 @@ Projeto: PDV Restaurante/Pub (backend Node.js + frontend React)
 - **Lock otimista**: toda mutação de `order_item` exige `expectedVersion`
 - **Estoque é ledger**: saldo = soma dos `quantity_delta` de `stock_movement`
 - **Audit log + outbox na mesma transação** da escrita de domínio
-- **Sem lint/typecheck** — rode `npm run build` (tsc) para validar
+- Valide backend com `npm run build` e os testes pertinentes; confira scripts atuais
 
 ## Frontend
 
@@ -31,19 +31,19 @@ Projeto: PDV Restaurante/Pub (backend Node.js + frontend React)
 - **Sobreposição tem dono**: `Modal`, `Drawer`, `ScreenHeader` ou `ConfirmModal` — nada de overlay ad-hoc
 - **Menu principal = accordion** na esquerda (desktop) ou `Drawer` (mobile)
 
-Os apps mobile (Garçom/Entregador, RN/Expo) não estão mais neste repo — vivem em `pdv-mobile-apps`. Usar o Drawer no web não inclui instruções de mobile.
+Os apps mobile React Native/Expo são mantidos em outro repositório; consulte os projetos realmente presentes antes de assumir o escopo. Usar o Drawer no web não inclui instruções mobile.
 - **Login por PIN**: envio explícito (botão ou Enter), sem auto-envio em 6 dígitos
-- Rodar `npm run lint` (oxlint) antes de terminar
+- Frontend: rode `npm run lint`, `npm run test` e `npm run build` conforme escopo
 
 ## Testes
 
-- Backend: `npm run test` (vitest, 17 suítes, Postgres dedicado `pdv_test`)
-- Frontend: `npm run test` (vitest, 34 suítes, jsdom + Testing Library)
-- Printer: `go test ./...` em `printer/daemon/`
+- Backend: `npm run test` (vitest; consulte `docs/agent-testing.md` para pré-requisitos)
+- Frontend: `npm run test` (vitest; consulte `frontend/docs/agent-testing.md`)
+- Serviços Go: valide no diretório do módulo afetado (`ws-gateway/` ou `pagarme-webhook/`)
 
 ## Documentação
 
-- Specs do produto: `docs/00-overview.md` até `docs/12-*.md`
-- Guias para agentes: `docs/agent-backend.md`, `docs/agent-frontend.md`, `docs/agent-deploy.md`, `docs/agent-testing.md`
+- Índice por tarefa e lista atual de specs: `docs/README.md`
+- Guias para agentes: `docs/agent-backend.md`, `frontend/docs/agent-frontend.md`, `docs/agent-deploy.md`, `docs/agent-testing.md`
 - Índice de endpoints: `docs/agent-api-index.md`
 - Mapa de módulos: `docs/agent-backend-map.md`, `docs/agent-frontend-map.md`
