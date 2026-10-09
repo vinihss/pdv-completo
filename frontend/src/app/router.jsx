@@ -37,6 +37,7 @@ import { CustomerMenuPage } from "@/pages/customer-menu";
 import { LoginPage } from "@/pages/login";
 import { AppMenu } from "@/widgets/app-menu";
 import { AlertBell } from "@/widgets/alert-bell";
+import { UserAvatar } from "@/shared/components";
 import ProfilePage from "@/pages/manager/tabs/profile/ProfilePage";
 
 const ROLE_LABEL = {
@@ -119,17 +120,11 @@ export function AppFrame({ children }) {
             title="Menu do usuário"
             className="w-10 h-10 -mr-1 flex items-center justify-center rounded-full hover:bg-stone-800/60 transition-colors"
           >
-            {session?.user?.photoPath ? (
-              <img
-                src={session.user.photoPath}
-                alt=""
-                className="w-8 h-8 rounded-full object-cover border border-stone-700"
-              />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-stone-800 border border-stone-700 flex items-center justify-center text-stone-400">
-                <UserIcon size={15} />
-              </div>
-            )}
+            <UserAvatar 
+              name={session?.user?.name} 
+              photoPath={session?.user?.photoPath} 
+              className="w-8 h-8"
+            />
           </button>
           {/* Menu flutuante do perfil */}
           {profileMenuOpen && (
@@ -138,17 +133,11 @@ export function AppFrame({ children }) {
               className="absolute right-0 top-full mt-2 w-52 rounded-xl bg-stone-800/95 border border-stone-700 p-1.5 shadow-lg z-50"
             >
               <div className="flex items-center gap-2 border-b border-stone-700/50 px-2 pb-2 mb-1.5">
-                {session?.user?.photoPath ? (
-                  <img
-                    src={session.user.photoPath}
-                    alt=""
-                    className="w-8 h-8 rounded-full object-cover shrink-0"
-                  />
-                ) : (
-                  <div className="w-8 h-8 rounded-full bg-stone-800 border border-stone-700 flex items-center justify-center text-stone-400 shrink-0">
-                    <UserIcon size={15} />
-                  </div>
-                )}
+                <UserAvatar 
+                  name={session?.user?.name} 
+                  photoPath={session?.user?.photoPath} 
+                  className="w-8 h-8 shrink-0"
+                />
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-stone-200 truncate">{session?.user?.name ?? "—"}</p>
                   <p className="text-[11px] text-stone-500 truncate">

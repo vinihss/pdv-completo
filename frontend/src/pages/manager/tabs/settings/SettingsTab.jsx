@@ -101,19 +101,18 @@ export default function SettingsTab({ showToast }) {
         <Field label="Logo do restaurante">
           <div className="flex items-center gap-3">
             {displayLogo ? (
-              <img src={displayLogo} alt="Logo do restaurante" className="w-16 h-16 rounded-xl object-cover shrink-0" />
+              <button type="button" onClick={() => document.getElementById("logo-file-input")?.click()} className="w-16 h-16 rounded-xl object-cover shrink-0 cursor-pointer hover:ring-2 hover:ring-amber-500 transition-all" aria-label="Trocar logo">
+                <img src={displayLogo} alt="Logo do restaurante" className="w-16 h-16 rounded-xl object-cover" />
+              </button>
             ) : (
-              <div className="w-16 h-16 rounded-xl bg-stone-800 border border-stone-700 flex items-center justify-center text-stone-600 shrink-0">
+              <button type="button" onClick={() => document.getElementById("logo-file-input")?.click()} className="w-16 h-16 rounded-xl bg-stone-800 border-2 border-dashed border-stone-700 flex items-center justify-center text-stone-600 hover:border-amber-500 hover:text-amber-500 transition-colors cursor-pointer shrink-0" aria-label="Enviar logo">
                 <Store size={24} />
-              </div>
+              </button>
             )}
+            <input id="logo-file-input" type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleLogoFile} />
             <div className="flex-1 space-y-2">
-              <label className="flex items-center justify-center gap-1.5 bg-stone-800 hover:bg-stone-750 border border-stone-700 rounded-xl px-3 py-2 text-sm font-medium cursor-pointer">
-                <Upload size={14} /> {displayLogo ? "Trocar logo" : "Enviar logo"}
-                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleLogoFile} />
-              </label>
               {displayLogo && (
-                <button onClick={handleRemoveLogo} className="flex items-center gap-1.5 text-red-400 text-xs font-medium">
+                <button onClick={handleRemoveLogo} className="text-red-400 hover:text-red-300 text-xs font-medium cursor-pointer">
                   <ImageOff size={13} /> Remover logo
                 </button>
               )}

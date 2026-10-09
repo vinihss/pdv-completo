@@ -192,7 +192,7 @@ describe("UsersTab", () => {
   it("ativar/desativar chama updateUser com active invertido e recarrega", async () => {
     renderTab();
     await screen.findByText("Ana Ribeiro");
-    fireEvent.click(screen.getByRole("button", { name: "Desativar" }));
+    fireEvent.click(screen.getByRole("button", { name: /Desativar Ana Ribeiro/i }));
     await waitFor(() => expect(updateUser).toHaveBeenCalledWith("u1", { active: false }));
     expect(listUsers).toHaveBeenCalledTimes(2);
   });

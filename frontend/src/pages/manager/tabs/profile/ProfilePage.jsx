@@ -1,8 +1,9 @@
 import React from "react";
+import { Trash2 } from "lucide-react";
 import { useAuth } from "@/app/providers/auth";
 import { useNavigate } from "react-router-dom";
 import { getMe, uploadUserMePhoto, removeUserMePhoto } from "@/entities/session";
-import { Field, inputClass, ScreenHeader, UserAvatar } from "@/shared/components";
+import { Field, inputClass, ScreenHeader, UserAvatar, PhotoUpload } from "@/shared/components";
 
 /**
  * Perfil do usuário logado (menu do header → Perfil).
@@ -72,7 +73,7 @@ export default function ProfilePage() {
   if (!session?.user) return null;
 
   async function handleSave(e) {
-    e.preventDefault();
+    if (e && typeof e.preventDefault === "function") e.preventDefault();
     if (!name.trim()) {
       setFeedback({ kind: "error", text: "Informe o nome." });
       return;
@@ -94,14 +95,13 @@ export default function ProfilePage() {
     }
   }
 
-  async function handlePickPhoto(e) {
-    const file = e.target.files?.[0];
+  async function handlePickPhoto(file) {
     if (!file) return;
     setPhotoBusy(true);
     try {
       const updated = await uploadUserMePhoto(file);
       setPhotoPath(updated.photoPath ?? null);
-      await handleSave(e); // também salva nome/phone/email se mudou
+      await handleSave(); // salva nome/phone/email se mudou
     } catch (err) {
       const msg = err?.message ?? "Não foi possível enviar a foto.";
       setFeedback({ kind: "error", text: msg });
@@ -115,7 +115,7 @@ export default function ProfilePage() {
     try {
       await removeUserMePhoto();
       setPhotoPath(null);
-      await handleSave(e); // só reflete salvataggio de name/phone/email se mudou
+      await handleSave(); // salva nome/phone/email se mudou
     } catch (err) {
       const msg = err?.message ?? "Não foi possível remover a foto.";
       setFeedback({ kind: "error", text: msg });
@@ -129,40 +129,19 @@ export default function ProfilePage() {
       <ScreenHeader title="Meu perfil" subtitle="Nome, telefone e e-mail" onBack={() => navigate(-1)} />
       <div className="p-6 max-w-md mx-auto">
         <div className="text-center mb-6">
-          <UserAvatar
+          <PhotoUpload
             name={session.user.name}
             photoPath={photoPath ?? session.user.photoPath}
-            className="w-24 h-24 mx-auto text-3xl mb-3"
+            editable={true}
+            busy={photoBusy}
+            onPick={handlePickPhoto}
+            onRemove={handleRemovePhoto}
+            showRemove={Boolean(photoPath || session.user.photoPath)}
+            className="w-24 h-24 mx-auto text-3xl"
           />
-          <p className="text-stone-500 text-sm">
+          <p className="text-stone-500 text-sm mt-2">
             Papel e PIN são definidos pelo gerente na tela de Equipe.
           </p>
-          {/* Áções de foto */}
-          {session.user.photoPath ? (
-            <button
-              type="button"
-              onClick={handleRemovePhoto}
-              disabled={photoBusy}
-              className="mt-2 text-red-400 hover:text-red-300 text-sm flex items-center gap-1"
-              title="Remover foto"
-            >
-              <Trash2 size={16} /> Remover
-            </button>
-          ) : null}
-          <input
-            type="file"
-            accept="image/*"
-            onChange={handlePickPhoto}
-            className="mt-2 w-full bg-stone-800 border border-stone-700 rounded-xl px-4 py-2 text-sm text-stone-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
-            disabled={photoBusy}
-            aria-label="Enviar foto de perfil"
-          />
-          <label
-            htmlFor="profile-photo"
-            className="mt-2 text-sm text-stone-400 cursor-pointer select-none"
-          >
-            {photoBusy ? "Enviando…" : "Enviar foto"}
-          </label>
         </div>
 
         <form id="profile-form" className="space-y-4" onSubmit={handleSave} noValidate>
