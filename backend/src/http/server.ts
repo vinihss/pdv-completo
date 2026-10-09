@@ -17,6 +17,7 @@ import { startOutboxDispatcher } from "../infra/realtime/outbox-dispatcher.js";
 import { startMaintenanceJobs } from "../infra/maintenance.js";
 import { initStorage } from "../infra/storage/index.js";
 import { AppError } from "../domain/errors.js";
+import { initCache, getCache } from "../infra/cache/index.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { orderRoutes } from "./routes/order.routes.js";
 import { cashFlowRoutes } from "./routes/cash-flow.routes.js";
@@ -63,6 +64,11 @@ function escapeRegExp(value: string): string {
 // para os testes (vitest) injetarem requests via `app.inject()`.
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.logLevel }, trustProxy: true });
+
+  // ---------- Cache layer (Redis ou Memory fallback) ----------
+  await initCache(true);
+  const cacheClient = getCache();
+  app.decorate("cache", cacheClient as any);
 
   const NO_TENANT_RESOLVE = new Set(["/health", "/internal/caddy-on-demand-tls", "/public/tenants/resolve"]);
   

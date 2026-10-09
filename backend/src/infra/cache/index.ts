@@ -1,65 +1,60 @@
-export { MemoryCache } from "./memory-cache.js";
-export type { ICacheClient, CacheEntry, CacheOptions } from "./cache-client.js";
-
 import { MemoryCache } from "./memory-cache.js";
-import { ICacheClient, CacheOptions } from "./cache-client.js";
+import { ICacheClient, CacheEntry, CacheOptions, matchesPattern } from "./cache-client.js";
 import { resolveTenantSchemaInScope } from "../db/tenant-context.js";
+import { RedisCacheClient } from "./redis-cache-client.js";
 
 let instance: ICacheClient | null = null;
+let cacheInstance: ICacheClient = new MemoryCache();
 
-/**
- * O singleton de cache do processo. É GLOBAL — as chaves cruas NÃO são
- * particionadas. Quem guarda dado de tenant deve usar `tenantCache`, que
- * prefixa a chave com o schema corrente; quem guarda dado de plataforma
- * (ex.: o registry `public.tenant`) usa este acesso direto de propósito.
- */
-export function getCache(): ICacheClient {
-  if (!instance) {
-    instance = new MemoryCache();
+export async function initCache(useRedis: boolean = true): Promise<ICacheClient> {
+  try {
+    await import("./redis-cache-client.js");
+    const rc = new RedisCacheClient();
+    await rc.get<string>("__cache_test__");
+    cacheInstance = rc;
+    console.info("Cache initialized with Redis");
+    return cacheInstance;
+  } catch (err) {
+    if (useRedis) {
+      console.warn("Redis unavailable, falling back to MemoryCache", err);
+      cacheInstance = new MemoryCache();
+      return cacheInstance;
+    } else {
+      console.info("Cache using MemoryCache (Redis disabled)");
+      cacheInstance = new MemoryCache();
+      return cacheInstance;
+    }
   }
-  return instance;
+}
+
+export function getCache(): ICacheClient {
+  return cacheInstance;
 }
 
 export function resetCache(): void {
-  if (instance) {
-    instance.clear();
-  }
-  instance = null;
+  cacheInstance = new MemoryCache();
+  console.info("Cache reset to MemoryCache");
 }
 
-/**
- * Cache PARTICIONADO por schema de tenant.
- *
- * O `getCache()` é um singleton por PROCESSO, e o processo serve vários
- * tenants por Host (multi-tenant por schema, `docs/15`). Sem partição, a
- * primeira loja a popular uma chave fixa (`store-settings`, `public-menu`…)
- * serviria a outra por até o TTL. Aqui toda chave de dado de tenant é
- * prefixada com `${schema}:` — o mesmo schema que o ALS resolve para a
- * requisição (`resolveTenantSchemaInScope`), e o `invalidatePattern` usa o
- * mesmo prefixo, de modo que `products:*` vira `${schema}:products:*`.
- *
- * Não é um wrapper de `ICacheClient` "com estado": o schema é lido a CADA
- * operação, então o mesmo objeto vale para qualquer escopo — o do request
- * (`store.run`) ou o de um worker que itera tenants (`runInTenantScope`).
- *
- * O que NÃO usar aqui: o registry de tenants (`infra/tenant/registry.ts`),
- * que vive em `public` e é global entre todas as lojas.
- */
+export function isUsingRedis(): boolean {
+  return cacheInstance instanceof RedisCacheClient;
+}
+
 function scopedKey(key: string): string {
   return `${resolveTenantSchemaInScope()}:${key}`;
 }
 
 export const tenantCache = {
   get<T>(key: string): T | null {
-    return getCache().get<T>(scopedKey(key));
+    return getCache().get<T>(scopedKey(key)) as any;
   },
   set<T>(key: string, value: T, options?: CacheOptions): void {
-    getCache().set<T>(scopedKey(key), value, options);
+    getCache().set<T>(scopedKey(key), value, options) as any;
   },
   invalidate(key: string): void {
-    getCache().invalidate(scopedKey(key));
+    getCache().invalidate(scopedKey(key)) as any;
   },
   invalidatePattern(pattern: string): void {
-    getCache().invalidatePattern(scopedKey(pattern));
+    getCache().invalidatePattern(scopedKey(pattern)) as any;
   },
 };

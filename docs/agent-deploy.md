@@ -28,6 +28,8 @@ deploy/
 ├── state/active-upstream      # ponteiro de 3 chaves (duas do azul/verde + PDV_WS_UPSTREAM, que é override)
 ├── .env.example
 └── README.md                  # runbook completo (o guia de referência)
+
+> **Redis (cache layer):** serviço `redis:7-alpine` no `docker-compose.yml` (IP `172.18.0.248`, porta `6379`, healthcheck `redis-cli ping`, volume `redis_data`). `backend` depende dele (`depends_on` + `REDIS_URL`). Sem o serviço, o backend cai para `MemoryCache` (`initCache` com fallback). Ver `docs/01-backend-spec.md` §5.1.
 ```
 
 O serviço `ws-gateway` não tem arquivo aqui: a fonte é o módulo Go

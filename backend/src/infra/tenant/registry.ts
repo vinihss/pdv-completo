@@ -46,15 +46,10 @@ function ttlSeconds(): number {
 
 type Cached<T> = { tenant: T | null };
 
-function readCache<T>(key: string): { hit: boolean; tenant: T | null } {
-  // O envelope existe para que um resultado NEGATIVO possa ser cacheado: o
-  // `MemoryCache.get` devolve `null` tanto para "não cacheado" quanto para
-  // "cacheado com valor null". Sem o envelope, todo subdomínio inexistente
-  // viraria uma query ao banco por request — que é o que um scanner de
-  // subdomínio quer.
-  const entry = getCache().get<Cached<T>>(`${CACHE_PREFIX}${key}`);
-  if (!entry) return { hit: false, tenant: null };
-  return { hit: true, tenant: entry.tenant };
+async function readCache<T>(key: string): Promise<{ hit: boolean; tenant: T | null }> {
+  const entry = await getCache().get<Cached<T>>(`${CACHE_PREFIX}${key}`);
+  if (!entry) return Promise.resolve({ hit: false, tenant: null });
+  return Promise.resolve({ hit: true, tenant: entry.tenant });
 }
 
 function writeCache<T>(key: string, tenant: T | null): void {
@@ -75,7 +70,7 @@ function toRecord(row: Record<string, unknown>): TenantRecord {
 
 /** Tenant pelo `slug` (a 1ª label do subdomínio). `null` = não existe. */
 export async function findTenantBySlug(slug: string): Promise<TenantRecord | null> {
-  const cached = readCache<TenantRecord>(`slug:${slug}`);
+  const cached = await readCache<TenantRecord>(`slug:${slug}`);
   if (cached.hit) return cached.tenant;
 
   const { rows } = await pool.query(
@@ -93,7 +88,7 @@ export async function findTenantBySlug(slug: string): Promise<TenantRecord | nul
  * a query bate nele.
  */
 export async function findTenantByCustomDomain(host: string): Promise<TenantRecord | null> {
-  const cached = readCache<TenantRecord>(`host:${host}`);
+  const cached = await readCache<TenantRecord>(`host:${host}`);
   if (cached.hit) return cached.tenant;
 
   const { rows } = await pool.query(
