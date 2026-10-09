@@ -12,7 +12,7 @@ import {
   resolveAppProfile,
 } from "./app-profiles.js";
 
-// Raiz real do frontend: o plugin lê `public/manifest.json` e `public/sw.js`
+// Raiz real do frontend: o plugin lê `public/manifest.json` e `public/sw-v2.js`
 // de verdade, então o teste pega alguém editando esses arquivos sem saber que
 // o build depende deles.
 const ROOT = resolve(fileURLToPath(import.meta.url), "../..");
@@ -25,7 +25,7 @@ const ROOT = resolve(fileURLToPath(import.meta.url), "../..");
  */
 async function runPlugin(profile) {
   const outDir = mkdtempSync(join(tmpdir(), "pdv-app-profile-"));
-  for (const name of ["manifest.json", "sw.js"]) {
+  for (const name of ["manifest.json", "sw-v2.js"]) {
     copyFileSync(join(ROOT, "public", name), join(outDir, name));
   }
   const plugin = appProfilePlugin({ appProfile: profile });
@@ -35,7 +35,7 @@ async function runPlugin(profile) {
   return {
     outDir,
     manifest: read("manifest.json"),
-    sw: read("sw.js"),
+    sw: read("sw-v2.js"),
     cleanup: () => rmSync(outDir, { recursive: true, force: true }),
   };
 }
