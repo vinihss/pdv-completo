@@ -72,20 +72,26 @@ export default function NewOrderModal({ usesTables, onClose, onConfirm }) {
         <div className="flex gap-2 mb-5">
           {usesTables && (
             <button
+              type="button"
               onClick={() => setMode("table")}
+              aria-pressed={mode === "table"}
               className={`flex-1 py-2 rounded-xl text-sm font-semibold ${mode === "table" ? "bg-amber-500 text-stone-950" : "bg-stone-800 text-stone-400"}`}
             >
               Mesa
             </button>
           )}
           <button
+            type="button"
             onClick={() => setMode("customer")}
+            aria-pressed={mode === "customer"}
             className={`flex-1 py-2 rounded-xl text-sm font-semibold ${mode === "customer" ? "bg-amber-500 text-stone-950" : "bg-stone-800 text-stone-400"}`}
           >
             Cliente
           </button>
           <button
+            type="button"
             onClick={() => setMode("tab")}
+            aria-pressed={mode === "tab"}
             className={`flex-1 py-2 rounded-xl text-sm font-semibold ${mode === "tab" ? "bg-amber-500 text-stone-950" : "bg-stone-800 text-stone-400"}`}
           >
             Rótulo
@@ -93,24 +99,44 @@ export default function NewOrderModal({ usesTables, onClose, onConfirm }) {
         </div>
 
         {mode === "table" && (
-          <div className="grid grid-cols-4 gap-2 mb-4">
-            {tables.map((t) => (
-              <button
-                key={t.id}
-                disabled={t.status === "occupied"}
-                onClick={() => setTableId(t.id)}
-                className={`py-3 rounded-xl font-display font-bold text-sm ${
-                  tableId === t.id
-                    ? "bg-amber-500 text-stone-950"
-                    : t.status === "occupied"
-                    ? "bg-stone-800/50 text-stone-700 cursor-not-allowed"
-                    : "bg-stone-800 text-stone-200"
-                }`}
-              >
-                {t.number}
-              </button>
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-4 gap-2 mb-3">
+              {tables.map((t) => {
+                const occupied = t.status === "occupied";
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    disabled={occupied}
+                    onClick={() => setTableId(t.id)}
+                    aria-label={`Mesa ${t.number} (${occupied ? "ocupada" : "livre"})`}
+                    title={`Mesa ${t.number} (${occupied ? "ocupada" : "livre"})`}
+                    aria-disabled={occupied}
+                    aria-pressed={tableId === t.id}
+                    className={`py-3 rounded-xl font-display font-bold text-sm ${
+                      tableId === t.id
+                        ? "bg-amber-500 text-stone-950"
+                        : occupied
+                        ? "bg-stone-800/50 text-stone-700 cursor-not-allowed"
+                        : "bg-stone-800 text-stone-200"
+                    }`}
+                  >
+                    {t.number}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-4 mb-4 text-xs text-stone-400">
+              <span className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded bg-stone-800 border border-stone-700" aria-hidden="true" />
+                Disponível
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded bg-stone-800/50 border border-stone-700/50" aria-hidden="true" />
+                Ocupada
+              </span>
+            </div>
+          </>
         )}
 
         {mode === "customer" && (
@@ -121,6 +147,7 @@ export default function NewOrderModal({ usesTables, onClose, onConfirm }) {
                 setCustomerQuery(e.target.value);
                 setSelectedCustomer(null);
               }}
+              autoFocus
               placeholder="Nome do cliente..."
               className="w-full bg-stone-800 border border-stone-700 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-amber-500/50 mb-2"
             />
@@ -156,6 +183,7 @@ export default function NewOrderModal({ usesTables, onClose, onConfirm }) {
           <input
             value={tabLabel}
             onChange={(e) => setTabLabel(e.target.value)}
+            autoFocus
             placeholder="Ex: Comanda 12"
             className="w-full bg-stone-800 border border-stone-700 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-amber-500/50 mb-4"
           />
