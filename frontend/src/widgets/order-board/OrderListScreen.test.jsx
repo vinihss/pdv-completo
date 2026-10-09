@@ -226,4 +226,18 @@ describe("OrderListScreen", () => {
     
     expect(screen.getByText("João Silva")).toBeTruthy();
   });
+
+  it("mostra tempo decorrido desde abertura", () => {
+    const recentDate = new Date(Date.now() - 5 * 60 * 1000).toISOString(); // 5 minutos atrás
+    const orders = [
+      {
+        id: "o1",
+        status: "open",
+        items: [],
+        openedAt: recentDate,
+      },
+    ];
+    render(<OrderListScreen {...defaultProps} orders={orders} />);
+    expect(screen.getByText(/5min/)).toBeTruthy();
+  });
 });

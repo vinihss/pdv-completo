@@ -31,6 +31,23 @@ function isOpenOver24h(order) {
   return Date.now() - opened > 24 * 60 * 60 * 1000;
 }
 
+// Formata tempo desde abertura em formato legível (ex: "5min", "1h 30min")
+function formatTimeSince(dateString) {
+  if (!dateString) return null;
+  const opened = new Date(dateString).getTime();
+  if (Number.isNaN(opened)) return null;
+  
+  const diffMs = Date.now() - opened;
+  const diffMin = Math.floor(diffMs / 60000);
+  
+  if (diffMin < 1) return "agora";
+  if (diffMin < 60) return `${diffMin}min`;
+  
+  const hours = Math.floor(diffMin / 60);
+  const mins = diffMin % 60;
+  return mins > 0 ? `${hours}h ${mins}min` : `${hours}h`;
+}
+
 // Resumo operacional do cartão: estados em TEXTO, nunca só cor. A contagem é
 // por linha de item (`orderItemCounts`), a mesma unidade do "N itens".
 function workSummary(order, kitchenEnabled) {
@@ -306,7 +323,7 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
                 )}
                 <div className="text-emerald-400 font-semibold text-sm mb-1">{formatBRL(orderTotal(o))}</div>
                 <div className="text-stone-500 text-xs">
-                  Aberta em {formatDateTime(o.openedAt)}
+                  {formatTimeSince(o.openedAt)} · {formatDateTime(o.openedAt)}
                   {closed && <span className="text-stone-600"> · Fechada em {formatDateTime(o.closedAt)}</span>}
                 </div>
                 {stale && (
