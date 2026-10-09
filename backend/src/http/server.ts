@@ -11,6 +11,8 @@ import { config } from "../config/env.js";
 import { runMigrations } from "../infra/db/migrate.js";
 import { runRegistryMigrations } from "../infra/db/registry-migrate.js";
 import { checkDatabaseHealth } from "../infra/db/client.js";
+import { getTenantPool } from "../infra/db/tenant-db.js";
+import { resolveTenantSchemaInScope } from "../infra/db/tenant-context.js";
 import { startOutboxDispatcher } from "../infra/realtime/outbox-dispatcher.js";
 import { startMaintenanceJobs } from "../infra/maintenance.js";
 import { initStorage } from "../infra/storage/index.js";
@@ -34,6 +36,8 @@ import { printRoutes } from "./routes/print.routes.js";
 import { alertRoutes } from "./routes/alert.routes.js";
 import { provisioningRoutes } from "./routes/provisioning.routes.js";
 import { uploadsRoutes } from "./routes/uploads.routes.js";
+import { refundRoutes } from "./routes/refund.routes.js";
+import { settlementRoutes } from "./routes/settlement.routes.js";
 import { startIfoodSync } from "../integrations/ifood/worker.js";
 import { startPagarmeWorkers } from "../integrations/pagarme/worker.js";
 import { getStoreSettingsUsecase } from "../application/store-settings.usecases.js";
@@ -46,6 +50,7 @@ import { enterTenantScope, exitTenantScope } from "../infra/db/tenant-context.js
 // pontos casariam com qualquer caractere sem isto).
 import { resolveTenant } from "../application/tenant/resolve-tenant.usecase.js";
 import { resolveTenantSchema } from "../infra/storage/index.js";
+import { ensureTenantScope } from "../infra/db/tenant-context.js";
 
 // Escapa metacaracteres de regex para montar o matcher do ask do Caddy a
 // partir do domínio raiz (vem de env, ex.: `umamisushiarte.com.br` — os
@@ -60,14 +65,45 @@ export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.logLevel }, trustProxy: true });
 
   const NO_TENANT_RESOLVE = new Set(["/health", "/internal/caddy-on-demand-tls", "/public/tenants/resolve"]);
+  
+  // Solução definitiva para o problema de propagação do ALS no Fastify + Node.js 22.x
+  // Este hook intercepta todas as rotas registradas e envolve os handlers com store.run()
+  // para garantir que o tenant scope seja propagado corretamente.
+  app.addHook("onRoute", (routeOptions) => {
+    const originalHandler = routeOptions.handler as any;
+
+    // Não envolve rotas que não precisam de tenant resolution
+    if (NO_TENANT_RESOLVE.has(routeOptions.url.split("?")[0])) {
+      return;
+    }
+
+    // Handler de websocket (GET + { websocket: true }) recebe (socket, request)
+    // — o Fastify request é o SEGUNDO argumento, e `socket.headers` é undefined.
+    // Sem separar este caso, o wrapper estoura no handshake do `/realtime`.
+    const isWebsocket =
+      (routeOptions as any).websocket === true || typeof (routeOptions as any).wsHandler === "function";
+    if (isWebsocket) {
+      routeOptions.handler = async function (socket: any, req: any) {
+        const host = req?.headers?.["x-tenant-host"] || req?.headers?.host || req?.hostname;
+        return ensureTenantScope(host, () => originalHandler(socket, req));
+      } as any;
+      return;
+    }
+
+    // Substitui o handler original por um wrapper que garante o tenant scope
+    routeOptions.handler = async function (req: any, reply: any) {
+      const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+      return ensureTenantScope(host, () => originalHandler(req, reply));
+    } as any;
+  });
+  
   app.addHook("onRequest", async (req) => {
     if (NO_TENANT_RESOLVE.has(req.url.split("?")[0])) return;
     const rawHost =
-      (req.query as Record<string, unknown> | undefined)?.host ??
       req.headers["x-tenant-host"] ??
       req.hostname;
     const tenant = await resolveTenant(typeof rawHost === "string" ? rawHost : undefined);
-    enterTenantScope({ schemaName: tenant.schemaName, isDefault: tenant.isDefault });
+    enterTenantScope({ schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault });
   });
   // Limpa o escopo ao fim do request: sem isto, o ALS guardaria a loja
   // do request anterior para o código que roda depois (inclusive testes
@@ -152,6 +188,46 @@ export async function buildApp(): Promise<FastifyInstance> {
     return reply.code(503).send({ status: "degraded", database: "disconnected" });
   });
 
+  // ---------- Health check detalhado — lista migrations aplicadas ----------
+  // Endpoint para monitoramento e debug: retorna status do banco e lista
+  // completa das migrations aplicadas no schema do tenant. Útil para validar
+  // que novas migrations foram aplicadas após deploy.
+  app.get("/health/detailed", async (_req, reply) => {
+    const healthy = await checkDatabaseHealth();
+    if (!healthy) {
+      return reply.code(503).send({ status: "degraded", database: "disconnected" });
+    }
+
+    try {
+      const schemaName = resolveTenantSchemaInScope();
+      const pool = getTenantPool(schemaName);
+      const client = await pool.connect();
+      try {
+        const { rows } = await client.query<{ name: string; applied_at: string }>(
+          "SELECT name, applied_at FROM _migrations ORDER BY name"
+        );
+        return reply.code(200).send({
+          status: "ok",
+          database: "connected",
+          schema: schemaName,
+          tag: process.env.APP_TAG ?? "",
+          migrations: {
+            total: rows.length,
+            applied: rows.map((r) => ({ name: r.name, appliedAt: r.applied_at })),
+          },
+        });
+      } finally {
+        client.release();
+      }
+    } catch (err) {
+      return reply.code(500).send({
+        status: "error",
+        database: "connected",
+        error: (err as Error).message,
+      });
+    }
+  });
+
   // ---------- Permissão para on-demand TLS do Caddy (§wildcard) ----------
   // O Caddy consulta GET /internal/caddy-on-demand-tls?domain=<host> antes
   // de emitir um certificado sob demanda; 2xx libera, demais bloqueia.
@@ -200,30 +276,40 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Provisionamento de aparelho por usuário (docs/21) — mistura rotas de
   // gerente e rotas públicas; o auth é por preHandler de rota (ver o arquivo).
   await app.register(provisioningRoutes);
+  // Estorno de pagamentos (Bloco 4 ROADMAP-CAIXA.md) — manager-only, com
+  // idempotência. Venda estornada vira linha negativa no relatório, não
+  // desaparece.
+  await app.register(refundRoutes);
+  // Settlement iFood (Bloco 5 ROADMAP-CAIXA.md) — separa receita bruta de
+  // repasse líquido; manager-only para criar e liquidar, waiter pode consultar.
+  await app.register(settlementRoutes);
 
   // ---------- Store info pública (§10) — nome exibido no login, sem pix key ----------
   // também expõe flags de operação que a página externa e o próprio login usam
   // para ramificar a UI antes de autenticar (ex.: delivery desligado).
   await app.register(async (publicApp) => {
     publicApp.get("/store-info", async (req) => {
-      const s = await getStoreSettingsUsecase();
-      return {
-        merchantName: s.merchantName,
-        merchantCity: s.merchantCity,
-        logoUrl: s.logoUrl,
-        brandColor: s.brandColor,
-        usesDelivery: s.usesDelivery,
-        ifoodIntegrationEnabled: s.ifoodIntegrationEnabled,
-        deliveryFee: s.deliveryFee,
-        // A tabela de frete e os tempos de preparo: o checkout público usa as
-        // mesmas faixas que o balcão para montar o seletor de distância e a
-        // previsão de entrega (domain/delivery-eta.ts). Sem isso aqui, a tela
-        // teria que adivinhar as faixas e a previsão não bateria com a loja.
-        deliveryFeeTiers: s.deliveryFeeTiers,
-        deliveryPrepMinutes: s.deliveryPrepMinutes,
-        minutesPerKm: s.minutesPerKm,
-        enabledPaymentMethods: s.enabledPaymentMethods,
-      };
+      const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+      return ensureTenantScope(host, async () => {
+        const s = await getStoreSettingsUsecase();
+        return {
+          merchantName: s.merchantName,
+          merchantCity: s.merchantCity,
+          logoUrl: s.logoUrl,
+          brandColor: s.brandColor,
+          usesDelivery: s.usesDelivery,
+          ifoodIntegrationEnabled: s.ifoodIntegrationEnabled,
+          deliveryFee: s.deliveryFee,
+          // A tabela de frete e os tempos de preparo: o checkout público usa as
+          // mesmas faixas que o balcão para montar o seletor de distância e a
+          // previsão de entrega (domain/delivery-eta.ts). Sem isso aqui, a tela
+          // teria que adivinhar as faixas e a previsão não bateria com a loja.
+          deliveryFeeTiers: s.deliveryFeeTiers,
+          deliveryPrepMinutes: s.deliveryPrepMinutes,
+          minutesPerKm: s.minutesPerKm,
+          enabledPaymentMethods: s.enabledPaymentMethods,
+        };
+      });
     });
   });
 

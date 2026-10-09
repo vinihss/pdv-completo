@@ -3,6 +3,24 @@ import { seedFixture, resetState, closeTestApp, raw } from "./helpers.js";
 import { pollOutboxOnce } from "../src/infra/realtime/outbox-dispatcher.js";
 import { runMaintenanceOnce } from "../src/infra/maintenance.js";
 
+// Mocka listActiveTenants para retornar um único tenant no schema public,
+// que é o schema padrão dos testes (DEFAULT_TENANT_SCHEMA não está definido).
+vi.mock("../src/infra/tenant/registry.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/infra/tenant/registry.js")>();
+  return {
+    ...actual,
+    listActiveTenants: vi.fn().mockResolvedValue([
+      {
+        slug: "test",
+        schemaName: "public",
+        displayName: "Test Tenant",
+        status: "active",
+        customDomain: null,
+      },
+    ]),
+  };
+});
+
 // `published` é BOOLEAN no Postgres (o SQLite guardava 0/1).
 async function insertEvent(id: string, eventType: string, payload: string, createdAt: string, published: boolean) {
   await raw.all(`INSERT INTO outbox_event (id, event_type, payload, room, published, created_at)

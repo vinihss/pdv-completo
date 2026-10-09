@@ -21,8 +21,10 @@
  */
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import crypto from "node:crypto";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
 import { withIdempotency } from "../middlewares/idempotency.middleware.js";
+import { ensureTenantScope } from "../../infra/db/tenant-context.js";
 import {
   openOrderUsecase,
   addItemsUsecase,
@@ -78,7 +80,20 @@ const paymentLineSchema = z.object({
 });
 
 const setPaymentsSchema = z.object({
+  // TODO: Tornar correlationId obrigatório após migração do frontend.
+  // Por ora, geramos UUID server-side se ausente (compatibilidade com frontend antigo).
+  correlationId: z.string().optional(),
   payments: z.array(paymentLineSchema).min(1),
+});
+
+const confirmPaymentSchema = z.object({
+  // TODO: Tornar correlationId obrigatório após migração do frontend.
+  correlationId: z.string().optional(),
+}).optional();
+
+const deletePaymentSchema = z.object({
+  // TODO: Tornar correlationId obrigatório após migração do frontend.
+  correlationId: z.string().optional(),
 });
 
 const closeSchema = z.object({ correlationId: z.string() });
@@ -98,19 +113,24 @@ export async function orderRoutes(app: FastifyInstance) {
 
   app.get("/orders/:id", async (req) => {
     const { id } = req.params as { id: string };
-    return getOrderUsecase(id);
+    const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+    return ensureTenantScope(host, () => getOrderUsecase(id));
   });
 
   app.get("/orders", async (req) => {
     const q = req.query as { status?: "open" | "closed"; limit?: string; offset?: string };
-    return listOrdersUsecase({
+    const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+    return ensureTenantScope(host, () => listOrdersUsecase({
       status: q.status,
       limit: Math.min(Number(q.limit ?? 50), 200),
       offset: Number(q.offset ?? 0),
-    });
+    }));
   });
 
-  app.get("/tables", async () => listTablesUsecase());
+  app.get("/tables", async (req) => {
+    const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+    return ensureTenantScope(host, () => listTablesUsecase());
+  });
 
   app.post(
     "/orders/:id/items",
@@ -166,17 +186,29 @@ export async function orderRoutes(app: FastifyInstance) {
   // Pagamento fracionado: uma comanda pode ser paga com várias formas
   // (dinheiro + cartão + pix…). PUT substitui o conjunto de linhas de uma vez;
   // confirmar/remover são PATCH/DELETE por linha.
+  // Idempotência: retry de rede não deve duplicar ou remover linhas de pagamento.
   app.put(
     "/orders/:id/payments",
     { preHandler: requireRole("waiter", "manager") },
     async (req) => {
       const { id } = req.params as { id: string };
       const body = setPaymentsSchema.parse(req.body);
-      return setOrderPaymentsUsecase({
-        orderId: id,
-        userId: req.authUser!.sub,
-        payments: body.payments,
-        });
+      // TODO: Remover fallback UUID após frontend migrar para enviar correlationId.
+      const correlationId = body.correlationId ?? crypto.randomUUID();
+      const result = await withIdempotency(
+        `PUT /orders/${id}/payments`,
+        correlationId,
+        body,
+        async () => {
+          const order = await setOrderPaymentsUsecase({
+            orderId: id,
+            userId: req.authUser!.sub,
+            payments: body.payments,
+          });
+          return { status: 200, body: order };
+        }
+      );
+      return result.body;
     }
   );
 
@@ -185,7 +217,23 @@ export async function orderRoutes(app: FastifyInstance) {
     { preHandler: requireRole("waiter", "manager") },
     async (req) => {
       const { id, paymentId } = req.params as { id: string; paymentId: string };
-      return confirmOrderPaymentUsecase({ orderId: id, paymentId, userId: req.authUser!.sub });
+      const body = confirmPaymentSchema.parse(req.body) ?? {};
+      // TODO: Remover fallback UUID após frontend migrar para enviar correlationId.
+      const correlationId = body.correlationId ?? crypto.randomUUID();
+      const result = await withIdempotency(
+        `PATCH /orders/${id}/payments/${paymentId}`,
+        correlationId,
+        body,
+        async () => {
+          const payment = await confirmOrderPaymentUsecase({
+            orderId: id,
+            paymentId,
+            userId: req.authUser!.sub,
+          });
+          return { status: 200, body: payment };
+        }
+      );
+      return result.body;
     }
   );
 
@@ -194,8 +242,19 @@ export async function orderRoutes(app: FastifyInstance) {
     { preHandler: requireRole("waiter", "manager") },
     async (req, reply) => {
       const { id, paymentId } = req.params as { id: string; paymentId: string };
-      await deleteOrderPaymentUsecase({ orderId: id, paymentId, userId: req.authUser!.sub });
-      return reply.code(204).send();
+      const body = deletePaymentSchema.parse(req.body);
+      // TODO: Remover fallback UUID após frontend migrar para enviar correlationId.
+      const correlationId = body.correlationId ?? crypto.randomUUID();
+      const result = await withIdempotency(
+        `DELETE /orders/${id}/payments/${paymentId}`,
+        correlationId,
+        body,
+        async () => {
+          await deleteOrderPaymentUsecase({ orderId: id, paymentId, userId: req.authUser!.sub });
+          return { status: 204, body: null };
+        }
+      );
+      return reply.code(result.status).send(result.body);
     }
   );
 

@@ -7,6 +7,8 @@ import { buildApp } from "../src/http/server.js";
 import { config } from "../src/config/env.js";
 import { resetCache } from "../src/infra/cache/index.js";
 import { clearActiveUserCache } from "../src/infra/auth/active-user-check.js";
+import { runInTenantScope } from "../src/infra/db/tenant-context.js";
+import { resolveTenant } from "../src/application/tenant/resolve-tenant.usecase.js";
 import {
   categories,
   kitchenGroups,
@@ -50,8 +52,8 @@ export const raw = {
   },
 };
 
-export function tokenOf(userId: string, role: string) {
-  return jwt.sign({ sub: userId, role }, config.jwtSecret);
+export function tokenOf(userId: string, role: string, tenant: string = "default") {
+  return jwt.sign({ sub: userId, role, tenant }, config.jwtSecret);
 }
 
 // Fixture mínima para os fluxos de comanda + caixa: usuários pelos 3 perfis
@@ -141,6 +143,8 @@ const TRANSIENT_TABLES = [
   "purchase_item",
   "purchase",
   "supplier",
+  "order_settlement",
+  "order_refund",
   "payment_refund",
   "payment_event",
   "payment",
@@ -181,7 +185,30 @@ export async function resetState() {
   // testes o banco pode ter mudado (ex.: um usuário desativado e reativado
   // por SQL cru), então o cache precisa nascer zerado.
   clearActiveUserCache();
-  await raw.exec(`TRUNCATE ${TRANSIENT_TABLES.join(", ")} CASCADE`);
+  // Truncate das tabelas transitórias (ignora tabelas que não existem — migration 0001+).
+  // Usa DO block para capturar exceções de tabelas inexistentes.
+  await raw.exec(`
+    DO $$ 
+    DECLARE
+      tbl text;
+    BEGIN
+      FOREACH tbl IN ARRAY ARRAY[${TRANSIENT_TABLES.map(t => `'${t}'`).join(', ')}]::text[]
+      LOOP
+        BEGIN
+          EXECUTE format('TRUNCATE %I CASCADE', tbl);
+        EXCEPTION
+          WHEN undefined_table THEN
+            NULL; -- ignora tabela inexistente
+        END;
+      END LOOP;
+    END $$;
+  `);
+  // Reset das configurações de fechamento de caixa (migration 0005 e 0008).
+  // Tolerância 0 (qualquer diferença exige justificativa) e requireApprovalAbove
+  // alto (1000) para que a maioria dos testes não precise de aprovação.
+  // cashHighValueThreshold alto (10000) para que a maioria dos testes não precise de aprovação.
+  // Testes específicos que validam essas regras ajustam os valores conforme necessário.
+  await raw.exec("UPDATE store_settings SET cash_closing_tolerance = 0, cash_closing_require_approval_above = 1000, cash_high_value_threshold = 10000 WHERE id = 'singleton'");
   // Reativa os usuários da fixture (alguns testes desativam u-manager)
   await db
     .update(users)
@@ -206,21 +233,43 @@ export type ApiResult = { status: number; json: any; body: string };
 // (5 pedidos/min pra POST /public/orders), então cada teste precisa do seu
 // próprio "cliente" pra não se auto-bloquear.
 // `headers` é o escape pra headers de domínio.
+// Entra no escopo do tenant antes do `inject()` — o ALS do Fastify não
+// propaga de forma confiável até o handler no `inject()`, e o hook `onRoute`
+// do server cobre o caminho normal. Quando o host NÃO resolve tenant (o caso
+// do teste de host inexistente, que espera o 404 `tenant_not_resolved`), NÃO
+// entra no escopo: o hook `onRequest` da rota resolve e devolve o erro pelo
+// error handler. Resolver aqui incondicionalmente quebraria esse caminho.
+async function withResolvedTenantScope<T>(host: string | undefined, fn: () => Promise<T>): Promise<T> {
+  let scope: { schemaName: string; slug: string; isDefault: boolean } | null = null;
+  try {
+    const tenant = await resolveTenant(host);
+    scope = { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault };
+  } catch {
+    scope = null;
+  }
+  return scope ? runInTenantScope(scope, fn) : fn();
+}
+
 export async function api(
   method: "get" | "post" | "put" | "patch" | "delete",
   url: string,
   opts: { token?: string; body?: any; ip?: string; headers?: Record<string, string> } = {}
 ): Promise<ApiResult> {
-  const res = await (await testApp()).inject({
-    method,
-    url,
-    headers: {
-      ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
-      ...(opts.ip ? { "x-forwarded-for": opts.ip } : {}),
-      ...(opts.headers ?? {}),
-    },
-    payload: opts.body,
-  });
+  const host = opts.headers?.["x-tenant-host"] || opts.headers?.["host"];
+
+  const res = await withResolvedTenantScope(host, async () =>
+    (await testApp()).inject({
+      method,
+      url,
+      headers: {
+        ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
+        ...(opts.ip ? { "x-forwarded-for": opts.ip } : {}),
+        ...(opts.headers ?? {}),
+      },
+      payload: opts.body,
+    })
+  );
+
   let json: any = null;
   if (res.statusCode !== 204 && res.body.length > 0) {
     try {
@@ -230,6 +279,28 @@ export async function api(
     }
   }
   return { status: res.statusCode, json, body: res.body };
+}
+
+// Helper para upload de arquivos (multipart/form-data) que configura o ALS corretamente.
+// Similar ao `api()`, mas para requests com FormData/multipart.
+export async function upload(
+  url: string,
+  opts: { token?: string; form?: any; ip?: string; headers?: Record<string, string> } = {}
+): Promise<{ statusCode: number; json: () => any; body: string }> {
+  const host = opts.headers?.["x-tenant-host"] || opts.headers?.["host"];
+
+  return await withResolvedTenantScope(host, async () =>
+    (await testApp()).inject({
+      method: "POST",
+      url,
+      headers: {
+        ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}),
+        ...(opts.ip ? { "x-forwarded-for": opts.ip } : {}),
+        ...(opts.headers ?? {}),
+      },
+      payload: opts.form,
+    })
+  );
 }
 
 export const cashier = tokenOf(FIXTURE.cashier, "cashier");

@@ -17,36 +17,20 @@ PDV (ponto de venda) para restaurante/pub: abrir comanda → lançar itens → (
 
 ## Estrutura
 
-```
-backend/    API REST + WebSocket (Node.js + TypeScript + Fastify + Drizzle + PostgreSQL)
-frontend/   App React (Vite) — login, garçom, cozinha, gerente — instalável como PWA
-            (também é o bundle servido pelos apps standalone)
-frontend/src-tauri/  App desktop v1 (Tauri) — desacoplado do web app, em manutenção
-deploy/     Deploy em nuvem: Dockerfiles, Caddy (HTTPS automático), docker-compose
-docs/       Specs originais + guias para agentes
-printer/    Daemon Go para impressão térmica (ESC/POS)
-            Também tem um renderizador ESC/POS em Rust (o app Caixa,
-            `standalone-pdv/src/printing/`), que NÃO passa pelo daemon — os
-            dois têm de sair byte a byte iguais e o golden é o mesmo arquivo
-            dos dois lados. Detalhes em `docs/agente-hardware-printing.md`
-            § "Dois renderizadores, uma golden".
-ws-gateway/ Gateway WebSocket em Go (módulo Go independente, como o `printer/`):
-            mesmo handshake, mesmas rooms e mesmo outbox do backend Node, para
-            substituir o `backend/src/infra/realtime/`. Plugado no `deploy/`
-            (Caddy + os três compose) atrás da flag `WS_BACKEND=go` (default
-            `node`) e de `profiles: ["ws-gateway"]`, e com o gate de posse
-            `WS_DISPATCH` (desligado por padrão) decidindo se o dispatcher
-            publica: subir o stack **não** liga o gateway — o realtime vivo
-            continua sendo o Node (ver `docs/agent-deploy.md`)
-```
+| Diretório | Conteúdo |
+|---|---|
+| `backend/` | API REST/realtime em Node.js + TypeScript + PostgreSQL |
+| `frontend/` | Aplicação web React/Vite; inclui o app Tauri legado em `frontend/src-tauri/` |
+| `apps/pedido-public/` | Interface pública de pedidos |
+| `standalone-pdv/`, `standalone-kds/`, `standalone-garcon/`, `standalone-entregador/`, `standalone-shared/` | Crates Tauri/Rust e biblioteca compartilhada presentes neste checkout |
+| `ws-gateway/` | Gateway WebSocket Go; ativação depende da configuração de deploy |
+| `pagarme-webhook/` | Serviço Go para webhooks Pagar.me |
+| `cmd/pdv/` | Código-fonte da CLI Go |
+| `deploy/`, `scripts/` | Compose, Caddy, deploy e automações de desenvolvimento/build |
+| `docs/` | Specs, contratos, guias e índice por tarefa |
+| `backend/migrations/` | Baseline, migrations ativas, registry e arquivo histórico; veja o [guia dedicado](backend/migrations/README.md) |
 
-> **Apps mobile não estão mais neste repositório.** O codebase `mobile/`
-> (Garçom/Entregador, React Native + Expo SDK 57) foi para o projeto separado
-> **`pdv-mobile-apps`** (`~/Downloads/pdv-mobile-apps`), que também recebeu
-> `docs/22-mobile-react-native.md` e o agente `.opencode/agents/mobile-expert.md`.
-> Aqui ficam o backend e os contratos REST/realtime que os apps consomem, os docs
-> de domínio (`docs/21`, `docs/05`). Os crates Tauri dos apps Garçom/Entregador
-> foram **removidos** deste repo (não há mais apps Tauri para Garçom/Entregador aqui).
+O código React Native/Expo não está neste checkout. `docs/22-mobile-react-native.md` registra um plano de migração de uma branch e descreve uma pasta `mobile/` que não existe nesta árvore; trate-o como contexto histórico, não como prova de implementação atual.
 
 ## Documentos de referência
 
@@ -68,22 +52,22 @@ ws-gateway/ Gateway WebSocket em Go (módulo Go independente, como o `printer/`)
 | `docs/13-deploy-workflow-melhoras.md` | Melhoras no workflow de deploy (versão, artefatos, publicação) |
 | `docs/14-usabilidade-e-processos.md` | Backlog priorizado: fluxo de pedido, gestão e caixa (8 bugs de confiabilidade + 40 propostas em 8 camadas, roadmap P0-P5) |
 | `docs/15-multi-tenant-schema.md` | Multi-tenant por **schema PostgreSQL** (subdomínio → tenant): arquitetura, decisões, fases e riscos |
-| `docs/16-pendencias.md` | Pendências do planejamento multi-tenant + intenção de unificar migrations numa única baseline |
 | `docs/17-runbook-unificacao-migrations.md` | Runbook do cutover para o baseline único de migrations (com validação de backup) |
 | `docs/18-ifood-por-loja.md` | iFood por tenant: estado atual, delta necessário, riscos (sem implementação) |
 | `docs/19-pagarme.md` | Camada de pagamentos Pagar.me V5: arquitetura, webhook, reconciliação, decisões e pendências |
 | `docs/20-pagarme-pendencias.md` | Pendências da integração Pagar.me V5: o que falta, risco e prioridade |
-| `docs/21-device-provisioning.md` | Device provisioning (aparelhos vinculados ao tenant/usuário) — implementação Tauri (apenas PDV/KDS). Os apps Garçom/Entregador usam RN e vivem no repo `pdv-mobile-apps`. |
+| `docs/21-device-provisioning.md` | Spec de provisionamento; confira `docs/22-mobile-react-native.md` e os clientes atuais antes de assumir qual implementação a utiliza. |
 | `ws-gateway/GO-GATEWAY-PLAN.md` | Gateway WebSocket em Go: arquitetura, rooms, outbox, fases de migração e o checklist de implantação. Mora junto do código (fora de `docs/`) porque é spec de um componente, não do produto inteiro |
 
 ### Guias para agentes
 
 | Arquivo | Conteúdo |
 |---|---|
-| `docs/agent-backend.md` | Convenções backend: camadas, transações, migrations, estoque, alertas, impressão |
-| `docs/agent-frontend.md` | Convenções frontend: FSD, camadas, componentes, overlays, menu, Tauri |
+| `docs/agent-backend.md` | Convenções backend: camadas, transações, migrations, estoque e alertas |
+| `backend/migrations/README.md` | Organização e regras seguras para migrations ativas, registry e arquivo histórico |
+| `frontend/docs/agent-frontend.md` | Convenções frontend: FSD, camadas, componentes, overlays e menu |
 | `docs/agent-deploy.md` | Deploy azul/verde: switch, healthcheck, regras, backup, os dois portões que falhavam em silêncio (título da PR = mensagem do squash; tag publicada sem deploy) |
-| `docs/agent-testing.md` | Como descobrir e rodar os testes de backend, frontend, gateway WS, Pagar.me e printer |
+| `docs/agent-testing.md` | Como descobrir e rodar testes dos serviços documentados |
 | `docs/agent-api-index.md` | Índice de todos os endpoints da API, agrupados por domínio |
 | `docs/agent-glossary.md` | Glossário de termos do domínio (BR Code, FSD, blue/green, …) |
 | `docs/agent-backend-map.md` | Mapa arquivo→conteúdo do backend (onde mexer para cada assunto) |
@@ -99,7 +83,7 @@ ficou pendente. Os dois conjuntos se complementam, não se substituem.
 |---|---|
 | `CHANGELOG.md` | Histórico de versões e fases do roadmap |
 | `deploy/README.md` | Runbook completo de deploy (33 KB) |
-| `printer/README.md` | Documentação do daemon de impressão |
+| `frontend/docs/agent-frontend.md` | Convenções atuais do frontend |
 
 ## Como rodar
 
@@ -138,21 +122,13 @@ npm run dev                # http://localhost:5173
 
 O Vite já proxeia `/api` e `/realtime` para `localhost:3000` (`vite.config.js`). O app é PWA instalável.
 
-### Apps mobile (React Native/Expo) — repo separado
-
-Os apps mobile **saíram deste repositório** e vivem no projeto próprio
-**`pdv-mobile-apps`** (`~/Downloads/pdv-mobile-apps`): um único codebase Expo
-SDK 57 gera os dois apps via `APP_VARIANT=garcon|entregador` (ids
-`com.pdvapp.garcon` / `com.pdvapp.entregador`, iguais aos antigos crates Tauri).
-Provisionamento usa `expo-camera`/`expo-local-authentication`/`expo-secure-store`;
-realtime segue o mesmo contrato (WebSocket com token em subprotocol).
-
-Para mexer no app, trabalhe naquele repo — comandos e guia em
-`pdv-mobile-apps/README.md` e `pdv-mobile-apps/mobile/README.md`; contexto e
-pendências em `pdv-mobile-apps/docs/22-mobile-react-native.md` (o doc 22 veio
-junto com o codebase). Aqui só o que é compartilhado: contrato REST/realtime do
-backend e `docs/21-device-provisioning.md`. Mudança de contrato exige
-coordenação entre os dois repositórios.
+### Apps mobile (React Native/Expo) — fora deste checkout
+O código mobile não está nesta cópia do repositório. Este checkout contém
+contratos e documentação de planejamento; não dependa de um caminho local para
+o repo mobile. Confirme a localização e o estado do código antes de coordenar
+mudanças entre repositórios. [`docs/22-mobile-react-native.md`](docs/22-mobile-react-native.md)
+é um plano/histórico e menciona uma branch/código `mobile/` que não está presente
+na árvore atual — não o trate como implementação vigente.
 
 ### App desktop (Tauri)
 
@@ -164,7 +140,7 @@ agora na **raiz do repo** (`node_modules/.bin/tauri`, `package.json` da raiz).
 
 ```bash
 # a partir da raiz
-bash scripts/build/build-app.sh            # build local (instalador; sem sidecar — printer reestruturado)
+bash scripts/build/build-app.sh            # build local do app desktop
 bash scripts/build/build-app.sh --release  # build de entrega: exige chave de assinatura
 (cd frontend && ../node_modules/.bin/tauri dev)  # roda o app no desktop
 ```
@@ -201,7 +177,7 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 
 | Comando | Onde | O que faz |
 |---|---|---|
-| `./pdv <comando>` | raiz | dispatcher único dos scripts de apoio (`./pdv --help`) |
+| `pdv --help` | CLI instalada | ajuda da CLI Go compilada de `cmd/pdv/` |
 | `npm run dev` | backend | roda com `tsx watch` |
 | `npm run build` | backend | `tsc` → `dist/` |
 | `npm run start` | backend | roda `dist/http/server.js` |
@@ -210,14 +186,14 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `npm run db:migrate` | backend | aplica `migrations/*.sql` (também roda no boot em modo local) |
 | `npm run db:migrate:registry` | backend | aplica `migrations/registry/*.sql` no schema `public` (registry de tenant; roda no boot antes do `db:migrate`) |
 | `npm run db:provision -- <slug> "<nome>"` | backend | provisiona um tenant novo: cria o schema `tenant_<slug>`, aplica as migrations dentro dele, registra em `public.tenant` e roda o bootstrap (`store_settings` + manager com PIN no log). `SEED=0` pula o bootstrap |
-| `./pdv db provision <slug> "<nome>"` | raiz | mesmo provisionamento pelo dispatcher (é o caminho curto do `db:provision`) |
+| CLI `pdv db provision <slug> "<nome>"` | CLI instalada | mesmo provisionamento pelo dispatcher (confira `pdv --help`) |
 | `npm run test` | backend | Vitest (`backend/test/*.test.ts`; confira `TEST_DATABASE_URL` e o setup atual) |
 | `npm run lint` | frontend | oxlint |
 | `npm run build` | frontend | build de produção (Vite) |
 | `npm run test` | frontend | Vitest (jsdom + Testing Library; veja a saída do comando para a contagem atual) |
 | `bash scripts/build/build-app.sh` | frontend | build do app desktop v1 (Tauri); `--release` = entrega (chave de assinatura), `--appimage-docker` = AppImage |
 | `node_modules/.bin/tauri <cmd>` | raiz | CLI do Tauri (na raiz do repo, não em `frontend/node_modules`; rodar com cwd=`frontend/` para o app v1) |
-| `go test ./...` | `printer/daemon` | suíte do daemon |
+| `bash scripts/build/install-cli.sh` | raiz | compila o CLI Go (`cmd/pdv`) e instala o binário `pdv` em `$PREFIX/bin` (default `/usr/local/bin`); `--uninstall` remove |
 | `go build ./...` / `go vet ./...` / `go test ./...` | `ws-gateway` | portão do gateway WS: build, vet e suíte (é o que o CI roda, junto com `gofmt -l .`) |
 | `./switch.sh` | deploy | deploy sem downtime (instância nova + `caddy reload`); `--status`, `--rollback`, `--install`, `--no-build`. Não mexe no `ws-gateway` |
 | `docker compose --profile ws-gateway up -d --build ws-gateway` | deploy | sobe **só** o gateway WS em Go — o `up` normal não o cria (está atrás de `profiles`) |
@@ -282,7 +258,7 @@ automático via Semantic Release no merge da `main` — a tag nasce sozinha.
 
 **Leia os guias detalhados antes de editar código:**
 - Backend: `docs/agent-backend.md`
-- Frontend: `docs/agent-frontend.md`
+- Frontend: `frontend/docs/agent-frontend.md`
 - Deploy: `docs/agent-deploy.md`
 - Testes: `docs/agent-testing.md`
 
@@ -291,7 +267,7 @@ automático via Semantic Release no merge da `main` — a tag nasce sozinha.
 - **ESM + NodeNext**: imports com extensão `.js`
 - **Camadas**: `domain` → `application` → `infra` → `http`
 - **Transações assíncronas**: todo acesso dentro de `db.transaction` é `await tx...`
-- **Migrations**: baseline único `backend/migrations/0001_init.sql` (cadeia antiga arquivada em `backend/migrations/archive/`). Novas migrations incrementais vão como `0002_*`, `0003_*`, … — sempre idempotentes. O boot falha se a migration falhar
+- **Migrations**: baseline `backend/migrations/0001_init.sql` + migrations incrementais diretamente na pasta. O filename é identidade persistida em `_migrations`; não renomeie/ordene arquivos aplicados. Veja `backend/migrations/README.md` antes de alterar schema. O boot falha se a migration falhar
 - **Audit log + outbox na mesma transação** da escrita de domínio
 - **Erros**: usar `AppError` com código do catálogo em `src/domain/errors.ts`
 - **Idempotência**: endpoints marcados devem usar `withIdempotency` com `correlationId`
@@ -350,11 +326,9 @@ Antes de dar qualquer mudança por feita:
 5. Conferir o critério de aceite correspondente em `docs/03-acceptance-criteria.md`
 6. Toda mudança realtime: garantir que o evento chega a um room que o client realmente assina
 7. Toda mudança de schema: novo arquivo `.sql` numerado em `backend/migrations/`
-8. Impressão (qualquer um dos dois renderizadores):
-   - daemon: `go build`, `go vet`, `test -z "$(gofmt -l .)"` e `go test ./...` em
-     `printer/daemon` — os quatro estão no job `test-printer-daemon` do CI
+8. Impressão (renderizador Rust; o daemon Go saiu deste repo — reescrita à parte):
    - app Rust: `cargo test -p pdv-caixa` na raiz, e **`rust_imprime_o_mesmo_que_o_go`
-     tem que passar** — é o golden byte a byte com o daemon. Ele NÃO pega erro na
+     tem que passar** — é o golden byte a byte do cupom. Ele NÃO pega erro na
      conversão de code page (o golden compara o render lógico, em UTF-8), então
      uma mudança em `codepage.rs` precisa de teste próprio de bytes, não só o green
    - `cargo fmt` em arquivo que você não mexeu reformata código de outra pessoa:

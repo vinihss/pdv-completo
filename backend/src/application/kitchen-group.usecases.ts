@@ -3,9 +3,10 @@ import { db } from "../infra/db/client.js";
 import { kitchenGroups, products } from "../infra/db/schema.js";
 import { Errors } from "../domain/errors.js";
 import { logAction } from "../infra/audit-log.js";
-import { getCache } from "../infra/cache/index.js";
+import { tenantCache } from "../infra/cache/index.js";
 
-const cache = getCache();
+// Cache particionado por schema (estações de produção são por loja).
+const cache = tenantCache;
 
 function invalidateKitchenGroupRelated() {
   cache.invalidatePattern("kitchen-groups:*");

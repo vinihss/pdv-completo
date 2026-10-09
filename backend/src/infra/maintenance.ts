@@ -1,6 +1,8 @@
 import { and, eq, lt } from "drizzle-orm";
 import { outboxEvents, idempotencyKeys, customerCarts, alerts } from "./db/schema.js";
+import { runInTenantScope } from "./db/tenant-context.js";
 import { LOCKS, tryWithAdvisoryLock } from "./locks.js";
+import { listActiveTenants } from "./tenant/registry.js";
 
 const INTERVAL_MS = 5 * 60_000;
 const OUTBOX_RETENTION_MS = 60 * 60_000; // publicados ficam 1h pra auditoria/debug
@@ -28,7 +30,7 @@ const ALERT_RETENTION_MS = 7 * 24 * 60 * 60_000;
  * intactas (o inverso do que importa não é um problema, mas o meio
  * caminho é; agora ou limpa tudo ou não limpa nada).
  */
-export async function runMaintenanceOnce() {
+export async function runMaintenanceForTenant() {
   const attempt = await tryWithAdvisoryLock(LOCKS.maintenance, async (tx) => {
     const outboxCutoff = new Date(Date.now() - OUTBOX_RETENTION_MS).toISOString();
     // node-postgres devolve { rowCount } no lugar do { changes } do better-sqlite3
@@ -56,6 +58,30 @@ export async function runMaintenanceOnce() {
   // Lock ocupado: nada foi purgado, e a contagem é zero. Réplica não-eleita
   // não é erro — o ciclo de 5min da outra instância cobre o serviço.
   return attempt.acquired ? attempt.value : { outbox: 0, idempotencyKeys: 0, customerCarts: 0, alerts: 0 };
+}
+
+/**
+ * Itera sobre todos os tenants ativos e roda a manutenção dentro do escopo
+ * de cada um. Erros em um tenant não derrubam o processamento dos outros.
+ */
+export async function runMaintenanceOnce() {
+  const tenants = await listActiveTenants();
+  const results = { outbox: 0, idempotencyKeys: 0, customerCarts: 0, alerts: 0 };
+  for (const tenant of tenants) {
+    try {
+      const result = await runInTenantScope(
+        { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: false },
+        () => runMaintenanceForTenant()
+      );
+      results.outbox += result.outbox;
+      results.idempotencyKeys += result.idempotencyKeys;
+      results.customerCarts += result.customerCarts;
+      results.alerts += result.alerts;
+    } catch (err) {
+      console.error(`[maintenance] erro ao processar tenant ${tenant.slug}:`, err);
+    }
+  }
+  return results;
 }
 
 export function startMaintenanceJobs() {

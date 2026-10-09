@@ -15,6 +15,8 @@ import { isSafeSchemaName } from "../../domain/tenant.js";
 export type TenantScope = {
   /** Nome do schema Postgres que o processo fala para esta requisição. */
   schemaName: string;
+  /** Slug do tenant (ex.: "umami", "pdv1"). Necessário para JWT e validação. */
+  slug: string;
   /** `true` quando veio do ambiente (apex/localhost/kill-switch). */
   isDefault: boolean;
 };
@@ -77,4 +79,26 @@ export function resolveTenantSchemaInScope(): string {
 /** `true` quando o ALS tem um escopo ativo (request multi-tenant no ar). */
 export function hasTenantScope(): boolean {
   return currentTenantScope() !== undefined;
+}
+
+/**
+ * Workaround para problema de propagação do ALS no Fastify.
+ * Garante que o tenant scope esteja ativo antes de executar uma função.
+ * Se o ALS já está ativo, executa a função diretamente.
+ * Caso contrário, resolve o tenant pelo host e usa store.run() para garantir propagação.
+ */
+export async function ensureTenantScope<T>(
+  host: string | undefined,
+  fn: () => Promise<T>
+): Promise<T> {
+  if (currentTenantScope()) {
+    return fn();
+  }
+  // Importação dinâmica para evitar ciclo de dependência
+  const { resolveTenant } = await import("../../application/tenant/resolve-tenant.usecase.js");
+  const tenant = await resolveTenant(host);
+  return store.run(
+    { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault },
+    fn
+  );
 }

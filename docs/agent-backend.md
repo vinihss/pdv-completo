@@ -46,28 +46,14 @@ Ver nota completa em `src/application/order/order.usecases.ts:15-28`.
 
 ## Migrations
 
-Diretório `backend/migrations/` com 9 arquivos:
+A estrutura, a lista atual e as regras de compatibilidade estão em [`backend/migrations/README.md`](../backend/migrations/README.md). O runner persiste o **filename completo** em `_migrations.name`; nomes já publicados são imutáveis. Não renomeie/mova/reordene SQL aplicado.
 
-| Arquivo | Conteúdo |
-|---|---|
-| `0001_init.sql` | **todo** o schema (tabelas, índices, extensões) |
-| `0002_whatsapp_connections.sql` | token por WABA + tabelas de inbound/outbound |
-| `0003_printer.sql` | flags `printer_enabled` / `printer_auto_print` |
-| `0003_profile_fields.sql` | `user.phone/email/photo_path`, `customer.email/active`, extensão `unaccent` |
-| `0004_alerts.sql` | tabela `alert` (sino da casca) |
-| `0005_customer_address_cep.sql` | `customer_address.cep` (8 dígitos crus, ViaCEP no cliente) |
-| `0006_delivery_eta_and_notes.sql` | `order.notes`, ETA na `store_settings`, `customer_address.state` |
-| `0007_whatsapp_integration_enabled.sql` | toggle do painel de WhatsApp |
-| `0008_customer_profile_fields.sql` | `customer.photo_path/cpf/notes` + `uq_customer_cpf` |
+Estado do checkout (lista pode evoluir; confirme a pasta antes de criar): baseline `0001_init.sql` e incrementais `0002_pagarme.sql`, `0003_courier_location.sql`, `0004_delivery_arrival_alert_sent.sql` e `0004_device_provisioning.sql`. Os dois `0004_*` são uma colisão histórica, ordenada lexicamente; não a replique. A próxima migration deve usar prefixo novo superior (`0005_*` no estado atual).
 
-**Colisão `0003_*`**: são dois arquivos com o mesmo prefixo. É de propósito — o runner chaveia por filename em `_migrations.name`. **Não renomear**.
-
-**Regras**:
-- Sempre usar número zero-padded lexicograficamente **maior** (próximo: `0009_*`)
-- O prefixo não precisa ser único desde `0003` (o controle é pelo nome completo), mas **mantenha o prefixo igual ao número da ordem** para o `ls` não mentir
-- Escrever migration idempotente (`ADD COLUMN IF NOT EXISTS`, `CREATE ... IF NOT EXISTS`)
-- O boot **aborta** se a migration falhar (`runMigrations()` com `await` no `server.ts`)
-- **Não reintroduza** `runMigrations()` sem `await`
+- O runner lê apenas arquivos `.sql` diretamente em `backend/migrations/`, ordena pelo filename e aplica por schema dentro de transação.
+- `archive/` é histórico não executável; `registry/` usa runner separado e aplica somente em `public`. Não misture os diretórios.
+- Escreva DDL seguro para rollout e retentativa; use `IF NOT EXISTS` quando adequado, e não use `CREATE INDEX CONCURRENTLY` no runner transacional.
+- O boot aguarda os runners e aborta se falharem. Preserve o `await` de `runMigrations()`/`runRegistryMigrations()`.
 
 ### Registry do multi-tenant — `migrations/registry/` (Fase 1 do `docs/15`)
 
@@ -107,14 +93,14 @@ O `Dockerfile` faz `npm ci` + `npm prune --omit=dev` no estágio `build` (com to
 
 - Flags: `printer_enabled` / `printer_auto_print` em `store_settings` (default off)
 - Backend envia JSON estruturado para `PRINTER_DAEMON_URL` (default `http://127.0.0.1:8080`)
-- Daemon em Go (`printer/daemon/`) renderiza ESC/POS e envia TCP para a impressora
+- O daemon que renderiza ESC/POS e envia TCP saiu deste repositório (reescrita à parte)
 - Rotas em `print.routes.ts`: `POST /orders/:id/print` (manual), `GET /printers/status|health`
 - Auto-print é pós-commit **fire-and-forget**: cozinha no `addItemsUsecase`, entregador no `dispatchDeliveryUsecase`
 - Erros: comanda inexistente → 404; daemon fora do ar → 503 (`service_unavailable`)
 
 ## Central de alertas
 
-- Tabela `alert` (migration `0004`) gravada por `createAlertTx` **dentro da transação** de `openOrderUsecase`
+- Tabela `alert` (baseline atual) gravada por `createAlertTx` **dentro da transação** de `openOrderUsecase`
 - Fan-out de `alert.created` por `enqueueEvent` (um insert de outbox por room da audiência)
 - Público: `ORDER_ALERT_AUDIENCE` = `manager`/`cashier`/`kitchen` (garçom **não** entra)
 - Rooms: `alerts` (sem público) e `alerts:<papel>` (o `canJoinRoom` autoriza só o próprio papel)

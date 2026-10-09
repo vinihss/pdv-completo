@@ -1,13 +1,13 @@
-# Scripts de apoio
+# Scripts e ferramentas de desenvolvimento
 
-Índice único dos scripts do repositório. Cada domínio (deploy, printer) tem
+Índice único dos scripts do repositório. Cada domínio (deploy, build, dev) tem
 seus próprios scripts e seus próprios detalhes — as seções abaixo apontam onde
 procurar; este arquivo é o mapa, não o manual de cada um.
 
-## Porta de entrada
+## Localizar scripts
 
 `./pdv` (raiz do repo) é o dispatcher único: diagnóstico, dev, build, test,
-lint, banco, check pré-PR e os scripts de apoio de deploy/printer. Sem
+lint, banco, check pré-PR e os scripts de apoio de deploy/build. Sem
 argumentos (ou com `--help`) imprime a ajuda completa e sai com 0.
 
 ```bash
@@ -16,13 +16,12 @@ argumentos (ou com `--help`) imprime a ajuda completa e sai com 0.
 ./pdv worktree <new|list|rm>          # convenção de worktree por branch
 ./pdv dev <backend|frontend|all>      # npm run dev; frontend aceita --profile <pdv|kds|garcon|entregador>
 ./pdv build <standalone|app|backend|frontend>          # Tauri / tsc / vite
-./pdv test <backend|frontend|printer|gateway|all>      # vitest e go test
+./pdv test <backend|frontend|gateway|all>      # vitest e go test
 ./pdv lint <frontend|all>             # oxlint; `all` soma o gate de gofmt do ws-gateway
 ./pdv db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo>
 ./pdv check [backend|frontend|all]    # critérios de verificação gerais (portão pré-PR)
 ./pdv release bump <versão>           # bump da família standalone
 ./pdv deploy <switch|backup|backup-fetch|probe|install|reset|caddy|run-cloud|pedido> [opções]
-./pdv printer <install|package|test-local> [opções]
 ```
 
 Os subcomandos que mapeiam um script fazem `exec bash <script>` com os
@@ -46,25 +45,20 @@ ou `cd ws-gateway && go test ./...` continuam equivalentes.
 | `dev all` | backend em segundo plano + frontend em foreground; Ctrl+C (ou a morte do frontend) derruba o backend junto |
 | `build backend` / `build frontend` | `npm run build` (tsc → `dist/` / vite → build de produção) |
 | `test backend` / `test frontend` | `npm run test` (vitest) |
-| `test printer` | `go build ./... && go vet ./... && go test -count=1 ./...` em `printer/daemon/` |
 | `test gateway` | os mesmos três comandos em `ws-gateway/` |
-| `test all` | backend, frontend, printer e gateway — nessa ordem |
+| `test all` | backend, frontend e gateway — nessa ordem |
 | `lint frontend` | `npm run lint` (oxlint) em `frontend/` |
 | `lint all` | oxlint + gate de `gofmt -l .` em `ws-gateway/` (o mesmo `test -z` do CI: imprime os arquivos e falha) |
 | `check [backend\|frontend\|all]` | os "critérios de verificação gerais" do AGENTS.md: backend = build (tsc) + test; frontend = lint + build + test; all = os dois. Default: `all` |
 
-`./pdv db` — wrappers dos scripts npm do backend:
+Para deployment, use [`../deploy/README.md`](../deploy/README.md). Para validar testes/builds, consulte [`../docs/agent-testing.md`](../docs/agent-testing.md) e os comandos dos `package.json` do componente. Não use instruções antigas que mencionem um executável `./pdv` na raiz ou diretórios de serviço que não existam no checkout.
 
-| Subcomando | Script npm em `backend/` |
-|---|---|
-| `db migrate` | `db:migrate` |
-| `db migrate-registry` | `db:migrate:registry` |
-| `db generate` | `db:generate` |
-| `db seed` | `seed` |
-| `db seed-prod` | `seed:prod` |
-| `db deactivate-demo` | `db:deactivate-demo` |
+## Desenvolvimento manual
 
-## Convenções
+- Backend: `cd ../backend && npm ci`; consulte `../docs/agent-backend.md` para banco, ambiente e testes.
+- Frontend: `cd ../frontend && npm ci`; `npm run dev`, `npm run lint`, `npm run test` e `npm run build` conforme a tarefa.
+- Apps Rust/Tauri: use o workspace Cargo da raiz e os README de cada crate. Build exige toolchain Rust/Tauri e pode ter requisitos específicos de assinatura.
+- CLI: `cd ../cmd/pdv && go test ./...`; instalação via `build/install-cli.sh` depende da configuração descrita no próprio script.
 
 - Todo script começa com shebang (`#!/usr/bin/env bash`, ou `#!/bin/sh` quando
   é POSIX de propósito) e `set -euo pipefail` logo depois.
@@ -122,16 +116,6 @@ Domínio próprio — o detalhe operacional mora em `deploy/README.md` e
 | `reset.sh` | Reset total destrutivo: remove containers, imagens e volumes | `./pdv deploy reset [--force]` ou `./deploy/reset.sh [--force]` | docker compose |
 | `run-cloud.sh` | Exemplo de modo cloud local: exporta `DATABASE_URL` e sobe o Postgres | `./pdv deploy run-cloud` ou `./deploy/run-cloud.sh` | docker compose |
 | `switch.sh` | Deploy azul/verde sem downtime: switch, `--status`, `--rollback`, `--install` | `./pdv deploy switch [--rollback\|--status\|--install] [--no-build]` ou `./deploy/switch.sh …` | docker compose, curl |
-
-## `printer/scripts/`
-
-Domínio próprio — detalhes em `printer/README.md`.
-
-| Caminho | O que faz | Como invocar | Dependências |
-|---|---|---|---|
-| `install-linux.sh` | Compila e instala o daemon de impressão como serviço systemd | `./pdv printer install` ou `sudo ./printer/scripts/install-linux.sh` | Go 1.22+, root, systemd |
-| `package-daemon-linux.sh` | Gera o pacote de entrega do daemon (`.tar.gz` + `.sha256`) em `printer/artifacts/` | `./pdv printer package [versão]` ou `bash printer/scripts/package-daemon-linux.sh [versão]` | Go (compilar na hora) |
-| `test-local.sh` | Smoke local: sobe mock de impressora em :9100 + daemon, manda a amostra e confirma 202 | `./pdv printer test-local` ou `bash printer/scripts/test-local.sh` | Go (ou binário pré-compilado); não requer root |
 
 ## `.githooks/`
 

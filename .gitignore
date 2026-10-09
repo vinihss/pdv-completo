@@ -38,8 +38,8 @@ deploy/updates/
 *.log
 .DS_Store
 
-# Binário do app desktop (11 MB, gerado por printer/scripts/build-sidecar.sh e
-# pelo job do Windows no CI) — o instalador é compilado, nunca versionado
+# Binário do app desktop (11 MB, gerado pelo antigo sidecar do daemon de
+# impressão e pelo job do Windows no CI) — o instalador é compilado, nunca versionado
 frontend/src-tauri/target/
 frontend/src-tauri/binaries/
 frontend/src-tauri/gen/
@@ -63,9 +63,15 @@ standalone-*/gen/
 standalone-*/.local-signing.key
 standalone-*/.local-signing.key.pub
 
-# Gateway WebSocket em Go (módulo aninhado, mesmo caso do printer/daemon).
+# Gateway WebSocket em Go (módulo aninhado).
 # O binário é compilado no build da imagem / no deploy, nunca versionado.
 /ws-gateway/ws-gateway
 /ws-gateway/*.exe
+
+# CLI Go (`cmd/pdv`). O binário é compilado e instalado por
+# `scripts/build/install-cli.sh` em `$PREFIX/bin`; a cópia solta na raiz do
+# repo é artefato de build, nunca versionada.
+/pdv
+/pdv-cli
 data.db*
 .idea/

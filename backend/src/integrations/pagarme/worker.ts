@@ -1,7 +1,9 @@
 import { and, eq, isNull, lte, or } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { paymentEvents } from "../../infra/db/schema.js";
+import { runInTenantScope } from "../../infra/db/tenant-context.js";
 import { LOCKS, tryWithAdvisoryLock } from "../../infra/locks.js";
+import { listActiveTenants } from "../../infra/tenant/registry.js";
 import {
   processPaymentEventUsecase,
   reconcilePendingPaymentsUsecase,
@@ -55,7 +57,26 @@ export function startPagarmeWorkers(): { stop: () => void } {
     if (webhookRunning) return;
     webhookRunning = true;
     try {
-      await tryWithAdvisoryLock(LOCKS.paymentWorker, () => drainInboxOnce());
+      // Itera sobre todos os tenants ativos e roda o drain dentro do escopo
+      // de cada um. Erros em um tenant não derrubam o processamento dos outros.
+      const tenants = await listActiveTenants();
+      for (const tenant of tenants) {
+        try {
+          await runInTenantScope(
+            { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: false },
+            async () => {
+              // Verifica se Pagar.me está habilitado globalmente (o isPagarmeEnabled
+              // lê do config de env, não é por-tenant ainda). Se desabilitado,
+              // pula este tenant sem adquirir lock.
+              if (!isPagarmeEnabled()) return;
+              await tryWithAdvisoryLock(LOCKS.paymentWorker, () => drainInboxOnce());
+            }
+          );
+        } catch (err) {
+          // Erro de um tenant não derruba os outros — loga e continua.
+          console.error(`[pagarme] erro ao processar tenant ${tenant.slug} na inbox:`, err);
+        }
+      }
     } catch (err) {
       // Um erro de ciclo não pode derrubar o processo (regra 1.5). O
       // `tryWithAdvisoryLock` abre uma transação, então banco fora rejeita em
@@ -68,7 +89,25 @@ export function startPagarmeWorkers(): { stop: () => void } {
 
   const tickReconciliation = async () => {
     try {
-      await tryWithAdvisoryLock(LOCKS.paymentReconciliation, () => reconcilePendingPaymentsUsecase());
+      // Itera sobre todos os tenants ativos e roda a reconciliação dentro do
+      // escopo de cada um. Erros em um tenant não derrubam o processamento dos outros.
+      const tenants = await listActiveTenants();
+      for (const tenant of tenants) {
+        try {
+          await runInTenantScope(
+            { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: false },
+            async () => {
+              // Verifica se Pagar.me está habilitado globalmente. Se desabilitado,
+              // pula este tenant sem adquirir lock.
+              if (!isPagarmeEnabled()) return;
+              await tryWithAdvisoryLock(LOCKS.paymentReconciliation, () => reconcilePendingPaymentsUsecase());
+            }
+          );
+        } catch (err) {
+          // Erro de um tenant não derruba os outros — loga e continua.
+          console.error(`[pagarme] erro ao processar tenant ${tenant.slug} na reconciliação:`, err);
+        }
+      }
     } catch (err) {
       console.error("[pagarme] erro no ciclo de reconciliação:", err);
     }

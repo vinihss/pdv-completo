@@ -62,6 +62,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { Errors } from "../../domain/errors.js";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
+import { ensureTenantScope } from "../../infra/db/tenant-context.js";
 import { getStoreSettingsUsecase, updateStoreSettingsUsecase, saveStoreLogoUsecase, clearStoreLogoUsecase } from "../../application/store-settings.usecases.js";
 import { geocodeRestaurantUsecase } from "../../application/delivery/geocode-restaurant.usecase.js";
 import {
@@ -297,10 +298,14 @@ export async function miscRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authMiddleware);
 
   // ---------- Store settings ----------
-  app.get("/store-settings", async (req) => getStoreSettingsUsecase());
+  app.get("/store-settings", async (req) => {
+    const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+    return ensureTenantScope(host, () => getStoreSettingsUsecase());
+  });
   app.put("/store-settings", { preHandler: requireRole("manager") }, async (req) => {
     const body = storeSettingsSchema.parse(req.body);
-    return updateStoreSettingsUsecase(body);
+    const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+    return ensureTenantScope(host, () => updateStoreSettingsUsecase(body));
   });
   // Logo — upload multipart (multipart/form-data, campo "logo")
   app.post("/store-settings/logo", { preHandler: requireRole("manager") }, async (req) => {
@@ -323,14 +328,15 @@ export async function miscRoutes(app: FastifyInstance) {
   // ---------- Products ----------
   app.get("/products", { preHandler: requireRole("manager", "waiter", "kitchen") }, async (req) => {
     const q = req.query as { category_id?: string; active?: string; q?: string; sort?: string; limit?: string; offset?: string };
-    return listProductsUsecase({
+    const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+    return ensureTenantScope(host, () => listProductsUsecase({
       categoryId: q.category_id,
       active: q.active !== undefined ? q.active === "true" : undefined,
       search: q.q,
       sort: q.sort,
       limit: Math.min(Number(q.limit ?? 50), 200),
       offset: Number(q.offset ?? 0),
-    });
+    }));
   });
   app.post("/products", { preHandler: requireRole("manager") }, async (req, reply) => {
     const body = productCreateSchema.parse(req.body);
@@ -367,7 +373,10 @@ export async function miscRoutes(app: FastifyInstance) {
   });
 
   // ---------- Categories ----------
-  app.get("/categories", async () => listCategoriesUsecase());
+  app.get("/categories", async (req) => {
+    const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+    return ensureTenantScope(host, () => listCategoriesUsecase());
+  });
   app.post("/categories", { preHandler: requireRole("manager") }, async (req, reply) => {
     const body = categoryCreateSchema.parse(req.body);
     const created = await createCategoryUsecase(body, req.authUser!.sub);
@@ -385,7 +394,10 @@ export async function miscRoutes(app: FastifyInstance) {
   });
 
   // ---------- Kitchen groups (estações de produção) ----------
-  app.get("/kitchen-groups", async () => listKitchenGroupsUsecase());
+  app.get("/kitchen-groups", async (req) => {
+    const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+    return ensureTenantScope(host, () => listKitchenGroupsUsecase());
+  });
   app.post("/kitchen-groups", { preHandler: requireRole("manager") }, async (req, reply) => {
     const body = kitchenGroupCreateSchema.parse(req.body);
     const created = await createKitchenGroupUsecase(body, req.authUser!.sub);

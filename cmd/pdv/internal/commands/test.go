@@ -10,8 +10,8 @@ import (
 )
 
 var testCmd = &cobra.Command{
-	Use:                "test <backend|frontend|printer|gateway|all>",
-	Short:              "suítes: vitest (npm) e go test (daemon e gateway); `all` roda os quatro nessa ordem",
+	Use:                "test <backend|frontend|gateway|all>",
+	Short:              "suítes: vitest (npm) e go test (gateway); `all` roda os três nessa ordem",
 	DisableFlagParsing: true,
 	Run: func(cmd *cobra.Command, args []string) {
 		code := HandleTest(args)
@@ -22,7 +22,7 @@ var testCmd = &cobra.Command{
 // HandleTest despacha a execução dos testes conforme o target escolhido.
 func HandleTest(args []string) int {
 	if len(args) == 0 {
-		ui.Die("uso: ./pdv test <backend|frontend|printer|gateway|all>")
+		ui.Die("uso: ./pdv test <backend|frontend|gateway|all>")
 	}
 	sub := args[0]
 	subArgs := args[1:]
@@ -34,8 +34,6 @@ func HandleTest(args []string) int {
 		return runner.NpmRun("backend", "test")
 	case "frontend":
 		return runner.NpmRun("frontend", "test")
-	case "printer":
-		return runner.GoGate("printer/daemon")
 	case "gateway":
 		return runner.GoGate("ws-gateway")
 	case "all":
@@ -47,17 +45,13 @@ func HandleTest(args []string) int {
 		if code := runner.NpmRun("frontend", "test"); code != 0 {
 			return code
 		}
-		ui.LogMsg("── test printer (go) ──")
-		if code := runner.GoGate("printer/daemon"); code != 0 {
-			return code
-		}
 		ui.LogMsg("── test gateway (go) ──")
 		if code := runner.GoGate("ws-gateway"); code != 0 {
 			return code
 		}
 		return 0
 	default:
-		ui.Die("uso: ./pdv test <backend|frontend|printer|gateway|all>")
+		ui.Die("uso: ./pdv test <backend|frontend|gateway|all>")
 	}
 	return 0
 }

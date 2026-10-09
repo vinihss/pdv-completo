@@ -255,19 +255,10 @@ O `-race` está no job porque este serviço tem estado compartilhado em três lu
 (goroutine + `select` com prazo). Sem `-race` um mutex que pare de cobrir um campo não reprova nada:
 os testes continuam verdes e a corrida fica esperando um CI mais lento para se manifestar.
 
-**O que a suíte ainda NÃO cobre**: o `printer` e o `ws-gateway` (o `Find` bate em `httptest.Server`,
+**O que a suíte ainda NÃO cobre**: o `ws-gateway` (o `Find` bate em `httptest.Server`,
 não no Pagar.me real) e o contrato do `ApplyEvent`/`ApplyCharge` contra um backend Node de verdade —
 o `nodeapi` prova o que o cliente envia e como classifica a resposta, mas o acordo entre os dois
 lados ainda é conferido por smoke.
-
-## Printer (daemon Go)
-
-```bash
-cd printer/daemon
-go test ./...
-```
-
-**Cobertura**: caminhos, config padrão, CORS, templates embutidos, health.
 
 ## Como adicionar novos testes
 
@@ -300,12 +291,6 @@ go test ./...
    `poll`, `timeout`, `staleAfter` e `maxInFlight` como campos (o construtor copia as constantes),
    e o `cmd/gateway/main_test.go` mostra o padrão
 6. Rodar `gofmt -l .` antes de commitar — o CI falha o job se sair algo
-
-### Printer
-
-1. Criar arquivo `printer/daemon/*_test.go`
-2. Usar `testing` padrão do Go
-3. Para stub de TCP, usar `net.Listen` em porta aleatória
 
 ### Serviço Pagar.me
 

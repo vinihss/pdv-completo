@@ -560,7 +560,7 @@ describe("CEP do endereço", () => {
 
   it("CEP não entra no snapshot de delivery.address", async () => {
     // Decisão: delivery.address é legível e vai para bobina de largura fixa
-    // (printer/daemon/main.go) e para a tela do entregador. O CEP fica
+    // (daemon de impressão) e para a tela do entregador. O CEP fica
     // estruturado na API, não empilhado no texto. Este teste trava isso — se
     // alguém incluir o CEP no formatAddress, a bobina quebra.
     const phone = nextPhone();

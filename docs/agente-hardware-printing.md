@@ -74,45 +74,44 @@ O `Dockerfile` faz `npm ci` + `npm prune --omit=dev` no estágio `build` (com to
 
 - Flags: `printer_enabled` / `printer_auto_print` em `store_settings` (default off)
 - Backend envia JSON estruturado para `PRINTER_DAEMON_URL` (default `http://127.0.0.1:8080`)
-- Daemon em Go (`printer/daemon/`) renderiza ESC/POS e envia TCP para a impressora
+- O daemon que renderiza ESC/POS e envia TCP saiu deste repositório (reescrita à parte)
 - Rotas em `print.routes.ts`: `POST /orders/:id/print` (manual), `GET /printers/status|health`
 - Auto-print é pós-commit **fire-and-forget**: cozinha no `addItemsUsecase`, entregador no `dispatchDeliveryUsecase`
 - Erros: comanda inexistente → 404; daemon fora do ar → 503 (`service_unavailable`)
 
-### Dois renderizadores, uma golden
+### O renderizador Rust e a golden
 
-A impressão tem **dois** renderizadores ESC/POS, e eles precisam sair byte a byte
-iguais:
+A impressão neste repositório tem **um** renderizador ESC/POS: o Rust do app
+Caixa (`standalone-pdv/src/printing/`). O antigo daemon Go — o outro lado da
+paridade — **saiu deste repositório** e está sendo reescrito à parte; os
+goldens que sobraram foram gerados por ele.
 
 | Caminho | Renderiza | Onde |
 |---|---|---|
-| Web/PWA e auto-print | daemon Go | `printer/daemon/render.go` |
 | App desktop Caixa | Rust | `standalone-pdv/src/printing/escpos.rs` |
 
-O app **não** delega ao daemon: ele monta o cupom e despacha direto ao spooler ou
-ao socket TCP (`commands.rs::dispatch`). Por isso os dois existem, e por isso o
-golden é o mesmo arquivo dos dois lados.
+O app **não** delega a daemon nenhum: ele monta o cupom e despacha direto ao
+spooler ou ao socket TCP (`commands.rs::dispatch`).
 
-Regra que mantém a paridade: **`render()` é o render lógico, em UTF-8, sem `ESC t`**
+Regra que o golden preserva: **`render()` é o render lógico, em UTF-8, sem `ESC t`**
 — é ele que o golden compara. A conversão de code page só entra em
-`renderForProfile()` (Go, `render.go:81`) e `render_for_profile()` (Rust,
-`escpos.rs:330`), o caminho de produção. Se você mexer no render lógico, os dois
-goldens (Go e Rust) quebram; se mexer só na conversão, nenhum dos dois acusam,
-porque o golden não exercita a bobina.
+`render_for_profile()` (Rust, `escpos.rs:330`), o caminho de produção. Se você
+mexer no render lógico, o golden quebra; se mexer só na conversão, ele não
+acusa, porque o golden não exercita a bobina.
 
 ### Code page e sanitização
 
 Térmicas ESC/POS não entendem UTF-8, então todo texto do pedido passa por
-`sanitize()` + `encode()` antes de virar byte — no Go (`encoder.go`, em `emit()`)
-e no Rust (`codepage.rs`, no `line()`). É o mesmo par nas duas pontas.
+`sanitize()` + `encode()` antes de virar byte — no Rust (`codepage.rs`, no
+`line()`). O par é o mesmo que o antigo daemon Go usava (`encoder.go`, em
+`emit()`).
 
 - `encoding` por perfil: `cp850` (default), `cp858` (euro no 0xD5),
   `windows-1252`, ou `utf-8` para desligar a conversão. `code_page` sobrescreve
   o `ESC t n` quando o modelo não segue a tabela Epson.
-- Defaults diferentes **por caminho** e isso é proposital: o daemon e o app
-  convertem para cp850 porque é o que a térmica entende; o mock de dev
-  (`scripts/dev/setup-dev.sh`) usa `utf-8` porque é um `cat` que despeja bytes no
-  terminal, e cp850 sairia ilegível.
+- A conversão é para cp850 porque é o que a térmica entende; `utf-8` serve só
+  para uma impressora com fonte UTF-8 (ou um `cat` que despeja bytes no terminal,
+  onde cp850 sairia ilegível).
 - **Sanitização não é opcional.** `Item.name` é o que o garçom digita no celular.
   Sem descarte dos bytes de controle, um `ESC` no nome injeta comando na
   impressora: `GS V` corta o papel, `ESC p` abre a gaveta. `\n` sobrevive,

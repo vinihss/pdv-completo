@@ -3,10 +3,12 @@ import jwt from "jsonwebtoken";
 import { eq } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { users } from "../../infra/db/schema.js";
+import { currentTenantScope, enterTenantScope } from "../../infra/db/tenant-context.js";
 import { Errors } from "../../domain/errors.js";
 import { config } from "../../config/env.js";
 import { photoUrl } from "../user.usecases.js";
 import { assertDeviceForLogin } from "../provisioning/provisioning.usecases.js";
+import { resolveTenant } from "../tenant/resolve-tenant.usecase.js";
 
 const MAX_ATTEMPTS = 5;
 const LOCK_MS = 5 * 60_000;
@@ -29,8 +31,16 @@ async function countFailedAttempt(u: Pick<typeof users.$inferSelect, "id" | "fai
 
 /** Autentica um usuário por PIN. `deviceId` opcional (docs/21 §5.3/§6): quando
  * presente, o aparelho precisa ser conhecido, ativo, não revogado e vinculado
- * ao `userId`; sem ele, comportamento inalterado (PWA/tablet compartilhado). */
-export async function loginUsecase(userId: string, rawPin: string, deviceId?: string) {
+ * ao `userId`; sem ele, comportamento inalterado (PWA/tablet compartilhado).
+ * `host` opcional: quando fornecido, resolve o tenant manualmente se o ALS estiver vazio
+ * (workaround para problema de propagação do ALS no Fastify). */
+export async function loginUsecase(userId: string, rawPin: string, deviceId?: string, host?: string) {
+  // Workaround: se o ALS estiver vazio mas o host foi fornecido, resolve o tenant manualmente
+  if (!currentTenantScope() && host) {
+    const tenant = await resolveTenant(host);
+    enterTenantScope({ schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault });
+  }
+
   const u = await db.query.users.findFirst({ where: eq(users.id, userId) });
   if (!u || !u.active) throw Errors.invalidCredentials();
 
@@ -48,7 +58,19 @@ export async function loginUsecase(userId: string, rawPin: string, deviceId?: st
 
   if (deviceId) await assertDeviceForLogin(userId, deviceId);
 
-  const token = jwt.sign({ sub: u.id, role: u.role }, config.jwtSecret, { expiresIn: "12h" });
+  const tenant = currentTenantScope();
+  if (!tenant) {
+    throw new Error("[auth] login sem contexto de tenant — onRequest não resolveu");
+  }
+  const token = jwt.sign(
+    {
+      sub: u.id,
+      role: u.role,
+      tenant: tenant.slug,
+    },
+    config.jwtSecret,
+    { expiresIn: "12h" }
+  );
   // A foto vai na sessão (não no JWT) para a identidade do app logado mostrar
   // o avatar sem uma segunda chamada.
   return { token, user: { id: u.id, name: u.name, role: u.role, photoPath: photoUrl(u.photoPath, "user") } };

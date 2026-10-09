@@ -13,7 +13,6 @@ jobs:
       pedido-public: ${{ steps.result.outputs.pedido-public }}
       ws-gateway: ${{ steps.result.outputs.ws-gateway }}
       pagarme-webhook: ${{ steps.result.outputs.pagarme-webhook }}
-      printer: ${{ steps.result.outputs.printer }}
     steps:
 
       - uses: dorny/paths-filter@v3
@@ -48,16 +47,11 @@ jobs:
               - '.github/**'
               - 'package.json'
               - 'package-lock.json'
-            printer:
-              - 'printer/**'
-              - '.github/**'
-              - 'package.json'
-              - 'package-lock.json'
 
       # Passo normalizador: é ele que define os outputs reais do job.
       #   - Em PR: repassa o que o `filter` acima calculou (uma área só
       #     liga o output dela).
-      #   - Fora de PR (tag/deploy): liga OS SEIS como `true` — a suíte
+      #   - Fora de PR (tag/deploy): liga TODAS como `true` — a suíte
       #     inteira é o contrato antes de produção, e este passo é o que
       #     materializa o fallback "roda tudo" descrito no bloco acima.
       # A razão de existir um passo próprio (em vez de os outputs apontarem
@@ -75,7 +69,6 @@ jobs:
           FILTER_PEDIDO: ${{ steps.filter.outputs.pedido-public }}
           FILTER_WS: ${{ steps.filter.outputs.ws-gateway }}
           FILTER_PAGARME: ${{ steps.filter.outputs.pagarme-webhook }}
-          FILTER_PRINTER: ${{ steps.filter.outputs.printer }}
         run: |
           if [ "$IS_PR" = "true" ]; then
             {
@@ -84,7 +77,6 @@ jobs:
               echo "pedido-public=$FILTER_PEDIDO"
               echo "ws-gateway=$FILTER_WS"
               echo "pagarme-webhook=$FILTER_PAGARME"
-              echo "printer=$FILTER_PRINTER"
             } >> "$GITHUB_OUTPUT"
           else
             {
@@ -93,7 +85,6 @@ jobs:
               echo "pedido-public=true"
               echo "ws-gateway=true"
               echo "pagarme-webhook=true"
-              echo "printer=true"
             } >> "$GITHUB_OUTPUT"
           fi
 
@@ -224,119 +215,13 @@ jobs:
         # saúde. Tirar os ~8s não deixa o passo em 4s, deixa em ~16s. Quem
         # quiser esse resto precisa de outra coisa (imagem em registry
         # próprio, ou serviço gerenciado) — mexer neste intervalo não chega lá.
+        #
+        # ATENÇÃO: o `options` abaixo é um folded scalar (`>-`). Tudo que estiver
+        # indentado nele é repassado ao `docker create`; um `#` aí dentro NÃO é
+        # comentário, é conteúdo — mantenha os comentários acima desta linha.
         options: >-
           --health-cmd "pg_isready -U pdv -d pdv_test"
-          --health-interval 2s        # Sem healthcheck o vitest começa antes do Postgres aceitar conexão e
-          # o job falha de forma intermitente, dependendo da carga do runner.
-          #
-          # ================================================================
-          # OS INTERVALOS DO HEALTHCHECK: 2s, E NÃO 10s — MEDIDO, NÃO PALPITE
-          # ================================================================
-          # ESTE BLOCO É A REFERÊNCIA DOS TRÊS SERVIÇOS DE POSTGRES DESTE
-          # ARQUIVO. O `test-ws-gateway` e o `test-pagarme-webhook` usam as
-          # MESMAS três flags, com os números deles medidos no próprio job.
-          #
-          # POR QUE O INTERVALO PRECISA SER FINO — o tempo é pago no TOPO do job:
-          # o passo "Initialize containers" do runner espera o serviço ficar
-          # `healthy` ANTES do primeiro `actions/checkout`. Portanto este tempo
-          # não é "espera do `go test`": é espera de TODO o job.
-          #
-          # MEDIDO no run 37409580179 (tag v1.29.0), job `test-backend / test-backend`,
-          # log do passo "Initialize containers":
-          #
-          #   03:34:07.5  docker pull postgres:16 começa
-          #   03:34:19.8  "Status: Downloaded newer image"     → 12,3s de rede
-          #   03:34:20.0  container criado, "Up Less than a second (health: starting)"
-          #   03:34:33.9  "postgres service is healthy"         → 13,9s de espera
-          #
-          # E o log do PRÓPRIO Postgres mostra que 13,9s é exagero:
-          #
-          #   03:34:21.4  LOG: starting PostgreSQL 16.15 ... on unix socket
-          #   03:34:22.1  LOG: listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
-          #
-          # Ou seja: o banco ficou ACEITANDO CONEXÃO em ~2,1s e o job esperou
-          # mais 11,8s por causa do relógio do healthcheck — 47% do tempo do
-          # passo foi o contêiner já pronto.
-          #
-          # DE ONDE VEM O ATRASO (são DOIS relógios, e é por isso que "10s" e
-          # "2s" não são a mesma coisa que "10s" e "1s"):
-          #
-          #   1. Docker só faz a PRIMEIRA sondagem do `pg_isready` depois de
-          #      `--health-interval` — o healthcheck não roda no `docker start`.
-          #   2. O runner do Actions tem um backoff PRÓPRIO para perguntar o
-          #      `docker inspect` (não é configurável pelo workflow). Medido nos
-          #      três jobs do run 37411275059: as perguntas saem em ~0,4s, ~2,4s,
-          #      ~6,1s e ~13,6s depois do `docker start`.
-          #
-          # Com 10s, no instante da 3a pergunta do runner (~6,1s) o Docker ainda
-          # nem tinha sondado uma vez; a 1a sondagem saiu em ~10s e o runner só
-          # voltou a perguntar em ~13,6s — e foi aí que ele viu "healthy".
-          # Com 2s, as sondagens saem em 2s, 4s, 6s...; o `pg_isready` passa na
-          # de 4s (o banco já estava de pé desde 2,1s) e o runner, que já
-          # perguntou aos ~6,1s, libera o job ali.
-          #
-          # RESULTADO ESPERADO: o trecho "container criado → healthy" cai de
-          # ~13,9s para ~6,1s, ou seja ~7,8s a MENOS por job com Postgres.
-          # Mais fino que 2s não compra nada: o backoff do runner (~6s) vira o
-          # piso, e o banco só fica pronto em ~2,1s mesmo.
-          #
-          # RESULTADO MEDIDO — melhor do que o previsto. Run 37413096448 (PR
-          # #116), job `tests / test-backend`, mesmo passo, mesmas linhas de log:
-          #
-          #   04:18:50.9  container criado
-          #   04:18:51.3  "Up Less than a second (health: starting)"
-          #   04:18:51.3  "postgres service is starting, waiting 2 seconds..."
-          #   04:18:53.3  "postgres service is healthy"         → 2,4s de espera
-          #
-          # A 2ª pergunta do runner (que cai em ~2,4s depois do `docker start`)
-          # JÁ encontrou o contêiner `healthy`, porque a 1ª sondagem do
-          # `pg_isready` — em 2s — passou. Nos três jobs com Postgres:
-          # 13,9s / 14,9s / 12,9s antes → 2,4s / 2,4s / 2,3s depois (−34,7s).
-          # O passo "Initialize containers" inteiro caiu de 24s/26s/30s para
-          # 11s/13s/13s.
-          #
-          # O resto da diferença é o `docker pull`, que é rede do runner
-          # efêmero e variou entre runs (8,4s nesta execução do backend contra
-          # 10,5s na do run de base) — por isso o número a citar é o do trecho
-          # `docker start → healthy`, que é o que esta mudança controla.
-          #
-          # POR QUE NÃO É MAIS SEGURO COM 10s — "a margem de segurança do
-          # healthcheck" NÃO vem do intervalo, vem do `retries`. Aqui está a
-          # conta, e ela é a razão de o retries ter AUMENTADO em vez de
-          # diminuído:
-          #
-          #   antes:  10s × 10 retries  = 100s até o Docker declarar `unhealthy`
-          #   agora:   2s × 50 retries  = 100s até o Docker declarar `unhealthy`
-          #
-          # Mesma tolerância a runner congestado, mesma tolerância a disco lento
-          # na camada de imagem do Postgres — o que mudou é só a GRANULARIDADE
-          # da detecção (2s em vez de 10s). Se o banco não subir, o job continua
-          # reprovando por falta de saúde em 100s, exatamente como antes.
-          #
-          # POR QUE 50 E NÃO 10 AQUI: o par (intervalo × retries) é o orçamento,
-          # e reduzir o retries junto com o intervalo encolheria esse orçamento —
-          # que é exatamente o "falso negativo em runner lento" que este bloco
-          # existe para não introduzir. 50 é o número que faz 2 × 50 = 100.
-          #
-          # `--health-start-period` FOI AVALIADO E NÃO ENTRA: com ele, o Docker
-          # só faz a primeira sondagem depois de `start-period + interval`
-          # (o intervalo inicial passa a ser a soma), e as falhas da janela de
-          # start não contam para o retries. Aqui isso só ADIARIA a primeira
-          # sondagem — o contrário do que se quer. Ele só pagaria se o
-          # healthcheck fosse barulhento durante o boot; o `pg_isready` é
-          # silencioso até o banco responder.
-          #
-          # `--health-timeout 5s` fica como está, de propósito: `pg_isready`
-          # responde em milissegundos com o banco de pé, e o timeout só conta
-          # quando o servidor está travado — caso em que 5s de paciência não
-          # custam nada, porque o banco não está pronto de qualquer jeito.
-          #
-          # E O RESTO DO PASSO NÃO É HEALTHCHECK: os ~24s do "Initialize
-          # containers" são ~12s de `docker pull postgres:16` (o runner
-          # efêmero não vem com a imagem pré-carregada) + ~14s de espera de
-          # saúde. Tirar os ~8s não deixa o passo em 4s, deixa em ~16s. Quem
-          # quiser esse resto precisa de outra coisa (imagem em registry
-          # próprio, ou serviço gerenciado) — mexer neste intervalo não chega lá.
+          --health-interval 2s
           --health-timeout 5s
           --health-retries 50
     env:
@@ -823,7 +708,7 @@ jobs:
   # barato da suíte (sem npm ci, sem Postgres, ~10s) e os alvos dele são os
   # arquivos mais transversais do repo — `git ls-files '*.sh' '.githooks/*'`
   # pega scripts de `deploy/`, `scripts/`, raiz, que não pertencem a nenhuma
-  # das seis áreas mapeadas. Um filtro `**.sh` casaria o glob, mas deixaria
+  # das cinco áreas mapeadas. Um filtro `**.sh` casaria o glob, mas deixaria
   # de fora exatamente o modo de falha que interessa (script novo em pasta
   # nova). Sempre roda.
   shellcheck:
@@ -835,133 +720,3 @@ jobs:
           mapfile -t files < <(git ls-files '*.sh' '.githooks/*')
           shellcheck --severity=warning "${files[@]}"
 
-  # O daemon de impressão (`printer/daemon/`) — o segundo módulo Go do repo.
-  #
-  # Este job é a razão de o `gofmt -l` existir acima dele: o daemon passou
-  # quebrado (sem compilar) tempo demais na `main` porque NADA o verificava.
-  # Nem build, nem vet, nem suíte: `printer/daemon` não entra no `npm ci` do
-  # backend nem do frontend, e o `test-ws-gateway` só cobre `ws-gateway/`. O
-  # único portão que o daemon tinha era o `go build` da imagem de produção —
-  # isto é, o erro só aparecia depois de virar tag. Um `gofmt -l` sem o
-  # `test -z` seria o mesmo furo em forma nova: o `gofmt` imprime e sai 0.
-  #
-  # `-count=1` desliga o cache de resultado do `go test`: sem ele um run pode
-  # reaproveitar o "ok, sem arquivo de teste" cacheado de uma execução em que o
-  # pacote ainda não tinha testes.
-  test-printer-daemon:
-    needs: changes
-    # FAIL-OPEN em `needs.changes.result != 'success'`: se o próprio `changes`
-    # falhar (ex.: API de PR inacessível), os outputs chegam vazios e o
-    # condicionamento por área pularia tudo — gate verde e vazio, o defeito
-    # que este bloco existe para impedir. Com a cláusula, um `changes`
-    # vermelho faz as suítes RODAREM (pior caso = testar de mais, nunca de
-    # menos). `!cancelled()` em vez de `always()` para não reanimar jobs de
-    # um run cancelado.
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || github.event_name != 'pull_request' || needs.changes.outputs.printer == 'true') }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          # Mesma versão declarada no `go 1.25.0` do go.mod do daemon — a mesma
-          # regra do `test-ws-gateway`. `go-version` sem `check-latest` instala
-          # exatamente esta versão, e o `cache: true` usa o go.sum como chave do
-          # cache de módulos/build (o equivalente ao `cache-dependency-path` do
-          # npm nos jobs Node). Se o go.mod subir, este número sobe junto: o
-          # próprio build morre com "go.mod requires go >= X" se divergirem.
-          go-version: '1.25.0'
-          cache: true
-          cache-dependency-path: printer/daemon/go.sum
-      # O nome do passo cita os dois GOOS de propósito: quando este passo fica
-      # vermelho, a primeira pergunta é se foi o build linux ou o cross-compile
-      # do Windows, e o título é o que o operador lê antes de abrir o log.
-      - name: build, vet e gofmt (linux + GOOS=windows)
-        working-directory: printer/daemon
-        run: |
-          # `go mod download` explícito: o daemon puxa dependências de terceiros
-          # (selfupdate, bbolt, modernc.org/sqlite), então a primeira execução
-          # gasta rede. O `cache: true` do setup-go acima já resolve isso a
-          # partir da segunda, mas o passo deixa a falha de DOWNLOAD
-          # distinguível da falha de COMPILAÇÃO no log — sem ele, as duas saem
-          # como "cannot find package" no mesmo `go build`.
-          go mod download
-          go build ./...
-          go vet ./...
-          # `gofmt -l` é um lister: sai 0 mesmo fora de formato, então o
-          # `test -z` é o gate. Sem `-w`: formatar no CI esconde o defeito em
-          # vez de reprovar o PR, e ninguém vê o diff que o gofmt faria.
-          test -z "$(gofmt -l .)" || { gofmt -l .; echo "::error::rode gofmt -w printer/daemon"; exit 1; }
-          # ============================================================
-          # CROSS-COMPILE PARA WINDOWS — a plataforma que o daemon REALMENTE
-          # entrega (o instalador da linha `app-v*` embarca ele como serviço).
-          #
-          # Sem estes dois comandos, `service_windows.go` e `transport_windows.go`
-          # NÃO ERAM COMPILADOS POR NENHUM GATE DESTE JOB. Medido com
-          # `go list`: sob linux entram `service_other.go` + `transport_cups.go`;
-          # sob windows entram `service_windows.go` + `transport_windows.go`. São
-          # arquivos disjuntos — o build linux não os vê, e `go vet` sem GOOS não
-          # os vê. Um erro de digitação no `svc.Handle` ou no
-          # `windows.UTF16PtrFromString` só apareceria no `go build` da imagem de
-          # produção, isto é, depois da tag.
-          #
-          # O `vet` do Windows não é enfeite: ele também troca o CONJUNTO de
-          # arquivos de teste analisados (`go list .TestGoFiles`) — `phase2_test.go`
-          # e `transport_cups_test.go` saem da lista em windows, os outros seis
-          # permanecem — então o passo não é o build linux repetido com outra
-          # variável, é uma segunda passagem de type-check sobre um conjunto
-          # diferente de arquivos.
-          #
-          # RISCO DE VERSÃO (medido, não presumido): o CI fixa `1.25.0` e este
-          # gate foi verificado no `1.25.0` exato via `GOTOOLCHAIN=go1.25.0` —
-          # build, vet, gofmt e suíte verdes nos dois GOOS. O risco estrutural
-          # é baixo e está ao alcance da leitura: os dois arquivos windows-only
-          # não importam `syscall` da stdlib, e sim `golang.org/x/sys/windows` e
-          # `.../windows/svc`, que são MÓDULO com versão fixada no go.mod/go.sum
-          # — idênticos em qualquer toolchain. O único `unsafe` é layout de
-          # struct do próprio x/sys, e o algoritmo de layout do compilador Go não
-          # mudou entre 1.25 e 1.27. E a versão de LINGUAGEM do módulo é 1.25
-          # pelo go.mod, então o compilador 1.27 rodando localmente não aceitaria
-          # por acidente um constructo que o 1.25 do CI rejeitaria.
-          #
-          # ARQUIVO SOLTO: `printer/daemon` é um `package main` só, então
-          # `go build` não descarta o executável — ele ESCREVE
-          # `pdv-printer-daemon.exe` no diretório de trabalho. Em runner efêmero
-          # isso é irrelevante (ninguém commita), mas estes mesmos comandos são
-          # rodados localmente, e o artefato tem de sumir do `git status`.
-          # `printer/.gitignore` (linhas 4-5) cobre `daemon/pdv-printer-daemon` e
-          # `daemon/pdv-printer-daemon.exe`; conferido com `git check-ignore -v`.
-          # ============================================================
-          GOOS=windows go build ./...
-          GOOS=windows go vet ./...
-      - name: suíte
-        working-directory: printer/daemon
-        run: go test -count=1 ./...
-
-  # ============================================================
-  # POR QUE SEM `-race` AQUI, AO CONTRÁRIO DO `test-ws-gateway`
-  # ============================================================
-  #
-  # O `-race` do gateway não é decoração: ele existe porque a suíte do gateway
-  # tinha uma corrida real (`send on closed channel` em `internal/connmanager`)
-  # que só aparecia em 11 de 20 execuções — uma classe de defeito que o
-  # `-race` Reprova em 20 de 20 e nomeando a causa. Ligado ali, ele compra
-  # determinismo.
-  #
-  # No daemon não há caso conhecido que peça isso: a suíte sobe `httptest.Server`
-  # em portas efêmeras e tem caminhos de retry/backoff sensíveis a tempo.
-  # `-race` nesse terreno troca um vermelho que aponta a CAUSA por um vermelho
-  # que pode ser o próprio `-race` estourando o orçamento de tempo do teste —
-  # ou seja, um gate que reprova sem dizer o que está errado. Regra que vale
-  # para os dois: `-race` só entra quando foi medido verde em execuções
-  # repetidas, nunca porque "parece mais rigoroso".
-  #
-  # O gate de "nenhum teste pulado" do `test-ws-gateway` NÃO é copiado aqui, e
-  # a diferença é de fundo: os `t.Skip` do gateway existem para esconder testes
-  # que protegem uma regressão concreta (o `WS_DISPATCH` desligado), então
-  # pulá-los é exatamente o modo de falha que aquele passo existe para impedir.
-  # Os três do daemon (medidos nesta máquina) são condicionais de plataforma e
-  # legítimos: dois `TestResolveDir` de caminho Windows e
-  # `TestDiscoverPrintersReturnsNotImplementedOutsideWindows`. Copiar o gate
-  # reprovaria a suíte em todo runner Linux, e o passo viraria um teste sobre
-  # o sistema operacional em vez de sobre o daemon.
-  # ============================================================

@@ -12,10 +12,10 @@ import {
   saveUserPhotoUsecase,
   clearUserPhotoUsecase,
 } from "../../application/user.usecases.js";
-import { tenantMiddleware } from "../../http/middlewares/tenant.middleware.js";
 import { authMiddleware } from "../middlewares/auth.middleware.js";
 import { loginRateLimit } from "../middlewares/rate-limit.middleware.js";
 import { imageExtByMime } from "./misc.routes.js";
+import { ensureTenantScope } from "../../infra/db/tenant-context.js";
 
 const loginSchema = z.object({
   userId: z.string(),
@@ -46,23 +46,28 @@ export async function authRoutes(app: FastifyInstance) {
   // toggles de rollout, escondendo usuários de módulos desligados: "kitchen"
   // quando kitchen_enabled=false e "courier" quando uses_delivery=false —
   // mesmo filtro por configuração que rege o resto do produto.
-  app.get("/auth/users", { preHandler: tenantMiddleware }, async (req) => {
-    const settings = await db.query.storeSettings.findFirst({
-      where: eq(storeSettings.id, "singleton"),
+  app.get("/auth/users", async (req) => {
+    const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+    return ensureTenantScope(host, async () => {
+      const settings = await db.query.storeSettings.findFirst({
+        where: eq(storeSettings.id, "singleton"),
+      });
+      const rows = await db.query.users.findMany({
+        where: eq(users.active, true),
+        orderBy: (u, { asc }) => asc(u.name),
+      });
+      return rows
+        .filter((u) => settings?.kitchenEnabled || u.role !== "kitchen")
+        .filter((u) => settings?.usesDelivery !== false || u.role !== "courier")
+        .map((u) => ({ id: u.id, name: u.name, role: u.role, photoPath: photoUrl(u.photoPath, "user") }));
     });
-    const rows = await db.query.users.findMany({
-      where: eq(users.active, true),
-      orderBy: (u, { asc }) => asc(u.name),
-    });
-    return rows
-      .filter((u) => settings?.kitchenEnabled || u.role !== "kitchen")
-      .filter((u) => settings?.usesDelivery !== false || u.role !== "courier")
-      .map((u) => ({ id: u.id, name: u.name, role: u.role, photoPath: photoUrl(u.photoPath, "user") }));
   });
 
   app.post("/auth/login", { preHandler: loginRateLimit }, async (req, reply) => {
     const body = loginSchema.parse(req.body);
-    const result = await loginUsecase(body.userId, body.pin, body.deviceId);
+    // Passa o host para o loginUsecase resolver o tenant manualmente se o ALS estiver vazio
+    const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+    const result = await loginUsecase(body.userId, body.pin, body.deviceId, host);
     return reply.code(200).send(result);
   });
 

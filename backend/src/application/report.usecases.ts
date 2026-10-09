@@ -7,11 +7,14 @@ import {
   restaurantTables,
   customers,
   products,
+  orderRefunds,
+  orderSettlements,
 } from "../infra/db/schema.js";
 import { round2 } from "../domain/money.js";
-import { getCache } from "../infra/cache/index.js";
+import { tenantCache } from "../infra/cache/index.js";
 
-const cache = getCache();
+// Cache particionado por schema: relatórios são sempre do tenant corrente.
+const cache = tenantCache;
 
 function reportKey(input: { dateFrom?: string; dateTo?: string; customerQuery?: string; productId?: string }): string {
   return `reports:sales:${JSON.stringify(input)}`;
@@ -80,6 +83,10 @@ export async function salesReportUsecase(input: {
   // snapshot unit_price; custo usa o snapshot order_item.cost_price (0 em
   // itens lançados antes da feature de estoque — margem só é confiável
   // quando há custo cadastrado).
+  //
+  // Estornos (Bloco 4 ROADMAP-CAIXA.md): venda estornada vira linha negativa
+  // no relatório, não desaparece. O faturamento líquido = bruto - estornos
+  // settled. O relatório expõe ambos (bruto e líquido) para transparência.
   const totalsByOrder = new Map<string, number>();
   const prodTotals = new Map<string, { qty: number; revenue: number; cost: number }>();
   const orderIds = orderRows.map((o) => o.id);
@@ -105,6 +112,51 @@ export async function salesReportUsecase(input: {
       cur.revenue += it.unitPrice * it.quantity;
       cur.cost += (it.costPrice ?? 0) * it.quantity;
       prodTotals.set(it.productId, cur);
+    }
+  }
+
+  // Estornos settled por pedido (Bloco 4): soma dos refunds com status='settled'
+  const refundsByOrder = new Map<string, number>();
+  if (orderIds.length > 0) {
+    const refundRows = await db
+      .select({
+        orderId: orderRefunds.orderId,
+        amount: orderRefunds.amount,
+      })
+      .from(orderRefunds)
+      .where(
+        and(
+          inArray(orderRefunds.orderId, orderIds),
+          eq(orderRefunds.status, "settled")
+        )
+      );
+
+    for (const r of refundRows) {
+      refundsByOrder.set(r.orderId, (refundsByOrder.get(r.orderId) ?? 0) + r.amount);
+    }
+  }
+
+  // Settlements por pedido (Bloco 5): pedidos iFood com settlement usam payoutAmount
+  // como valor líquido (em vez de grossTotal - refundsTotal). Pedidos sem settlement
+  // mantêm o cálculo padrão (grossTotal - refundsTotal).
+  const settlementsByOrder = new Map<string, { payoutAmount: number; channel: string; status: string }>();
+  if (orderIds.length > 0) {
+    const settlementRows = await db
+      .select({
+        orderId: orderSettlements.orderId,
+        payoutAmount: orderSettlements.payoutAmount,
+        channel: orderSettlements.channel,
+        status: orderSettlements.payoutStatus,
+      })
+      .from(orderSettlements)
+      .where(inArray(orderSettlements.orderId, orderIds));
+
+    for (const s of settlementRows) {
+      settlementsByOrder.set(s.orderId, {
+        payoutAmount: s.payoutAmount,
+        channel: s.channel,
+        status: s.status,
+      });
     }
   }
 
@@ -178,18 +230,42 @@ export async function salesReportUsecase(input: {
   }
   const changeTotalRound = round2(changeTotal);
 
-  const enriched = orderRows.map((o) => ({
-    orderId: o.id,
-    label: o.tableNumber ? `Mesa ${o.tableNumber}` : o.customerName ?? o.tabLabel ?? "—",
-    closedAt: o.closedAt,
-    paymentMethod: methodsByOrder.get(o.id)?.join(" + ") ?? o.paymentMethod ?? "—",
-    total: (totalsByOrder.get(o.id) ?? 0) + (o.deliveryFee ?? 0),
-  }));
+  const enriched = orderRows.map((o) => {
+    const grossTotal = (totalsByOrder.get(o.id) ?? 0) + (o.deliveryFee ?? 0);
+    const refundsTotal = round2(refundsByOrder.get(o.id) ?? 0);
+    const settlement = settlementsByOrder.get(o.id);
+    
+    // Se há settlement, usa payoutAmount como netTotal (valor líquido a receber)
+    // Se não há settlement, usa grossTotal - refundsTotal (cálculo padrão)
+    const netTotal = settlement 
+      ? round2(settlement.payoutAmount)
+      : round2(grossTotal - refundsTotal);
+    
+    return {
+      orderId: o.id,
+      label: o.tableNumber ? `Mesa ${o.tableNumber}` : o.customerName ?? o.tabLabel ?? "—",
+      closedAt: o.closedAt,
+      paymentMethod: methodsByOrder.get(o.id)?.join(" + ") ?? o.paymentMethod ?? "—",
+      grossTotal,
+      refundsTotal,
+      netTotal,
+      // Informações do settlement (Bloco 5)
+      settlement: settlement ? {
+        channel: settlement.channel,
+        payoutAmount: settlement.payoutAmount,
+        payoutStatus: settlement.status,
+      } : null,
+    };
+  });
 
   // summary é agregado sobre TODO o conjunto filtrado, não sobre a página (§7.9)
-  const totalRevenue = round2(enriched.reduce((sum, o) => sum + o.total, 0));
+  // Bloco 4: expõe bruto, estornos e líquido para transparência
+  // Bloco 5: separa grossTotal (soma dos brutos) e netTotal (soma dos líquidos)
+  const totalRevenue = round2(enriched.reduce((sum, o) => sum + o.grossTotal, 0));
+  const totalRefunds = round2(enriched.reduce((sum, o) => sum + o.refundsTotal, 0));
+  const totalNet = round2(enriched.reduce((sum, o) => sum + o.netTotal, 0));
   const orderCount = enriched.length;
-  const avgTicket = orderCount > 0 ? round2(totalRevenue / orderCount) : 0;
+  const avgTicket = orderCount > 0 ? round2(totalNet / orderCount) : 0;
 
   const page = enriched
     .sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? ""))
@@ -199,7 +275,12 @@ export async function salesReportUsecase(input: {
     data: page,
     total: orderCount,
     summary: {
-      totalRevenue,
+      grossRevenue: totalRevenue,
+      totalRefunds,
+      // Bloco 5: totalNet é a soma dos netTotal (que considera settlements iFood)
+      // Mantém netRevenue como alias para compatibilidade
+      netRevenue: totalNet,
+      totalNet,
       orderCount,
       avgTicket,
       byPaymentMethod,

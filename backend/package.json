@@ -17,6 +17,8 @@
     "db:migrate:sqlite": "tsx src/infra/db/migrate-sqlite-to-pg.ts",
     "db:provision": "tsx src/infra/db/provision-tenant.ts",
     "db:deactivate-demo": "tsx src/infra/db/deactivate-demo-catalog.ts",
+    "db:reset-pin": "tsx src/infra/db/reset-manager-pin.ts",
+    "db:list": "tsx src/infra/db/list-tenants.ts",
     "uploads:migrate-layout": "tsx scripts/migrate-uploads-layout.ts",
     "test": "vitest run",
     "test:watch": "vitest"

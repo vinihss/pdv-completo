@@ -20,12 +20,13 @@ import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
 import { emitCustomerStageChangedTx } from "../self-service/customer-stage.js";
 import { notifyReady } from "../../integrations/whatsapp/whatsapp.notifier.js";
 import { printKitchenOrder } from "../../integrations/printer/printer.usecases.js";
-import { findOpenDrawerTx } from "../cash-flow/cash-flow.usecases.js";
+import { findOpenDrawerTxForUpdate } from "../cash-flow/cash-flow.usecases.js";
 import { applyStockMovementTx, stockBalance, computeMovingAverageTx, INVENTORY_ROOM } from "../stock/stock.usecases.js";
 import { createAlertTx, describeOrderAlert, ORDER_ALERT_KIND, ORDER_ALERT_AUDIENCE } from "../alert/alert.usecases.js";
-import { getCache } from "../../infra/cache/index.js";
+import { tenantCache } from "../../infra/cache/index.js";
 
-const cache = getCache();
+// Cache particionado por schema: `reports:sales:*` é do tenant corrente.
+const cache = tenantCache;
 
 // NOTA IMPORTANTE sobre async (leia antes de tocar em qualquer transação):
 // O banco oficial é Postgres, e o driver node-postgres é assíncrono de
@@ -556,8 +557,13 @@ type PaymentLineInput = {
 // conferência da gaveta quebra. Roda na mesma transação da escrita do
 // pagamento (no caso do fechamento do caixa, o pagamento/estorno roda depois
 // da sessão ter sido marcada fechada e é rejeitado).
+//
+// FOR UPDATE: quando o pagamento é dinheiro confirmado, travamos a linha do
+// drawer para evitar que duas transações concorrentes ambas leiam o drawer
+// como aberto e insiram pagamentos que, somados, excedam o saldo disponível.
+// O lock serializa o acesso à linha aberta dentro da transação.
 async function requireOpenDrawerForCash(tx: Tx, method: string, confirmed: boolean) {
-  if (method === "cash" && confirmed && !(await findOpenDrawerTx(tx))) {
+  if (method === "cash" && confirmed && !(await findOpenDrawerTxForUpdate(tx))) {
     throw Errors.paymentRequiresOpenDrawer();
   }
 }
@@ -1028,7 +1034,11 @@ export async function cancelOrderUsecase(input: { orderId: string; userId: strin
       );
     const refund = round2(cashPaid.reduce((acc, p) => acc + p.amount, 0));
     if (refund > 0) {
-      const drawer = await findOpenDrawerTx(tx);
+      // FOR UPDATE: o estorno gera sangria automática que reduz o saldo do
+      // caixa. Sem o lock, dois cancelamentos concorrentes poderiam ambos ler
+      // o drawer como aberto e gerar sangrias que, somadas, excederiam o
+      // saldo disponível. O lock serializa o acesso à linha aberta.
+      const drawer = await findOpenDrawerTxForUpdate(tx);
       if (!drawer) throw Errors.cashRefundRequiresOpenDrawer();
       const [movement] = await tx
         .insert(cashDrawerMovements)

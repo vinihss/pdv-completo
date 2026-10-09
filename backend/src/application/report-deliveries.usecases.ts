@@ -23,11 +23,12 @@ import { db } from "../infra/db/client.js";
 import { deliveries, orders, orderItems, users } from "../infra/db/schema.js";
 import { round2 } from "../domain/money.js";
 import { Errors } from "../domain/errors.js";
-import { getCache } from "../infra/cache/index.js";
+import { tenantCache } from "../infra/cache/index.js";
 import { dayEnd, dayStart, isValidTz } from "./cash-flow/day-bounds.js";
 import { isValidReportDate } from "./report-overview.usecases.js";
 
-const cache = getCache();
+// Cache particionado por schema: relatórios são sempre do tenant corrente.
+const cache = tenantCache;
 
 export async function deliveriesReportUsecase(input: { from?: string; to?: string; tz?: string }) {
   const tz = input.tz;

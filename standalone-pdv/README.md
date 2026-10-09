@@ -49,9 +49,9 @@ permissão `log:*` está no capability.
 ## Build
 
 ```bash
-# O sidecar do daemon de impressão SAIU do build: o printer foi reestruturado
-# e `printer/scripts/build-sidecar.sh` não existe mais. O `externalBin` foi
-# removido do tauri.conf.json, então não há passo de Go/sidecar.
+# O daemon de impressão Go saiu do repositório (está sendo reescrito no
+# branch `printer-refactory`) e o `externalBin` foi removido do
+# tauri.conf.json, então não há passo de Go/sidecar.
 
 # crate — `tauri build` roda o `beforeBuildCommand` do tauri.conf.json
 #    (`cd ../frontend && npm run build:pdv`), então o frontend não precisa ser

@@ -14,6 +14,23 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/).
 - **Card de entrega mostra quem pediu e quando.** A aba Entregas do gerente passou a exibir nome do cliente, endereço e a data em que o pedido caiu (e a de conclusão, quando houver). O clique no card abre a comanda. `GET /manager/deliveries` ganhou `customerName` e `createdAt` — a coluna existia e era usada só no `orderBy`, nunca saía na resposta — e passou a ordenar da mais nova pra mais antiga (a fila do entregador continua da mais antiga pra mais nova, de propósito).
 - **Endereço na tela da comanda.** Comanda de entrega mostra o endereço logo abaixo do cabeçalho, no primeiro toque. O bloco vem embutido em `order.delivery`; lista e detalhe devolvem o mesmo shape, senão o endereço só apareceria depois de alguma recarga.
 
+## [1.44.0] - 2026-10-09
+
+### Adicionado
+
+- **`scripts/build/install-cli.sh` — compila e instala o CLI Go `pdv`.** O script roda `go build` em `cmd/pdv` (exige Go ≥ 1.25, o mínimo declarado no `go.mod`) e instala o binário em `$PREFIX/bin` (default `/usr/local/bin/pdv`); aceita `--uninstall`, um prefixo posicional e `PDV_CLI_GOFLAGS` para flags extras do build. Como o CLI localiza a raiz do repositório pelo diretório atual (ou pela env `PDV_ROOT`), rode-o de dentro de um checkout do projeto ou exporte `PDV_ROOT`.
+
+## [1.43.0] - 2026-10-09
+
+### Corrigido
+
+- **Multi-tenant: cada loja serve a própria marca.** Resolução host → schema com escopo propagado (ALS) no Fastify, pool por schema, caches particionados por schema e leitura do `store_settings` do tenant resolvido na vitrine pública — `/public/tenants/resolve` deixa de responder `503` para tenants provisionados e nunca expõe `schema_name` na resposta (PRs #155–#160).
+- **Login resolvia o tenant manualmente quando o ALS não propagava contexto** (PR #155) e **Service Worker desativado + cache busting por query string** para matar o cache de assets multi-tenant (PRs #156–#158).
+
+### Adicionado
+
+- **CLI Go `pdv` com comandos de banco.** `cmd/pdv` ganhou `db reset-pin <slug> [pin]` (reinicia o PIN do gerente de um tenant, com PIN automático de 4 dígitos) e `db list` (lista os tenants do registry) — `./pdv db reset-pin` e `./pdv db list` (PR #161).
+
 ## [1.0.0] - 2026-09-28
 
 ### Visão geral
