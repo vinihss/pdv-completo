@@ -71,8 +71,8 @@ on:
 # ============================================================
 # CONCURRENCY: UM PUSH NOVO CANCELA O RUN VELHO DA MESMA PR
 # ============================================================
-# O gate de PR leva ~2min por execução (medido: `tests / test-printer-daemon`
-# sozinho leva 116s no run 37411275059), e é o que trava o merge. Quem empurra
+# O gate de PR leva ~2min por execução (o job mais pesado do gate sozinho
+# fica perto de 2min), e é o que trava o merge. Quem empurra
 # 5 commits seguidos sem esperar o gate pagava 5 execuções de 7 jobs cada para
 # ler só a última — e ainda ocupava a fila de concorrência do repositório, que é
 # o limite real quando várias PRs estão abertas ao mesmo tempo.

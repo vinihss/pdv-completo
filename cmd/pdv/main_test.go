@@ -129,7 +129,7 @@ func TestTestInvalidSubcommand(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("expected code 1, got %d", code)
 	}
-	if !strings.Contains(stderr, "uso: ./pdv test <backend|frontend|printer|gateway|all>") {
+	if !strings.Contains(stderr, "uso: ./pdv test <backend|frontend|gateway|all>") {
 		t.Fatalf("unexpected stderr: %s", stderr)
 	}
 }

@@ -9,10 +9,10 @@
 #   bash scripts/build/build-app.sh --bundles nsis   # só um tipo de instalador
 #   bash scripts/build/build-app.sh --appimage-docker  # AppImage via container Debian
 #
-# O passo do sidecar do daemon de impressão SAIU deste build: o printer foi
-# reestruturado e `printer/scripts/build-sidecar.sh` não existe mais. O
-# `externalBin` foi removido do tauri.conf.json, então o build não depende
-# do Go nem do printer. Retomar quando o novo printer for embutido.
+# O passo do sidecar do daemon de impressão SAIU deste build: o daemon saiu
+# deste repositório (reescrita à parte) e o `externalBin` foi removido do
+# tauri.conf.json, então o build não depende do daemon nem do Go. Retomar
+# quando o novo daemon for embutido.
 # ============================================================
 set -euo pipefail
 

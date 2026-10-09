@@ -30,11 +30,11 @@ pronto.
 >   canônico dos instaladores da família `standalone-*` (matriz `pdv`/`kds`).
 >   Parágrafos que descrevem "o CI gerando o instalador do v1" são de antes
 >   dessa separação — o v1 agora é só este script manual.
-> - **Sidecar**: `printer/scripts/build-sidecar.sh` não existe mais e o
->   `externalBin` saiu do `tauri.conf.json` do v1 (ver
->   `docs/agent-frontend.md` §Sidecar). §4/§5 descrevem o instalador com o
->   daemon embutido — que é o que volta quando o novo printer for embutido de
->   novo; o `installer-hooks.nsh` continua no lugar, esperando o binário.
+> - **Sidecar**: o daemon de impressão Go saiu do repositório (está sendo
+>   reescrito no branch `printer-refactory`). O `externalBin` saiu do
+>   `tauri.conf.json` do v1. §4/§5 descrevem o instalador com o daemon
+>   embutido — que volta quando o novo daemon for embutido; o
+>   `installer-hooks.nsh` continua no lugar, esperando o binário.
 >
 > Caminhos como `src-tauri/...`, `entities/...`, `src/lib.rs` usados neste doc
 > são relativos a `frontend/` e `frontend/src/`.
@@ -161,8 +161,9 @@ dá para avisar "sem internet" já no primeiro segundo, sem esperar timeout.
 
 ## 4. O daemon de impressão
 
-O daemon (Go, `printer/daemon/`) vai embutido no instalador como **sidecar** e
-é registrado como serviço do Windows.
+O daemon de impressão (historicamente em Go, agora sendo reescrito no branch
+`printer-refactory`) vai embutido no instalador como **sidecar** e é registrado
+como serviço do Windows.
 
 ### O que o instalador faz com ele
 
@@ -210,8 +211,6 @@ Os três layouts (cozinha, motoboy, fiscal) são **embutidos no binário**. Um
 template em `%ProgramData%\PDV Printer\templates\` sobrescreve o embutido de
 mesmo id, então layout de cliente continua possível sem recompilar.
 
-Detalhe completo do daemon em `printer/README.md`.
-
 ## 5. Estado atual
 
 | Parte | Situação |
@@ -228,12 +227,12 @@ Detalhe completo do daemon em `printer/README.md`.
 
 A lista do que falta de verdade, com evidência de cada item, está em **§9**.
 
-O que está pronto foi testado por suíte automatizada (`frontend` com vitest,
-`printer/daemon` com `go test`) e o caminho de assinatura foi validado gerando
-artefato assinado num build local. O que depende de Windows — o instalador
-NSIS, o serviço, a troca de arquivos no update — ainda não foi rodado numa
-máquina real e não deve ser considerado validado até que alguém abra o `.exe`
-num Windows 10/11 limpo.
+O que está pronto foi testado por suíte automatizada (`frontend` com vitest e o
+renderizador ESC/POS em Rust com `cargo test -p pdv-caixa`) e o caminho de
+assinatura foi validado gerando artefato assinado num build local. O que depende
+de Windows — o instalador NSIS, o serviço, a troca de arquivos no update — ainda
+não foi rodado numa máquina real e não deve ser considerado validado até que
+alguém abra o `.exe` num Windows 10/11 limpo.
 
 ## 6. Update automático (ligado)
 
@@ -379,7 +378,6 @@ O que já dá para testar em Linux/macOS:
 ```bash
 cd frontend
 npx vitest run src/app/boot src/shared/lib    # boot e config
-cd ../printer/daemon && go test ./...         # daemon
 ```
 
 O build do v1 é manual e sai de qualquer diretório (o script se localiza pelo

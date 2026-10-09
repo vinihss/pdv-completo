@@ -229,10 +229,10 @@ O mesmo `App.jsx` roda como PWA no navegador e como app Windows. A distinção e
 
 ### Sidecar (SAIU do build)
 
-- **Removido junto com a reestruturação do printer**: `printer/scripts/build-sidecar.sh` não existe mais e o `externalBin` saiu dos `tauri.conf.json` (app v1 e `standalone-pdv`)
+- **Removido junto com a saída do daemon de impressão**: o script de sidecar não existe mais (o daemon saiu deste repositório, reescrita à parte) e o `externalBin` saiu dos `tauri.conf.json` (app v1 e `standalone-pdv`)
 - Consequência boa: `cargo check` roda sem gerar sidecar nenhum — o `build.rs` do Tauri só aborta se houver `externalBin` apontando para binário inexistente
 - O diretório `binaries/` continua gitignored (binários antigos de 11 MB não vão para o repositório)
-- Retomar o embutimento do daemon quando o novo printer for integrado (re-adicionar `externalBin` + passo de build junto)
+- Retomar o embutimento do daemon quando o novo daemon for integrado (re-adicionar `externalBin` + passo de build junto)
 
 ### Versão JS×Rust
 
@@ -254,6 +254,6 @@ O mesmo `App.jsx` roda como PWA no navegador e como app Windows. A distinção e
 ### Validação
 
 - `cargo fmt --check` **não é gate** aqui (o crate usa indentação de 2 espaços do template do Tauri)
-- O que vale: `cargo check --message-format short` e `go test ./...` em `printer/daemon/`
+- O que vale: `cargo check --message-format short`
 - Windows é o alvo de build do instalador; Linux/macOS servem para `cargo check`/`tauri dev` (CLI da raiz, cwd=`frontend/`)
 - O que depende de Windows (NSIS, serviço, assinatura) **não** foi rodado numa máquina real ainda — não marcar como validado sem abrir o `.exe` num Windows limpo

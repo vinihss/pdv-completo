@@ -16,7 +16,8 @@ backend/    API REST + WebSocket (Node.js + TypeScript + Fastify + Drizzle + Pos
 frontend/   App React (Vite) — login, garçom, cozinha, gerente — instalável como PWA
             (também é o bundle servido pelos apps standalone)
 frontend/src-tauri/  App desktop v1 (Tauri) — desacoplado do web app, em manutenção
-printer/    Daemon Go para impressão térmica (ESC/POS)
+standalone-pdv/  App Caixa (Tauri): renderizador ESC/POS em Rust (src/printing/)
+            — o daemon Go de impressão saiu deste repositório
 deploy/     Deploy em nuvem: Dockerfiles, Caddy (HTTPS automático), docker-compose
 docs/       Specs originais (backend, frontend, critérios de aceite)
 ```
@@ -202,17 +203,12 @@ Casos de uso:
 
 ## Impressora (daemon ESC/POS)
 
-O daemon Go em `printer/` recebe pedidos via HTTP e imprime em impressoras
-ESC/POS (Elgin MP-4200). O frontend não precisa conhecer ESC/POS — apenas envia
-dados estruturados para `http://127.0.0.1:8080/api/print`.
-
-### Instalação rápida (desenvolvimento)
-
-```bash
-cd printer/daemon
-cp config.example.json config.json
-go run .
-```
+O backend envia pedidos via HTTP para o daemon de impressão, que imprime em
+impressoras ESC/POS (Elgin MP-4200). O frontend não precisa conhecer ESC/POS —
+apenas envia dados estruturados para `http://127.0.0.1:8080/api/print`. O
+**daemon (Go) saiu deste repositório** e está sendo reescrito à parte; aqui
+ficam o contrato de integração e o renderizador ESC/POS em Rust do app Caixa
+(`standalone-pdv/src/printing/`).
 
 ### Configuração
 
@@ -278,27 +274,8 @@ nomes e os mesmos valores:
 }
 ```
 
-Os dois renderizadores são presos ao golden byte a byte
-(`standalone-pdv/tests/golden.rs`), então divergir entre eles quebra o CI.
-
-### Instalação como serviço
-
-**Linux:**
-
-```bash
-sudo ./printer/scripts/install-linux.sh
-sudo nano /etc/pdv-printer/config.json
-sudo systemctl restart pdv-printer
-```
-
-**Windows** (PowerShell como Administrador):
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\printer\scripts\install-windows.ps1
-notepad "$env:ProgramData\PDV Printer\config.json"
-Restart-Service PDVPrinterDaemon
-```
+O renderizador Rust é preso ao golden byte a byte
+(`standalone-pdv/tests/golden.rs`), então qualquer divergência de bytes quebra o CI.
 
 ### Integração no frontend
 
@@ -317,8 +294,9 @@ await fetch(`${PRINTER_DAEMON}/api/print`, {
 });
 ```
 
-Para detalhes completos (templates, retry, status da impressora, múltiplas
-impressoras), ver **`printer/README.md`**.
+O contrato com o daemon é o mesmo que o backend usa (`PRINTER_DAEMON_URL`,
+rotas em `print.routes.ts`). Como o daemon foi para fora deste repositório, os
+detalhes de templates/retry/config dele moram na reescrita à parte.
 
 ---
 
@@ -334,8 +312,6 @@ impressoras), ver **`printer/README.md`**.
 | `deploy/backup-fetch.sh` | deploy | Download do backup |
 | `deploy/probe-availability.sh` | deploy | Mede downtime real |
 | `deploy/switch.sh` | deploy | deploy sem downtime (azul/verde) |
-| `printer/scripts/install-linux.sh` | printer | Instala daemon como serviço Linux |
-| `printer/scripts/install-windows.ps1` | printer | Instala daemon como serviço Windows |
 
 ---
 

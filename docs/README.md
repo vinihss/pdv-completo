@@ -13,7 +13,7 @@ Este índice ajuda pessoas e agentes a encontrar a fonte adequada sem carregar t
 | Alterar app mobile | repo separado **`pdv-mobile-apps`** (`~/Downloads/pdv-mobile-apps`) — [`README.md`](../../pdv-mobile-apps/README.md) | [`22-mobile-react-native.md`](../../pdv-mobile-apps/docs/22-mobile-react-native.md) (saiu deste repo junto com `mobile/`) |
 | Escrever/selecionar testes | [`agent-testing.md`](agent-testing.md) | Specs da área afetada |
 | Alterar deploy ou investigar operação | [`agent-deploy.md`](agent-deploy.md) | [`../deploy/README.md`](../deploy/README.md) |
-| Alterar impressão | [`agente-hardware-printing.md`](agente-hardware-printing.md) | [`../printer/README.md`](../printer/README.md) |
+| Alterar impressão | [`agente-hardware-printing.md`](agente-hardware-printing.md) | Renderizador Rust em [`standalone-pdv/src/printing/`](../standalone-pdv/src/printing/) (o daemon Go saiu deste repo) |
 | Manter banco de dados | [`agent-db-maintenance.md`](agent-db-maintenance.md) | Leia os limites de segurança antes de qualquer acesso |
 | Entender termos do domínio | [`agent-glossary.md`](agent-glossary.md) | — |
 

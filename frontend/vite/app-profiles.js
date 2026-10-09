@@ -30,7 +30,7 @@ export const ALL = "all";
  * `all` repete o que já estava em `public/manifest.json` — o app de produção
  * não pode trocar de nome no menu instalado.
  *
- * `cachePrefix` é a família de caches do app: o `activate` do `public/sw.js`
+ * `cachePrefix` é a família de caches do app: o `activate` do `public/sw-v2.js`
  * apaga todo cache que começa com esse prefixo e não seja o atual. Por isso
  * o prefixo é exclusivo de cada app (`pdv-static-kds-v` nunca casa com o
  * `pdv-static-v1` do app único) — se fosse compartilhado, instalar os 4 no
@@ -104,7 +104,7 @@ function readEntryProfile(html) {
 }
 
 /**
- * `public/sw.js` tem que continuar com essas duas consts — são o ponto de
+ * `public/sw-v2.js` tem que continuar com essas duas consts — são o ponto de
  * troca do build. Se alguém renomear, o build para em vez de silenciosamente
  * voltar a compartilhar um cache só entre os 4 apps. Os dois padrões aceitam
  * string ou template literal, porque no `public/` o `STATIC_CACHE` é escrito
@@ -117,7 +117,7 @@ function patchStaticCache(source, profile) {
   const meta = APP_PROFILES[profile];
   if (!SW_CACHE_PREFIX_RE.test(source) || !SW_STATIC_CACHE_RE.test(source)) {
     throw new Error(
-      "[pdv:app-profile] public/sw.js precisa declarar `CACHE_PREFIX` e " +
+      "[pdv:app-profile] public/sw-v2.js precisa declarar `CACHE_PREFIX` e " +
         "`STATIC_CACHE` como const string — o build troca as duas pelo " +
         "profile. Sem isso os 4 apps dividem o mesmo CacheStorage e um " +
         "sobrescreve (ou apaga) o cache do outro.",

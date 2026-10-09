@@ -1,3 +1,5 @@
+import { isDesktop } from "./platform.js";
+
 // Base do servidor — onde a API e os assets ficam.
 //
 // No navegador (PWA) a API está na mesma origem: a base é `""` e as URLs
@@ -14,12 +16,6 @@ const STORAGE_KEY = "pdv:server";
 // Padrão do build desktop (ver `scripts/build/build-app.sh`, fora dos npm scripts).
 // Vazio no build web, para não amarrar a URL de ninguém no bundle do navegador.
 const BUILD_DEFAULT = (import.meta.env?.VITE_DEFAULT_SERVER ?? "").trim().replace(/\/+$/, "");
-
-function isDesktop() {
-  return typeof window !== "undefined" && 
-         (window.location.protocol === "tauri:" || 
-          window.location.protocol === "ipc:");
-}
 
 function readStored() {
   try {
