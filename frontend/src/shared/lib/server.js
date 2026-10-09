@@ -20,16 +20,6 @@ const BUILD_DEFAULT = (import.meta.env?.VITE_DEFAULT_SERVER ?? "").trim().replac
 function readStored() {
   try {
     const stored = (localStorage.getItem(STORAGE_KEY) ?? "").trim().replace(/\/+$/, "");
-    // No modo web, ignora configurações antigas que não correspondem ao domínio atual
-    // para evitar que tenants diferentes interfiram entre si
-    if (!isDesktop() && stored) {
-      const currentOrigin = window.location.origin;
-      const storedOrigin = new URL(stored).origin;
-      if (storedOrigin !== currentOrigin) {
-        // Configuração antiga não corresponde ao domínio atual, ignora
-        return "";
-      }
-    }
     return stored;
   } catch {
     return "";
@@ -37,10 +27,6 @@ function readStored() {
 }
 
 export function getServerBase() {
-  // No modo web, sempre usar URLs relativas ao domínio atual
-  if (!isDesktop()) {
-    return "";
-  }
   return readStored() || BUILD_DEFAULT;
 }
 
