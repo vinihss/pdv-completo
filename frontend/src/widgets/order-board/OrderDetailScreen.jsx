@@ -11,6 +11,7 @@ import { StatusBadge } from "@/entities/order";
 import {
   orderLabel,
   orderTotal,
+  orderItemCounts,
   pendingItems,
   variationsText,
 } from "@/entities/order";
@@ -21,6 +22,7 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
   const { storeSettings } = useAuth();
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [closeAfterPayment, setCloseAfterPayment] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [busyItemId, setBusyItemId] = useState(null);
   const [closing, setClosing] = useState(false);
@@ -47,6 +49,8 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
   const canClose = pending.length === 0;
   const payments = order.payments ?? [];
   const hasPayments = payments.length > 0;
+  const hasUnconfirmedPayment = payments.some((p) => !p.confirmed);
+  const counts = orderItemCounts(order);
 
   async function handleItemTap(item) {
     if (item.status === "delivered" || item.status === "cancelled") return;
@@ -78,13 +82,11 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
     }
   }
 
-  async function handleClose() {
+  // Fechamento efetivo (uma etapa). Extraído para ser reaproveitado tanto pelo
+  // caminho direto ("Fechar conta") quanto pelo fluxo "registrar/confirmar
+  // pagamento e fechar" depois do `PaymentModal`.
+  async function doClose() {
     setCloseError(null);
-    if (!canClose) return;
-    if (!hasPayments) {
-      setPaymentOpen(true);
-      return;
-    }
     setClosing(true);
     try {
       await closeOrder(order.id);
@@ -94,6 +96,7 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
       if (e.code === "pending_items") {
         setCloseError("Ainda há itens pendentes: " + e.details.pendingItems.map((i) => i.name).join(", "));
       } else if (e.code === "payment_not_registered" || e.code === "payment_not_confirmed" || e.code === "invalid_payment_total") {
+        setCloseAfterPayment(true);
         setPaymentOpen(true);
       } else {
         showToast(e.message, "error");
@@ -101,6 +104,20 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
     } finally {
       setClosing(false);
     }
+  }
+
+  // "Registrar pagamento e fechar" é uma promessa de conclusão em uma etapa:
+  // sem pagamento (ou com Pix aguardando confirmação) abre o modal já marcando
+  // que, ao confirmar, deve fechar. Pix não confirmado nunca fecha sozinho.
+  async function handleClose() {
+    if (closing || !canClose) return;
+    setCloseError(null);
+    if (!hasPayments || hasUnconfirmedPayment) {
+      setCloseAfterPayment(true);
+      setPaymentOpen(true);
+      return;
+    }
+    await doClose();
   }
 
   return (
@@ -145,6 +162,37 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
         </div>
       )}
 
+      {/* Resumo do trabalho a fazer, no topo da lista: o que já saiu da cozinha
+          (ação imediata) e o que ainda está em preparo. Rótulo textual, não só
+          cor, para não depender de leitura visual do contorno. */}
+      {kitchenEnabled && (counts.ready > 0 || counts.ordered > 0) && (
+        <div className="px-5 pt-4">
+          <div className="flex items-center gap-2 flex-wrap">
+            {counts.ready > 0 && (
+              <span className="inline-flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold rounded-lg px-2.5 py-1.5">
+                <Check size={13} />
+                {counts.ready} {counts.ready === 1 ? "pronto para entregar" : "prontos para entregar"}
+              </span>
+            )}
+            {counts.ordered > 0 && (
+              <span className="inline-flex items-center gap-1.5 bg-stone-900 border border-stone-800 text-stone-400 text-xs rounded-lg px-2.5 py-1.5">
+                <Clock size={13} />
+                {counts.ordered} em preparo
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!kitchenEnabled && counts.ordered > 0 && (
+        <div className="px-5 pt-4">
+          <div className="text-stone-500 text-xs bg-stone-900 border border-stone-800 rounded-xl px-3 py-2.5">
+            <span className="text-stone-300 font-semibold">{counts.ordered} aguardando entrega.</span>{" "}
+            Sem cozinha cadastrada — use o botão do item para marcar como entregue.
+          </div>
+        </div>
+      )}
+
       <div className="px-5 pt-4 divide-y divide-stone-900">
         {order.items.length === 0 && (
           <div className="text-stone-600 text-center py-16">Nenhum item lançado ainda.</div>
@@ -153,12 +201,12 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
           const isDeliverable = kitchenEnabled ? it.status === "ready" : it.status === "ordered";
           const canDelete = kitchenEnabled ? it.status !== "delivered" : true;
           const variations = variationsText(it.selectedVariations);
+          const isBusy = busyItemId === it.id;
           return (
             <div
               key={it.id}
-              onClick={() => handleItemTap(it)}
               className={`py-3.5 flex items-center gap-3 ${
-                isDeliverable ? "cursor-pointer ring-1 ring-emerald-500/40 -mx-3 px-3 rounded-xl" : ""
+                isDeliverable ? "ring-1 ring-emerald-500/40 -mx-3 px-3 rounded-xl" : ""
               } ${kitchenEnabled && it.status === "delivered" ? "opacity-50" : ""}`}
             >
               <div className="flex-1 min-w-0">
@@ -171,37 +219,48 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
               <div className="text-stone-400 text-sm shrink-0">{formatBRL(it.unitPrice * it.quantity)}</div>
               <div className="flex items-center gap-2 shrink-0">
                 {kitchenEnabled && <StatusBadge status={it.status} />}
+                {isDeliverable && (
+                  <button
+                    onClick={() => handleItemTap(it)}
+                    disabled={isBusy}
+                    className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-stone-950 text-xs font-semibold px-3 py-2 rounded-lg transition-colors"
+                  >
+                    {isBusy ? (
+                      <Clock size={14} className="animate-pulse" />
+                    ) : (
+                      <Check size={14} strokeWidth={2.5} />
+                    )}
+                    Marcar como entregue
+                  </button>
+                )}
                 {canDelete && (
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setConfirmDelete(it);
-                    }}
+                    onClick={() => setConfirmDelete(it)}
                     aria-label={`Remover ${it.name} da comanda`}
                     className="text-stone-600 hover:text-red-400 p-1"
                   >
                     <Trash2 size={15} />
                   </button>
                 )}
-                {busyItemId === it.id && <Clock size={14} className="text-stone-500 animate-pulse" />}
               </div>
             </div>
           );
         })}
       </div>
 
-      {!kitchenEnabled && order.items.some((i) => i.status === "ordered") && (
-        <div className="px-5 pt-4">
-          <div className="text-stone-500 text-xs bg-stone-900 border border-stone-800 rounded-xl px-3 py-2.5">
-            Sem cozinha cadastrada — toque no item para marcar como entregue.
-          </div>
-        </div>
-      )}
-
       {closeError && (
         <div className="px-5 pt-4">
           <div className="flex items-start gap-2 text-amber-400 text-xs bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2.5">
             <AlertTriangle size={14} className="shrink-0 mt-0.5" /> {closeError}
+          </div>
+        </div>
+      )}
+
+      {!canClose && (
+        <div className="px-5 pt-4">
+          <div className="text-amber-400 text-xs bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2.5">
+            Fechamento bloqueado — {pending.length} {pending.length === 1 ? "item aguardando entrega" : "itens aguardando entrega"}:{" "}
+            {pending.map((i) => `${i.quantity}× ${i.name}`).join(", ")}.
           </div>
         </div>
       )}
@@ -213,7 +272,15 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
             <div className="flex-1">
               <div className="font-semibold">Pagamento registrado</div>
             </div>
-            <button onClick={() => setPaymentOpen(true)} className="underline underline-offset-2">Ajustar</button>
+            <button
+              onClick={() => {
+                setCloseAfterPayment(false);
+                setPaymentOpen(true);
+              }}
+              className="underline underline-offset-2"
+            >
+              Ajustar
+            </button>
           </div>
           {payments.map((p) => {
             const label = { cash: "Dinheiro", card: "Cartão", pix: "Pix", other: "Outro" }[p.method] ?? p.method;
@@ -250,7 +317,13 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
             disabled={closing}
             className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl transition-colors"
           >
-            {closing ? "Fechando…" : hasPayments ? "Fechar conta" : "Registrar pagamento e fechar"}
+            {closing
+              ? "Fechando…"
+              : !hasPayments
+                ? "Registrar pagamento e fechar"
+                : hasUnconfirmedPayment
+                  ? "Confirmar pagamento e fechar"
+                  : "Fechar conta"}
           </button>
         )}
       </div>
@@ -259,10 +332,10 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
         <AddItemScreen
           order={order}
           onClose={() => setAddItemOpen(false)}
-          onConfirmed={async () => {
+          onConfirmed={async (count) => {
             setAddItemOpen(false);
             if (onItemsConfirmed) {
-              await onItemsConfirmed();
+              await onItemsConfirmed(count);
             } else {
               await onReload();
             }
@@ -276,10 +349,17 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
           order={order}
           storeSettings={storeSettings}
           enabledMethods={storeSettings?.enabledPaymentMethods ?? ["cash", "card", "pix", "other"]}
-          onClose={() => setPaymentOpen(false)}
+          onClose={() => {
+            setPaymentOpen(false);
+            setCloseAfterPayment(false);
+          }}
           onConfirmed={async () => {
             setPaymentOpen(false);
             await onReload();
+            if (closeAfterPayment) {
+              setCloseAfterPayment(false);
+              await doClose();
+            }
           }}
           showToast={showToast}
         />
