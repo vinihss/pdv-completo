@@ -1,4 +1,5 @@
-# Gerado por switch.sh — qual instância está no ar. Lido pelo container do
-# Caddy (caddy-assemble.sh). Não editar à mão.
-PDV_BACKEND_UPSTREAM=backend:3000
-PDV_FRONTEND_UPSTREAM=frontend:80
+# Gerado por switch.sh — qual instância está no ar. Lido pelo
+# caddy-assemble.sh: no host pelo unit pdv-caddy, no stack local pelo
+# container do Caddy. Não editar à mão.
+PDV_BACKEND_UPSTREAM=backend-next:3000
+PDV_FRONTEND_UPSTREAM=frontend-next:80

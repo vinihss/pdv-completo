@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { verifyTokenRaw, type AuthUser } from "../middlewares/auth.middleware.js";
 import { assertUserActive } from "../../infra/auth/active-user-check.js";
-import { wsGateway } from "../../infra/realtime/ws-gateway.js";
+
 import { alertsUserRoomFor } from "../../application/alert/alert.usecases.js";
 
 // 2.3 — autorização dos rooms dinâmicos (mensagem `join`). Os rooms iniciais
@@ -109,14 +109,15 @@ export async function realtimeRoutes(app: FastifyInstance) {
     // o `AlertsProvider` reage a qualquer `alert.created` que chegue nele.
     initialRooms.push("alerts", `alerts:${authUser.role}`, alertsUserRoomFor(authUser.sub));
 
-    const conn = wsGateway.addConnection(socket as any, initialRooms);
+    // wsGateway substituido pelo Go gateway (ver deploy/state/active-upstream: WS_BACKEND=go)
+// const conn = wsGateway.addConnection(socket as any, initialRooms);
 
     socket.on("message", (raw: Buffer) => {
       try {
         const msg = JSON.parse(raw.toString());
         if (msg.type === "join" && typeof msg.room === "string") {
           if (canJoinRoom(authUser!, msg.room)) {
-            wsGateway.joinRoom(conn, msg.room);
+            // wsGateway.joinRoom(conn, msg.room);
           } else {
             socket.send(JSON.stringify({ type: "join.denied", room: msg.room }));
           }
@@ -142,13 +143,14 @@ export async function realtimeRoutes(app: FastifyInstance) {
   // é alcançável por cliente anônimo.
   app.get("/realtime/public", { websocket: true }, (socket) => {
     const ORDER_ROOM_RE = /^order:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const conn = wsGateway.addConnection(socket as any, []);
+    // wsGateway substituido pelo Go gateway (ver deploy/state/active-upstream: WS_BACKEND=go)
+// const conn = wsGateway.addConnection(socket as any, []);
 
     socket.on("message", (raw: Buffer) => {
       try {
         const msg = JSON.parse(raw.toString());
         if (msg.type === "join" && typeof msg.room === "string" && ORDER_ROOM_RE.test(msg.room)) {
-          wsGateway.joinRoom(conn, msg.room);
+          // wsGateway.joinRoom(conn, msg.room);
           return;
         }
         if (msg.type === "join") {
