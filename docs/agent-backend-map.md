@@ -93,7 +93,9 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | WebSocket | `backend/src/infra/realtime/ws-gateway.ts` |
 | Maintenance | `backend/src/infra/maintenance.ts` |
 | Advisory locks (dono único dos workers) | `backend/src/infra/locks.ts` |
-| Cache | `backend/src/infra/cache/` |
+| Cache | `backend/src/infra/cache/` (`redis-cache-client.ts`, `warmup.ts`, `index.ts` com `initCache`) |
+
+> **Cache layer atual:** `MemoryCache` singleton (fallback) → `RedisCacheClient` (via `ioredis`) quando `REDIS_URL` disponível. `initCache()` no `server.ts` testa conexão no boot; `warmup.ts` pré-popula por schema de tenant (`public.tenant` via registry). `tenantCache` particiona chaves por `${schema}:`. Veja `docs/01-backend-spec.md` §4.4 e `deploy/docker-compose.yml` (serviço `redis`).
 
 ## Integrações
 

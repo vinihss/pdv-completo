@@ -20,6 +20,14 @@ src/
 - Imports sempre com extensão `.js` (ex.: `from "../infra/db/client.js"`)
 - O backend é ESM puro ( `"type": "module"` no package.json)
 
+## Cache layer (Redis / MemoryCache)
+
+- `backend/src/infra/cache/`: `MemoryCache` (singleton de processo) + `RedisCacheClient` (`ioredis`) + `warmup.ts`.
+- `initCache()` no `server.ts` (boot): testa `REDIS_URL`; se falhar, cai para `MemoryCache` (não quebra o boot).
+- `tenantCache` particiona chaves por schema (`${resolveTenantSchemaInScope()}:${key}`) — evita vazamento entre lojas.
+- `warmup.ts` pré-popula `store-settings`, categorias, produtos populares por tenant via `public.tenant` (registry). Se registry vazio/falha, usa `runWarmupLegacy()`.
+- `app.decorate("cache", ...)` expõe o cliente para rotas/hook; `getCache()` é sync ou async conforme cliente ativo.
+
 ## PostgreSQL
 
 - **Único banco suportado** (SQLite removido)

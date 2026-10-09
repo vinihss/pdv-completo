@@ -361,6 +361,15 @@ Postgres (compose local, RDS, Neon) é só `DATABASE_URL`, sem tocar em use case
 > **Atualização 2026**: com o SQLite removido, `infra/db/client.ts` fala só com
 > o Postgres — não há mais troca de driver, só de endpoint.
 
+### 5.1 Cache Layer (`infra/cache`)
+
+- `MemoryCache` (singleton de processo) e `RedisCacheClient` (`ioredis`).
+- `REDIS_URL` (ex.: `redis://redis:6379`) ativa Redis; ausente/falha → `MemoryCache` (boot não quebra).
+- `initCache()` chamado em `server.ts` antes das rotas; `getCache()` exposto via `app.decorate("cache")`.
+- `tenantCache` isola chaves por `schemaName`: `${resolveTenantSchemaInScope()}:${key}`.
+- `warmup.ts` pré-popula caches operacionais (`store-settings`, categorias, produtos) por schema via `public.tenant` (registry); falha cai para `runWarmupLegacy()`.
+- Configuração no deploy: serviço `redis` no `docker-compose.yml` (`redis:7-alpine`) + `REDIS_URL` no `.env.example`.
+
 ## 6. Container de Injeção de Dependência
 
 Composition root manual (sem lib de DI pesada — desnecessária nesta escala):

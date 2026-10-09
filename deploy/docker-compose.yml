@@ -50,13 +50,13 @@ services:
     # ---------- IP fixo na bridge do Docker ----------
     # O proxy de produção roda no HOST (unit `pdv-caddy`) e resolve o nome
     # `backend` pelo bloco que o `caddy-host.sh` grava no `/etc/hosts`
-    # (`172.18.0.241 backend`). Nome de container só dá para prever com IP
+    # (`172.19.0.241 backend`). Nome de container só dá para prever com IP
     # fixo — e a faixa começa em `.241` porque a alocação sequencial do
     # Docker começa em `.2` e sobe: escolher `.2`-`.10` colidiria com o
     # próximo container que a rede criar.
     networks:
       default:
-        ipv4_address: 172.18.0.241
+        ipv4_address: 172.19.0.241
     environment:
       - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-local}
       - DATABASE_URL=${DATABASE_URL:-postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}}
@@ -78,6 +78,7 @@ services:
       # só o que está neste bloco via `extends` — sem a chave o canary
       # subiria em `public` enquanto o azul ficaria no schema novo.
       - DEFAULT_TENANT_SCHEMA=${DEFAULT_TENANT_SCHEMA:-}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       # Kill-switch do roteamento por Host (tenantRoutingEnabled em
       # resolve-tenant.usecase.ts): sem esta linha no BLOCO, o `.env` até tem
       # `TENANT_ROUTING=true` mas o processo não vê — e todo host cai no
@@ -116,6 +117,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     # Não expõe porta pro host — só o Caddy fala com ele, via rede interna do compose
 
   # Instância "próxima" do switch. Só sobe com `--profile canary`, que é
@@ -127,11 +130,11 @@ services:
     profiles: ["canary"]
     # Override OBRIGATÓRIO do `ipv4_address` herdado do `backend`: o
     # `extends` copia o `networks` do serviço base, e sem esta linha os dois
-    # serviços nasceriam com o MESMO 172.18.0.241 — o Docker recusa o
+    # serviços nasceriam com o MESMO 172.19.0.241 — o Docker recusa o
     # segundo container ("Pool overlaps"). Mesma razão, faixa contígua.
     networks:
       default:
-        ipv4_address: 172.18.0.242
+        ipv4_address: 172.19.0.242
     depends_on:
       postgres:
         condition: service_healthy
@@ -147,7 +150,7 @@ services:
     # IP fixo para o `/etc/hosts` do caddy-host.sh (mesma razão do `backend`).
     networks:
       default:
-        ipv4_address: 172.18.0.243
+        ipv4_address: 172.19.0.243
     # nginx serve conteúdo estático, mas "estático" não quer dizer "pronto no
     # instante": o switch espera este healthcheck antes de apontar o proxy,
     # senão o primeiro F5 pós-deploy pega 502. A imagem nginx:alpine traz
@@ -166,7 +169,7 @@ services:
     # Override obrigatório do `ipv4_address` herdado (ver `backend-next`).
     networks:
       default:
-        ipv4_address: 172.18.0.244
+        ipv4_address: 172.19.0.244
 
   # ---------- Gateway WebSocket em Go (opt-in) ----------
   # Servidor WS do PDV escrito em Go: serve `/realtime`, `/realtime/public`
@@ -209,7 +212,7 @@ services:
     # bridge diretamente.
     networks:
       default:
-        ipv4_address: 172.18.0.246
+        ipv4_address: 172.19.0.246
     environment:
       # Mesmo banco e mesmo `outbox_event` do backend — o gateway não tem
       # schema próprio, é só um leitor da fila que o backend grava.
@@ -331,7 +334,7 @@ services:
     # vale para o probe do host, como no `ws-gateway`.
     networks:
       default:
-        ipv4_address: 172.18.0.247
+        ipv4_address: 172.19.0.247
     environment:
       # Mesmo banco e mesma `payment_event` do backend — este serviço é o
       # segundo leitor da fila que o Node já escreve (e, com o drain ligado, o
@@ -411,6 +414,22 @@ services:
     # significa que um container novo pode receber o tráfego no meio de um ciclo
     # de drain sem perder nada (a fila está no Postgres).
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      default:
+        ipv4_address: 172.19.0.248
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - redis_data:/data
+
   # Banco oficial. Sem profile: sobe sempre, e o backend espera o healthcheck.
   # (Postgres externo? ajuste DATABASE_URL no .env e use --no-deps, senão o
   # depends_on do backend sobe este Postgres mesmo sem uso.)
@@ -469,14 +488,14 @@ services:
     # e o `switch.sh` (que faz `compose build` no passo 1/5, com
     # `set -euo pipefail`) abortava antes de tocar qualquer container. A chave
     # top-level `networks:` lá embaixo resolveu isso E ancorou a rede já
-    # existente `deploy_default` (subnet 172.18.0.0/16).
+    # existente `deploy_default` (subnet 172.19.0.0/16).
     #
     # IP fixo para o `/etc/hosts` do caddy-host.sh: a Caddyfile faz
     # `reverse_proxy pedidopublic:80` em dois blocos e quem resolve o nome é o
     # Caddy do host — nome de container só dá para prever com IP fixo.
     networks:
       default:
-        ipv4_address: 172.18.0.245
+        ipv4_address: 172.19.0.245
     expose:
       - "80"
     # Antes havia um `depends_on: caddy` aqui, e a razão era só ORDEM DE BOOT
@@ -547,17 +566,19 @@ volumes:
   # volume, `pdv_caddy_data`), então o stack local continua como antes.
   backend_uploads:
     name: pdv_backend_uploads # fotos de produto — incluir no backup junto com o banco
+  redis_data:
+    name: pdv_redis_data
   postgres_data:
     name: pdv_postgres_data # dados do Postgres — NUNCA apague sem backup
 
 # ---------- Rede e IPs fixos ----------
-# Rede JÁ EXISTENTE no VPS (`deploy_default`, 172.18.0.0/16, criada pelo
+# Rede JÁ EXISTENTE no VPS (`deploy_default`, 172.19.0.0/16, criada pelo
 # primeiro `docker compose up` desta pasta): declará-la com `name:` + o mesmo
 # subnet faz o compose REAPROVEITAR a rede em vez de recriá-la (ele só
 # reclama se a rede existir com um subnet diferente — e aí o erro é bom:
 # significa que os `ipv4_address` abaixo estariam fora da faixa).
 #
-# Em um VPS NOVO o subnet precisa estar livre no host; se 172.18.0.0/16 já
+# Em um VPS NOVO o subnet precisa estar livre no host; se 172.19.0.0/16 já
 # for de outra rede Docker, troque a faixa AQUI e nos `ipv4_address` dos 7
 # serviços (e no bloco do `/etc/hosts` que o `caddy-host.sh` grava).
 #
@@ -580,4 +601,4 @@ networks:
     name: deploy_default
     ipam:
       config:
-        - subnet: 172.18.0.0/16
+        - subnet: 172.19.0.0/16
