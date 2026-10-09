@@ -4,11 +4,13 @@ import { storeSettings } from "../infra/db/schema.js";
 import { Errors } from "../domain/errors.js";
 import { canonicalizePixKey } from "../domain/pix-key.js";
 import { logAction } from "../infra/audit-log.js";
-import { getCache } from "../infra/cache/index.js";
+import { tenantCache } from "../infra/cache/index.js";
 import { getStorage, isSafeFilename, storageAssetPath, storageFilename } from "../infra/storage/index.js";
 import { NominatimGeocodingService } from "../integrations/maps/geocoding.service.js";
 
-const cache = getCache();
+// Cache particionado por schema: a chave fixa `store-settings` de uma loja
+// não pode ser servida para outra (o processo atende vários tenants por Host).
+const cache = tenantCache;
 const storage = getStorage();
 
 function invalidateStoreSettingsRelated() {

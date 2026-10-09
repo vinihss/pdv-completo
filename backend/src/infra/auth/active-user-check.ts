@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { users } from "../db/schema.js";
 import { Errors } from "../../domain/errors.js";
+import { resolveTenantSchemaInScope } from "../db/tenant-context.js";
 
 // Revogação de sessão aberta (docs/21 §5.4): o JWT é stateless (12h), então
 // "desativar usuário" não matava sessões vivas. O authMiddleware passa a
@@ -19,9 +20,16 @@ import { Errors } from "../../domain/errors.js";
 const TTL_MS = 30_000;
 const cache = new Map<string, { active: boolean; at: number }>();
 
+// Chave particionada por schema de tenant: o id do usuário só é único dentro
+// da loja (o `system` e ids de seed repetem entre tenants), então a chave crua
+// faria o `active` de uma loja vazar para outra por até 30s.
+function cacheKey(userId: string): string {
+  return `${resolveTenantSchemaInScope()}:${userId}`;
+}
+
 /** Invalida o cache de UM usuário (chamado ao desativar/reativar). */
 export function invalidateActiveUser(userId: string): void {
-  cache.delete(userId);
+  cache.delete(cacheKey(userId));
 }
 
 /** Zera o cache inteiro — usado pela suíte de testes entre casos. */
@@ -36,7 +44,8 @@ export function clearActiveUserCache(): void {
  */
 export async function assertUserActive(userId: string): Promise<void> {
   const now = Date.now();
-  const cached = cache.get(userId);
+  const key = cacheKey(userId);
+  const cached = cache.get(key);
   if (cached && now - cached.at < TTL_MS) {
     if (!cached.active) throw Errors.unauthorized();
     return;
@@ -47,6 +56,6 @@ export async function assertUserActive(userId: string): Promise<void> {
     .where(eq(users.id, userId))
     .limit(1);
   const active = row?.active === true;
-  cache.set(userId, { active, at: now });
+  cache.set(key, { active, at: now });
   if (!active) throw Errors.unauthorized();
 }

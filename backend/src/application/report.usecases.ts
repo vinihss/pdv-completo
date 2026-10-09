@@ -9,9 +9,10 @@ import {
   products,
 } from "../infra/db/schema.js";
 import { round2 } from "../domain/money.js";
-import { getCache } from "../infra/cache/index.js";
+import { tenantCache } from "../infra/cache/index.js";
 
-const cache = getCache();
+// Cache particionado por schema: relatórios são sempre do tenant corrente.
+const cache = tenantCache;
 
 function reportKey(input: { dateFrom?: string; dateTo?: string; customerQuery?: string; productId?: string }): string {
   return `reports:sales:${JSON.stringify(input)}`;
