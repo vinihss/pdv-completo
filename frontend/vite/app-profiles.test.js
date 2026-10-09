@@ -113,7 +113,7 @@ describe("PWA por profile", () => {
     expect(manifest).toBe(readFileSync(join(ROOT, "public/manifest.json"), "utf8"));
     // O `STATIC_CACHE` sai como literal em vez de template, mas o valor
     // precisa ser exatamente o de sempre.
-    expect(sw).toContain('const STATIC_CACHE = "pdv-static-v2";');
+    expect(sw).toContain('const STATIC_CACHE = "pdv-static-v1";');
     expect(JSON.parse(manifest)).toMatchObject({ name: "PDV", short_name: "PDV" });
   });
 

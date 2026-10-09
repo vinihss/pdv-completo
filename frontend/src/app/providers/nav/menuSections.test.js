@@ -11,7 +11,7 @@ describe("menuSectionsFor", () => {
       ifoodIntegrationEnabled: true,
     });
     expect(sections.map((s) => s.label)).toEqual(["Início", "Operação", "Catálogo", "Gestão", "Sistema"]);
-    expect(sections.flatMap((s) => s.items)).toHaveLength(13);
+    expect(sections.flatMap((s) => s.items)).toHaveLength(14);
   });
 
   it("gerente: os toggles de estoque e compras entram no catálogo, o de iFood na operação", () => {
@@ -19,7 +19,7 @@ describe("menuSectionsFor", () => {
       "Início/Início",
       "Operação/Comandas", "Operação/Caixa", "Operação/Clientes", "Operação/Entregas",
       "Catálogo/Cadastros",
-      "Gestão/Equipe", "Gestão/Relatórios", "Gestão/Auditoria",
+      "Gestão/Equipe", "Gestão/Relatórios", "Gestão/Auditoria", "Gestão/Settlements",
       "Sistema/Configurações",
     ]);
     const comEstoque = labels(menuSectionsFor("manager", { inventoryEnabled: true }));
@@ -52,7 +52,7 @@ describe("menuSectionsFor", () => {
     })
       .flatMap((s) => s.items)
       .map((i) => i.id);
-    expect(ids).toEqual(["home", "orders", "cash", "customers", "deliveries", "ifood", "catalog", "stock", "compras", "users", "reports", "audit", "settings"]);
+    expect(ids).toEqual(["home", "orders", "cash", "customers", "deliveries", "ifood", "catalog", "stock", "compras", "users", "reports", "audit", "settlement", "settings"]);
   });
 
   it("perfis de tela única: uma seção com um item", () => {
