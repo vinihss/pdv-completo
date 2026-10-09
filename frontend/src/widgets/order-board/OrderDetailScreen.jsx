@@ -131,7 +131,7 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
             printerEnabled ? (
               <button
                 onClick={() => setPrintOpen(true)}
-                className="flex items-center gap-1.5 text-stone-400 hover:text-amber-400 transition-colors"
+                className="flex items-center gap-1.5 text-stone-400 hover:text-amber-400 transition-colors focus:ring-2 focus:ring-amber-400 focus:outline-none rounded"
                 aria-label="Imprimir pedido"
               >
                 <Printer size={18} />
@@ -223,7 +223,8 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
                   <button
                     onClick={() => handleItemTap(it)}
                     disabled={isBusy}
-                    className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-stone-950 text-xs font-semibold px-3 py-2 rounded-lg transition-colors"
+                    aria-label={`Marcar ${it.quantity}x ${it.name} como entregue`}
+                    className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-stone-950 text-xs font-semibold px-3 py-2 rounded-lg transition-colors focus:ring-2 focus:ring-emerald-400 focus:outline-none"
                   >
                     {isBusy ? (
                       <Clock size={14} className="animate-pulse" />
@@ -236,8 +237,8 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
                 {canDelete && (
                   <button
                     onClick={() => setConfirmDelete(it)}
-                    aria-label={`Remover ${it.name} da comanda`}
-                    className="text-stone-600 hover:text-red-400 p-1"
+                    aria-label={`Remover ${it.quantity}x ${it.name} da comanda`}
+                    className="text-stone-600 hover:text-red-400 p-1 focus:ring-2 focus:ring-red-400 focus:outline-none rounded"
                   >
                     <Trash2 size={15} />
                   </button>

@@ -68,7 +68,7 @@ describe("OrderDetailScreen", () => {
 
   it("Esc com a confirmação aberta cancela em vez de voltar", async () => {
     const { onBack } = setup();
-    fireEvent.click(screen.getByLabelText(/^Remover Cerveja/));
+    fireEvent.click(screen.getByLabelText(/Remover 2x Cerveja/));
     expect(screen.getByRole("alertdialog")).toBeTruthy();
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
@@ -77,7 +77,7 @@ describe("OrderDetailScreen", () => {
 
   it("remover item pede confirmação (card) e só apaga ao confirmar", async () => {
     const { onReload } = setup();
-    fireEvent.click(screen.getByLabelText(/^Remover Cerveja/));
+    fireEvent.click(screen.getByLabelText(/Remover 2x Cerveja/));
     const dialog = screen.getByRole("alertdialog", { name: "Remover item?" });
     expect(dialog.className).not.toContain("h-full");
     expect(deleteItem).not.toHaveBeenCalled();
@@ -88,7 +88,7 @@ describe("OrderDetailScreen", () => {
 
   it("cancelar a confirmação não apaga o item", async () => {
     setup();
-    fireEvent.click(screen.getByLabelText(/^Remover Cerveja/));
+    fireEvent.click(screen.getByLabelText(/Remover 2x Cerveja/));
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(deleteItem).not.toHaveBeenCalled();
@@ -136,7 +136,7 @@ describe("OrderDetailScreen", () => {
       },
       kitchenEnabled: true,
     });
-    const button = screen.getByRole("button", { name: /Marcar como entregue/i });
+    const button = screen.getByRole("button", { name: /Marcar 2x Cerveja como entregue/i });
     expect(button).toBeTruthy();
     fireEvent.click(button);
     await waitFor(() => expect(updateItemStatus).toHaveBeenCalledWith("o1", "i1", "delivered", 1));
@@ -146,7 +146,7 @@ describe("OrderDetailScreen", () => {
   // P1 — item sem cozinha: ordered é entregável diretamente
   it("sem cozinha, item 'ordered' tem botão de entrega", () => {
     setup(); // kitchenEnabled=false, item.status="ordered"
-    const button = screen.getByRole("button", { name: /Marcar como entregue/i });
+    const button = screen.getByRole("button", { name: /Marcar 2x Cerveja como entregue/i });
     expect(button).toBeTruthy();
   });
 
