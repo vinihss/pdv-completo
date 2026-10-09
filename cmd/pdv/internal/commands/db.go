@@ -12,7 +12,7 @@ import (
 )
 
 var dbCmd = &cobra.Command{
-	Use:                "db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo|provision>",
+	Use:                "db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo|provision|reset-pin|list>",
 	Short:              "wrappers dos scripts npm do backend",
 	DisableFlagParsing: true,
 	Run: func(cmd *cobra.Command, args []string) {
@@ -24,7 +24,7 @@ var dbCmd = &cobra.Command{
 // HandleDb processa as operações de banco de dados.
 func HandleDb(args []string) int {
 	if len(args) == 0 {
-		ui.Die("uso: ./pdv db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo|provision>")
+		ui.Die("uso: ./pdv db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo|provision|reset-pin|list>")
 	}
 	sub := args[0]
 	subArgs := args[1:]
@@ -77,8 +77,31 @@ func HandleDb(args []string) int {
 			env,
 			"npx", "--yes", "tsx", "src/infra/db/provision-tenant.ts",
 		)
+	case "reset-pin":
+		if len(subArgs) == 0 {
+			ui.Die("uso: ./pdv db reset-pin <slug> [pin]")
+		}
+		slug := subArgs[0]
+		pin := ""
+		if len(subArgs) >= 2 {
+			pin = subArgs[1]
+		}
+		env := []string{
+			"SLUG=" + slug,
+			"PIN=" + pin,
+		}
+		return runner.RunCmdWithEnv(
+			filepath.Join(config.RootPath, "backend"),
+			env,
+			"npx", "--yes", "tsx", "src/infra/db/reset-manager-pin.ts",
+		)
+	case "list":
+		if len(subArgs) != 0 {
+			ui.Die("uso: ./pdv db list")
+		}
+		return runner.NpmRun("backend", "db:list")
 	default:
-		ui.Die("uso: ./pdv db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo|provision>")
+		ui.Die("uso: ./pdv db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo|provision|reset-pin|list>")
 	}
 	return 0
 }
