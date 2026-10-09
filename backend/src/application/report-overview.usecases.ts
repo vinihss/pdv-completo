@@ -29,10 +29,11 @@ import { db } from "../infra/db/client.js";
 import { orders, orderItems } from "../infra/db/schema.js";
 import { round2 } from "../domain/money.js";
 import { Errors } from "../domain/errors.js";
-import { getCache } from "../infra/cache/index.js";
+import { tenantCache } from "../infra/cache/index.js";
 import { dayEnd, dayStart, isValidTz, parseTzOffset } from "./cash-flow/day-bounds.js";
 
-const cache = getCache();
+// Cache particionado por schema: relatórios são sempre do tenant corrente.
+const cache = tenantCache;
 
 const MONTH_SHORT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 

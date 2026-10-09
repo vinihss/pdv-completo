@@ -5,11 +5,12 @@ import { Errors } from "../domain/errors.js";
 import { logAction } from "../infra/audit-log.js";
 import { stockBalances, currentStock, applyStockMovementTx } from "./stock/stock.usecases.js";
 import { normalizeVariations, type VariationGroup } from "../domain/variations.js";
-import { getCache } from "../infra/cache/index.js";
+import { tenantCache } from "../infra/cache/index.js";
 import { getStorage, isSafeFilename, storageAssetPath, storageFilename } from "../infra/storage/index.js";
 import { normalizeAccents } from "../domain/text.js";
 
-const cache = getCache();
+// Cache particionado por schema: `products:*` de uma loja não vaza para outra.
+const cache = tenantCache;
 const storage = getStorage();
 
 function productListKey(input: {

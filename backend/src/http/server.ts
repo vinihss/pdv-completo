@@ -42,6 +42,7 @@ import { tenantMiddleware } from "./middlewares/tenant.middleware.js";
 import { enterTenantScope, exitTenantScope } from "../infra/db/tenant-context.js";
 import { resolveTenant } from "../application/tenant/resolve-tenant.usecase.js";
 import { resolveTenantSchema } from "../infra/storage/index.js";
+import { ensureTenantScope } from "../infra/db/tenant-context.js";
 
 // Escapa metacaracteres de regex para montar o matcher do ask do Caddy a
 // partir do domínio raiz (vem de env, ex.: `umamisushiarte.com.br` — os
@@ -56,6 +57,38 @@ export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.logLevel }, trustProxy: true });
 
   const NO_TENANT_RESOLVE = new Set(["/health", "/internal/caddy-on-demand-tls", "/public/tenants/resolve"]);
+  
+  // Solução definitiva para o problema de propagação do ALS no Fastify + Node.js 22.x
+  // Este hook intercepta todas as rotas registradas e envolve os handlers com store.run()
+  // para garantir que o tenant scope seja propagado corretamente.
+  app.addHook("onRoute", (routeOptions) => {
+    const originalHandler = routeOptions.handler as any;
+
+    // Não envolve rotas que não precisam de tenant resolution
+    if (NO_TENANT_RESOLVE.has(routeOptions.url.split("?")[0])) {
+      return;
+    }
+
+    // Handler de websocket (GET + { websocket: true }) recebe (socket, request)
+    // — o Fastify request é o SEGUNDO argumento, e `socket.headers` é undefined.
+    // Sem separar este caso, o wrapper estoura no handshake do `/realtime`.
+    const isWebsocket =
+      (routeOptions as any).websocket === true || typeof (routeOptions as any).wsHandler === "function";
+    if (isWebsocket) {
+      routeOptions.handler = async function (socket: any, req: any) {
+        const host = req?.headers?.["x-tenant-host"] || req?.headers?.host || req?.hostname;
+        return ensureTenantScope(host, () => originalHandler(socket, req));
+      } as any;
+      return;
+    }
+
+    // Substitui o handler original por um wrapper que garante o tenant scope
+    routeOptions.handler = async function (req: any, reply: any) {
+      const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+      return ensureTenantScope(host, () => originalHandler(req, reply));
+    } as any;
+  });
+  
   app.addHook("onRequest", async (req) => {
     if (NO_TENANT_RESOLVE.has(req.url.split("?")[0])) return;
     const rawHost =
@@ -201,24 +234,27 @@ export async function buildApp(): Promise<FastifyInstance> {
   // para ramificar a UI antes de autenticar (ex.: delivery desligado).
   await app.register(async (publicApp) => {
     publicApp.get("/store-info", async (req) => {
-      const s = await getStoreSettingsUsecase();
-      return {
-        merchantName: s.merchantName,
-        merchantCity: s.merchantCity,
-        logoUrl: s.logoUrl,
-        brandColor: s.brandColor,
-        usesDelivery: s.usesDelivery,
-        ifoodIntegrationEnabled: s.ifoodIntegrationEnabled,
-        deliveryFee: s.deliveryFee,
-        // A tabela de frete e os tempos de preparo: o checkout público usa as
-        // mesmas faixas que o balcão para montar o seletor de distância e a
-        // previsão de entrega (domain/delivery-eta.ts). Sem isso aqui, a tela
-        // teria que adivinhar as faixas e a previsão não bateria com a loja.
-        deliveryFeeTiers: s.deliveryFeeTiers,
-        deliveryPrepMinutes: s.deliveryPrepMinutes,
-        minutesPerKm: s.minutesPerKm,
-        enabledPaymentMethods: s.enabledPaymentMethods,
-      };
+      const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+      return ensureTenantScope(host, async () => {
+        const s = await getStoreSettingsUsecase();
+        return {
+          merchantName: s.merchantName,
+          merchantCity: s.merchantCity,
+          logoUrl: s.logoUrl,
+          brandColor: s.brandColor,
+          usesDelivery: s.usesDelivery,
+          ifoodIntegrationEnabled: s.ifoodIntegrationEnabled,
+          deliveryFee: s.deliveryFee,
+          // A tabela de frete e os tempos de preparo: o checkout público usa as
+          // mesmas faixas que o balcão para montar o seletor de distância e a
+          // previsão de entrega (domain/delivery-eta.ts). Sem isso aqui, a tela
+          // teria que adivinhar as faixas e a previsão não bateria com a loja.
+          deliveryFeeTiers: s.deliveryFeeTiers,
+          deliveryPrepMinutes: s.deliveryPrepMinutes,
+          minutesPerKm: s.minutesPerKm,
+          enabledPaymentMethods: s.enabledPaymentMethods,
+        };
+      });
     });
   });
 

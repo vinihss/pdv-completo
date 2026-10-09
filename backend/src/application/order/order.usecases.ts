@@ -23,9 +23,10 @@ import { printKitchenOrder } from "../../integrations/printer/printer.usecases.j
 import { findOpenDrawerTx } from "../cash-flow/cash-flow.usecases.js";
 import { applyStockMovementTx, stockBalance, computeMovingAverageTx, INVENTORY_ROOM } from "../stock/stock.usecases.js";
 import { createAlertTx, describeOrderAlert, ORDER_ALERT_KIND, ORDER_ALERT_AUDIENCE } from "../alert/alert.usecases.js";
-import { getCache } from "../../infra/cache/index.js";
+import { tenantCache } from "../../infra/cache/index.js";
 
-const cache = getCache();
+// Cache particionado por schema: `reports:sales:*` é do tenant corrente.
+const cache = tenantCache;
 
 // NOTA IMPORTANTE sobre async (leia antes de tocar em qualquer transação):
 // O banco oficial é Postgres, e o driver node-postgres é assíncrono de

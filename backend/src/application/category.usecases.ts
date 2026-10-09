@@ -3,9 +3,11 @@ import { db } from "../infra/db/client.js";
 import { categories, products } from "../infra/db/schema.js";
 import { Errors } from "../domain/errors.js";
 import { logAction } from "../infra/audit-log.js";
-import { getCache } from "../infra/cache/index.js";
+import { tenantCache } from "../infra/cache/index.js";
 
-const cache = getCache();
+// Cache particionado por schema: `categories:*`/`products:*`/`public-menu`
+// são dados de uma loja só.
+const cache = tenantCache;
 
 function invalidateCategoryRelated() {
   cache.invalidatePattern("categories:*");

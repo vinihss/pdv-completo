@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { api, closeTestApp, FIXTURE, manager, raw, resetState, seedFixture, testApp } from "./helpers.js";
+import { api, closeTestApp, FIXTURE, manager, raw, resetState, seedFixture, testApp, upload as uploadHelper } from "./helpers.js";
 
 const run = promisify(execFile);
 
@@ -19,9 +19,7 @@ async function app() {
   return testApp();
 }
 
-// inject multipart: o light-my-request só monta o body quando o payload é um
-// FormData (o helper `api` só cobre JSON) — mesmo truque de
-// team-customers.test.ts.
+// Wrapper para o helper upload() que configura o ALS corretamente
 async function upload(
   url: string,
   field = "photo",
@@ -31,8 +29,7 @@ async function upload(
 ) {
   const form = new FormData();
   form.append(field, new Blob([body], { type: mimetype }), filename);
-  const instance = await app();
-  return instance.inject({ method: "POST", url, headers: { authorization: `Bearer ${manager}` }, payload: form });
+  return uploadHelper(url, { token: manager, form });
 }
 
 async function fetchAsset(url: string, headers: Record<string, string> = {}) {

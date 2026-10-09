@@ -6,6 +6,24 @@ import { pollOutboxOnce } from "../src/infra/realtime/outbox-dispatcher.js";
 import { wsGateway } from "../src/infra/realtime/ws-gateway.js";
 import { LOCKS, tryWithAdvisoryLock } from "../src/infra/locks.js";
 
+// Mocka listActiveTenants para retornar um único tenant no schema public,
+// que é o schema padrão dos testes (DEFAULT_TENANT_SCHEMA não está definido).
+vi.mock("../src/infra/tenant/registry.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/infra/tenant/registry.js")>();
+  return {
+    ...actual,
+    listActiveTenants: vi.fn().mockResolvedValue([
+      {
+        slug: "test",
+        schemaName: "public",
+        displayName: "Test Tenant",
+        status: "active",
+        customDomain: null,
+      },
+    ]),
+  };
+});
+
 // Suíte do ciclo de publicação do outbox (1.5). O que importa aqui:
 // 1. o que está pendente é publicado e marcado `published`;
 // 2. o teto de 50 por ciclo;

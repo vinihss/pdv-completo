@@ -1,7 +1,9 @@
 import { eq } from "drizzle-orm";
 import type { Tx } from "../db/client.js";
 import { outboxEvents } from "../db/schema.js";
+import { runInTenantScope } from "../db/tenant-context.js";
 import { LOCKS, tryWithAdvisoryLock } from "../locks.js";
+import { listActiveTenants } from "../tenant/registry.js";
 import { wsGateway } from "./ws-gateway.js";
 
 const POLL_MS = 200;
@@ -45,7 +47,7 @@ export function startOutboxDispatcher() {
  * no próximo ciclo — entrega duplicada é o custo aceitável de um outbox, e o
  * cliente recarrega por REST de qualquer forma.)
  */
-export async function pollOutboxOnce(): Promise<number> {
+export async function pollOutboxForTenant(): Promise<number> {
   const attempt = await tryWithAdvisoryLock(LOCKS.outboxDispatcher, async (tx) => {
     // `orderBy` explícito, e não acidental: o índice parcial
     // `idx_outbox_event_unpublished` é em (created_at, seq), e é essa ordem
@@ -77,6 +79,27 @@ export async function pollOutboxOnce(): Promise<number> {
   });
 
   return attempt.acquired ? attempt.value : 0;
+}
+
+/**
+ * Itera sobre todos os tenants ativos e roda o poll do outbox dentro do escopo
+ * de cada um. Erros em um tenant não derrubam o processamento dos outros.
+ */
+export async function pollOutboxOnce(): Promise<number> {
+  const tenants = await listActiveTenants();
+  let total = 0;
+  for (const tenant of tenants) {
+    try {
+      const count = await runInTenantScope(
+        { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: false },
+        () => pollOutboxForTenant()
+      );
+      total += count;
+    } catch (err) {
+      console.error(`[outbox] erro ao processar tenant ${tenant.slug}:`, err);
+    }
+  }
+  return total;
 }
 
 /**
