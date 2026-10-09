@@ -332,7 +332,7 @@ src/
 │   │   ├── schema.ts
 │   │   └── client.ts
 │   ├── realtime/
-│   │   ├── ws-gateway.ts
+│   │   ├── [REMOVIDO - substituido pelo Go gateway ws-gateway/]
 │   │   └── outbox-dispatcher.ts
 │   └── container.ts          # composition root (DI)
 │
