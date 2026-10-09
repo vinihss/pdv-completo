@@ -217,6 +217,7 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `npm run test` | frontend | Vitest (jsdom + Testing Library; veja a saída do comando para a contagem atual) |
 | `bash scripts/build/build-app.sh` | frontend | build do app desktop v1 (Tauri); `--release` = entrega (chave de assinatura), `--appimage-docker` = AppImage |
 | `node_modules/.bin/tauri <cmd>` | raiz | CLI do Tauri (na raiz do repo, não em `frontend/node_modules`; rodar com cwd=`frontend/` para o app v1) |
+| `bash scripts/build/install-cli.sh` | raiz | compila o CLI Go (`cmd/pdv`) e instala o binário `pdv` em `$PREFIX/bin` (default `/usr/local/bin`); `--uninstall` remove |
 | `go test ./...` | `printer/daemon` | suíte do daemon |
 | `go build ./...` / `go vet ./...` / `go test ./...` | `ws-gateway` | portão do gateway WS: build, vet e suíte (é o que o CI roda, junto com `gofmt -l .`) |
 | `./switch.sh` | deploy | deploy sem downtime (instância nova + `caddy reload`); `--status`, `--rollback`, `--install`, `--no-build`. Não mexe no `ws-gateway` |
