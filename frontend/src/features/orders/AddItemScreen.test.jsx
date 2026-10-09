@@ -108,4 +108,67 @@ describe("AddItemScreen — estados do catálogo", () => {
       expect(button.className).not.toContain("scale-105");
     }, { timeout: 700 });
   });
+
+  it("mostra confirmação ao sair com itens no carrinho", async () => {
+    const product = {
+      id: "p1",
+      name: "Cerveja",
+      price: 10,
+      imagePath: null,
+      description: "",
+      variations: [],
+      quantity: 100,
+      trackStock: false,
+    };
+    api.listCategories.mockResolvedValue([]);
+    api.listAllProducts.mockResolvedValue({ data: [product] });
+    const onClose = vi.fn();
+    render(
+      <AddItemScreen
+        order={{ id: "o1" }}
+        onClose={onClose}
+        onConfirmed={vi.fn()}
+        showToast={vi.fn()}
+      />
+    );
+
+    // Adicionar produto ao carrinho
+    const button = await screen.findByRole("button", { name: /Cerveja/i });
+    fireEvent.click(button);
+
+    // Clicar no botão de fechar
+    const closeButton = screen.getByLabelText(/Fechar lançamento/i);
+    fireEvent.click(closeButton);
+
+    // Deve mostrar o modal de confirmação
+    expect(screen.getByText(/Sair do lançamento?/i)).toBeTruthy();
+    expect(screen.getByText(/1 item no carrinho/i)).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Confirmar saída
+    fireEvent.click(screen.getByRole("button", { name: /Sair/i }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("não mostra confirmação ao sair sem itens no carrinho", async () => {
+    api.listCategories.mockResolvedValue([]);
+    api.listAllProducts.mockResolvedValue({ data: [] });
+    const onClose = vi.fn();
+    render(
+      <AddItemScreen
+        order={{ id: "o1" }}
+        onClose={onClose}
+        onConfirmed={vi.fn()}
+        showToast={vi.fn()}
+      />
+    );
+
+    // Clicar no botão de fechar sem itens no carrinho
+    const closeButton = screen.getByLabelText(/Fechar lançamento/i);
+    fireEvent.click(closeButton);
+
+    // Deve fechar diretamente sem mostrar confirmação
+    expect(onClose).toHaveBeenCalled();
+    expect(screen.queryByText(/Sair do lançamento?/i)).toBeNull();
+  });
 });

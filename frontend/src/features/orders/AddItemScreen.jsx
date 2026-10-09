@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Search, Check, AlertTriangle } from "lucide-react";
-import { ScreenHeader } from "@/shared/components";
+import { ScreenHeader, ConfirmModal } from "@/shared/components";
 import { listCategories } from "@/entities/category";
 import { listAllProducts } from "@/entities/product";
 import { addItems as addOrderItems } from "@/entities/order";
@@ -24,6 +24,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState(false);
   const [recentlyAdded, setRecentlyAdded] = useState(null); // productId adicionado recentemente
+  const [showExitConfirmation, setShowExitConfirmation] = useState(false);
 
   async function loadCatalog() {
     setCatalogLoading(true);
@@ -109,6 +110,14 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
   const cartCount = cartLines.reduce((sum, c) => sum + c.quantity, 0);
   const cartTotal = cartLines.reduce((sum, c) => sum + c.product.price * c.quantity, 0);
 
+  function handleExit() {
+    if (cartCount > 0) {
+      setShowExitConfirmation(true);
+    } else {
+      onClose();
+    }
+  }
+
   async function handleConfirmBatch() {
     setConfirming(true);
     try {
@@ -131,7 +140,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
 
   return (
     <div className="fixed inset-0 bg-stone-950 text-stone-50 z-40 flex flex-col">
-      <ScreenHeader title="Adicionar item" onBack={onClose} backLabel="Fechar lançamento" backIcon="close" />
+      <ScreenHeader title="Adicionar item" onBack={handleExit} backLabel="Fechar lançamento" backIcon="close" />
 
       <div className="px-5 pt-4 shrink-0">
         <div className="relative mb-3">
@@ -272,6 +281,21 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
           </div>
           <div className="font-display text-lg font-bold">Itens adicionados!</div>
         </div>
+      )}
+
+      {showExitConfirmation && (
+        <ConfirmModal
+          title="Sair do lançamento?"
+          message={`Você tem ${cartCount} ${cartCount === 1 ? 'item' : 'itens'} no carrinho. Deseja sair e perder as alterações?`}
+          confirmLabel="Sair"
+          cancelLabel="Continuar editando"
+          destructive={true}
+          onConfirm={() => {
+            setShowExitConfirmation(false);
+            onClose();
+          }}
+          onCancel={() => setShowExitConfirmation(false)}
+        />
       )}
     </div>
   );
