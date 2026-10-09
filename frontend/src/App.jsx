@@ -2,6 +2,7 @@ import React from "react";
 import { AppRouter } from "@/app/router.jsx";
 import { AppConfigProvider } from "@/app/providers/app-config";
 import { BootGate } from "@/app/boot/BootGate.jsx";
+import { NetworkStatusBanner } from "@/shared/components";
 
 export default function App() {
   // AppConfigProvider diz onde está a API; BootGate (só no desktop) verifica
@@ -9,6 +10,7 @@ export default function App() {
   return (
     <AppConfigProvider>
       <BootGate>
+        <NetworkStatusBanner />
         <AppRouter />
       </BootGate>
     </AppConfigProvider>

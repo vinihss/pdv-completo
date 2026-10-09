@@ -10,3 +10,4 @@ export { default as Button } from "./Button.jsx";
 export { default as ConfirmModal } from "./ConfirmModal.jsx";
 export { default as UserAvatar } from "./UserAvatar.jsx";
 export { default as Spinner } from "./Spinner.jsx";
+export { default as NetworkStatusBanner } from "./NetworkStatusBanner.jsx";
