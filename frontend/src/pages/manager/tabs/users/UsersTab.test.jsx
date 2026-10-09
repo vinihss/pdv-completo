@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, it, expect, beforeEach, afterEach, beforeAll, vi } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import UserModal from "./UserModal.jsx";
 import UsersTab from "./UsersTab.jsx";
 import { createUser, listUsers, updateUser, resetPin, uploadUserPhoto } from "@/entities/user";
@@ -65,8 +65,16 @@ describe("UsersTab", () => {
     // Carlos não tem → círculo com as iniciais
     expect(screen.getByText("CL")).toBeTruthy();
     expect(screen.queryByAltText("Carlos Lima")).toBeNull();
-    expect(screen.getByText("Garçom")).toBeTruthy();
-    expect(screen.getByText("Cozinha")).toBeTruthy();
+    // Verifica se os perfis aparecem nas linhas (ignora o select de filtro)
+    const rows = screen.getAllByText("Ana Ribeiro").map(el => el.closest("div"));
+    const listContainer = rows.length > 0 ? rows[0].closest(".space-y-2") : null;
+    expect(listContainer).toBeTruthy();
+    if (listContainer) {
+      const garçom = within(listContainer).queryAllByText("Garçom");
+      const cozinha = within(listContainer).queryAllByText("Cozinha");
+      expect(garçom.length).toBe(1);
+      expect(cozinha.length).toBe(1);
+    }
   });
 
   it("usuário inativo continua com opacity-50 na linha", async () => {
