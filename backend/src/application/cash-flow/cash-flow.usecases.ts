@@ -6,6 +6,7 @@ import {
   orderPayments,
   orders,
   restaurantTables,
+  storeSettings,
   users,
 } from "../../infra/db/schema.js";
 import { isUniqueViolationOn } from "../../infra/db/errors.js";
@@ -23,6 +24,19 @@ import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
 const CASH_DRAWER_ROOM = "cash-drawer";
 
 function serializeDrawer(d: typeof cashDrawers.$inferSelect) {
+  // Parse closingDenominations de JSON string para array, com fallback para []
+  let closingDenominations: Array<{ denomination: number; quantity: number }> = [];
+  if (d.closingDenominations) {
+    try {
+      const parsed = JSON.parse(d.closingDenominations);
+      if (Array.isArray(parsed)) {
+        closingDenominations = parsed;
+      }
+    } catch {
+      // JSON inválido, manter array vazio
+    }
+  }
+
   return {
     id: d.id,
     status: d.status,
@@ -36,6 +50,9 @@ function serializeDrawer(d: typeof cashDrawers.$inferSelect) {
     closingCounted: d.closingCounted,
     closingDifference: d.closingDifference,
     closingNote: d.closingNote,
+    closingDenominations,
+    closingJustification: d.closingJustification,
+    closingApprovedBy: d.closingApprovedBy,
   };
 }
 
@@ -48,6 +65,7 @@ function serializeMovement(m: typeof cashDrawerMovements.$inferSelect) {
     refOrderId: m.refOrderId,
     createdBy: m.createdBy,
     createdAt: m.createdAt,
+    category: m.category,
   };
 }
 
@@ -142,6 +160,23 @@ async function computeCashSummary(tx: Tx, drawer: typeof cashDrawers.$inferSelec
 // Retorna o drawer dentro do mesmo tx da operação que chama.
 export async function findOpenDrawerTx(tx: Tx): Promise<typeof cashDrawers.$inferSelect | undefined> {
   return tx.query.cashDrawers.findFirst({ where: eq(cashDrawers.status, "open") });
+}
+
+// Versão com SELECT FOR UPDATE — usada quando a operação vai validar ou
+// modificar o saldo do caixa (sangria, suprimento, fechamento, pagamento em
+// dinheiro confirmado). Garante que duas transações concorrentes não leiam o
+// mesmo saldo e ambas validem com sucesso, resultando em saldo negativo.
+// O FOR UPDATE trava a linha até o COMMIT/ROLLBACK da transação corrente.
+export async function findOpenDrawerTxForUpdate(tx: Tx): Promise<typeof cashDrawers.$inferSelect | undefined> {
+  // Drizzle ORM: para usar FOR UPDATE, precisamos construir a query com
+  // o método .for('update') no query builder, não via findFirst.
+  const rows = await tx
+    .select()
+    .from(cashDrawers)
+    .where(eq(cashDrawers.status, "open"))
+    .limit(1)
+    .for("update");
+  return rows[0];
 }
 
 // ---------- GET /cash-drawer/current ----------
@@ -267,15 +302,37 @@ export async function openCashDrawerUsecase(input: { userId: string; openingAmou
   });
 }
 
+// Categorias permitidas para movimentos de caixa (Bloco 6)
+const ALLOWED_MOVEMENT_CATEGORIES = [
+  "sangria_operacional",
+  "suprimento_troco",
+  "pagamento_fornecedor",
+  "ajuste_inventario",
+  "outros",
+] as const;
+
+export type MovementCategory = (typeof ALLOWED_MOVEMENT_CATEGORIES)[number];
+
 // ---------- POST /cash-drawer/sangria, POST /cash-drawer/suprimento ----------
 export async function registerCashMovementUsecase(input: {
   userId: string;
   type: "sangria" | "suprimento";
   amount: number;
   note?: string;
+  category: MovementCategory;
+  approvedByUserId?: string;
 }) {
   return db.transaction(async (tx) => {
-    const drawer = await findOpenDrawerTx(tx);
+    // Validação 1: categoria deve ser um dos valores permitidos
+    if (!ALLOWED_MOVEMENT_CATEGORIES.includes(input.category)) {
+      throw Errors.invalidMovementCategory([...ALLOWED_MOVEMENT_CATEGORIES]);
+    }
+
+    // FOR UPDATE: sangria/suprimento validam ou alteram o saldo do caixa.
+    // Sem o lock, duas sangrias concorrentes poderiam ler o mesmo `expected`
+    // e ambas passarem na validação `amount <= expected`, resultando em saldo
+    // negativo. O FOR UPDATE serializa o acesso à linha aberta.
+    const drawer = await findOpenDrawerTxForUpdate(tx);
     if (!drawer) throw Errors.cashDrawerNotOpen();
 
     if (input.type === "sangria") {
@@ -286,14 +343,38 @@ export async function registerCashMovementUsecase(input: {
       }
     }
 
+    // Validação 2: ler store_settings para verificar alçada de aprovação
+    const settings = await tx.query.storeSettings.findFirst({
+      where: eq(storeSettings.id, "singleton"),
+    });
+    if (!settings) throw Errors.notFound("Configurações da loja");
+
+    // Validação 3: se amount > cashHighValueThreshold, exigir approvedByUserId
+    const amount = round2(input.amount);
+    if (amount > settings.cashHighValueThreshold && !input.approvedByUserId?.trim()) {
+      throw Errors.approvalRequired(amount, settings.cashHighValueThreshold);
+    }
+
+    // Validação 4: se approvedByUserId fornecido, validar que o usuário tem role manager ou cashier
+    if (input.approvedByUserId?.trim()) {
+      const approver = await tx.query.users.findFirst({
+        where: eq(users.id, input.approvedByUserId),
+      });
+      if (!approver) throw Errors.notFound("Usuário aprovador");
+      if (approver.role !== "manager" && approver.role !== "cashier") {
+        throw Errors.forbiddenRole();
+      }
+    }
+
     const [movement] = await tx
       .insert(cashDrawerMovements)
       .values({
         drawerId: drawer.id,
         type: input.type,
-        amount: round2(input.amount),
+        amount,
         note: input.note ?? null,
         createdBy: input.userId,
+        category: input.category,
       })
       .returning();
 
@@ -303,6 +384,8 @@ export async function registerCashMovementUsecase(input: {
       drawerId: drawer.id,
       amount: movement.amount,
       note: movement.note,
+      category: movement.category,
+      approvedBy: input.approvedByUserId ?? null,
     });
     await enqueueEvent(tx, CASH_DRAWER_ROOM, eventType, {
       drawerId: drawer.id,
@@ -317,16 +400,58 @@ export async function closeCashDrawerUsecase(input: {
   userId: string;
   countedAmount: number;
   note?: string;
+  denominations?: Array<{ denomination: number; quantity: number }>;
+  justification?: string;
+  approvedBy?: string;
 }) {
   return db.transaction(async (tx) => {
-    const drawer = await findOpenDrawerTx(tx);
+    // FOR UPDATE: o fechamento calcula o esperado com base nas vendas e
+    // movimentos da sessão, e grava o status 'closed'. Sem o lock, duas
+    // requisições concorrentes poderiam ambas ler o drawer como aberto e
+    // tentar fechar, resultando em dupla contagem ou estado inconsistente.
+    // O lock garante que apenas uma transação feche por vez.
+    const drawer = await findOpenDrawerTxForUpdate(tx);
     if (!drawer) throw Errors.cashDrawerNotOpen();
+
+    // Ler store_settings para obter tolerância e limite de aprovação
+    const settings = await tx.query.storeSettings.findFirst({
+      where: eq(storeSettings.id, "singleton"),
+    });
+    if (!settings) throw Errors.notFound("Configurações da loja");
 
     const summary = await computeCashSummary(tx, drawer);
     const expected = summary.expected;
     const counted = round2(input.countedAmount);
     const difference = round2(counted - expected);
+
+    // Validação 1: se |difference| > tolerance e justification vazia → 422
+    if (Math.abs(difference) > settings.cashClosingTolerance && !input.justification?.trim()) {
+      throw Errors.closingToleranceExceeded(difference, settings.cashClosingTolerance);
+    }
+
+    // Validação 2: se |difference| > requireApprovalAbove e approvedBy vazio → 422
+    if (Math.abs(difference) > settings.cashClosingRequireApprovalAbove && !input.approvedBy?.trim()) {
+      throw Errors.closingApprovalRequired(difference, settings.cashClosingRequireApprovalAbove);
+    }
+
+    // Validação 3: se denominations informado, soma deve bater com countedAmount
+    if (input.denominations && input.denominations.length > 0) {
+      const sumDenominations = input.denominations.reduce(
+        (acc, d) => acc + d.denomination * d.quantity,
+        0
+      );
+      const sumRounded = round2(sumDenominations);
+      if (sumRounded !== counted) {
+        throw Errors.closingDenominationsMismatch(counted, sumRounded);
+      }
+    }
+
     const closedAt = new Date().toISOString();
+
+    // Persistir denominations como JSON string (mesmo padrão de products.variations)
+    const denominationsJson = input.denominations && input.denominations.length > 0
+      ? JSON.stringify(input.denominations)
+      : null;
 
     const [closed] = await tx
       .update(cashDrawers)
@@ -338,6 +463,9 @@ export async function closeCashDrawerUsecase(input: {
         closingCounted: counted,
         closingDifference: difference,
         closingNote: input.note ?? null,
+        closingDenominations: denominationsJson,
+        closingJustification: input.justification?.trim() ?? null,
+        closingApprovedBy: input.approvedBy?.trim() ?? null,
       })
       .where(eq(cashDrawers.id, drawer.id))
       .returning();
@@ -350,6 +478,9 @@ export async function closeCashDrawerUsecase(input: {
       counted,
       difference,
       note: input.note ?? null,
+      denominations: input.denominations ?? null,
+      justification: input.justification ?? null,
+      approvedBy: input.approvedBy ?? null,
     });
     await enqueueEvent(tx, CASH_DRAWER_ROOM, "cash_drawer.closed", {
       drawerId: drawer.id,

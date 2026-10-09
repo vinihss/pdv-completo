@@ -34,6 +34,8 @@ import { printRoutes } from "./routes/print.routes.js";
 import { alertRoutes } from "./routes/alert.routes.js";
 import { provisioningRoutes } from "./routes/provisioning.routes.js";
 import { uploadsRoutes } from "./routes/uploads.routes.js";
+import { refundRoutes } from "./routes/refund.routes.js";
+import { settlementRoutes } from "./routes/settlement.routes.js";
 import { startIfoodSync } from "../integrations/ifood/worker.js";
 import { startPagarmeWorkers } from "../integrations/pagarme/worker.js";
 import { getStoreSettingsUsecase } from "../application/store-settings.usecases.js";
@@ -228,6 +230,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Provisionamento de aparelho por usuário (docs/21) — mistura rotas de
   // gerente e rotas públicas; o auth é por preHandler de rota (ver o arquivo).
   await app.register(provisioningRoutes);
+  // Estorno de pagamentos (Bloco 4 ROADMAP-CAIXA.md) — manager-only, com
+  // idempotência. Venda estornada vira linha negativa no relatório, não
+  // desaparece.
+  await app.register(refundRoutes);
+  // Settlement iFood (Bloco 5 ROADMAP-CAIXA.md) — separa receita bruta de
+  // repasse líquido; manager-only para criar e liquidar, waiter pode consultar.
+  await app.register(settlementRoutes);
 
   // ---------- Store info pública (§10) — nome exibido no login, sem pix key ----------
   // também expõe flags de operação que a página externa e o próprio login usam
