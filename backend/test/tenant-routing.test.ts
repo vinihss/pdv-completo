@@ -72,6 +72,27 @@ async function seedRegistry(rows: RegistryRow[]): Promise<void> {
   invalidateTenantRegistryCache();
 }
 
+// Provisiona de verdade um schema de tenant: `CREATE SCHEMA` + migrations +
+// `store_settings` com marca própria. É o mínimo que o teste da vitrine precisa
+// para provar que a leitura via ALS/pool por schema pega a marca DA LOJA.
+async function provisionTenantSchema(schemaName: string, merchantName: string): Promise<void> {
+  // Derruba um schema de execução anterior (teste abortado antes do `finally`)
+  // para o `CREATE SCHEMA` não falhar com "already exists".
+  await raw.exec(`DROP SCHEMA IF EXISTS ${schemaName} CASCADE`);
+  await raw.exec(`CREATE SCHEMA ${schemaName}`);
+  await runMigrations({ schema: schemaName });
+  await raw.all(
+    `INSERT INTO ${schemaName}.store_settings
+       (id, merchant_name, merchant_city, brand_color, uses_delivery, kitchen_enabled)
+     VALUES ('singleton', $1, $1, '#123456', true, false)`,
+    [merchantName],
+  );
+}
+
+async function dropTenantSchema(schemaName: string): Promise<void> {
+  await raw.exec(`DROP SCHEMA IF EXISTS ${schemaName} CASCADE`);
+}
+
 beforeAll(async () => {
   for (const key of ENV_KEYS) savedEnv.set(key, process.env[key]);
   await seedFixture();
@@ -395,12 +416,12 @@ describe("GET /public/tenants/resolve", () => {
     expect(instance.hasRoute({ method: "GET", url: "/api/public/tenants/resolve" })).toBe(false);
   });
 
-  it("tenant cujo schema o processo não fala responde 503 (limite da Fase 1)", async () => {
+  it("tenant cujo schema NÃO está provisionado responde 503", async () => {
     // Com o roteamento desligado (default), `resolveTenant` devolve o schema
-    // default, então este caso só existe com o roteamento ligado. É o limite
-    // honesto da Fase 1: um tenant em `tenant_x` não tem cardápio, carrinho nem
-    // pedido neste processo — atender pela metade (logo de B, catálogo de A)
-    // seria o vazamento do §5.2 de novo.
+    // default, então este caso só existe com o roteamento ligado. O registry tem
+    // a linha, mas o schema `tenant_pdv1` nunca foi criado: não há
+    // `store_settings` para ler, e a vitrine responde 503 em vez de cair no
+    // `search_path` `public` e servir a marca da plataforma achando que é da loja.
     routingOn();
     await seedRegistry([{ slug: "pdv1", schemaName: "tenant_pdv1" }]);
 
@@ -408,6 +429,57 @@ describe("GET /public/tenants/resolve", () => {
 
     expect(res.status).toBe(503);
     expect(res.json.error.code).toBe("tenant_schema_unavailable");
+  });
+
+  it("tenant provisionado devolve a marca DELE, não a da plataforma", async () => {
+    // O cerne da Fase 2: com o ALS + pool por schema no ar, o `store_settings`
+    // do schema RESOLVIDO é lido — e a vitrine de um tenant provisionado serve a
+    // marca própria, não a default.
+    routingOn();
+    try {
+      await provisionTenantSchema("tenant_pdv1", "Loja PDV1");
+      await seedRegistry([{ slug: "pdv1", schemaName: "tenant_pdv1" }]);
+
+      const res = await api("get", `/public/tenants/resolve?host=pdv1.${ROOT_DOMAIN}`, { ip: nextIp() });
+
+      expect(res.status).toBe(200);
+      expect(res.json.found).toBe(true);
+      expect(res.json.tenant.slug).toBe("pdv1");
+      expect(res.json.tenant.storeId).toBe("pdv1");
+      expect(res.json.tenant.name).toBe("Loja PDV1");
+      expect(res.json.tenant.primaryColor).toBe("#123456");
+      expect(res.json.tenant.usesDelivery).toBe(true);
+      expect(res.json.tenant.kitchenEnabled).toBe(false);
+      // Não é a marca default/public que o `search_path` serviria no bug.
+      expect(res.json.tenant.name).not.toBe("Teste Café");
+      // E o `schema_name` continua nunca saindo.
+      expect("schema" in res.json.tenant).toBe(false);
+    } finally {
+      await dropTenantSchema("tenant_pdv1");
+    }
+  });
+
+  it("dois tenants provisionados não vazam a marca um do outro", async () => {
+    routingOn();
+    try {
+      await provisionTenantSchema("tenant_pdv1", "Loja Um");
+      await provisionTenantSchema("tenant_pdv2", "Loja Dois");
+      await seedRegistry([
+        { slug: "pdv1", schemaName: "tenant_pdv1" },
+        { slug: "pdv2", schemaName: "tenant_pdv2" },
+      ]);
+
+      const res1 = await api("get", `/public/tenants/resolve?host=pdv1.${ROOT_DOMAIN}`, { ip: nextIp() });
+      const res2 = await api("get", `/public/tenants/resolve?host=pdv2.${ROOT_DOMAIN}`, { ip: nextIp() });
+
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+      expect(res1.json.tenant.name).toBe("Loja Um");
+      expect(res2.json.tenant.name).toBe("Loja Dois");
+    } finally {
+      await dropTenantSchema("tenant_pdv1");
+      await dropTenantSchema("tenant_pdv2");
+    }
   });
 
   it("o use case público é o mesmo contrato do endpoint", async () => {
