@@ -24,6 +24,15 @@ function fmtElapsed(iso, now) {
 
 const PAGE = 20;
 
+// Mapeia valores do backend para labels amigáveis
+const CATEGORY_LABELS = {
+  sangria_operacional: "Sangria operacional",
+  suprimento_troco: "Suprimento para troco",
+  pagamento_fornecedor: "Pagamento a fornecedor",
+  ajuste_inventario: "Ajuste de inventário",
+  outros: "Outros",
+};
+
 export default function CashDrawerTab({ showToast }) {
   const { session } = useAuth();
   const [current, setCurrent] = useState(null);
@@ -73,9 +82,16 @@ export default function CashDrawerTab({ showToast }) {
     }
   }
 
-  async function handleClose(counted, note) {
+  async function handleClose(payload) {
     try {
-      const drawer = await closeCashDrawer(counted, note);
+      const body = {
+        countedAmount: payload.countedValue,
+        note: payload.note,
+        denominations: payload.denominations,
+        justification: payload.justification,
+        approvedBy: payload.approvedByPin, // TODO: backend deve validar PIN e retornar userId
+      };
+      const drawer = await closeCashDrawer(body);
       await reload();
       showToast("Caixa fechado.", "success");
       setPrintId(drawer.id);
@@ -157,6 +173,11 @@ export default function CashDrawerTab({ showToast }) {
                   <span className={`font-semibold ${m.type === "sangria" ? "text-red-400" : "text-emerald-400"}`}>
                     {m.type === "sangria" ? "Sangria" : "Suprimento"}
                   </span>
+                  {m.category && (
+                    <span className="inline-block text-[10px] font-medium bg-stone-800 text-stone-300 rounded-full px-1.5 py-0.5 ml-1.5">
+                      {CATEGORY_LABELS[m.category] || m.category}
+                    </span>
+                  )}
                   {m.refOrderLabel && (
                     <span className="inline-block text-[10px] font-semibold bg-stone-800 text-amber-400 rounded-full px-1.5 py-0.5 ml-1.5">
                       Estorno · {m.refOrderLabel}
@@ -236,7 +257,17 @@ export default function CashDrawerTab({ showToast }) {
           type={movementType}
           expected={current?.expectedCash}
           onClose={() => setMovementType(null)}
-          onConfirm={(p) => run(() => registerCashMovement(movementType, p), movementType === "sangria" ? "Sangria registrada." : "Suprimento registrado.")}
+          onConfirm={async (p) => {
+            try {
+              await registerCashMovement(movementType, p);
+              await reload();
+              showToast(movementType === "sangria" ? "Sangria registrada." : "Suprimento registrado.", "success");
+              return true;
+            } catch (e) {
+              showToast(e.message, "error");
+              throw e; // Relança para o modal capturar o erro específico
+            }
+          }}
         />
       )}
       {closeModal && current && (

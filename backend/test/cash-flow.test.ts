@@ -125,16 +125,46 @@ describe("fluxo de caixa", () => {
     }
   });
 
+  it("duas sangrias concorrentes cujo total excede o disponível → uma falha", async () => {
+    await openDrawer("open-race", 100);
+    
+    // Disparar duas sangrias de R$ 60 concorrentemente
+    // O saldo disponível é R$ 100, então apenas uma deve passar
+    const [sangria1, sangria2] = await Promise.all([
+      api("post", "/cash-drawer/sangria", {
+        token: cashier,
+        body: { correlationId: "sangria-race-1", amount: 60, category: "sangria_operacional" },
+      }),
+      api("post", "/cash-drawer/sangria", {
+        token: cashier,
+        body: { correlationId: "sangria-race-2", amount: 60, category: "sangria_operacional" },
+      }),
+    ]);
+
+    // Uma deve ter sucesso (200) e a outra deve falhar (409)
+    const success = [sangria1, sangria2].filter((r) => r.status === 200);
+    const rejected = [sangria1, sangria2].filter((r) => r.status !== 200);
+    
+    expect(success).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].status).toBe(409);
+    expect(rejected[0].json.error.code).toBe("cash_withdrawal_exceeds_available");
+
+    // Validar que o saldo final é R$ 40 (não -R$ 20)
+    const cur = await current();
+    expect(cur.json.expectedCash).toBe(40);
+  });
+
   it("sangria, suprimento e fechamento conferem o esperado", async () => {
     await openDrawer("open-1", 100);
 
-    await api("post", "/cash-drawer/sangria", { token: cashier, body: { correlationId: "s-1", amount: 30 } });
+    await api("post", "/cash-drawer/sangria", { token: cashier, body: { correlationId: "s-1", amount: 30, category: "sangria_operacional" } });
     expect((await current()).json.expectedCash).toBe(70);
 
-    await api("post", "/cash-drawer/suprimento", { token: cashier, body: { correlationId: "su-1", amount: 20 } });
+    await api("post", "/cash-drawer/suprimento", { token: cashier, body: { correlationId: "su-1", amount: 20, category: "suprimento_troco" } });
     expect((await current()).json.expectedCash).toBe(90);
 
-    const over = await api("post", "/cash-drawer/sangria", { token: cashier, body: { correlationId: "s-2", amount: 999 } });
+    const over = await api("post", "/cash-drawer/sangria", { token: cashier, body: { correlationId: "s-2", amount: 999, category: "sangria_operacional" } });
     expect(over.status).toBe(409);
     expect(over.json.error.code).toBe("cash_withdrawal_exceeds_available");
     expect(over.json.error.details.available).toBe(90);
@@ -147,7 +177,7 @@ describe("fluxo de caixa", () => {
 
     expect((await current()).json).toBeNull();
 
-    const noOpen = await api("post", "/cash-drawer/sangria", { token: cashier, body: { correlationId: "s-3", amount: 10 } });
+    const noOpen = await api("post", "/cash-drawer/sangria", { token: cashier, body: { correlationId: "s-3", amount: 10, category: "sangria_operacional" } });
     expect(noOpen.status).toBe(409);
     expect(noOpen.json.error.code).toBe("cash_drawer_not_open");
 
@@ -250,7 +280,14 @@ describe("fluxo de caixa", () => {
     await openDrawer("open-1", 50);
     await api("post", "/cash-drawer/close", { token: cashier, body: { correlationId: "c-1", countedAmount: 50 } });
     await openDrawer("open-2", 200);
-    await api("post", "/cash-drawer/close", { token: cashier, body: { correlationId: "c-2", countedAmount: 210 } });
+    await api("post", "/cash-drawer/close", { 
+      token: cashier, 
+      body: { 
+        correlationId: "c-2", 
+        countedAmount: 210,
+        justification: "Diferença de troco"
+      } 
+    });
 
     const s = await api("get", "/cash-drawer/summary?from=2000-01-01&to=2100-01-01", { token: manager });
     expect(s.status).toBe(200);
@@ -262,7 +299,14 @@ describe("fluxo de caixa", () => {
 
   it("summary com sessão aberta: totais de conferência só das fechadas + openCount/openExpected", async () => {
     await openDrawer("open-1", 50);
-    await api("post", "/cash-drawer/close", { token: cashier, body: { correlationId: "c-1", countedAmount: 54 } });
+    await api("post", "/cash-drawer/close", { 
+      token: cashier, 
+      body: { 
+        correlationId: "c-1", 
+        countedAmount: 54,
+        justification: "Diferença de troco"
+      } 
+    });
     await openDrawer("open-2", 100);
     await api("put", `/orders/${await openOrder()}/payments`, {
       token: waiter,
@@ -285,21 +329,260 @@ describe("fluxo de caixa", () => {
     await openDrawer("open-1", 100);
     const close = await api("post", "/cash-drawer/close", {
       token: cashier,
-      body: { correlationId: "c-note", countedAmount: 98, note: "Emprestados R$ 2 para troco" },
+      body: { 
+        correlationId: "c-note", 
+        countedAmount: 98, 
+        note: "Emprestados R$ 2 para troco",
+        justification: "Pequena diferença de troco"
+      },
     });
     expect(close.status).toBe(200);
     expect(close.json.closingNote).toBe("Emprestados R$ 2 para troco");
     expect(close.json.closingDifference).toBe(-2);
+    expect(close.json.closingJustification).toBe("Pequena diferença de troco");
 
     const detail = await api("get", `/cash-drawer/${close.json.id}`, { token: manager });
     expect(detail.status).toBe(200);
     expect(detail.json.closingNote).toBe("Emprestados R$ 2 para troco");
+    expect(detail.json.closingJustification).toBe("Pequena diferença de troco");
   });
 
   it("summary: tz inválido responde 400", async () => {
     const s = await api("get", "/cash-drawer/summary?from=2026-01-01&to=2026-01-02&tz=bogus", { token: manager });
     expect(s.status).toBe(400);
     expect(s.json.error.code).toBe("validation_failed");
+  });
+
+  it("fechamento sem denominações e sem diferença → sucesso (configuração default tolerância=0)", async () => {
+    await openDrawer("open-1", 100);
+    const close = await api("post", "/cash-drawer/close", {
+      token: cashier,
+      body: { correlationId: "c-no-denom", countedAmount: 100 },
+    });
+    expect(close.status).toBe(200);
+    expect(close.json.closingExpected).toBe(100);
+    expect(close.json.closingCounted).toBe(100);
+    expect(close.json.closingDifference).toBe(0);
+    expect(close.json.closingDenominations).toEqual([]);
+    expect(close.json.closingJustification).toBeNull();
+    expect(close.json.closingApprovedBy).toBeNull();
+  });
+
+  it("fechamento com denominações que não batem com countedAmount → 422 closing_denominations_mismatch", async () => {
+    await openDrawer("open-1", 100);
+    const close = await api("post", "/cash-drawer/close", {
+      token: cashier,
+      body: {
+        correlationId: "c-denom-mismatch",
+        countedAmount: 100,
+        denominations: [
+          { denomination: 50, quantity: 1 }, // 50*1 = 50
+          { denomination: 20, quantity: 1 }, // 20*1 = 20
+          // total = 70, não 100
+        ],
+      },
+    });
+    expect(close.status).toBe(422);
+    expect(close.json.error.code).toBe("closing_denominations_mismatch");
+    expect(close.json.error.details.expected).toBe(100);
+    expect(close.json.error.details.counted).toBe(70);
+  });
+
+  it("fechamento com denominações corretas → sucesso", async () => {
+    await openDrawer("open-1", 100);
+    const close = await api("post", "/cash-drawer/close", {
+      token: cashier,
+      body: {
+        correlationId: "c-denom-ok",
+        countedAmount: 100,
+        denominations: [
+          { denomination: 50, quantity: 1 }, // 50*1 = 50
+          { denomination: 20, quantity: 2 }, // 20*2 = 40
+          { denomination: 10, quantity: 1 }, // 10*1 = 10
+          // total = 100
+        ],
+      },
+    });
+    expect(close.status).toBe(200);
+    expect(close.json.closingDenominations).toHaveLength(3);
+    expect(close.json.closingDenominations[0]).toEqual({ denomination: 50, quantity: 1 });
+  });
+
+  it("fechamento com diferença > tolerância sem justificativa → 422 closing_tolerance_exceeded", async () => {
+    // Atualizar tolerância para 5
+    await raw.exec("UPDATE store_settings SET cash_closing_tolerance = 5 WHERE id = 'singleton'");
+
+    await openDrawer("open-1", 100);
+    // Diferença de 10 (esperado 100, contado 90) > tolerância 5
+    const close = await api("post", "/cash-drawer/close", {
+      token: cashier,
+      body: { correlationId: "c-no-justif", countedAmount: 90 },
+    });
+    expect(close.status).toBe(422);
+    expect(close.json.error.code).toBe("closing_tolerance_exceeded");
+    expect(close.json.error.details.difference).toBe(-10);
+    expect(close.json.error.details.tolerance).toBe(5);
+  });
+
+  it("fechamento com diferença > tolerância com justificativa → sucesso", async () => {
+    // Configurar tolerância e requireApprovalAbove para este teste
+    await raw.exec("UPDATE store_settings SET cash_closing_tolerance = 5, cash_closing_require_approval_above = 100 WHERE id = 'singleton'");
+    
+    await openDrawer("open-1", 100);
+    // Diferença de 10 (esperado 100, contado 90) > tolerância 5, mas < requireApprovalAbove
+    const close = await api("post", "/cash-drawer/close", {
+      token: cashier,
+      body: {
+        correlationId: "c-with-justif",
+        countedAmount: 90,
+        justification: "Troco errado para cliente",
+      },
+    });
+    expect(close.status).toBe(200);
+    expect(close.json.closingJustification).toBe("Troco errado para cliente");
+    expect(close.json.closingDifference).toBe(-10);
+  });
+
+  it("fechamento com diferença > requireApprovalAbove sem aprovador → 422 closing_approval_required", async () => {
+    // Configurar ambos os valores em um único UPDATE
+    await raw.exec(
+      "UPDATE store_settings SET cash_closing_tolerance = 0, cash_closing_require_approval_above = 8 WHERE id = 'singleton'"
+    );
+
+    await openDrawer("open-1", 100);
+    // Diferença de 10 (esperado 100, contado 90) > requireApprovalAbove 8
+    const close = await api("post", "/cash-drawer/close", {
+      token: cashier,
+      body: {
+        correlationId: "c-no-approval",
+        countedAmount: 90,
+        justification: "Alguns trocados",
+      },
+    });
+    expect(close.status).toBe(422);
+    expect(close.json.error.code).toBe("closing_approval_required");
+    expect(close.json.error.details.difference).toBe(-10);
+    expect(close.json.error.details.threshold).toBe(8);
+  });
+
+  it("fechamento com diferença > requireApprovalAbove com aprovador → sucesso", async () => {
+    // requireApprovalAbove já está 8 do teste anterior
+    await openDrawer("open-1", 100);
+    // Diferença de 10 > requireApprovalAbove 8
+    const close = await api("post", "/cash-drawer/close", {
+      token: cashier,
+      body: {
+        correlationId: "c-with-approval",
+        countedAmount: 90,
+        justification: "Troco incorreto",
+        approvedBy: FIXTURE.manager,
+      },
+    });
+    expect(close.status).toBe(200);
+    expect(close.json.closingApprovedBy).toBe(FIXTURE.manager);
+    expect(close.json.closingJustification).toBe("Troco incorreto");
+  });
+
+  it("idempotência: PUT /orders/:id/payments com mesmo correlationId não re-executa", async () => {
+    await openDrawer("open-1", 100);
+    const orderId = await openOrder();
+    
+    // Primeira requisição com correlationId 'pay-1'
+    const first = await api("put", `/orders/${orderId}/payments`, {
+      token: waiter,
+      body: { correlationId: "pay-1", payments: [{ method: "cash", amount: 19, received: 20, confirmed: true }] },
+    });
+    expect(first.status).toBe(200);
+    expect(first.json.payments).toHaveLength(1);
+    
+    // Segunda requisição com mesmo correlationId
+    const second = await api("put", `/orders/${orderId}/payments`, {
+      token: waiter,
+      body: { correlationId: "pay-1", payments: [{ method: "cash", amount: 19, received: 20, confirmed: true }] },
+    });
+    expect(second.status).toBe(200);
+    expect(second.json.payments).toHaveLength(1);
+    
+    // Validar que apenas 1 linha de pagamento existe (não duplicou)
+    const payments = await raw.all(
+      `SELECT id FROM order_payment WHERE order_id = $1`,
+      [orderId]
+    );
+    expect(payments).toHaveLength(1);
+    
+    // Validar que o saldo do caixa é consistente (não duplicou a venda)
+    const cur = await current();
+    expect(cur.json.expectedCash).toBe(119); // 100 + 19
+    expect(cur.json.cashSalesTotal).toBe(19);
+    expect(cur.json.cashSalesCount).toBe(1);
+  });
+
+  it("idempotência: PATCH /orders/:id/payments/:paymentId com mesmo correlationId não re-executa", async () => {
+    await openDrawer("open-1", 100);
+    const orderId = await openOrder();
+    
+    // Criar pagamento não confirmado
+    const pay = await api("put", `/orders/${orderId}/payments`, {
+      token: waiter,
+      body: { correlationId: "pay-1", payments: [{ method: "cash", amount: 19, received: 20, confirmed: false }] },
+    });
+    expect(pay.status).toBe(200);
+    const paymentId = pay.json.payments[0].id;
+    
+    // Confirmar pagamento com correlationId
+    const first = await api("patch", `/orders/${orderId}/payments/${paymentId}`, {
+      token: waiter,
+      body: { correlationId: "confirm-1" },
+    });
+    expect(first.status).toBe(200);
+    expect(first.json.confirmed).toBe(true);
+    
+    // Tentar confirmar novamente com mesmo correlationId
+    const second = await api("patch", `/orders/${orderId}/payments/${paymentId}`, {
+      token: waiter,
+      body: { correlationId: "confirm-1" },
+    });
+    expect(second.status).toBe(200);
+    expect(second.json.confirmed).toBe(true);
+    
+    // Validar que o caixa registrou apenas uma vez
+    const cur = await current();
+    expect(cur.json.cashSalesCount).toBe(1);
+    expect(cur.json.cashSalesTotal).toBe(19);
+  });
+
+  it("idempotência: DELETE /orders/:id/payments/:paymentId com mesmo correlationId não re-executa", async () => {
+    await openDrawer("open-1", 100);
+    const orderId = await openOrder();
+    
+    // Criar pagamento não confirmado
+    const pay = await api("put", `/orders/${orderId}/payments`, {
+      token: waiter,
+      body: { correlationId: "pay-1", payments: [{ method: "cash", amount: 19, confirmed: false }] },
+    });
+    expect(pay.status).toBe(200);
+    const paymentId = pay.json.payments[0].id;
+    
+    // Deletar pagamento com correlationId
+    const first = await api("delete", `/orders/${orderId}/payments/${paymentId}`, {
+      token: waiter,
+      body: { correlationId: "del-1" },
+    });
+    expect(first.status).toBe(204);
+    
+    // Tentar deletar novamente com mesmo correlationId (deve retornar 204 novamente)
+    const second = await api("delete", `/orders/${orderId}/payments/${paymentId}`, {
+      token: waiter,
+      body: { correlationId: "del-1" },
+    });
+    expect(second.status).toBe(204);
+    
+    // Validar que não há pagamentos
+    const payments = await raw.all(
+      `SELECT id FROM order_payment WHERE order_id = $1`,
+      [orderId]
+    );
+    expect(payments).toHaveLength(0);
   });
 
   it("day-bounds: dia local desloca do UTC conforme o offset", () => {

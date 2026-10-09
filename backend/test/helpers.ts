@@ -143,6 +143,8 @@ const TRANSIENT_TABLES = [
   "purchase_item",
   "purchase",
   "supplier",
+  "order_settlement",
+  "order_refund",
   "payment_refund",
   "payment_event",
   "payment",
@@ -183,7 +185,30 @@ export async function resetState() {
   // testes o banco pode ter mudado (ex.: um usuário desativado e reativado
   // por SQL cru), então o cache precisa nascer zerado.
   clearActiveUserCache();
-  await raw.exec(`TRUNCATE ${TRANSIENT_TABLES.join(", ")} CASCADE`);
+  // Truncate das tabelas transitórias (ignora tabelas que não existem — migration 0001+).
+  // Usa DO block para capturar exceções de tabelas inexistentes.
+  await raw.exec(`
+    DO $$ 
+    DECLARE
+      tbl text;
+    BEGIN
+      FOREACH tbl IN ARRAY ARRAY[${TRANSIENT_TABLES.map(t => `'${t}'`).join(', ')}]::text[]
+      LOOP
+        BEGIN
+          EXECUTE format('TRUNCATE %I CASCADE', tbl);
+        EXCEPTION
+          WHEN undefined_table THEN
+            NULL; -- ignora tabela inexistente
+        END;
+      END LOOP;
+    END $$;
+  `);
+  // Reset das configurações de fechamento de caixa (migration 0005 e 0008).
+  // Tolerância 0 (qualquer diferença exige justificativa) e requireApprovalAbove
+  // alto (1000) para que a maioria dos testes não precise de aprovação.
+  // cashHighValueThreshold alto (10000) para que a maioria dos testes não precise de aprovação.
+  // Testes específicos que validam essas regras ajustam os valores conforme necessário.
+  await raw.exec("UPDATE store_settings SET cash_closing_tolerance = 0, cash_closing_require_approval_above = 1000, cash_high_value_threshold = 10000 WHERE id = 'singleton'");
   // Reativa os usuários da fixture (alguns testes desativam u-manager)
   await db
     .update(users)

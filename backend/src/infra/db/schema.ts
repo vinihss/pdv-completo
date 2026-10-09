@@ -14,6 +14,8 @@ import {
 // `import type`: apaga em tempo de compilação, então não cria dependência de
 // runtime entre infra e domain (o dominio continua sem saber que o banco existe).
 import type { PaymentEventStatus } from "../../domain/payment.js";
+import type { OrderRefundStatus } from "../../domain/refund.js";
+import type { SettlementPayoutStatus } from "../../domain/settlement.js";
 
 // ============================================================
 // Schema Postgres — banco OFICIAL do PDV (o SQLite foi removido).
@@ -411,6 +413,11 @@ export const cashDrawers = pgTable(
     closingCounted: real("closing_counted"),
     closingDifference: real("closing_difference"),
     closingNote: text("closing_note"),
+    // Fechamento com contagem por denominação (migration 0005): JSON string
+    // com array de { denomination, quantity } — mesmo padrão de products.variations.
+    closingDenominations: text("closing_denominations"),
+    closingJustification: text("closing_justification"),
+    closingApprovedBy: text("closing_approved_by").references(() => users.id),
     note: text("note"),
     createdAt: text("created_at").notNull().default(isoNow),
   },
@@ -435,6 +442,7 @@ export const cashDrawerMovements = pgTable(
       .notNull()
       .references(() => users.id),
     createdAt: text("created_at").notNull().default(isoNow),
+    category: text("category").notNull().default("outros"),
   },
   (t) => [index("idx_cash_drawer_movement_drawer").on(t.drawerId)],
 );
@@ -473,6 +481,14 @@ export const storeSettings = pgTable("store_settings", {
   deliveryFeeTiers: text("delivery_fee_tiers").notNull().default("[]"),
   deliveryPrepMinutes: integer("delivery_prep_minutes").notNull().default(40),
   minutesPerKm: integer("minutes_per_km").notNull().default(2),
+  // Fechamento de caixa: tolerância em R$ para dispensar justificativa e
+  // limite acima do qual exige aprovação de gerente (migration 0005).
+  // Tolerância alterada de 0 para 5.0 na migration 0008.
+  cashClosingTolerance: real("cash_closing_tolerance").notNull().default(5.0),
+  cashClosingRequireApprovalAbove: real("cash_closing_require_approval_above").notNull().default(0),
+  // Limite de valor alto para movimentos de caixa que exigem aprovação
+  // (migration 0008). Movimentos acima deste valor exigem approvedByUserId.
+  cashHighValueThreshold: real("cash_high_value_threshold").notNull().default(500.0),
 });
 
 // ---------- infraestrutura ----------
@@ -958,3 +974,90 @@ export const userDevices = pgTable(
   },
   (t) => [index("ix_user_device_user").on(t.userId).where(sql`${t.active} = true`)],
 );
+
+// ============================================================
+// Estorno de pagamentos (Bloco 4 ROADMAP-CAIXA.md)
+// ============================================================
+//
+// Fonte da verdade do estorno no relatório de vendas (estorno vira linha
+// negativa, não desaparece). Diferente de payment_refund (Pagar.me gateway) —
+// aqui é o estorno manual no balcão.
+//
+// Status: 'requested' (Pix/cartão aguardando integração gateway), 'settled'
+// (dinheiro estornado com sangria automática, ou Pix/cartão confirmado),
+// 'failed' (estorno falhou).
+export const orderRefunds = pgTable(
+  "order_refund",
+  {
+    id: id(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    orderPaymentId: text("order_payment_id")
+      .notNull()
+      .references(() => orderPayments.id, { onDelete: "cascade" }),
+    amount: real("amount").notNull(),
+    method: paymentMethod("method").notNull(),
+    reason: text("reason").notNull(),
+    status: text("status").$type<OrderRefundStatus>().notNull().default("requested"),
+    requestedBy: text("requested_by")
+      .notNull()
+      .references(() => users.id),
+    requestedAt: text("requested_at").notNull(),
+    settledAt: text("settled_at"),
+    notes: text("notes"),
+    createdAt: text("created_at").notNull().default(isoNow),
+  },
+  (t) => [
+    index("idx_order_refund_order").on(t.orderId),
+    index("idx_order_refund_payment").on(t.orderPaymentId),
+    index("idx_order_refund_status").on(t.status),
+    check("chk_order_refund_amount", sql`${t.amount} > 0`),
+  ],
+);
+
+// ============================================================
+// Settlement iFood (Bloco 5 ROADMAP-CAIXA.md)
+// ============================================================
+//
+// Settlement de marketplace: separa receita bruta de repasse líquido.
+// Um settlement por pedido (UNIQUE em order_id). Para pedidos iFood, o payout_amount
+// é o que efetivamente a loja recebe após comissões e taxas. Para pedidos de outros
+// canais, o settlement é opcional (fallback: usar orders.total).
+//
+// Status: 'pending' (aguardando repasse), 'paid' (repasse confirmado),
+// 'failed' (repasse falhou).
+export const orderSettlements = pgTable(
+  "order_settlement",
+  {
+    id: id(),
+    orderId: text("order_id")
+      .notNull()
+      .unique()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    channel: text("channel").notNull(),
+    grossAmount: real("gross_amount").notNull(),
+    commissionAmount: real("commission_amount").notNull(),
+    marketplaceFee: real("marketplace_fee").notNull().default(0),
+    deliveryFeeSubsidy: real("delivery_fee_subsidy").notNull().default(0),
+    payoutAmount: real("payout_amount").notNull(),
+    payoutStatus: text("payout_status").$type<SettlementPayoutStatus>().notNull().default("pending"),
+    payoutExpectedAt: text("payout_expected_at"),
+    payoutSettledAt: text("payout_settled_at"),
+    externalRef: text("external_ref"),
+    notes: text("notes"),
+    createdAt: text("created_at").notNull().default(isoNow),
+    updatedAt: text("updated_at").notNull().default(isoNow),
+  },
+  (t) => [
+    index("idx_order_settlement_order").on(t.orderId),
+    index("idx_order_settlement_channel").on(t.channel),
+    index("idx_order_settlement_payout_status").on(t.payoutStatus),
+    index("idx_order_settlement_payout_expected_at").on(t.payoutExpectedAt),
+    check("chk_order_settlement_gross", sql`${t.grossAmount} >= 0`),
+    check("chk_order_settlement_commission", sql`${t.commissionAmount} >= 0`),
+    check("chk_order_settlement_fee", sql`${t.marketplaceFee} >= 0`),
+    check("chk_order_settlement_payout", sql`${t.payoutAmount} >= 0`),
+  ],
+);
+
