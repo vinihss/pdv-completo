@@ -1,10 +1,10 @@
-# Scripts de apoio
+# Scripts e ferramentas de desenvolvimento
 
 Índice único dos scripts do repositório. Cada domínio (deploy, build, dev) tem
 seus próprios scripts e seus próprios detalhes — as seções abaixo apontam onde
 procurar; este arquivo é o mapa, não o manual de cada um.
 
-## Porta de entrada
+## Localizar scripts
 
 `./pdv` (raiz do repo) é o dispatcher único: diagnóstico, dev, build, test,
 lint, banco, check pré-PR e os scripts de apoio de deploy/build. Sem
@@ -51,18 +51,14 @@ ou `cd ws-gateway && go test ./...` continuam equivalentes.
 | `lint all` | oxlint + gate de `gofmt -l .` em `ws-gateway/` (o mesmo `test -z` do CI: imprime os arquivos e falha) |
 | `check [backend\|frontend\|all]` | os "critérios de verificação gerais" do AGENTS.md: backend = build (tsc) + test; frontend = lint + build + test; all = os dois. Default: `all` |
 
-`./pdv db` — wrappers dos scripts npm do backend:
+Para deployment, use [`../deploy/README.md`](../deploy/README.md). Para validar testes/builds, consulte [`../docs/agent-testing.md`](../docs/agent-testing.md) e os comandos dos `package.json` do componente. Não use instruções antigas que mencionem um executável `./pdv` na raiz ou diretórios de serviço que não existam no checkout.
 
-| Subcomando | Script npm em `backend/` |
-|---|---|
-| `db migrate` | `db:migrate` |
-| `db migrate-registry` | `db:migrate:registry` |
-| `db generate` | `db:generate` |
-| `db seed` | `seed` |
-| `db seed-prod` | `seed:prod` |
-| `db deactivate-demo` | `db:deactivate-demo` |
+## Desenvolvimento manual
 
-## Convenções
+- Backend: `cd ../backend && npm ci`; consulte `../docs/agent-backend.md` para banco, ambiente e testes.
+- Frontend: `cd ../frontend && npm ci`; `npm run dev`, `npm run lint`, `npm run test` e `npm run build` conforme a tarefa.
+- Apps Rust/Tauri: use o workspace Cargo da raiz e os README de cada crate. Build exige toolchain Rust/Tauri e pode ter requisitos específicos de assinatura.
+- CLI: `cd ../cmd/pdv && go test ./...`; instalação via `build/install-cli.sh` depende da configuração descrita no próprio script.
 
 - Todo script começa com shebang (`#!/usr/bin/env bash`, ou `#!/bin/sh` quando
   é POSIX de propósito) e `set -euo pipefail` logo depois.

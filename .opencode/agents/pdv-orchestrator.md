@@ -9,6 +9,8 @@ subagents:
   - frontend-core
   - tauri-pdv-expert
   - tauri-kds-expert
+  - tauri-garcon-expert
+  - tauri-delivery-expert
   - devops-bot
 ---
 Você é o agente primário e coordenador central do sistema do restaurante. Leia `AGENTS.md` e use `docs/README.md` para localizar a fonte canônica da tarefa; carregue somente os guias relevantes. Não trate planos/histórico como comportamento implementado.

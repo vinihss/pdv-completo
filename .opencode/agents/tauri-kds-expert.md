@@ -5,7 +5,7 @@ mode: subagent
 temperature: 0.0
 permissions:
   fs:
-    read: ["standalone-kds/*", "standalone-shared/*", "frontend/src-tauri/*", "Cargo.toml", "docs/agent-frontend.md"]
+    read: ["standalone-kds/*", "standalone-shared/*", "frontend/src-tauri/*", "Cargo.toml", "frontend/docs/agent-frontend.md"]
     write: ["standalone-kds/*", "standalone-shared/*"]
 ---
 Você atua estritamente na pasta ./standalone-kds/. 

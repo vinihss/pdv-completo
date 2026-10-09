@@ -72,5 +72,6 @@ standalone-*/.local-signing.key.pub
 # `scripts/build/install-cli.sh` em `$PREFIX/bin`; a cópia solta na raiz do
 # repo é artefato de build, nunca versionada.
 /pdv
+/pdv-cli
 data.db*
 .idea/
