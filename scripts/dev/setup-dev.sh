@@ -5,13 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
-PRINTER_DIR="$ROOT_DIR/printer"
-DAEMON_DIR="$PRINTER_DIR/daemon"
-DAEMON_CONFIG="$DAEMON_DIR/config.json"
-DAEMON_URL="http://127.0.0.1:8080"
-MOCK_PORT=9100
 
-WITH_PRINTER=1
 DO_SEED=1
 
 usage() {
@@ -21,13 +15,12 @@ Uso: $(basename "$0") [opções]
   --no-seed      não roda o seed (preserva os dados do banco)
   -h, --help     esta ajuda
 
-Portas esperadas: backend 3000, frontend 5173, daemon 8080
+Portas esperadas: backend 3000, frontend 5173
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --no-printer) WITH_PRINTER=0; shift ;;
         --no-seed) DO_SEED=0; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Opção desconhecida: $1 (veja --help)" >&2; exit 2 ;;
@@ -62,17 +55,6 @@ pass "Node.js $(node -v)"
 
 command -v docker >/dev/null || die "Docker não encontrado. Instale o Docker e tente novamente."
 pass "Docker $(docker --version | cut -d' ' -f3 | tr -d ',')"
-
-if [[ "$WITH_PRINTER" -eq 1 ]]; then
-    command -v go >/dev/null || die \
-"Go não encontrado, e o daemon de impressão precisa dele para rodar em dev.
-
-Instale o Go 1.25+ (o printer/daemon/go.mod declara go 1.25.0), ou suba só o
-restante com:  bash scripts/setup-dev.sh --no-printer"
-    GO_MINOR="$(go env GOVERSION | sed 's/^go//' | cut -d. -f1 | cut -d. -f2)"
-    [[ "$GO_MINOR" -ge 25 ]] || warn "Go $(go env GOVERSION): o go.mod pede 1.25.0. Se o build reclamar, atualize."
-    pass "Go $(go env GOVERSION)"
-fi
 
 # -----------------------------------------------------------------
 # 2. backend/.env
@@ -136,7 +118,7 @@ fi
 
 
 # -----------------------------------------------------------------
-# 7. Backend e frontend
+# 6. Backend e frontend
 # -----------------------------------------------------------------
 echo ""
 echo "=== Backend e frontend ==="
@@ -162,7 +144,7 @@ else
 fi
 
 # -----------------------------------------------------------------
-# 8. Resumo
+# 7. Resumo
 # -----------------------------------------------------------------
 cat <<EOF
 
@@ -179,9 +161,6 @@ cat <<EOF
     Garçom     Ana Ribeiro   1234
     Gerente    Roberto Alves 9999
     Caixa      Caixa Teste   2468
-
-  Impressão: lance um pedido no perfil garçom e o cupom sai no terminal do
-  mock (verifique com: curl -s http://localhost:8080/api/jobs).
 
   Ctrl+C derruba tudo.
 

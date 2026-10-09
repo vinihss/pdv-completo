@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Search, Check, AlertTriangle } from "lucide-react";
-import { ScreenHeader } from "@/shared/components";
+import { ScreenHeader, ConfirmModal } from "@/shared/components";
 import { listCategories } from "@/entities/category";
 import { listAllProducts } from "@/entities/product";
 import { addItems as addOrderItems } from "@/entities/order";
@@ -21,10 +21,46 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
   const [variationModal, setVariationModal] = useState(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState(false);
+  const [recentlyAdded, setRecentlyAdded] = useState(null); // productId adicionado recentemente
+  const [showExitConfirmation, setShowExitConfirmation] = useState(false);
+  
+  // Carregar produtos frequentes do localStorage (últimos 6 produtos adicionados)
+  const [frequentProducts, setFrequentProducts] = useState([]);
+  
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(`frequent_products_${order.id}`);
+      if (stored) {
+        setFrequentProducts(JSON.parse(stored));
+      }
+    } catch {
+      // Ignora erros de localStorage
+    }
+  }, [order.id]);
+
+  async function loadCatalog() {
+    setCatalogLoading(true);
+    setCatalogError(false);
+    try {
+      const [cats, prods] = await Promise.all([
+        listCategories(),
+        listAllProducts({ active: "true" }),
+      ]);
+      setCategories(cats);
+      setProducts(prods.data);
+    } catch {
+      // Sem estado de erro a falha parecia catálogo vazio ("Nenhum produto
+      // encontrado."): o garçom não sabia se não havia produto ou se a rede caiu.
+      setCatalogError(true);
+    } finally {
+      setCatalogLoading(false);
+    }
+  }
 
   useEffect(() => {
-    listCategories().then(setCategories).catch(() => {});
-    listAllProducts({ active: "true" }).then(({ data }) => setProducts(data)).catch(() => {});
+    loadCatalog();
   }, []);
 
   const filteredProducts = products.filter((p) => {
@@ -34,18 +70,53 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
   });
 
   function addToCart(product, selectedVariations = {}) {
+    // Feedback visual: destacar produto recém-adicionado
+    setRecentlyAdded(product.id);
+    
     setCart((prev) => {
       const key = product.id + JSON.stringify(selectedVariations);
       const existing = prev[key];
-      return { ...prev, [key]: { product, quantity: (existing?.quantity ?? 0) + 1, selectedVariations, notes: existing?.notes ?? "" } };
+      const newCart = { ...prev, [key]: { product, quantity: (existing?.quantity ?? 0) + 1, selectedVariations, notes: existing?.notes ?? "" } };
+      return newCart;
     });
+    
+    // Salvar produto como frequente
+    try {
+      const frequentKey = `frequent_products_${order.id}`;
+      const current = JSON.parse(localStorage.getItem(frequentKey) || '[]');
+      const productId = product.id;
+      const updated = [productId, ...current.filter(id => id !== productId)].slice(0, 6);
+      localStorage.setItem(frequentKey, JSON.stringify(updated));
+      setFrequentProducts(updated);
+    } catch {
+      // Ignora erros de localStorage
+    }
   }
+
+  // Limpar destaque após 600ms
+  useEffect(() => {
+    if (recentlyAdded) {
+      const timer = setTimeout(() => setRecentlyAdded(null), 600);
+      return () => clearTimeout(timer);
+    }
+  }, [recentlyAdded]);
 
   function changeNotes(key, notes) {
     setCart((prev) => {
       const existing = prev[key];
       if (!existing) return prev;
       return { ...prev, [key]: { ...existing, notes } };
+    });
+  }
+
+  // Ajuste de quantidade no carrinho (`− / +`). Mínimo 1: remover é papel do
+  // botão de lixeira, então decrementar abaixo de 1 seria destrutivo e silencioso.
+  function changeQty(key, delta) {
+    setCart((prev) => {
+      const existing = prev[key];
+      if (!existing) return prev;
+      const quantity = Math.max(1, existing.quantity + delta);
+      return { ...prev, [key]: { ...existing, quantity } };
     });
   }
 
@@ -67,6 +138,14 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
   const cartCount = cartLines.reduce((sum, c) => sum + c.quantity, 0);
   const cartTotal = cartLines.reduce((sum, c) => sum + c.product.price * c.quantity, 0);
 
+  function handleExit() {
+    if (cartCount > 0) {
+      setShowExitConfirmation(true);
+    } else {
+      onClose();
+    }
+  }
+
   async function handleConfirmBatch() {
     setConfirming(true);
     try {
@@ -79,7 +158,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
       await addOrderItems(order.id, items);
       setTimeout(async () => {
         setConfirming(false);
-        await onConfirmed();
+        await onConfirmed(cartCount);
       }, 700);
     } catch (e) {
       setConfirming(false);
@@ -89,7 +168,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
 
   return (
     <div className="fixed inset-0 bg-stone-950 text-stone-50 z-40 flex flex-col">
-      <ScreenHeader title="Adicionar item" onBack={onClose} backLabel="Fechar lançamento" backIcon="close" />
+      <ScreenHeader title="Adicionar item" onBack={handleExit} backLabel="Fechar lançamento" backIcon="close" />
 
       <div className="px-5 pt-4 shrink-0">
         <div className="relative mb-3">
@@ -121,49 +200,139 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
       </div>
 
       <div className={`flex-1 overflow-y-auto px-5 pt-4 ${cartCount > 0 ? "pb-24" : "pb-6"}`}>
-        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {filteredProducts.map((p) => {
-            const addedQty = cartQtyForProduct(p.id);
-            // Com estoque habilitado e produto rastreado, saldo zero bloqueia
-            // a inclusão (o backend também valida no confirmar).
-            const outOfStock = stockEnabled && p.trackStock && p.quantity <= 0;
-            return (
+        {/* Seção de Produtos Frequentes */}
+        {frequentProducts.length > 0 && !search && !activeCategory && (
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-stone-300">Frequentemente adicionados</h3>
               <button
-                key={p.id}
-                onClick={() => !outOfStock && handleProductTap(p)}
-                disabled={outOfStock}
-                className={`relative overflow-hidden text-left rounded-2xl p-4 border transition-all active:scale-95 ${
-                  outOfStock
-                    ? "bg-stone-900 border-stone-800 opacity-50"
-                    : addedQty > 0
-                      ? "bg-emerald-500/10 border-emerald-500/50"
-                      : "bg-stone-800 border-stone-700 hover:bg-stone-750"
-                }`}
+                onClick={() => {
+                  try {
+                    localStorage.removeItem(`frequent_products_${order.id}`);
+                    setFrequentProducts([]);
+                  } catch {
+                    // Ignora erros
+                  }
+                }}
+                className="text-xs text-stone-500 hover:text-stone-300"
               >
-                {addedQty > 0 && !outOfStock && (
-                  <span className="absolute top-2 right-2 bg-emerald-500 text-emerald-950 text-xs font-bold min-w-[1.5rem] h-6 px-1 rounded-full flex items-center justify-center shadow-lg pop-anim">
-                    {addedQty}
-                  </span>
-                )}
-                {p.imagePath && (
-                  <img src={assetUrl(p.imagePath)} alt={p.name} className="w-full h-24 object-cover rounded-xl -mt-1 mb-2" />
-                )}
-                <div className="font-semibold text-sm mb-1 pr-6">{p.name}</div>
-                <div className="text-emerald-400 text-sm font-bold">{formatBRL(p.price)}</div>
-                {p.description && <div className="text-stone-500 text-xs mt-1 line-clamp-2">{p.description}</div>}
-                {p.variations?.length > 0 && <div className="text-stone-500 text-xs mt-1">Opções disponíveis</div>}
-                {outOfStock && (
-                  <div className="flex items-center gap-1 text-red-400 text-xs font-bold mt-1">
-                    <AlertTriangle size={12} /> Sem estoque
-                  </div>
-                )}
+                Limpar
               </button>
-            );
-          })}
-          {filteredProducts.length === 0 && (
-            <div className="col-span-2 text-stone-600 text-center py-12 text-sm">Nenhum produto encontrado.</div>
-          )}
-        </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {frequentProducts.map((productId) => {
+                const p = products.find(prod => prod.id === productId);
+                if (!p) return null;
+                
+                const addedQty = cartQtyForProduct(p.id);
+                const outOfStock = stockEnabled && p.trackStock && p.quantity <= 0;
+                
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => !outOfStock && handleProductTap(p)}
+                    disabled={outOfStock}
+                    className={`relative overflow-hidden text-left rounded-2xl p-4 border transition-all active:scale-95 ${
+                      outOfStock
+                        ? "bg-stone-900 border-stone-800 opacity-50"
+                        : recentlyAdded === p.id
+                          ? "bg-emerald-500/20 border-emerald-400 ring-2 ring-emerald-400 scale-105"
+                          : addedQty > 0
+                            ? "bg-emerald-500/10 border-emerald-500/50"
+                            : "bg-stone-800 border-stone-700 hover:bg-stone-750"
+                    }`}
+                  >
+                    {addedQty > 0 && !outOfStock && (
+                      <span className="absolute top-2 right-2 bg-emerald-500 text-emerald-950 text-xs font-bold min-w-[1.5rem] h-6 px-1 rounded-full flex items-center justify-center shadow-lg pop-anim">
+                        {addedQty}
+                      </span>
+                    )}
+                    {p.imagePath && (
+                      <img src={assetUrl(p.imagePath)} alt={p.name} className="w-full h-24 object-cover rounded-xl -mt-1 mb-2" />
+                    )}
+                    <div className="font-semibold text-sm mb-1 pr-6">{p.name}</div>
+                    <div className="text-emerald-400 text-sm font-bold">{formatBRL(p.price)}</div>
+                    {outOfStock && (
+                      <div className="flex items-center gap-1 text-red-400 text-xs font-bold mt-1">
+                        <AlertTriangle size={12} /> Sem estoque
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-4 mb-2 border-b border-stone-800"></div>
+          </div>
+        )}
+
+        {/* Filtrar produtos frequentes da lista principal para evitar duplicação */}
+        {(() => {
+          const filteredProductsForMain = frequentProducts.length > 0 && !search && !activeCategory
+            ? filteredProducts.filter(p => !frequentProducts.includes(p.id) || recentlyAdded === p.id)
+            : filteredProducts;
+          
+          return (
+            <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {filteredProductsForMain.map((p) => {
+                const addedQty = cartQtyForProduct(p.id);
+                const outOfStock = stockEnabled && p.trackStock && p.quantity <= 0;
+                
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => !outOfStock && handleProductTap(p)}
+                    disabled={outOfStock}
+                    className={`relative overflow-hidden text-left rounded-2xl p-4 border transition-all active:scale-95 ${
+                      outOfStock
+                        ? "bg-stone-900 border-stone-800 opacity-50"
+                        : recentlyAdded === p.id
+                          ? "bg-emerald-500/20 border-emerald-400 ring-2 ring-emerald-400 scale-105"
+                          : addedQty > 0
+                            ? "bg-emerald-500/10 border-emerald-500/50"
+                            : "bg-stone-800 border-stone-700 hover:bg-stone-750"
+                    }`}
+                  >
+                    {addedQty > 0 && !outOfStock && (
+                      <span className="absolute top-2 right-2 bg-emerald-500 text-emerald-950 text-xs font-bold min-w-[1.5rem] h-6 px-1 rounded-full flex items-center justify-center shadow-lg pop-anim">
+                        {addedQty}
+                      </span>
+                    )}
+                    {p.imagePath && (
+                      <img src={assetUrl(p.imagePath)} alt={p.name} className="w-full h-24 object-cover rounded-xl -mt-1 mb-2" />
+                    )}
+                    <div className="font-semibold text-sm mb-1 pr-6">{p.name}</div>
+                    <div className="text-emerald-400 text-sm font-bold">{formatBRL(p.price)}</div>
+                    {p.description && <div className="text-stone-500 text-xs mt-1 line-clamp-2">{p.description}</div>}
+                    {p.variations?.length > 0 && <div className="text-stone-500 text-xs mt-1">Opções disponíveis</div>}
+                    {outOfStock && (
+                      <div className="flex items-center gap-1 text-red-400 text-xs font-bold mt-1">
+                        <AlertTriangle size={12} /> Sem estoque
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+              {catalogLoading && (
+                <div className="col-span-full text-stone-600 text-center py-12 text-sm">Carregando catálogo…</div>
+              )}
+              {!catalogLoading && catalogError && (
+                <div className="col-span-full flex flex-col items-center gap-3 text-center py-12">
+                  <AlertTriangle size={22} className="text-amber-400" />
+                  <div className="text-stone-400 text-sm">Não foi possível carregar o catálogo.</div>
+                  <button
+                    onClick={loadCatalog}
+                    className="bg-stone-800 hover:bg-stone-750 border border-stone-700 text-stone-100 text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
+                  >
+                    Tentar novamente
+                  </button>
+                </div>
+              )}
+              {!catalogLoading && !catalogError && filteredProductsForMain.length === 0 && (
+                <div className="col-span-full text-stone-600 text-center py-12 text-sm">Nenhum produto encontrado.</div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {cartCount > 0 && (
@@ -196,9 +365,12 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
         <ReviewCartModal
           lines={cartLines}
           total={cartTotal}
+          count={cartCount}
+          kitchenEnabled={storeSettings?.kitchenEnabled ?? true}
           onClose={() => setReviewOpen(false)}
           onRemoveLine={(key) => setCart((prev) => { const next = { ...prev }; delete next[key]; return next; })}
           onChangeNotes={changeNotes}
+          onChangeQty={changeQty}
           onConfirm={handleConfirmBatch}
         />
       )}
@@ -210,6 +382,21 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
           </div>
           <div className="font-display text-lg font-bold">Itens adicionados!</div>
         </div>
+      )}
+
+      {showExitConfirmation && (
+        <ConfirmModal
+          title="Sair do lançamento?"
+          message={`Você tem ${cartCount} ${cartCount === 1 ? 'item' : 'itens'} no carrinho. Deseja sair e perder as alterações?`}
+          confirmLabel="Sair"
+          cancelLabel="Continuar editando"
+          destructive={true}
+          onConfirm={() => {
+            setShowExitConfirmation(false);
+            onClose();
+          }}
+          onCancel={() => setShowExitConfirmation(false)}
+        />
       )}
     </div>
   );

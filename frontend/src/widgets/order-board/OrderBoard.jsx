@@ -49,10 +49,19 @@ export default function OrderBoard() {
     if (openOrderIdShown) markRead(openOrderIdShown);
   }, [openOrderIdShown, markRead]);
 
-  async function handleItemsConfirmed() {
-    setOpenOrderId(null);
-    showToast("Itens lançados com sucesso.", "success");
-    await reloadAll();
+  // Depois de confirmar um lote, o garçom continua atendendo a MESMA mesa:
+  // recarregamos só esta comanda e permanecemos no detalhe. Voltar à lista é
+  // decisão dele (`onBack`), não efeito colateral do lançamento.
+  async function handleItemsConfirmed(count) {
+    const message = kitchenEnabled
+      ? count == null
+        ? "Itens enviados para a cozinha."
+        : `${count} ${count === 1 ? "item enviado" : "itens enviados"} para a cozinha.`
+      : count == null
+        ? "Itens confirmados."
+        : `${count} ${count === 1 ? "item confirmado" : "itens confirmados"}.`;
+    showToast(message, "success");
+    if (openOrderId) await reloadOne(openOrderId);
   }
 
   async function handleOpenNewOrder(identification) {
@@ -82,6 +91,14 @@ export default function OrderBoard() {
     );
   }
 
+  // Comandas abertas agrupadas por mesa para facilitar "continuar comanda"
+  const ordersByTable = orders.reduce((acc, order) => {
+    if (order.status === "open" && order.tableId) {
+      acc[order.tableId] = order;
+    }
+    return acc;
+  }, {});
+
   return (
     <>
       <OrderListScreen
@@ -98,7 +115,13 @@ export default function OrderBoard() {
         onReloadAll={reloadAll}
       />
       {newOrderOpen && (
-        <NewOrderModal usesTables={usesTables} onClose={() => setNewOrderOpen(false)} onConfirm={handleOpenNewOrder} />
+        <NewOrderModal
+          usesTables={usesTables}
+          ordersByTable={ordersByTable}
+          onClose={() => setNewOrderOpen(false)}
+          onConfirm={handleOpenNewOrder}
+          onOpenExisting={setOpenOrderId}
+        />
       )}
       <Toast toast={toast} />
     </>

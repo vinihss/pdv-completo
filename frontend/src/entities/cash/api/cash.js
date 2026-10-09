@@ -27,6 +27,6 @@ export function registerCashMovement(type, body) {
   return request("POST", `/cash-drawer/${type}`, { correlationId: newCorrelationId(), ...body });
 }
 
-export function closeCashDrawer(countedAmount, note) {
-  return request("POST", "/cash-drawer/close", { correlationId: newCorrelationId(), countedAmount, note });
+export function closeCashDrawer(body) {
+  return request("POST", "/cash-drawer/close", { correlationId: newCorrelationId(), ...body });
 }

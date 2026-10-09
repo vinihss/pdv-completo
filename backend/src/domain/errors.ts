@@ -264,4 +264,72 @@ export const Errors = {
     new AppError("device_revoked", 403, "Aparelho revogado."),
   deviceNotProvisioned: () =>
     new AppError("device_not_provisioned", 403, "Este aparelho não está vinculado a este usuário."),
+  // ---------- Fechamento de caixa com contagem (migration 0005) ----------
+  // Validações do fechamento com denominação: diferença acima da tolerância
+  // exige justificativa; acima do limite de alçada exige aprovação de gerente;
+  // soma das cédulas deve bater com o valor declarado.
+  closingJustificationRequired: (difference: number, tolerance: number) =>
+    new AppError(
+      "closing_justification_required",
+      422,
+      `Diferença de R$ ${Math.abs(difference).toFixed(2)} excede a tolerância de R$ ${tolerance.toFixed(2)}. Informe uma justificativa.`,
+      { difference, tolerance },
+    ),
+  closingApprovalRequired: (difference: number, threshold: number) =>
+    new AppError(
+      "closing_approval_required",
+      422,
+      `Diferença de R$ ${Math.abs(difference).toFixed(2)} excede o limite de R$ ${threshold.toFixed(2)}. Informe o PIN do gerente aprovador.`,
+      { difference, threshold },
+    ),
+  closingDenominationsMismatch: (expected: number, counted: number) =>
+    new AppError(
+      "closing_denominations_mismatch",
+      422,
+      `A soma das cédulas (R$ ${counted.toFixed(2)}) não confere com o valor informado (R$ ${expected.toFixed(2)}).`,
+      { expected, counted },
+    ),
+  // ---------- Classificação de sangrias/suprimentos (Bloco 6 ROADMAP-CAIXA.md) ----------
+  // Validações de categoria de movimento e alçada de aprovação para valores altos.
+  invalidMovementCategory: (allowed: string[]) =>
+    new AppError(
+      "invalid_movement_category",
+      422,
+      `Categoria de movimento inválida. Valores permitidos: ${allowed.join(", ")}.`,
+      { allowed },
+    ),
+  approvalRequired: (amount: number, threshold: number) =>
+    new AppError(
+      "approval_required",
+      403,
+      `Movimento de R$ ${amount.toFixed(2)} excede o limite de R$ ${threshold.toFixed(2)}. Aprovação necessária.`,
+      { amount, threshold },
+    ),
+  closingToleranceExceeded: (difference: number, tolerance: number) =>
+    new AppError(
+      "closing_tolerance_exceeded",
+      422,
+      `Diferença de R$ ${Math.abs(difference).toFixed(2)} excede a tolerância de R$ ${tolerance.toFixed(2)}. Informe uma justificativa.`,
+      { difference, tolerance },
+    ),
+  // ---------- Estorno de pagamentos (Bloco 4 ROADMAP-CAIXA.md) ----------
+  // Validações do estorno: pagamento precisa estar confirmado e o valor do
+  // estorno não pode exceder o valor do pagamento (nem a soma de estornos
+  // anteriores).
+  refundPaymentNotConfirmed: () =>
+    new AppError("payment_not_confirmed", 422, "Pagamento não confirmado. Confirme o pagamento antes de estornar."),
+  refundExceedsPayment: (requested: number, available: number) =>
+    new AppError(
+      "refund_exceeds_payment",
+      422,
+      `Estorno de R$ ${requested.toFixed(2)} excede o valor disponível (R$ ${available.toFixed(2)}).`,
+      { requested, available },
+    ),
+  // ---------- Settlement iFood (Bloco 5 ROADMAP-CAIXA.md) ----------
+  // Validações do settlement: pedido precisa estar fechado e não pode ter
+  // settlement duplicado (UNIQUE constraint em order_id).
+  settlementOrderNotClosed: () =>
+    new AppError("settlement_order_not_closed", 422, "Pedido deve estar fechado para registrar settlement."),
+  settlementAlreadyExists: () =>
+    new AppError("settlement_already_exists", 409, "Já existe settlement para este pedido."),
 };

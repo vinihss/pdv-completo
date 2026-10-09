@@ -1,5 +1,5 @@
 import {
-  BarChart3, Boxes, ChefHat, History, Home, Package, Receipt, Settings, ShoppingCart, Store, Truck, TruckIcon, Users, UtensilsCrossed, Wallet, LayoutDashboard, ClipboardList,
+  BarChart3, Boxes, ChefHat, History, Home, Package, Receipt, Settings, ShoppingCart, Store, Truck, TruckIcon, Users, UtensilsCrossed, Wallet, LayoutDashboard, ClipboardList, DollarSign,
 } from "lucide-react";
 
 /**
@@ -65,6 +65,7 @@ const MANAGER = ({ inventoryEnabled, purchaseEnabled, ifoodIntegrationEnabled })
         ],
       },
       { id: "audit", label: "Auditoria", icon: History },
+      { id: "settlement", label: "Settlements", icon: DollarSign },
     ],
   },
   {

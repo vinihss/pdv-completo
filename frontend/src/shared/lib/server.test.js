@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   apiUrl,
   assetUrl,
@@ -14,6 +14,11 @@ const KEY = "pdv:server";
 describe("server base", () => {
   beforeEach(() => {
     localStorage.clear();
+    delete window.__TAURI_INTERNALS__;
+  });
+
+  afterEach(() => {
+    delete window.__TAURI_INTERNALS__;
   });
 
   describe("sem servidor configurado (navegador)", () => {
@@ -38,6 +43,9 @@ describe("server base", () => {
 
   describe("com servidor configurado (app desktop)", () => {
     beforeEach(() => {
+      // O runtime desktop é detectado pelo `__TAURI_INTERNALS__` que o webview
+      // injeta — o mesmo marcador que `platform.js` (e o resto do app) usa.
+      window.__TAURI_INTERNALS__ = {};
       setServerBase("https://app.umamisushiarte.com.br");
     });
 

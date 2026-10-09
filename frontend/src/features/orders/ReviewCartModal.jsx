@@ -1,10 +1,29 @@
 import React, { useState } from "react";
-import { Pencil, Check, Trash2 } from "lucide-react";
+import { Pencil, Check, Trash2, Minus, Plus } from "lucide-react";
 import { variationsText } from "@/entities/order";
 import { formatBRL } from "@/shared/lib";
 import { Modal } from "@/shared/components";
 
-export default function ReviewCartModal({ lines, total, onClose, onRemoveLine, onChangeNotes, onConfirm }) {
+// Rótulo explícito com a quantidade do lote: "Enviar 4 itens para a cozinha"
+// (ou "Confirmar 4 itens" quando a loja não usa cozinha). Evita o genérico
+// "Confirmar lançamento" que não dizia o que ia acontecer nem quantos itens.
+function confirmLabel(count, kitchenEnabled) {
+  if (count == null) return "Confirmar lançamento";
+  const noun = count === 1 ? "item" : "itens";
+  return kitchenEnabled ? `Enviar ${count} ${noun} para a cozinha` : `Confirmar ${count} ${noun}`;
+}
+
+export default function ReviewCartModal({
+  lines,
+  total,
+  count,
+  kitchenEnabled,
+  onClose,
+  onRemoveLine,
+  onChangeNotes,
+  onChangeQty,
+  onConfirm,
+}) {
   const [editingNotes, setEditingNotes] = useState(null); // key da linha sendo editada
 
   return (
@@ -21,7 +40,7 @@ export default function ReviewCartModal({ lines, total, onClose, onRemoveLine, o
             onClick={onConfirm}
             className="w-full bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-semibold py-3.5 rounded-xl transition-colors"
           >
-            Confirmar lançamento
+            {confirmLabel(count, kitchenEnabled)}
           </button>
         </>
       }
@@ -33,17 +52,42 @@ export default function ReviewCartModal({ lines, total, onClose, onRemoveLine, o
           return (
             <div key={key ?? idx} className="bg-stone-800/60 rounded-xl px-3 py-2.5">
               <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-semibold">{line.quantity}× {line.product.name}</div>
-                  {variation && <div className="text-stone-500 text-xs">{variation}</div>}
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold truncate">{line.product.name}</div>
+                  {variation && <div className="text-stone-500 text-xs truncate">{variation}</div>}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 shrink-0">
                   <span className="text-emerald-400 text-sm font-semibold">{formatBRL(line.product.price * line.quantity)}</span>
-                  <button onClick={() => onRemoveLine(key)} className="text-stone-600 hover:text-red-400" aria-label={`Remover ${line.product.name}`}>
+                  <button onClick={() => onRemoveLine(key)} className="text-stone-600 hover:text-red-400 p-1" aria-label={`Remover ${line.product.name}`}>
                     <Trash2 size={14} />
                   </button>
                 </div>
               </div>
+
+              {/* Controles − / + com a quantidade no meio. Áreas de toque de
+                  36px (w-9 h-9); `−` desabilita em 1 porque remover segue na
+                  lixeira, nunca por decremento acidental. */}
+              <div className="mt-2 flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => onChangeQty(key, -1)}
+                  disabled={line.quantity <= 1}
+                  aria-label={`Diminuir ${line.product.name}`}
+                  className="w-9 h-9 flex items-center justify-center rounded-lg bg-stone-900 border border-stone-700 text-stone-200 transition-colors hover:bg-stone-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Minus size={16} />
+                </button>
+                <span className="w-8 text-center text-sm font-semibold tabular-nums">{line.quantity}</span>
+                <button
+                  type="button"
+                  onClick={() => onChangeQty(key, +1)}
+                  aria-label={`Aumentar ${line.product.name}`}
+                  className="w-9 h-9 flex items-center justify-center rounded-lg bg-stone-900 border border-stone-700 text-stone-200 transition-colors hover:bg-stone-700"
+                >
+                  <Plus size={16} />
+                </button>
+              </div>
+
               {/* Trigger: pencil + "observações" texto */}
               {editingNotes !== key ? (
                 <div

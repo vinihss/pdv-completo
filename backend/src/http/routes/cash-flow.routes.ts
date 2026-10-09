@@ -49,12 +49,38 @@ const movementSchema = z.object({
   correlationId: z.string(),
   amount: z.number().positive(),
   note: noteSchema,
+  // Bloco 6 (migration 0008): categoria obrigatória para classificar o movimento.
+  // Valores permitidos: sangria_operacional, suprimento_troco, pagamento_fornecedor, ajuste_inventario, outros.
+  category: z.enum([
+    "sangria_operacional",
+    "suprimento_troco",
+    "pagamento_fornecedor",
+    "ajuste_inventario",
+    "outros",
+  ]),
+  // Aprovador opcional para movimentos de alto valor (acima de cashHighValueThreshold).
+  // Se fornecido, o usuário deve ter role manager ou cashier.
+  approvedByUserId: z.string().optional(),
 });
 
 const closeSchema = z.object({
   correlationId: z.string(),
   countedAmount: z.number().min(0),
   note: noteSchema,
+  // Bloco 1 (migration 0005): fechamento com contagem por denominação,
+  // justificativa para diferença acima da tolerância e aprovação de gerente
+  // para diferença acima do limite configurável. Todos opcionais para manter
+  // compatibilidade com fechamentos simples.
+  denominations: z
+    .array(
+      z.object({
+        denomination: z.number().min(0),
+        quantity: z.number().int().min(0),
+      })
+    )
+    .optional(),
+  justification: z.string().max(500).optional(),
+  approvedBy: z.string().optional(),
 });
 
 // Caixa e gerente operam o fluxo de caixa.
@@ -110,6 +136,8 @@ export async function cashFlowRoutes(app: FastifyInstance) {
         type: "sangria",
         amount: body.amount,
         note: body.note,
+        category: body.category,
+        approvedByUserId: body.approvedByUserId,
       });
       return { status: 200, body: movement };
     }).then((r) => r.body);
@@ -123,6 +151,8 @@ export async function cashFlowRoutes(app: FastifyInstance) {
         type: "suprimento",
         amount: body.amount,
         note: body.note,
+        category: body.category,
+        approvedByUserId: body.approvedByUserId,
       });
       return { status: 200, body: movement };
     }).then((r) => r.body);
@@ -135,6 +165,9 @@ export async function cashFlowRoutes(app: FastifyInstance) {
         userId: req.authUser!.sub,
         countedAmount: body.countedAmount,
         note: body.note,
+        denominations: body.denominations,
+        justification: body.justification,
+        approvedBy: body.approvedBy,
       });
       return { status: 200, body: result };
     }).then((r) => r.body);

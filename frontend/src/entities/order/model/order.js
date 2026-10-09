@@ -31,3 +31,16 @@ export function orderAllDelivered(order) {
 export function pendingItems(order) {
   return order.items.filter((i) => i.status !== "delivered" && i.status !== "cancelled");
 }
+
+/**
+ * Contagem por estado dos itens da comanda, em linhas (mesma unidade que o
+ * card usa para "N itens"). Serve para resumos operacionais ("2 prontos · 3 em
+ * preparo") sem que a UI precise conhecer os estados crus do domínio.
+ */
+export function orderItemCounts(order) {
+  const counts = { ordered: 0, ready: 0, delivered: 0, cancelled: 0 };
+  for (const it of order?.items ?? []) {
+    if (counts[it.status] != null) counts[it.status] += 1;
+  }
+  return counts;
+}

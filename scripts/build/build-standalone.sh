@@ -23,7 +23,7 @@
 # "target_directory": "<repo>/target".
 #
 # O sidecar do daemon de impressão SAIU do build: `externalBin` saiu dos
-# confs e o script de sidecar não existe mais (printer reestruturado).
+# confs e o daemon foi reescrito fora deste repositório.
 #
 # O app v1 (frontend/src-tauri, em produção) tem o seu próprio
 # script: scripts/build/build-app.sh. Este arquivo não o substitui.

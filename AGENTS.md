@@ -326,10 +326,9 @@ Antes de dar qualquer mudança por feita:
 5. Conferir o critério de aceite correspondente em `docs/03-acceptance-criteria.md`
 6. Toda mudança realtime: garantir que o evento chega a um room que o client realmente assina
 7. Toda mudança de schema: novo arquivo `.sql` numerado em `backend/migrations/`
-8. Impressão (qualquer um dos dois renderizadores):
-   - daemon: `go build`, `go vet`, `test -z "$(gofmt -l .)"` e `go test ./...` em
+8. Impressão (renderizador Rust; o daemon Go saiu deste repo — reescrita à parte):
    - app Rust: `cargo test -p pdv-caixa` na raiz, e **`rust_imprime_o_mesmo_que_o_go`
-     tem que passar** — é o golden byte a byte com o daemon. Ele NÃO pega erro na
+     tem que passar** — é o golden byte a byte do cupom. Ele NÃO pega erro na
      conversão de code page (o golden compara o render lógico, em UTF-8), então
      uma mudança em `codepage.rs` precisa de teste próprio de bytes, não só o green
    - `cargo fmt` em arquivo que você não mexeu reformata código de outra pessoa:

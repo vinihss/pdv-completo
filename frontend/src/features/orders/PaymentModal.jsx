@@ -184,6 +184,28 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
       }
     >
       <div className="p-5">
+        {/* Resumo do pagamento */}
+        <div className="mb-4 bg-stone-900 border border-stone-700 rounded-xl p-4 space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-stone-400">Total da comanda</span>
+            <span className="font-semibold text-stone-100">{formatBRL(total)}</span>
+          </div>
+          {sumAmount > 0 && (
+            <>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-stone-400">Já registrado</span>
+                <span className="font-semibold text-emerald-400">{formatBRL(sumAmount)}</span>
+              </div>
+              <div className="border-t border-stone-700 pt-2 flex items-center justify-between text-sm">
+                <span className="text-stone-400">Restante</span>
+                <span className={`font-bold ${balanced ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {formatBRL(Math.max(0, remaining))}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+
         <div
           className={`mb-4 text-xs rounded-xl px-3 py-2.5 border ${
             balanced

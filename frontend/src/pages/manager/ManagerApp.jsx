@@ -17,6 +17,7 @@ import PurchaseTab from "./tabs/purchase/PurchaseTab.jsx";
 import CustomersTab from "./tabs/customers/CustomersTab.jsx";
 import ManagerHome from "./tabs/home/ManagerHome.jsx";
 import ProfilePage from "./tabs/profile/ProfilePage";
+import SettlementTab from "./tabs/settlement/SettlementTab.jsx";
 import { useAuth } from "@/app/providers/auth";
 import { useNav } from "@/app/providers/nav";
 
@@ -54,6 +55,7 @@ export default function ManagerApp() {
     "reports.cashflow": <CashFlowReportTab showToast={showToast} />,
     ifood: <IfoodTab showToast={showToast} />,
     audit: <AuditTab />,
+    settlement: <SettlementTab showToast={showToast} />,
     profile: <ProfilePage showToast={showToast} />,
     // Sem tela "whatsapp": o painel do WhatsApp mora em Configurações
     // (SettingsTab), atrás do toggle "Integração WhatsApp". Um activeId

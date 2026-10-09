@@ -1,12 +1,13 @@
 import { and, eq, notInArray, sql } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
-import { orders, orderItems, orderPayments, deliveries, storeSettings } from "../../infra/db/schema.js";
+import { orders, orderItems, orderPayments, deliveries, storeSettings, alerts } from "../../infra/db/schema.js";
 import { SYSTEM_USER_ID } from "../../domain/constants.js";
 import { round2 } from "../../domain/money.js";
 import { Errors } from "../../domain/errors.js";
 import { canTransitionDelivery } from "../../domain/customer-order-state.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
+import { findOpenDrawerTx } from "../../application/cash-flow/cash-flow.usecases.js";
 
 // Retorno de status do iFood → ciclo de vida local da comanda. O iFood é a
 // fonte da verdade do pedido externo: CANCELLED/STALE encerram sem venda,
@@ -80,7 +81,7 @@ export async function concludeIfoodOrder(orderRef: string): Promise<boolean> {
 
     if (payment) {
       // Pagamento já recebido pelo iFood — grava como linha de pagamento
-      // confirmada cobrindo o total da comanda (snapshot unit_price + taxa).
+      // cobrindo o total da comanda (snapshot unit_price + taxa).
       // unit_price e quantity são real/integer: o produto no Postgres é
       // double precision, então SUM devolve number (não string de bigint).
       const [sumRow] = await tx
@@ -89,15 +90,39 @@ export async function concludeIfoodOrder(orderRef: string): Promise<boolean> {
         .where(and(eq(orderItems.orderId, order.id), notInArray(orderItems.status, ["cancelled"])));
       const itemSum = sumRow?.sum ?? 0;
       const total = round2(Number(itemSum) + (order.deliveryFee ?? 0));
+
+      // confirmedAt: usar o momento da venda (order.openedAt), não o momento
+      // do webhook. O iFood não fornece explicitamente o timestamp da venda
+      // no payload de conclusão; openedAt é o proxy mais consistente e
+      // garante que computeCashSummary filtre corretamente por [openedAt, closedAt].
+      const confirmedAt = order.openedAt;
+
+      // Para pagamentos em dinheiro, verificar se há caixa aberto. Se não
+      // houver, gravar como pendente (confirmed=false) e gerar alerta para
+      // o operador confirmar quando abrir o caixa.
+      let confirmed = true;
+      let finalConfirmedAt: string | null = confirmedAt;
+      let finalConfirmedBy: string | null = SYSTEM_USER_ID;
+
+      if (payment.method === "cash") {
+        const openDrawer = await findOpenDrawerTx(tx);
+        if (!openDrawer) {
+          // Caixa fechado: pagamento pendente, aguardando confirmação manual
+          confirmed = false;
+          finalConfirmedAt = null;
+          finalConfirmedBy = null;
+        }
+      }
+
       await tx.insert(orderPayments)
         .values({
           orderId: order.id,
           method: payment.method,
           amount: total,
           received: payment.method === "cash" ? total : null,
-          confirmed: true,
-          confirmedAt: new Date().toISOString(),
-          confirmedBy: SYSTEM_USER_ID,
+          confirmed,
+          confirmedAt: finalConfirmedAt,
+          confirmedBy: finalConfirmedBy,
           createdBy: SYSTEM_USER_ID,
         })
         ;
@@ -105,11 +130,37 @@ export async function concludeIfoodOrder(orderRef: string): Promise<boolean> {
       await tx.update(orders)
         .set({
           paymentMethod: payment.method,
-          paymentConfirmedAt: new Date().toISOString(),
-          paymentConfirmedBy: SYSTEM_USER_ID,
+          paymentConfirmedAt: finalConfirmedAt,
+          paymentConfirmedBy: finalConfirmedBy,
         })
         .where(eq(orders.id, order.id))
         ;
+
+      // Se pagamento em dinheiro com caixa fechado, gerar alerta para o
+      // operador abrir o caixa e confirmar o recebimento.
+      if (!confirmed) {
+        const orderLabel = order.tabLabel ?? (order.tableId ? `Mesa` : `Pedido`);
+        const title = `Pagamento iFood pendente: ${orderLabel}`;
+        // Formatar valor em formato brasileiro (R$ 19,00 em vez de 19.00)
+        const valorFormatado = total.toFixed(2).replace(".", ",");
+        const body = `Pedido ${order.externalRef ?? order.id} no valor de R$ ${valorFormatado} em dinheiro. Abra o caixa e confirme o recebimento.`;
+        
+        await tx.insert(alerts).values({
+          kind: "ifood_cash_pending",
+          title,
+          body,
+          orderId: order.id,
+          audienceRoles: ["manager", "cashier"],
+        });
+
+        // Enqueue evento para o room alerts (realtime)
+        await enqueueEvent(tx, "alerts", "alert.created", {
+          kind: "ifood_cash_pending",
+          orderId: order.id,
+          title,
+          body,
+        });
+      }
     }
 
     await tx.update(orders)
