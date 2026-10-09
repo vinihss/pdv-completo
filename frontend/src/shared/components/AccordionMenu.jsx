@@ -16,12 +16,9 @@ function MenuItem({ item, active, onSelect, nested = false }) {
       type="button"
       onClick={() => onSelect(item.id)}
       aria-current={active ? "page" : undefined}
-      className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors ${
-        // O submenu recua um nível para o olho achar o pai — sem isso os
-        // filhos ficam alinhados com "Gestão"/"Auditoria" e o usuário perde a
-        // noção de que pertencem a "Relatórios".
+      className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors relative ${
         nested ? "pl-7" : ""
-      } ${active ? "bg-amber-500 text-stone-950 font-semibold" : "text-stone-400 hover:text-stone-100 hover:bg-stone-800/60"}`}
+      } ${active ? "bg-amber-500/10 text-amber-400 font-semibold border-l-2 border-amber-500 pl-2.5" : "text-stone-400 hover:text-stone-100 hover:bg-stone-800/60"}`}
     >
       <item.icon size={nested ? 14 : 15} className="shrink-0" />
       <span className="truncate text-left">{item.label}</span>
@@ -101,8 +98,8 @@ export default function AccordionMenu({ sections, activeId, onSelect, variant = 
               aria-controls={`menu-section-${section.id}`}
               className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-stone-500 hover:text-stone-200 hover:bg-stone-800/40 transition-colors"
             >
-              <section.icon size={13} className="shrink-0" />
-              <span className="text-[11px] font-bold uppercase tracking-wider truncate text-left">{section.label}</span>
+              <section.icon size={12} className="shrink-0 opacity-50" />
+              <span className="text-[10px] font-bold uppercase tracking-widest truncate text-left opacity-60">{section.label}</span>
               {sectionBadge > 0 && (
                 <span className="bg-red-500/20 text-red-400 rounded-full min-w-[1.1rem] h-[1.1rem] px-1 flex items-center justify-center text-[10px] font-bold">
                   {sectionBadge}
