@@ -202,7 +202,7 @@ export function appProfilePlugin({ appProfile = ALL } = {}) {
 
     async closeBundle() {
       const [swSource, manifestSource] = await Promise.all([
-        readFile(path.join(root, "public", "sw.js"), "utf8"),
+        readFile(path.join(root, "public", "sw-v2.js"), "utf8"),
         readFile(path.join(root, "public", "manifest.json"), "utf8"),
       ]);
 
@@ -215,7 +215,7 @@ export function appProfilePlugin({ appProfile = ALL } = {}) {
         profile === ALL ? manifestSource : patchManifest(manifestSource, profile);
 
       const pending = [];
-      if (swNext !== swSource) pending.push(["sw.js", swNext]);
+      if (swNext !== swSource) pending.push(["sw-v2.js", swNext]);
       if (manifestNext !== manifestSource) pending.push(["manifest.json", manifestNext]);
 
       for (const [name, content] of pending) {
