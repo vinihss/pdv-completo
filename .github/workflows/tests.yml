@@ -224,12 +224,10 @@ jobs:
         # saúde. Tirar os ~8s não deixa o passo em 4s, deixa em ~16s. Quem
         # quiser esse resto precisa de outra coisa (imagem em registry
         # próprio, ou serviço gerenciado) — mexer neste intervalo não chega lá.
-        # Healthcheck: pg_isready a cada 2s (não 10s) porque o Postgres fica
-        # pronto em ~2,1s. Com 10s, o job esperava ~12s por um banco que já
-        # estava pronto. Detalhes medidos no doc do arquivo.
         #
-        # O bloco `options` contém APENAS as flags do Docker, sem comentários.
-        # Comentários YAML dentro de folded scalars (>-) quebram a sintaxe.
+        # ATENÇÃO: o `options` abaixo é um folded scalar (`>-`). Tudo que estiver
+        # indentado nele é repassado ao `docker create`; um `#` aí dentro NÃO é
+        # comentário, é conteúdo — mantenha os comentários acima desta linha.
         options: >-
           --health-cmd "pg_isready -U pdv -d pdv_test"
           --health-interval 2s
