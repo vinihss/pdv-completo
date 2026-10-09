@@ -192,4 +192,38 @@ describe("OrderListScreen", () => {
     // Deve atualizar o aria-label do botão
     expect(screen.getByLabelText(/Modo de visualização: Grade pequena/)).toBeTruthy();
   });
+
+  it("busca encontra comanda por número da mesa", () => {
+    const orders = [
+      {
+        id: "o1",
+        status: "open",
+        tableNumber: "12",
+        tableId: "t1",
+        items: [],
+        openedAt: "2026-01-01T10:00:00Z",
+      },
+    ];
+    const { rerender } = render(<OrderListScreen {...defaultProps} orders={orders} search="" />);
+    rerender(<OrderListScreen {...defaultProps} orders={orders} search="12" />);
+    
+    expect(screen.getByText("Mesa 12")).toBeTruthy();
+  });
+
+  it("busca encontra comanda por nome do cliente", () => {
+    const orders = [
+      {
+        id: "o1",
+        status: "open",
+        customerName: "João Silva",
+        tableId: null,
+        items: [],
+        openedAt: "2026-01-01T10:00:00Z",
+      },
+    ];
+    const { rerender } = render(<OrderListScreen {...defaultProps} orders={orders} search="" />);
+    rerender(<OrderListScreen {...defaultProps} orders={orders} search="João" />);
+    
+    expect(screen.getByText("João Silva")).toBeTruthy();
+  });
 });

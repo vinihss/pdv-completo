@@ -56,6 +56,31 @@ function workSummary(order, kitchenEnabled) {
   return null;
 }
 
+// Busca robusta: verifica número da mesa, nome do cliente e rótulo da comanda.
+// Permite buscar por "12" e encontrar "Mesa 12", ou por "João" e encontrar
+// comandas do cliente João, mesmo que o rótulo seja diferente.
+function matchesSearch(order, query) {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  
+  // Busca por número da mesa (ex: "12" encontra "Mesa 12")
+  if (order.tableNumber && String(order.tableNumber).toLowerCase().includes(q)) {
+    return true;
+  }
+  
+  // Busca por nome do cliente
+  if (order.customerName && order.customerName.toLowerCase().includes(q)) {
+    return true;
+  }
+  
+  // Busca por rótulo da comanda
+  if (orderLabel(order).toLowerCase().includes(q)) {
+    return true;
+  }
+  
+  return false;
+}
+
 export default function OrderListScreen({ orders, loading, kitchenEnabled, usesTables, filter, setFilter, search, setSearch, onOpenOrder, onNewOrder, onReloadAll }) {
   const [viewMode, setViewMode] = useState(() => {
     try {
@@ -107,10 +132,7 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
           if (filter === "ready" && !orderHasReady(o)) return false;
           if (filter === "table" && !o.tableId) return false;
           if (filter === "customer" && o.tableId) return false;
-          if (search) {
-            const q = search.toLowerCase();
-            if (!orderLabel(o).toLowerCase().includes(q)) return false;
-          }
+          if (!matchesSearch(o, search)) return false;
           return true;
         })
         .sort((a, b) => {
