@@ -1,9 +1,16 @@
 // Package tui implementa a interface interativa do PDV CLI usando Bubble Tea.
 //
-// A TUI fornece um menu-driven interface para gerenciamento de tenants,
+// Arquitetura inspirada em aplicações Charm (Glow, Wishlist, Soft Serve):
+// - Componentes reutilizáveis (Menu, List, Form, Spinner)
+// - Keybindings estilo Vim (j/k, h/l, g/G)
+// - Tema visual rico com ícones Unicode e cores harmoniosas
+// - Status bar persistente com ajuda contextual
+// - State machine pattern para transições entre telas
+//
+// A TUI fornece uma interface menu-driven para gerenciamento de tenants,
 // substituindo a necessidade de decorar subcomandos e flags. Toda operação
 // disponível via CLI tradicional está acessível aqui com feedback visual
-// em tempo real.
+// em tempo real e animações suaves.
 package tui
 
 import (
@@ -11,35 +18,15 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"pdv-cli/internal/ops"
 )
 
-// Model principal da TUI. Segue o padrão Elm (Model-Update-View).
-// Mantém o estado atual da aplicação: qual tela está ativa, tenants
-// carregados, operação em andamento, etc.
-type Model struct {
-	// Estado da navegação
-	screen    Screen
-	tenantIdx int
-	actionIdx int
+// ============================================================
+// TIPOS DE DADO
+// ============================================================
 
-	// Dados
-	tenants    []Tenant
-	selected   *Tenant
-	loading    bool
-	statusMsg  string
-	statusType StatusType
-
-	// Formulários
-	form      FormModel
-	formMode  FormMode
-	confirm   bool
-	confirmFn func() tea.Cmd
-}
-
-// Screen define as telas disponíveis na TUI.
+// Screen define as telas disponíveis na TUI (state machine)
 type Screen int
 
 const (
@@ -52,7 +39,7 @@ const (
 	ScreenLoading
 )
 
-// StatusType define o tipo de mensagem de status (para colorização).
+// StatusType define o tipo de mensagem de status
 type StatusType int
 
 const (
@@ -62,7 +49,7 @@ const (
 	StatusError
 )
 
-// Tenant representa um tenant carregado do registry.
+// Tenant representa um tenant carregado do registry
 type Tenant struct {
 	ID          int
 	Slug        string
@@ -74,7 +61,7 @@ type Tenant struct {
 	StoreConfig *StoreConfig
 }
 
-// StoreConfig representa as configurações da loja (store_settings).
+// StoreConfig representa as configurações da loja (store_settings)
 type StoreConfig struct {
 	MerchantName    string
 	PrintEnabled    bool
@@ -83,23 +70,7 @@ type StoreConfig struct {
 	WhatsAppEnabled bool
 }
 
-// FormModel mantém o estado do formulário ativo.
-type FormModel struct {
-	fields    []FormField
-	fieldIdx  int
-	submitted bool
-}
-
-// FormField representa um campo editável no formulário.
-type FormField struct {
-	Label       string
-	Value       string
-	Placeholder string
-	Required    bool
-	Multiline   bool
-}
-
-// FormMode define qual formulário está ativo.
+// FormMode define qual formulário está ativo
 type FormMode int
 
 const (
@@ -111,7 +82,10 @@ const (
 	FormEditConfig
 )
 
-// Mensagens do sistema (eventos que atualizam o model).
+// ============================================================
+// MENSAGENS DO SISTEMA
+// ============================================================
+
 type (
 	tenantsLoadedMsg struct {
 		tenants []Tenant
@@ -121,280 +95,324 @@ type (
 		tenant Tenant
 		err    error
 	}
-	tenantUpdatedMsg struct {
-		tenant Tenant
-		err    error
-	}
 	actionCompletedMsg struct {
 		action string
 		err    error
 	}
-	statusMsg struct {
-		msg  string
-		typ  StatusType
-	}
 )
 
-// NewModel cria um model inicial com a tela de menu.
+// ============================================================
+// MODEL PRINCIPAL
+// ============================================================
+
+// Model é o estado central da TUI (padrão Elm)
+type Model struct {
+	// Navegação e estado
+	screen    Screen
+	keys      KeyMap
+	spinner   SpinnerModel
+	statusBar StatusBarModel
+
+	// Dados
+	tenants  []Tenant
+	selected *Tenant
+
+	// Componentes reutilizáveis
+	menu       MenuModel
+	list       ListModel
+	form       FormModel
+	helpBar    HelpBarModel
+	confirmFn  func() tea.Cmd
+	formMode   FormMode
+}
+
+// NewModel cria um model inicial com menu principal
 func NewModel() Model {
+	menu := NewMenu("PDV - Gerenciamento de Tenants", []MenuItem{
+		{Label: "Listar tenants", Description: "ver todos os tenants cadastrados", Action: "list"},
+		{Label: "Adicionar novo tenant", Description: "provisionar schema + migrations", Action: "add"},
+		{Label: "Status dos serviços", Description: "verificar health dos containers", Action: "status"},
+		{Label: "Reset PIN do manager", Description: "redefinir acesso de um tenant", Action: "reset-pin"},
+		{Label: "Editar configurações", Description: "ajustar store_settings", Action: "edit-config"},
+		{Label: "Backup/dump do tenant", Description: "exportar schema para SQL", Action: "dump"},
+	})
+
 	return Model{
-		screen:  ScreenMenu,
-		loading: false,
+		screen:    ScreenMenu,
+		keys:      DefaultKeyMap(),
+		spinner:   NewSpinner(),
+		statusBar: NewStatusBar(),
+		menu:      menu,
+		list:      NewList("Tenants Cadastrados", "Nenhum tenant encontrado. Pressione 'a' para adicionar."),
+		helpBar:   NewHelpBar(defaultHelpItems()),
 	}
 }
 
-// Init é chamado quando a TUI inicia. Pode retornar um Cmd para
-// carregar dados iniciais (ex: listar tenants).
+// defaultHelpItems retorna os itens de ajuda padrão
+func defaultHelpItems() []HelpItem {
+	return []HelpItem{
+		{Key: "↑/↓", Desc: "navegar"},
+		{Key: "enter", Desc: "selecionar"},
+		{Key: "esc", Desc: "voltar"},
+		{Key: "q", Desc: "sair"},
+	}
+}
+
+// ============================================================
+// INIT
+// ============================================================
+
+// Init é chamado quando a TUI inicia
 func (m Model) Init() tea.Cmd {
 	return nil
 }
 
-// Update processa eventos (teclas, mensagens do sistema) e retorna
-// o novo estado do model + comandos a executar.
+// ============================================================
+// UPDATE
+// ============================================================
+
+// Update processa eventos e atualiza o estado
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Spinner sempre processa mensagens quando ativo
+	var spinnerCmd tea.Cmd
+	m.spinner, spinnerCmd = m.spinner.Update(msg)
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 
+	case tea.WindowSizeMsg:
+		// Redimensionamento de janela não precisa de tratamento especial
+		return m, nil
+
 	case tenantsLoadedMsg:
+		m.spinner.Stop()
 		if msg.err != nil {
-			m.statusMsg = fmt.Sprintf("Erro ao carregar tenants: %v", msg.err)
-			m.statusType = StatusError
+			m.statusBar.SetMessage(fmt.Sprintf("Erro ao carregar tenants: %v", msg.err), StatusError)
 		} else {
 			m.tenants = msg.tenants
-			m.statusMsg = fmt.Sprintf("%d tenants carregados", len(msg.tenants))
-			m.statusType = StatusSuccess
+			m.list.SetItems(m.tenantsToListItems())
+			m.statusBar.SetMessage(fmt.Sprintf("%d tenants carregados", len(msg.tenants)), StatusSuccess)
 		}
-		m.loading = false
 		return m, nil
 
 	case tenantCreatedMsg:
-		m.loading = false
+		m.spinner.Stop()
 		if msg.err != nil {
-			m.statusMsg = fmt.Sprintf("Erro ao criar tenant: %v", msg.err)
-			m.statusType = StatusError
+			m.statusBar.SetMessage(fmt.Sprintf("Erro ao criar tenant: %v", msg.err), StatusError)
 			return m, nil
 		}
-		m.statusMsg = fmt.Sprintf("Tenant '%s' criado com sucesso", msg.tenant.Slug)
-		m.statusType = StatusSuccess
+		m.statusBar.SetMessage(fmt.Sprintf("Tenant '%s' criado com sucesso", msg.tenant.Slug), StatusSuccess)
 		m.screen = ScreenList
 		// Recarrega a lista
-		return m, m.loadTenantsCmd()
+		return m, tea.Batch(m.loadTenantsCmd(), spinnerCmd)
 
 	case actionCompletedMsg:
-		m.loading = false
+		m.spinner.Stop()
 		if msg.err != nil {
-			m.statusMsg = fmt.Sprintf("Erro em %s: %v", msg.action, msg.err)
-			m.statusType = StatusError
+			m.statusBar.SetMessage(fmt.Sprintf("Erro em %s: %v", msg.action, msg.err), StatusError)
 		} else {
-			m.statusMsg = fmt.Sprintf("%s concluído com sucesso", msg.action)
-			m.statusType = StatusSuccess
+			m.statusBar.SetMessage(fmt.Sprintf("%s concluído com sucesso", msg.action), StatusSuccess)
 		}
-		return m, nil
-
-	case statusMsg:
-		m.statusMsg = msg.msg
-		m.statusType = msg.typ
 		return m, nil
 	}
 
-	return m, nil
+	return m, spinnerCmd
 }
 
-// handleKey processa entrada de teclado. A lógica varia conforme a tela ativa.
+// handleKey processa entrada de teclado
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Ctrl+C sempre sai
-	if msg.String() == "ctrl+c" {
-		return m, tea.Quit
+	keyStr := msg.String()
+
+	// Quit sempre funciona (exceto em formulários)
+	if m.screen != ScreenAdd && m.screen != ScreenEdit {
+		if keyStr == "q" || keyStr == "ctrl+c" {
+			return m, tea.Quit
+		}
 	}
 
 	switch m.screen {
 	case ScreenMenu:
-		return m.handleMenuKey(msg)
+		return m.handleMenuKey(keyStr)
 	case ScreenList:
-		return m.handleListKey(msg)
+		return m.handleListKey(keyStr)
 	case ScreenDetail:
-		return m.handleDetailKey(msg)
+		return m.handleDetailKey(keyStr)
 	case ScreenAdd, ScreenEdit:
 		return m.handleFormKey(msg)
 	case ScreenConfirm:
-		return m.handleConfirmKey(msg)
+		return m.handleConfirmKey(keyStr)
+	case ScreenLoading:
+		return m, nil
 	}
 
 	return m, nil
 }
 
-// handleMenuKey navega no menu principal.
-func (m Model) handleMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "q", "esc":
-		return m, tea.Quit
+// handleMenuKey navega no menu principal
+func (m Model) handleMenuKey(keyStr string) (tea.Model, tea.Cmd) {
+	switch keyStr {
 	case "up", "k":
-		if m.actionIdx > 0 {
-			m.actionIdx--
-		}
+		m.menu.SelectMove(-1)
 	case "down", "j":
-		if m.actionIdx < 5 { // 6 opções no menu principal
-			m.actionIdx++
-		}
+		m.menu.SelectMove(1)
+	case "g":
+		m.menu.cursor = 0
+	case "G":
+		m.menu.cursor = len(m.menu.items) - 1
 	case "enter":
 		return m.executeMenuAction()
 	}
 	return m, nil
 }
 
-// executeMenuAction executa a ação selecionada no menu principal.
+// executeMenuAction executa a ação selecionada no menu
 func (m Model) executeMenuAction() (tea.Model, tea.Cmd) {
-	switch m.actionIdx {
-	case 0: // Listar tenants
+	item := m.menu.SelectedItem()
+	if item == nil {
+		return m, nil
+	}
+
+	switch item.Action {
+	case "list":
 		m.screen = ScreenList
-		m.loading = true
+		m.spinner.Start("Carregando tenants...")
 		return m, m.loadTenantsCmd()
-	case 1: // Adicionar tenant
+	case "add":
 		m.screen = ScreenAdd
 		m.formMode = FormAddTenant
-		m.form = newTenantForm()
-	case 2: // Status dos serviços
-		m.statusMsg = "Verificando status dos serviços..."
-		m.statusType = StatusInfo
-		m.loading = true
+		m.form = m.newTenantForm()
+	case "status":
+		m.spinner.Start("Verificando status dos serviços...")
 		return m, m.checkServicesCmd()
-	case 3: // Reset PIN
-		if len(m.tenants) > 0 {
+	case "reset-pin":
+		if len(m.tenants) == 0 {
+			m.statusBar.SetMessage("Nenhum tenant disponível. Carregue a lista primeiro.", StatusWarning)
+		} else {
 			m.screen = ScreenList
-			m.loading = true
+			m.spinner.Start("Carregando tenants...")
 			return m, m.loadTenantsCmd()
 		}
-		m.statusMsg = "Nenhum tenant disponível. Carregue a lista primeiro."
-		m.statusType = StatusWarning
-	case 4: // Configurações
-		m.statusMsg = "Selecione um tenant na lista para editar configurações"
-		m.statusType = StatusInfo
-	case 5: // Backup
-		m.statusMsg = "Selecione um tenant na lista para fazer backup"
-		m.statusType = StatusInfo
+	case "edit-config":
+		m.statusBar.SetMessage("Selecione um tenant na lista para editar configurações", StatusInfo)
+	case "dump":
+		m.statusBar.SetMessage("Selecione um tenant na lista para fazer backup", StatusInfo)
 	}
 	return m, nil
 }
 
-// handleListKey navega na lista de tenants.
-func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "q", "esc":
+// handleListKey navega na lista de tenants
+func (m Model) handleListKey(keyStr string) (tea.Model, tea.Cmd) {
+	switch keyStr {
+	case "esc", "h":
 		m.screen = ScreenMenu
-		m.actionIdx = 0
 	case "up", "k":
-		if m.tenantIdx > 0 {
-			m.tenantIdx--
-		}
+		m.list.MoveCursor(-1)
 	case "down", "j":
-		if m.tenantIdx < len(m.tenants)-1 {
-			m.tenantIdx++
-		}
+		m.list.MoveCursor(1)
+	case "g":
+		m.list.cursor = 0
+	case "G":
+		m.list.cursor = len(m.list.items) - 1
 	case "enter":
-		if len(m.tenants) > 0 {
-			t := m.tenants[m.tenantIdx]
-			m.selected = &t
-			m.screen = ScreenDetail
+		if item := m.list.SelectedItem(); item != nil {
+			idx := m.list.cursor
+			if idx < len(m.tenants) {
+				t := m.tenants[idx]
+				m.selected = &t
+				m.screen = ScreenDetail
+			}
 		}
 	case "a":
 		m.screen = ScreenAdd
 		m.formMode = FormAddTenant
-		m.form = newTenantForm()
+		m.form = m.newTenantForm()
+	case "ctrl+r", "R":
+		m.spinner.Start("Atualizando lista...")
+		return m, m.loadTenantsCmd()
 	}
 	return m, nil
 }
 
-// handleDetailKey gerencia ações no detalhe do tenant.
-func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+// handleDetailKey gerencia ações no detalhe do tenant
+func (m Model) handleDetailKey(keyStr string) (tea.Model, tea.Cmd) {
 	if m.selected == nil {
 		m.screen = ScreenList
 		return m, nil
 	}
 
-	switch msg.String() {
-	case "q", "esc":
+	switch keyStr {
+	case "esc", "h":
 		m.screen = ScreenList
 		m.selected = nil
 	case "r":
 		m.formMode = FormResetPIN
 		m.screen = ScreenConfirm
-		m.confirm = true
 		m.confirmFn = m.resetPINCmd
 	case "s":
 		m.formMode = FormEditConfig
 		m.screen = ScreenEdit
-		m.form = newConfigForm(m.selected.StoreConfig)
+		m.form = m.newConfigForm(m.selected.StoreConfig)
 	case "u":
 		m.formMode = FormAddUser
 		m.screen = ScreenAdd
-		m.form = newUserForm()
+		m.form = m.newUserForm()
 	case "d":
 		m.screen = ScreenConfirm
-		m.confirm = true
 		m.confirmFn = m.dumpTenantCmd
 	}
 	return m, nil
 }
 
-// handleFormKey gerencia entrada nos formulários.
+// handleFormKey gerencia entrada nos formulários
 func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
+	keyStr := msg.String()
+	switch keyStr {
 	case "esc":
 		m.screen = ScreenList
 		m.formMode = FormNone
 	case "tab", "down":
-		if m.form.fieldIdx < len(m.form.fields)-1 {
-			m.form.fieldIdx++
-		}
+		m.form.NextField()
 	case "shift+tab", "up":
-		if m.form.fieldIdx > 0 {
-			m.form.fieldIdx--
-		}
+		m.form.PrevField()
 	case "enter":
 		return m.submitForm()
 	case "backspace":
-		if len(m.form.fields[m.form.fieldIdx].Value) > 0 {
-			i := m.form.fieldIdx
-			m.form.fields[i].Value = m.form.fields[i].Value[:len(m.form.fields[i].Value)-1]
-		}
+		m.form.DeleteChar()
+	case "ctrl+u":
+		m.form.SetValue("")
 	default:
-		if len(msg.String()) == 1 {
-			i := m.form.fieldIdx
-			m.form.fields[i].Value += msg.String()
+		if len(keyStr) == 1 {
+			m.form.AppendChar(keyStr)
 		}
 	}
 	return m, nil
 }
 
-// handleConfirmKey gerencia confirmações de ações destrutivas.
-func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
+// handleConfirmKey gerencia confirmações
+func (m Model) handleConfirmKey(keyStr string) (tea.Model, tea.Cmd) {
+	switch keyStr {
 	case "y", "s":
 		if m.confirmFn != nil {
+			m.spinner.Start("Processando...")
 			return m, m.confirmFn()
 		}
 		m.screen = ScreenList
 	case "n", "esc", "q":
 		m.screen = ScreenList
-		m.confirm = false
 		m.confirmFn = nil
 	}
 	return m, nil
 }
 
-// submitForm processa o envio de um formulário.
+// submitForm processa o envio de um formulário
 func (m Model) submitForm() (tea.Model, tea.Cmd) {
-	// Valida campos obrigatórios
-	for _, f := range m.form.fields {
-		if f.Required && strings.TrimSpace(f.Value) == "" {
-			m.statusMsg = fmt.Sprintf("Campo '%s' é obrigatório", f.Label)
-			m.statusType = StatusError
-			return m, nil
-		}
+	if err := m.form.Validate(); err != nil {
+		m.statusBar.SetMessage(err.Error(), StatusError)
+		return m, nil
 	}
 
-	m.loading = true
+	m.spinner.Start("Processando...")
 	m.screen = ScreenLoading
 
 	switch m.formMode {
@@ -403,16 +421,12 @@ func (m Model) submitForm() (tea.Model, tea.Cmd) {
 		name := m.form.fields[1].Value
 		return m, m.createTenantCmd(slug, name)
 	case FormEditConfig:
-		// TODO: implementar edição de config
-		m.statusMsg = "Edição de config ainda não implementada"
-		m.statusType = StatusWarning
-		m.loading = false
+		m.statusBar.SetMessage("Edição de config ainda não implementada", StatusWarning)
+		m.spinner.Stop()
 		m.screen = ScreenDetail
 	case FormAddUser:
-		// TODO: implementar adição de usuário
-		m.statusMsg = "Adição de usuário ainda não implementada"
-		m.statusType = StatusWarning
-		m.loading = false
+		m.statusBar.SetMessage("Adição de usuário ainda não implementada", StatusWarning)
+		m.spinner.Stop()
 		m.screen = ScreenDetail
 	case FormResetPIN:
 		if m.selected != nil {
@@ -423,7 +437,11 @@ func (m Model) submitForm() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renderiza a tela atual. Chamado após cada Update.
+// ============================================================
+// VIEW
+// ============================================================
+
+// View renderiza a tela atual
 func (m Model) View() string {
 	var content string
 
@@ -442,139 +460,83 @@ func (m Model) View() string {
 		content = m.viewLoading()
 	}
 
-	// Adiciona barra de status no rodapé
-	statusBar := m.viewStatusBar()
+	// Monta a tela final: conteúdo + status bar + help bar
+	var parts []string
+	parts = append(parts, content)
 
-	return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
+	if spinnerView := m.spinner.View(); spinnerView != "" {
+		parts = append(parts, spinnerView)
+	}
+
+	if statusView := m.statusBar.View(); statusView != "" {
+		parts = append(parts, statusView)
+	}
+
+	parts = append(parts, m.helpBar.View())
+
+	result := ""
+	for _, part := range parts {
+		if part != "" {
+			result += part + "\n"
+		}
+	}
+	return result
 }
 
-// viewMenu renderiza o menu principal.
+// viewMenu renderiza o menu principal
 func (m Model) viewMenu() string {
-	title := titleStyle.Render("PDV - Gerenciamento de Tenants")
-
-	menuItems := []string{
-		"Listar tenants",
-		"Adicionar novo tenant",
-		"Status dos serviços",
-		"Reset PIN do manager",
-		"Editar configurações da loja",
-		"Backup/dump do tenant",
-	}
-
-	var menu strings.Builder
-	for i, item := range menuItems {
-		cursor := "  "
-		style := itemStyle
-		if m.actionIdx == i {
-			cursor = "▸ "
-			style = selectedStyle
-		}
-		menu.WriteString(style.Render(cursor + item) + "\n")
-	}
-
-	help := helpStyle.Render("\n↑/↓ navegar • enter selecionar • q sair")
-
-	return lipgloss.JoinVertical(lipgloss.Left, title, "\n"+menu.String(), help)
+	return m.menu.View()
 }
 
-// viewList renderiza a lista de tenants.
+// viewList renderiza a lista de tenants
 func (m Model) viewList() string {
-	title := titleStyle.Render("Tenants Cadastrados")
-
-	if len(m.tenants) == 0 {
-		return lipgloss.JoinVertical(lipgloss.Left,
-			title,
-			"\n"+helpStyle.Render("Nenhum tenant encontrado. Pressione 'a' para adicionar ou 'q' para voltar."))
-	}
-
-	var list strings.Builder
-	for i, t := range m.tenants {
-		cursor := "  "
-		style := itemStyle
-		if m.tenantIdx == i {
-			cursor = "▸ "
-			style = selectedStyle
-		}
-
-		status := statusStyle(t.Status)
-		line := fmt.Sprintf("%s%s (%s) - %s", cursor, t.Name, t.Slug, status)
-		list.WriteString(style.Render(line) + "\n")
-	}
-
-	help := helpStyle.Render("\n↑/↓ navegar • enter detalhes • a adicionar • q voltar")
-
-	return lipgloss.JoinVertical(lipgloss.Left, title, "\n"+list.String(), help)
+	return m.list.View()
 }
 
-// viewDetail renderiza os detalhes do tenant selecionado.
+// viewDetail renderiza os detalhes do tenant selecionado
 func (m Model) viewDetail() string {
 	if m.selected == nil {
-		return helpStyle.Render("Nenhum tenant selecionado")
+		return HelpStyle.Render("Nenhum tenant selecionado")
 	}
 
 	t := m.selected
-	title := titleStyle.Render(fmt.Sprintf("Tenant: %s", t.Name))
+	var b strings.Builder
 
-	info := fmt.Sprintf(`
-Slug:        %s
-Subdomínio:  %s
-Status:      %s
-Criado em:   %s
-`,
-		infoStyle.Render(t.Slug),
-		infoStyle.Render(t.Subdomain),
-		statusStyle(t.Status),
-		infoStyle.Render(t.CreatedAt),
-	)
+	// Título
+	b.WriteString(TitleStyle.Render(fmt.Sprintf("Tenant: %s", t.Name)))
+	b.WriteString("\n\n")
 
-	actions := `
-Ações disponíveis:
-  r - Reset PIN do manager
-  s - Editar configurações da loja
-  u - Adicionar usuário
-  d - Backup/dump do tenant
-`
+	// Informações
+	b.WriteString(SubtitleStyle.Render("Informações"))
+	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("  %s %s\n", FieldLabelStyle.Render("Slug:"), FieldValueStyle.Render(t.Slug)))
+	b.WriteString(fmt.Sprintf("  %s %s\n", FieldLabelStyle.Render("Subdomínio:"), FieldValueStyle.Render(t.Subdomain)))
+	b.WriteString(fmt.Sprintf("  %s %s\n", FieldLabelStyle.Render("Status:"), StatusText(t.Status)))
+	b.WriteString(fmt.Sprintf("  %s %s\n", FieldLabelStyle.Render("Criado em:"), FieldValueStyle.Render(t.CreatedAt)))
+	b.WriteString("\n")
 
-	help := helpStyle.Render("\nPressione a letra da ação ou 'q' para voltar")
+	// Ações disponíveis
+	b.WriteString(SubtitleStyle.Render("Ações disponíveis"))
+	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("  %s %s\n", HelpKeyStyle.Render("r"), HelpDescStyle.Render("Reset PIN do manager")))
+	b.WriteString(fmt.Sprintf("  %s %s\n", HelpKeyStyle.Render("s"), HelpDescStyle.Render("Editar configurações da loja")))
+	b.WriteString(fmt.Sprintf("  %s %s\n", HelpKeyStyle.Render("u"), HelpDescStyle.Render("Adicionar usuário")))
+	b.WriteString(fmt.Sprintf("  %s %s\n", HelpKeyStyle.Render("d"), HelpDescStyle.Render("Backup/dump do tenant")))
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, info, actions, help)
+	return b.String()
 }
 
-// viewForm renderiza um formulário de edição.
+// viewForm renderiza um formulário
 func (m Model) viewForm() string {
-	var title string
-	if m.formMode == FormAddTenant {
-		title = titleStyle.Render("Adicionar Novo Tenant")
-	} else {
-		title = titleStyle.Render("Editar Configurações")
-	}
-
-	var form strings.Builder
-	for i, field := range m.form.fields {
-		cursor := "  "
-		style := fieldStyle
-		if m.form.fieldIdx == i {
-			cursor = "▸ "
-			style = selectedFieldStyle
-		}
-
-		value := field.Value
-		if value == "" {
-			value = helpStyle.Render(field.Placeholder)
-		}
-
-		line := fmt.Sprintf("%s%s: %s", cursor, field.Label, value)
-		form.WriteString(style.Render(line) + "\n")
-	}
-
-	help := helpStyle.Render("\ntab/↓ próximo • shift+tab/↑ anterior • enter salvar • esc cancelar")
-
-	return lipgloss.JoinVertical(lipgloss.Left, title, "\n"+form.String(), help)
+	return m.form.View()
 }
 
-// viewConfirm renderiza uma tela de confirmação.
+// viewConfirm renderiza tela de confirmação
 func (m Model) viewConfirm() string {
-	title := titleStyle.Render("Confirmação")
+	var b strings.Builder
+
+	b.WriteString(TitleStyle.Render("Confirmação"))
+	b.WriteString("\n\n")
 
 	var action string
 	switch m.formMode {
@@ -586,134 +548,88 @@ func (m Model) viewConfirm() string {
 		action = "executar esta ação"
 	}
 
-	msg := fmt.Sprintf("\nTem certeza que deseja %s?", action)
-	help := helpStyle.Render("\ny/s confirmar • n/esc cancelar")
+	b.WriteString(fmt.Sprintf("Tem certeza que deseja %s?\n\n", action))
+	b.WriteString(HelpKeyStyle.Render("y") + " " + HelpDescStyle.Render("confirmar"))
+	b.WriteString("  ")
+	b.WriteString(HelpKeyStyle.Render("n") + " " + HelpDescStyle.Render("cancelar"))
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, msg, help)
+	return b.String()
 }
 
-// viewLoading renderiza uma tela de carregamento.
+// viewLoading renderiza tela de carregamento
 func (m Model) viewLoading() string {
-	title := titleStyle.Render("Processando...")
-	msg := helpStyle.Render("\nAguarde enquanto a operação é executada.")
-	return lipgloss.JoinVertical(lipgloss.Left, title, msg)
+	return m.spinner.View()
 }
 
-// viewStatusBar renderiza a barra de status no rodapé.
-func (m Model) viewStatusBar() string {
-	if m.statusMsg == "" {
-		return ""
-	}
+// ============================================================
+// COMANDOS ASSÍNCRONOS
+// ============================================================
 
-	var style lipgloss.Style
-	switch m.statusType {
-	case StatusSuccess:
-		style = successStyle
-	case StatusError:
-		style = errorStyle
-	case StatusWarning:
-		style = warningStyle
-	default:
-		style = infoStyle
-	}
-
-	return "\n" + style.Render(m.statusMsg)
-}
-
-// Command factories - criam comandos assíncronos para executar operações.
-
-// loadTenantsCmd carrega a lista de tenants do backend.
+// loadTenantsCmd carrega a lista de tenants
 func (m Model) loadTenantsCmd() tea.Cmd {
 	return func() tea.Msg {
 		tenants, err := ops.ListTenants()
 		if err != nil {
-			return tenantsLoadedMsg{
-				tenants: []Tenant{},
-				err:     err,
-			}
+			return tenantsLoadedMsg{tenants: []Tenant{}, err: err}
 		}
 
-		// Converte ops.TenantInfo para tui.Tenant
 		converted := make([]Tenant, len(tenants))
 		for i, t := range tenants {
 			converted[i] = Tenant{
 				ID:        t.ID,
 				Slug:      t.Slug,
-				Name:      t.Subdomain, // Usa subdomain como nome
+				Name:      t.Subdomain,
 				Status:    t.Status,
 				Subdomain: t.Subdomain,
 				CreatedAt: t.CreatedAt,
 			}
 		}
 
-		return tenantsLoadedMsg{
-			tenants: converted,
-			err:     nil,
-		}
+		return tenantsLoadedMsg{tenants: converted, err: nil}
 	}
 }
 
-// createTenantCmd cria um novo tenant.
+// createTenantCmd cria um novo tenant
 func (m Model) createTenantCmd(slug, name string) tea.Cmd {
 	return func() tea.Msg {
 		err := ops.CreateTenant(slug, name)
 		if err != nil {
-			return tenantCreatedMsg{
-				tenant: Tenant{},
-				err:    err,
-			}
+			return tenantCreatedMsg{tenant: Tenant{}, err: err}
 		}
-
-		return tenantCreatedMsg{
-			tenant: Tenant{
-				Slug: slug,
-				Name: name,
-			},
-			err: nil,
-		}
+		return tenantCreatedMsg{tenant: Tenant{Slug: slug, Name: name}, err: nil}
 	}
 }
 
-// checkServicesCmd verifica o status dos serviços.
+// checkServicesCmd verifica o status dos serviços
 func (m Model) checkServicesCmd() tea.Cmd {
 	return func() tea.Msg {
 		services, err := ops.CheckServices()
 		if err != nil {
-			return actionCompletedMsg{
-				action: "Verificação de serviços",
-				err:    err,
-			}
+			return actionCompletedMsg{action: "Verificação de serviços", err: err}
 		}
 
-		// Formata mensagem com status dos serviços
 		var statusLines []string
 		for name, state := range services {
 			statusLines = append(statusLines, fmt.Sprintf("%s: %s", name, state))
 		}
 
 		return actionCompletedMsg{
-			action: fmt.Sprintf("Serviços: %s", strings.Join(statusLines, ", ")),
+			action: fmt.Sprintf("Serviços: %s", joinStrings(statusLines, ", ")),
 			err:    nil,
 		}
 	}
 }
 
-// resetPINCmd reseta o PIN do manager do tenant selecionado.
+// resetPINCmd reseta o PIN do manager
 func (m Model) resetPINCmd() tea.Cmd {
 	return func() tea.Msg {
 		if m.selected == nil {
-			return actionCompletedMsg{
-				action: "Reset de PIN",
-				err:    fmt.Errorf("nenhum tenant selecionado"),
-			}
+			return actionCompletedMsg{action: "Reset de PIN", err: fmt.Errorf("nenhum tenant selecionado")}
 		}
 
 		newPIN, err := ops.ResetManagerPIN(m.selected.Slug, "")
 		if err != nil {
-			return actionCompletedMsg{
-				action: "Reset de PIN",
-				err:    err,
-			}
+			return actionCompletedMsg{action: "Reset de PIN", err: err}
 		}
 
 		return actionCompletedMsg{
@@ -723,23 +639,17 @@ func (m Model) resetPINCmd() tea.Cmd {
 	}
 }
 
-// dumpTenantCmd faz backup/dump do tenant selecionado.
+// dumpTenantCmd faz backup do tenant
 func (m Model) dumpTenantCmd() tea.Cmd {
 	return func() tea.Msg {
 		if m.selected == nil {
-			return actionCompletedMsg{
-				action: "Backup do tenant",
-				err:    fmt.Errorf("nenhum tenant selecionado"),
-			}
+			return actionCompletedMsg{action: "Backup do tenant", err: fmt.Errorf("nenhum tenant selecionado")}
 		}
 
 		outputFile := fmt.Sprintf("/tmp/tenant-%s-dump.sql", m.selected.Slug)
 		err := ops.DumpTenant(m.selected.Slug, outputFile)
 		if err != nil {
-			return actionCompletedMsg{
-				action: "Backup do tenant",
-				err:    err,
-			}
+			return actionCompletedMsg{action: "Backup do tenant", err: err}
 		}
 
 		return actionCompletedMsg{
@@ -749,53 +659,42 @@ func (m Model) dumpTenantCmd() tea.Cmd {
 	}
 }
 
-// Form constructors - criam formulários pré-preenchidos.
+// ============================================================
+// HELPERS
+// ============================================================
 
-// newTenantForm cria um formulário para adicionar novo tenant.
-func newTenantForm() FormModel {
-	return FormModel{
-		fields: []FormField{
-			{
-				Label:       "Slug (identificador)",
-				Placeholder: "ex: umami-sushi",
-				Required:    true,
-			},
-			{
-				Label:       "Nome de exibição",
-				Placeholder: "ex: Umami Sushi Arte",
-				Required:    true,
-			},
-		},
-		fieldIdx: 0,
+// tenantsToListItems converte tenants para ListItem
+func (m Model) tenantsToListItems() []ListItem {
+	items := make([]ListItem, len(m.tenants))
+	for i, t := range m.tenants {
+		items[i] = ListItem{
+			Primary:   t.Name,
+			Secondary: t.Slug,
+			Status:    t.Status,
+		}
 	}
+	return items
 }
 
-// newUserForm cria um formulário para adicionar novo usuário.
-func newUserForm() FormModel {
-	return FormModel{
-		fields: []FormField{
-			{
-				Label:       "Nome do usuário",
-				Placeholder: "ex: João Silva",
-				Required:    true,
-			},
-			{
-				Label:       "Perfil (waiter/kitchen/manager/cashier/courier)",
-				Placeholder: "ex: waiter",
-				Required:    true,
-			},
-			{
-				Label:       "PIN (4-6 dígitos, vazio para gerar automático)",
-				Placeholder: "ex: 1234",
-				Required:    false,
-			},
-		},
-		fieldIdx: 0,
-	}
+// newTenantForm cria formulário para adicionar tenant
+func (m Model) newTenantForm() FormModel {
+	return NewForm("Adicionar Novo Tenant", []FormField{
+		{Label: "Slug (identificador)", Placeholder: "ex: umami-sushi", Required: true},
+		{Label: "Nome de exibição", Placeholder: "ex: Umami Sushi Arte", Required: true},
+	})
 }
 
-// newConfigForm cria um formulário para editar configurações da loja.
-func newConfigForm(config *StoreConfig) FormModel {
+// newUserForm cria formulário para adicionar usuário
+func (m Model) newUserForm() FormModel {
+	return NewForm("Adicionar Usuário", []FormField{
+		{Label: "Nome do usuário", Placeholder: "ex: João Silva", Required: true},
+		{Label: "Perfil", Placeholder: "waiter/kitchen/manager/cashier/courier", Required: true},
+		{Label: "PIN (4-6 dígitos)", Placeholder: "vazio para gerar automático", Required: false},
+	})
+}
+
+// newConfigForm cria formulário para editar configurações
+func (m Model) newConfigForm(config *StoreConfig) FormModel {
 	if config == nil {
 		config = &StoreConfig{}
 	}
@@ -807,97 +706,23 @@ func newConfigForm(config *StoreConfig) FormModel {
 		return "false"
 	}
 
-	return FormModel{
-		fields: []FormField{
-			{
-				Label:       "Nome do comerciante",
-				Value:       config.MerchantName,
-				Placeholder: "ex: Umami Sushi Arte",
-				Required:    true,
-			},
-			{
-				Label:       "Impressão habilitada (true/false)",
-				Value:       boolToStr(config.PrintEnabled),
-				Placeholder: "false",
-				Required:    true,
-			},
-			{
-				Label:       "Impressão automática (true/false)",
-				Value:       boolToStr(config.AutoPrint),
-				Placeholder: "false",
-				Required:    true,
-			},
-			{
-				Label:       "Entrega habilitada (true/false)",
-				Value:       boolToStr(config.DeliveryEnabled),
-				Placeholder: "false",
-				Required:    true,
-			},
-			{
-				Label:       "WhatsApp habilitado (true/false)",
-				Value:       boolToStr(config.WhatsAppEnabled),
-				Placeholder: "false",
-				Required:    true,
-			},
-		},
-		fieldIdx: 0,
-	}
+	return NewForm("Editar Configurações da Loja", []FormField{
+		{Label: "Nome do comerciante", Value: config.MerchantName, Placeholder: "ex: Umami Sushi Arte", Required: true},
+		{Label: "Impressão habilitada", Value: boolToStr(config.PrintEnabled), Placeholder: "true/false", Required: true},
+		{Label: "Impressão automática", Value: boolToStr(config.AutoPrint), Placeholder: "true/false", Required: true},
+		{Label: "Entrega habilitada", Value: boolToStr(config.DeliveryEnabled), Placeholder: "true/false", Required: true},
+		{Label: "WhatsApp habilitado", Value: boolToStr(config.WhatsAppEnabled), Placeholder: "true/false", Required: true},
+	})
 }
 
-// Style definitions - estilos visuais usando Lip Gloss.
-var (
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#FAFAFA")).
-			Background(lipgloss.Color("#7D56F4")).
-			Padding(0, 1)
-
-	itemStyle = lipgloss.NewStyle().
-			PaddingLeft(2)
-
-	selectedStyle = lipgloss.NewStyle().
-			PaddingLeft(1).
-			Foreground(lipgloss.Color("#7D56F4")).
-			Bold(true)
-
-	fieldStyle = lipgloss.NewStyle().
-			PaddingLeft(2)
-
-	selectedFieldStyle = lipgloss.NewStyle().
-				PaddingLeft(1).
-				Foreground(lipgloss.Color("#7D56F4")).
-				Bold(true)
-
-	infoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00BFFF"))
-
-	successStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00FF00")).
-			Bold(true)
-
-	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF0000")).
-			Bold(true)
-
-	warningStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFF00")).
-			Bold(true)
-
-	helpStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#666666")).
-			Italic(true)
-)
-
-// statusStyle retorna o estilo apropriado para o status do tenant.
-func statusStyle(status string) lipgloss.Style {
-	switch status {
-	case "active":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
-	case "suspended":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFF00"))
-	case "inactive":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000"))
-	default:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#999999"))
+// joinStrings junta strings com separador
+func joinStrings(strs []string, sep string) string {
+	result := ""
+	for i, s := range strs {
+		if i > 0 {
+			result += sep
+		}
+		result += s
 	}
+	return result
 }
