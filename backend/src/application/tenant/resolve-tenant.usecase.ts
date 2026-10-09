@@ -18,6 +18,8 @@ import {
   matchTenantHost,
   normalizeTenantHost,
 } from "../../domain/tenant.js";
+import { pool } from "../../infra/db/client.js";
+import { runInTenantScope } from "../../infra/db/tenant-context.js";
 import { findTenantByCustomDomain, findTenantBySlug } from "../../infra/tenant/registry.js";
 import { resolveTenantSchema } from "../../infra/storage/index.js";
 import { getStoreSettingsUsecase } from "../store-settings.usecases.js";
@@ -175,37 +177,51 @@ export type PublicTenant = {
 
 /**
  * Payload público do tenant. Os dados de loja (nome/logo/cor/flags) vêm de
- * `store_settings` do schema resolvido.
+ * `store_settings` do schema RESOLVIDO — a leitura roda dentro de um escopo de
+ * tenant (ALS + pool por schema, Fase 2), então cada loja serve a própria marca.
  *
- * ⚠️ LIMITADO À FASE 1: só o schema que o PROCESSO fala tem dados legíveis —
- * `db` ainda é um pool único sem `search_path` por request (Fase 2).
- * Ler o `store_settings` de outro schema por SQL qualificado aqui pareceria a
- * solução e não é: o cardápio, o carrinho e o pedido continuam saindo do schema
- * default, então a vitrine mostraria a marca da loja B com o catálogo da loja A
- * (e o `logoUrl` da loja B seria servido do diretório da A — que é o bug do
- * §5.2 de novo). Por isso um tenant cujo schema não é o do processo responde
- * 503 `tenant_schema_unavailable`, e a linha que muda isso é a mesma que muda
- * quando o ALS entrar: ler `store_settings` pelo `db` escopado.
+ * O 503 `tenant_schema_unavailable` só existe para o caso legítimo de o schema
+ * do tenant **não estar provisionado** (o registry tem a linha, mas
+ * `tenant_x.store_settings` não existe — entre a Fase 1 e a Fase 3). Não basta
+ * tentar ler e capturar o erro: o `search_path` do pool cai para `public` em
+ * SILÊNCIO quando o schema não existe, e a vitrine serviria a marca da
+ * plataforma achando que é da loja. Por isso a checagem é explícita, por
+ * `information_schema.tables` (imune ao `search_path`).
+ *
+ * `schema_name` NÃO sai daqui: continua sendo topologia interna.
  */
 export async function getPublicTenantUsecase(rawHost: string | undefined | null): Promise<PublicTenant> {
   const tenant = await resolveTenant(rawHost);
 
-  if (tenant.schemaName !== resolveTenantSchema()) {
-    console.error(
-      `[tenant] ${tenant.slug} resolve para o schema ${tenant.schemaName}, que este processo não fala ` +
-        `(processo fala ${resolveTenantSchema()}) — vitrine indisponível até a Fase 2/3`,
-    );
-    throw Errors.tenantSchemaUnavailable(tenant.slug, tenant.schemaName);
-  }
+  return runInTenantScope(
+    { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault },
+    async () => {
+      // Checagem explícita de provisionamento, ANTES de ler o `store_settings`.
+      // A query é qualificada por `table_schema`, então responde pela existência
+      // real do schema (e não pelo `search_path`, que cai para `public` em
+      // silêncio quando o schema do tenant não existe).
+      const { rows } = await pool.query(
+        `SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'store_settings' LIMIT 1`,
+        [tenant.schemaName],
+      );
+      if (rows.length === 0) {
+        console.error(
+          `[tenant] ${tenant.slug} resolve para o schema ${tenant.schemaName}, que não está provisionado ` +
+            `(sem store_settings) — vitrine indisponível até o provisionamento`,
+        );
+        throw Errors.tenantSchemaUnavailable(tenant.slug, tenant.schemaName);
+      }
 
-  const settings = await getStoreSettingsUsecase();
-  return {
-    storeId: tenant.slug,
-    slug: tenant.slug,
-    name: settings.merchantName,
-    logoUrl: settings.logoUrl,
-    primaryColor: settings.brandColor,
-    usesDelivery: settings.usesDelivery,
-    kitchenEnabled: settings.kitchenEnabled,
-  };
+      const settings = await getStoreSettingsUsecase();
+      return {
+        storeId: tenant.slug,
+        slug: tenant.slug,
+        name: settings.merchantName,
+        logoUrl: settings.logoUrl,
+        primaryColor: settings.brandColor,
+        usesDelivery: settings.usesDelivery,
+        kitchenEnabled: settings.kitchenEnabled,
+      };
+    },
+  );
 }

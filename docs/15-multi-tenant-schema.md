@@ -18,16 +18,19 @@
 >   uma env só depois de popular o registry e ter a Fase 2/3 — com o registry
 >   vazio, ligado, qualquer endereço não cadastrado levaria 404, inclusive as
 >   lojas que já estão no ar.
-> - **O que a Fase 1 NÃO faz** (e é por isso que ela é segura): `resolveTenant`
->   existe, mas **nada consome o `schema_name` ainda**. `db` continua sendo um
->   pool único sem `search_path` por request, então um tenant registrado em
->   `tenant_x` **não tem** cardápio, carrinho nem pedido neste processo — e o
->   endpoint responde `503 tenant_schema_unavailable` em vez de servir a marca
->   dele sobre o catálogo de outra loja (que seria o §5.2 de novo). O cutover
->   continua sendo a Fase 7.
-> - **Fases 2–4 e 6–8: não iniciadas.** Não existe ALS, pool por tenant,
->   `runMigrations({ schema })`, `provisionTenantSchema()`, JWT com `t`,
->   `tenant.middleware` nem gateway particionado.
+> - **Com a Fase 2 (ALS + pool por schema) no ar**, `GET /public/tenants/resolve`
+>   lê o `store_settings` do schema RESOLVIDO dentro do escopo do tenant — cada
+>   loja serve a própria marca. O `503 tenant_schema_unavailable` agora é só para
+>   schema **não provisionado** (a linha existe no registry, mas
+>   `tenant_x.store_settings` não existe): a checagem é explícita por
+>   `information_schema.tables`, porque o `search_path` do pool cai para `public`
+>   em silêncio e serviria a marca da plataforma achando que é da loja. O cutover
+>   do dado continua sendo a Fase 7.
+> - **Fase 2 (ALS + `db` escopado + pool por tenant) já no ar** (PR #159) —
+>   junto de `runMigrations({ schema })`, do provisionamento
+>   (`npm run db:provision`) e do `tenant` no JWT. O cutover do dado e as fases
+>   seguintes do roadmap (partição de workers/realtime/gateway, rotas sem
+>   subdomínio, suítes) continuam pendentes.
 > - **Fase 5: parcial** — rodou o bloco de storage (porta + layout por tenant em disco), `d30ec49`
 >   (PR #73). O resto da fase (fan-out do WhatsApp, `/health/tenants`, TLS on-demand via registry,
 >   `printer_daemon_url` por tenant, CORS por registry) segue não iniciado — e o
@@ -772,7 +775,7 @@ A **preparação §6.0 deve ter acontecido antes** — as fases assumem o baseli
 |---|---|---|---|---|
 | **0** | **Spike** | Teste único: ALS no `onRequest` do Fastify 5 propagando até o handler com 2 tenants concorrentes; pool com `options`; `search_path` visível; `tx` herdando; advisory lock por tenant. **Só o teste entra na `main`** — valida a única aposta arriscada do desenho. | — | 0,5 d |
 | **1** | **Registry** | ✅ **FEITA** (`feat/tenant-resolve-public`): `public.tenant` em `migrations/registry/0001_tenant_registry.sql` (+ `custom_domain`), `registry-migrate.ts` (runner próprio, roda no boot **antes** das migrations de tenant), `infra/tenant/registry.ts` (cache 60s, resultado negativo também cacheado), `domain/tenant.ts` (regras puras de `Host`), `resolve-tenant.usecase.ts` (`resolveTenant` + `getPublicTenantUsecase`), `Errors.tenant*` e o endpoint `GET /public/tenants/resolve`. Kill-switch `TENANT_ROUTING` **default desligado** + `PLATFORM_ROOT_DOMAIN` (o apex de um `.com.br` tem 3 rótulos, igual um subdomínio). `tenant-routing.test.ts` (29 casos). `DEFAULT_TENANT_SCHEMA=public` → **comportamento idêntico ao de hoje**. | nenhum | 1 d |
-| **2** | **`db` escopado** | `tenant-context.ts` (ALS), `tenant-db.ts` (Map+LRU), `client.ts` passa a exportar o `Proxy`. `TENANT_STRICT` desligado, ligado após 1 semana em staging. É também o que **destrava o `503 tenant_schema_unavailable`** do endpoint da Fase 1 e a seam de storage (§4.7). | baixo | 2 d |
+| **2** | **`db` escopado** | `tenant-context.ts` (ALS), `tenant-db.ts` (Map+LRU), `client.ts` passa a exportar o `Proxy`. `TENANT_STRICT` desligado, ligado após 1 semana em staging. **Destravou o `503 tenant_schema_unavailable`** do endpoint da Fase 1 (que agora só responde 503 para schema não provisionado) e a seam de storage (§4.7). | baixo | 2 d |
 | **3** | **Migrations por schema** | `runMigrations({ schema })`, boot iterando tenants, `provisionTenantSchema()`, `unaccent` em `public`. | médio | 1,5 d |
 | **4** | **Workers, locks, realtime, cache** | Loops por tenant com stagger, `lockName(base, schema)`, gateway particionado, `tenantKey()`. | médio | 2 d |
 | **5** | **Rotas sem subdomínio** | Fan-out do webhook do WhatsApp por `phone_number_id`, `/health/tenants`, on-demand TLS via registry, `printer_daemon_url` por tenant, CORS por registry. **+ porta de storage** (§4.7): `src/infra/storage/` consolidando as 4 cópias duplicadas, layout `<uploadsDir>/<schema>/<kind>/` no disco, rota `GET /uploads/:kind/:filename` que resolve o tenant do `Host` (sai o `@fastify/static`), migração one-shot idempotente dos arquivos do layout flat, API devolvendo `/uploads/<kind>/<filename>`. | médio | 3 d |
@@ -947,10 +950,11 @@ que um 404 bem aplicado evita. O painel de provisionamento da plataforma é tool
   PLATFORM_ROOT_DOMAIN=seudominio.com.br   # separa o apex de um subdomínio (TLD de 2 labels)
   ```
 
-  ⚠️ **Ligar antes da Fase 3 não cria uma loja servível**: o schema `tenant_umami` não existe, e
-  `/public/tenants/resolve` responde `503 tenant_schema_unavailable` para ela (enquanto o
-  cardápio, o carrinho e o pedido continuariam vindo do schema default). Serve para
-  exercitar a resolução, não para atender cliente. Depois de mudar o registry, a mudança só
+  ⚠️ **Ligar sem provisionar o schema não cria uma loja servível**: se `tenant_umami` não
+  existir, `/public/tenants/resolve` responde `503 tenant_schema_unavailable` para ela. Com a
+  Fase 2 (ALS + pool por schema) no ar, basta o schema estar provisionado (`CREATE SCHEMA` +
+  migrations + `store_settings`) para o endpoint ler a marca DELE; sem schema, a vitrine segue
+  indisponível. Depois de mudar o registry, a mudança só
   aparece no app em até `TENANT_REGISTRY_CACHE_TTL_SECONDS` (60 s).
 - **Papéis — medido, e é o número que decide a recusa de RLS (§2).** `SELECT rolname, rolsuper,
   rolbypassrls FROM pg_roles` em produção devolve **`pdv | t | t`**: o app conecta como **superuser**,
