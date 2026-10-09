@@ -26,9 +26,11 @@
 >   `information_schema.tables`, porque o `search_path` do pool cai para `public`
 >   em silêncio e serviria a marca da plataforma achando que é da loja. O cutover
 >   do dado continua sendo a Fase 7.
-> - **Fases 2–4 e 6–8: não iniciadas.** Não existe ALS, pool por tenant,
->   `runMigrations({ schema })`, `provisionTenantSchema()`, JWT com `t`,
->   `tenant.middleware` nem gateway particionado.
+> - **Fase 2 (ALS + `db` escopado + pool por tenant) já no ar** (PR #159) —
+>   junto de `runMigrations({ schema })`, do provisionamento
+>   (`npm run db:provision`) e do `tenant` no JWT. O cutover do dado e as fases
+>   seguintes do roadmap (partição de workers/realtime/gateway, rotas sem
+>   subdomínio, suítes) continuam pendentes.
 > - **Fase 5: parcial** — rodou o bloco de storage (porta + layout por tenant em disco), `d30ec49`
 >   (PR #73). O resto da fase (fan-out do WhatsApp, `/health/tenants`, TLS on-demand via registry,
 >   `printer_daemon_url` por tenant, CORS por registry) segue não iniciado — e o
