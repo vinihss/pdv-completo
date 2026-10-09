@@ -32,6 +32,8 @@ Domínios:
   tenant <add|verify|restart|health>
                                  Rotina completa de onboarding do novo tenant
                                  (provision + verificação SQL + restart + health)
+  tui                            Interface interativa (TUI) para gerenciamento
+                                 de tenants (menu-driven, formulários visuais)
   check [backend|frontend|all]   critérios de verificação gerais do AGENTS.md
                                  (pré-PR); default: all
   release bump <versão>          Bump de versão da família standalone
@@ -81,6 +83,7 @@ func init() {
 	rootCmd.AddCommand(releaseCmd)
 	rootCmd.AddCommand(deployCmd)
 	rootCmd.AddCommand(tenantCmd)
+	rootCmd.AddCommand(tuiCmd)
 }
 
 // Execute inicializa e despacha a execução da árvore de comandos do CLI.
