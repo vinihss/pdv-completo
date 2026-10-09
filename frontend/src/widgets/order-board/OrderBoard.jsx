@@ -91,6 +91,14 @@ export default function OrderBoard() {
     );
   }
 
+  // Comandas abertas agrupadas por mesa para facilitar "continuar comanda"
+  const ordersByTable = orders.reduce((acc, order) => {
+    if (order.status === "open" && order.tableId) {
+      acc[order.tableId] = order;
+    }
+    return acc;
+  }, {});
+
   return (
     <>
       <OrderListScreen
@@ -107,7 +115,13 @@ export default function OrderBoard() {
         onReloadAll={reloadAll}
       />
       {newOrderOpen && (
-        <NewOrderModal usesTables={usesTables} onClose={() => setNewOrderOpen(false)} onConfirm={handleOpenNewOrder} />
+        <NewOrderModal
+          usesTables={usesTables}
+          ordersByTable={ordersByTable}
+          onClose={() => setNewOrderOpen(false)}
+          onConfirm={handleOpenNewOrder}
+          onOpenExisting={setOpenOrderId}
+        />
       )}
       <Toast toast={toast} />
     </>

@@ -4,7 +4,7 @@ import { listTables } from "@/entities/table";
 import { searchCustomers, createCustomer } from "@/entities/customer";
 import { Modal } from "@/shared/components";
 
-export default function NewOrderModal({ usesTables, onClose, onConfirm }) {
+export default function NewOrderModal({ usesTables, ordersByTable = {}, onClose, onConfirm, onOpenExisting }) {
   const [mode, setMode] = useState(usesTables ? "table" : "tab");
   const [tableId, setTableId] = useState("");
   const [tables, setTables] = useState([]);
@@ -35,6 +35,17 @@ export default function NewOrderModal({ usesTables, onClose, onConfirm }) {
     let identification = {};
     if (mode === "table") {
       if (!tableId) return setError("Selecione uma mesa.");
+      
+      // Verifica se já existe comanda aberta para esta mesa
+      const existingOrder = ordersByTable[tableId];
+      if (existingOrder && onOpenExisting) {
+        // Abre a comanda existente em vez de criar nova
+        setSubmitting(true);
+        onOpenExisting(existingOrder.id);
+        setSubmitting(false);
+        return;
+      }
+      
       identification = { tableId };
     } else if (mode === "customer") {
       if (!selectedCustomer) return setError("Selecione ou cadastre um cliente.");
@@ -47,6 +58,9 @@ export default function NewOrderModal({ usesTables, onClose, onConfirm }) {
     await onConfirm(identification);
     setSubmitting(false);
   }
+
+  // Determina se a mesa selecionada tem comanda aberta
+  const selectedTableHasOrder = mode === "table" && tableId && ordersByTable[tableId];
 
   async function handleQuickCreateCustomer() {
     if (!customerQuery.trim()) return;
@@ -64,7 +78,11 @@ export default function NewOrderModal({ usesTables, onClose, onConfirm }) {
           disabled={submitting}
           className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl transition-colors"
         >
-          {submitting ? "Abrindo…" : "Abrir comanda"}
+          {submitting 
+            ? "Abrindo…" 
+            : selectedTableHasOrder 
+            ? "Continuar comanda" 
+            : "Abrir comanda"}
         </button>
       }
     >
@@ -103,25 +121,29 @@ export default function NewOrderModal({ usesTables, onClose, onConfirm }) {
             <div className="grid grid-cols-4 gap-2 mb-3">
               {tables.map((t) => {
                 const occupied = t.status === "occupied";
+                const hasOrder = !!ordersByTable[t.id];
                 return (
                   <button
                     key={t.id}
                     type="button"
-                    disabled={occupied}
                     onClick={() => setTableId(t.id)}
-                    aria-label={`Mesa ${t.number} (${occupied ? "ocupada" : "livre"})`}
-                    title={`Mesa ${t.number} (${occupied ? "ocupada" : "livre"})`}
-                    aria-disabled={occupied}
+                    aria-label={`Mesa ${t.number} (${occupied ? "ocupada" : "livre"})${hasOrder ? " - continuar comanda" : ""}`}
+                    title={`Mesa ${t.number} (${occupied ? "ocupada" : "livre"})${hasOrder ? " - continuar comanda" : ""}`}
                     aria-pressed={tableId === t.id}
-                    className={`py-3 rounded-xl font-display font-bold text-sm ${
+                    className={`py-3 rounded-xl font-display font-bold text-sm relative ${
                       tableId === t.id
                         ? "bg-amber-500 text-stone-950"
+                        : hasOrder
+                        ? "bg-blue-800/50 text-blue-300 hover:bg-blue-800/70"
                         : occupied
                         ? "bg-stone-800/50 text-stone-700 cursor-not-allowed"
                         : "bg-stone-800 text-stone-200"
                     }`}
                   >
                     {t.number}
+                    {hasOrder && (
+                      <span className="absolute -top-1 -right-1 w-3 h-3 bg-blue-400 rounded-full border-2 border-stone-900" />
+                    )}
                   </button>
                 );
               })}
@@ -130,6 +152,10 @@ export default function NewOrderModal({ usesTables, onClose, onConfirm }) {
               <span className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded bg-stone-800 border border-stone-700" aria-hidden="true" />
                 Disponível
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded bg-blue-800/50 border border-blue-700/50" aria-hidden="true" />
+                Com comanda
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded bg-stone-800/50 border border-stone-700/50" aria-hidden="true" />
