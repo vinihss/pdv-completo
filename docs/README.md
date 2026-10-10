@@ -46,7 +46,8 @@ Este índice é a porta de entrada para pessoas e agentes. Comece pelo objetivo 
 | [`12-n-plus-one-list-orders.md`](12-n-plus-one-list-orders.md) | Plano/diagnóstico de N+1 |
 | [`13-deploy-workflow-melhoras.md`](13-deploy-workflow-melhoras.md) | Propostas para workflow de deploy |
 | [`14-usabilidade-e-processos.md`](14-usabilidade-e-processos.md) | Usabilidade e processos |
-| [`15-multi-tenant-schema.md`](15-multi-tenant-schema.md) | Arquitetura multi-tenant |
+| [`15-multi-tenant-schema.md`](15-multi-tenant-schema.md) | Arquitetura multi-tenant (schema por loja — vigente) |
+| [`23-reavaliacao-multi-tenant.md`](23-reavaliacao-multi-tenant.md) | Reavaliação da estratégia (schema único + `tenant_id` + RLS vs. vigente) — **decisão pendente, não implementado** |
 | [`17-runbook-unificacao-migrations.md`](17-runbook-unificacao-migrations.md) | Runbook de migrations |
 | [`19-pagarme.md`](19-pagarme.md), [`20-pagarme-pendencias.md`](20-pagarme-pendencias.md) | Pagar.me e pendências |
 | [`21-device-provisioning.md`](21-device-provisioning.md) | Provisionamento de dispositivos |

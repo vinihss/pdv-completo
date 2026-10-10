@@ -1,5 +1,8 @@
 # 15 — Multi-tenant: um schema PostgreSQL por loja (subdomínio → tenant)
 
+> **Reavaliado em [`23-reavaliacao-multi-tenant.md`](23-reavaliacao-multi-tenant.md)**
+> (2026-10-09, decisão pendente — nada implementado). Este doc descreve a arquitetura vigente.
+>
 > **Status:** **Fase 1 implementada** (registry + resolução + o endpoint que a
 > vitrine de pedidos consome). As fases 2–8 continuam não iniciadas.
 > Verificado em 2026-10-05 no branch `feat/tenant-resolve-public`:
