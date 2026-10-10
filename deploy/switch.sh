@@ -893,7 +893,26 @@ do_switch() {
   # healthcheck abaixo é o portão que substitui a dependência.
   local up_alvo=("$new_be" "$new_fe")
   if [ "$tem_pedido" = "1" ]; then up_alvo+=("$PEDIDO_SERVICE"); fi
-  "${COMPOSE[@]}" up -d --no-deps "${up_alvo[@]}"
+  # Caminho feliz: o `up` sobe direto, sem remoção prévia (idêntico ao de
+  # sempre). Se ele falhar, o estado mais provável no host é um container da
+  # instância ALVO ter ficado desconectado da rede do projeto — visto em
+  # produção, persistente a reruns. Nesse caso o próprio `up` tenta um
+  # `network disconnect` gracioso antes de recriar e morre ali ("... is not
+  # connected to the network ..."); o `docker rm -f` NÃO passa por esse
+  # caminho. Então removemos os containers de `up_alvo` e tentamos de novo:
+  # só as instâncias alvo entram — o Caddy aponta para a VIVA, e nada que
+  # esteja no ar é tocado.
+  if ! "${COMPOSE[@]}" up -d --no-deps "${up_alvo[@]}"; then
+    warn "o 'up' da instância nova falhou; removendo os containers alvo e tentando de novo"
+    local svc cid
+    for svc in "${up_alvo[@]}"; do
+      cid="$(svc_id "$svc" || true)"
+      if [ -n "$cid" ]; then
+        docker rm -f "$cid" >/dev/null 2>&1 || true
+      fi
+    done
+    "${COMPOSE[@]}" up -d --no-deps "${up_alvo[@]}"
+  fi
 
   # --- 3. healthcheck: o portão do corte -------------------------------
   # backend E frontend: o backend prova que as migrations terminaram (o
