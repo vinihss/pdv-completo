@@ -224,10 +224,20 @@ jobs:
           --health-interval 2s
           --health-timeout 5s
           --health-retries 50
+      redis:
+        image: redis:7
+        ports:
+          - 56379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 50
     env:
       # Aponta para o serviço acima. O global setup usa esta variável para
       # recriar o schema e o config do vitest a repassa como DATABASE_URL.
       TEST_DATABASE_URL: postgres://pdv:pdv_test_pw@localhost:55432/pdv_test
+      REDIS_URL: redis://localhost:56379
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

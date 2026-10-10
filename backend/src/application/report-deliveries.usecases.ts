@@ -42,7 +42,7 @@ export async function deliveriesReportUsecase(input: { from?: string; to?: strin
   if (!isValidTz(tz)) throw Errors.validationFailed("tz deve ser um offset como -03:00.");
 
   const key = `reports:deliveries:${JSON.stringify({ from, to, tz: tz ?? null })}`;
-  const cached = cache.get<DeliveriesReport>(key);
+  const cached = await cache.get<DeliveriesReport>(key);
   if (cached) return cached;
 
   // Filtra pela COMANDA fechada (mesma base do relatório de vendas) e traz a
@@ -174,7 +174,7 @@ export async function deliveriesReportUsecase(input: { from?: string; to?: strin
       .sort((a, b) => b.deliveries - a.deliveries),
   };
 
-  cache.set(key, result, { ttl: 300 });
+  await cache.set(key, result, { ttl: 300 });
   return result;
 }
 

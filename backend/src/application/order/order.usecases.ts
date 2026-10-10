@@ -996,7 +996,7 @@ export async function closeOrderUsecase(input: { orderId: string; userId: string
     return result;
   });
 
-  cache.invalidatePattern("reports:sales:*");
+  await cache.invalidatePattern("reports:sales:*");
   return closed;
 }
 
@@ -1139,7 +1139,7 @@ export async function cancelOrderUsecase(input: { orderId: string; userId: strin
     return result;
   });
 
-  cache.invalidatePattern("reports:sales:*");
+  await cache.invalidatePattern("reports:sales:*");
   return cancelled;
 }
 

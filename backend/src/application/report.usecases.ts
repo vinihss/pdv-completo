@@ -29,7 +29,7 @@ export async function salesReportUsecase(input: {
   offset: number;
 }) {
   const key = reportKey(input);
-  const cached = cache.get<{ data: unknown[]; total: number; summary: unknown }>(key);
+  const cached = await cache.get<{ data: unknown[]; total: number; summary: unknown }>(key);
   if (cached) return cached;
 
   const conditions = [eq(orders.status, "closed")];
@@ -288,6 +288,6 @@ export async function salesReportUsecase(input: {
       changeTotal: changeTotalRound,
     },
   };
-  cache.set(key, result, { ttl: 300 });
+  await cache.set(key, result, { ttl: 300 });
   return result;
 }

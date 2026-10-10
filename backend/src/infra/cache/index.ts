@@ -45,16 +45,16 @@ function scopedKey(key: string): string {
 }
 
 export const tenantCache = {
-  get<T>(key: string): T | null {
-    return getCache().get<T>(scopedKey(key)) as any;
+  async get<T>(key: string): Promise<T | null> {
+    return getCache().get<T>(scopedKey(key));
   },
-  set<T>(key: string, value: T, options?: CacheOptions): void {
-    getCache().set<T>(scopedKey(key), value, options) as any;
+  async set<T>(key: string, value: T, options?: CacheOptions): Promise<void> {
+    await getCache().set<T>(scopedKey(key), value, options);
   },
-  invalidate(key: string): void {
-    getCache().invalidate(scopedKey(key)) as any;
+  async invalidate(key: string): Promise<void> {
+    await getCache().invalidate(scopedKey(key));
   },
-  invalidatePattern(pattern: string): void {
-    getCache().invalidatePattern(scopedKey(pattern)) as any;
+  async invalidatePattern(pattern: string): Promise<void> {
+    await getCache().invalidatePattern(scopedKey(pattern));
   },
 };

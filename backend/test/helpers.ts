@@ -21,7 +21,17 @@ import {
 let _app: FastifyInstance | undefined;
 
 export async function testApp(): Promise<FastifyInstance> {
-  if (!_app) _app = await buildApp();
+  if (!_app) {
+    _app = await buildApp();
+    // `buildApp()` roda `initCache(true)`: se houver Redis alcançável (o serviço
+    // do CI), o cache do processo passa a ser Redis, compartilhado entre os forks
+    // e sem invalidação nos UPDATEs por SQL cru dos testes — estado de um arquivo
+    // vaza no outro. Os testes foram escritos para MemoryCache; voltar para ele
+    // aqui mantém cada arquivo isolado e determinístico. Só no boot do app: um
+    // reset a cada chamada zeraria o cache entre requests e quebraria os testes
+    // de cache-hit.
+    resetCache();
+  }
   return _app;
 }
 
