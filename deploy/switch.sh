@@ -893,6 +893,12 @@ do_switch() {
   # healthcheck abaixo é o portão que substitui a dependência.
   local up_alvo=("$new_be" "$new_fe")
   if [ "$tem_pedido" = "1" ]; then up_alvo+=("$PEDIDO_SERVICE"); fi
+  # O backend se conecta ao `redis` no boot (initCache faz ping antes do
+  # `listen`) e o `--no-deps` abaixo não sobe dependências: sem o redis no
+  # alvo ele nunca sobe no deploy, o backend fica unhealthy
+  # (`getaddrinfo EAI_AGAIN redis`) e o corte é abortado. Serviço base, sem
+  # profile — como o postgres, que já está no ar e por isso não entra aqui.
+  if has_service redis; then up_alvo+=(redis); fi
   # Caminho feliz: o `up` sobe direto, sem remoção prévia (idêntico ao de
   # sempre). Se ele falhar, o estado mais provável no host é um container da
   # instância ALVO ter ficado desconectado da rede do projeto — visto em
