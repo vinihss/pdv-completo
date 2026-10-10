@@ -38,3 +38,34 @@ export function disconnectWhatsApp() {
 export function getWhatsAppMessages(limit = 50) {
   return request("GET", `/whatsapp/messages?limit=${limit}`);
 }
+
+/*
+ * WhatsApp Web (modo socket/Baileys): provider alternativo, opt-in do
+ * backend por `WHATSAPP_PROVIDER=baileys`, sem webhook — a sessão vive
+ * no servidor e o gerente vincula o telefone por QR ou código de
+ * pareamento. Assim como as rotas acima, são manager-only.
+ */
+
+/**
+ * Estado do provider ativo: diz se a loja fala cloudapi (painel
+ * oficial) ou baileys (card "WhatsApp Web") e, no segundo caso, se
+ * já há sessão vinculada.
+ */
+export function getWhatsAppSocketStatus() {
+  return request("GET", "/whatsapp/socket/status");
+}
+
+/**
+ * Pede o QR ou o código de pareamento. O backend aguarda até ~30s
+ * pela primeira credencial; a resposta pode trazer um, outro ou
+ * ambos. 409 `whatsapp_socket_not_enabled` quando o provider ativo
+ * não é baileys.
+ */
+export function connectWhatsAppSocket() {
+  return request("POST", "/whatsapp/socket/connect");
+}
+
+/** Encerra a sessão do servidor e apaga as credenciais. */
+export function disconnectWhatsAppSocket() {
+  return request("POST", "/whatsapp/socket/disconnect");
+}

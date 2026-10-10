@@ -9,6 +9,7 @@ import {
   getWhatsAppStatusUsecase,
   listRecentMessagesUsecase,
 } from "../../application/whatsapp/whatsapp.usecases.js";
+import { config } from "../../config/env.js";
 
 /**
  * Painel do gerente do WhatsApp (Embedded Signup) — só gerente, mesmo
@@ -64,6 +65,59 @@ export async function whatsappRoutes(app: FastifyInstance) {
     const parsed = Number(q.limit ?? 50);
     const limit = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 200) : 50;
     return listRecentMessagesUsecase(limit);
+  });
+
+  // --- Rotas do provider Baileys (socket / WhatsApp Web) ---
+
+  /**
+   * GET /whatsapp/socket/status
+   * Retorna o estado da sessão de socket (nunca inclui credenciais).
+   * Só funciona quando WHATSAPP_PROVIDER=baileys.
+   */
+  app.get("/whatsapp/socket/status", () => {
+    if (config.whatsappProvider !== "baileys") {
+      return { error: "whatsapp_socket_not_enabled" };
+    }
+    // TODO: Em produção, consultaríamos o banco (getActiveConnection).
+    // Por enquanto, retornamos estrutura esperada pelo frontend.
+    return {
+      provider: "baileys",
+      connected: false,
+      phone: null,
+      linkedAt: null,
+      lastSeenAt: null,
+      lastError: null,
+    };
+  });
+
+  /**
+   * POST /whatsapp/socket/connect
+   * Cria/retoma o cliente Baileys. Aguarda credenciais (QR/código).
+   * 409 whatsapp_socket_not_enabled quando o provider não for baileys.
+   */
+  app.post("/whatsapp/socket/connect", () => {
+    if (config.whatsappProvider !== "baileys") {
+      return { error: "whatsapp_socket_not_enabled" };
+    }
+    // TODO: Implementar criação real do socket Baileys com pareamento.
+    // Por enquanto retorna QR code e código de pareamento mockados.
+    const qrDataUrl =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/5+hHgAHggJ/IBIBJibQAAAABJRU5ErkJggg==";
+    const pairingCode = "123456";
+    return { qrDataUrl, pairingCode };
+  });
+
+  /**
+   * POST /whatsapp/socket/disconnect
+   * Encerra a sessão do servidor e apaga as credenciais.
+   * 409 whatsapp_socket_not_enabled quando o provider não for baileys.
+   */
+  app.post("/whatsapp/socket/disconnect", () => {
+    if (config.whatsappProvider !== "baileys") {
+      return { error: "whatsapp_socket_not_enabled" };
+    }
+    // TODO: Implementar desconexão real do socket Baileys e limpeza do banco.
+    return { ok: true };
   });
 }
 

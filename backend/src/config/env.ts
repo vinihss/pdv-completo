@@ -77,6 +77,7 @@ export const config = {
   // hoje é o Embedded Signup.
   whatsappAccessToken: process.env.WHATSAPP_ACCESS_TOKEN,
   whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+  whatsappProvider: process.env.WHATSAPP_PROVIDER ?? "cloudapi" as const,
   // Página externa de cardápio/checkout — o bot linka pra cá em vez de
   // conduzir carrinho por texto (decisão: "checkout por fora" — ver
   // 04-delivery-self-service-integration.md).
