@@ -220,8 +220,19 @@ PEDIDO_SERVICE="pedidopublic"
 # Um serviço existe neste compose? Pergunta ao próprio compose (`config
 # --services` é o mesmo caminho que o `config` do Passo A/F valida), e não a um
 # grep no YAML: o YAML mente quando há `extends`, `profiles` ou override.
+#
+# ARMADILHA: nada de `compose config --services | grep -qx` aqui. O `grep -q`
+# sai no primeiro match e fecha o pipe; o `compose` a montante leva SIGPIPE e
+# termina 255 — e sob `set -o pipefail` (ligado lá em cima) o pipeline inteiro
+# vira falha MESMO com o grep tendo casado. O resultado dependia da corrida (e
+# da ordem não determinística do compose), então `has_service` dava FALSE
+# intermitente: no deploy da v1.53.7, `redis` ficou de fora do `up_alvo`, o
+# backend subiu sem resolver `getaddrinfo EAI_AGAIN redis` e o switch abortou no
+# healthcheck. Capturar a saída antes de casar, sem pipe, elimina o SIGPIPE.
 has_service() {
-  "${COMPOSE[@]}" config --services 2>/dev/null | grep -qx "$1"
+  local services
+  services="$("${COMPOSE[@]}" config --services 2>/dev/null || true)"
+  grep -qx "$1" <<<"$services"
 }
 
 # ----------------------------------------------------------------------
