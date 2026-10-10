@@ -182,6 +182,20 @@ subdomínio). Três regras, e cada uma delas já parou um deploy:
 
 - Por isso o CI salva/restaura o ponteiro antes do switch (o switch lê esse arquivo para saber de que lado está o tráfego)
 
+### Container-alvo órfão: o switch se recupera antes do `up`
+
+- Sintoma medido em produção (deploy da `v1.53.4`): o passo 2/5 morre com
+  `Error response from daemon: container <id> is not connected to the network deploy_default`,
+  e nenhum rerun resolve — o estado fica preso no host.
+- Causa: o container da instância **alvo** (a que não está no ar) ficou
+  desconectado da rede do projeto; o `docker compose up` faz um `network disconnect`
+  gracioso antes de recriá-lo e morre nesse passo. O `docker rm -f` não passa por
+  esse caminho.
+- Conserto no `switch.sh` (passo 2): se o primeiro `up` falhar, o script força
+  `docker rm -f` nos containers de `up_alvo` e repete o `up` uma vez. Só as
+  instâncias **alvo** entram (o Caddy aponta para a viva). O caminho feliz não muda
+  e a falha continua abortando **antes** do reload — sem downtime.
+
 ### Migrations expand/contract
 
 - A verde roda as migrations no boot (`DEPLOYMENT_MODE=local` default em `docker-compose.yml`)
