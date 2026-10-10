@@ -9,17 +9,17 @@ import { tenantCache } from "../infra/cache/index.js";
 // são dados de uma loja só.
 const cache = tenantCache;
 
-function invalidateCategoryRelated() {
-  cache.invalidatePattern("categories:*");
-  cache.invalidatePattern("products:*");
-  cache.invalidatePattern("public-menu");
+async function invalidateCategoryRelated() {
+  await cache.invalidatePattern("categories:*");
+  await cache.invalidatePattern("products:*");
+  await cache.invalidatePattern("public-menu");
 }
 
 export async function listCategoriesUsecase() {
-  const cached = cache.get("categories:*");
+  const cached = await cache.get("categories:*");
   if (cached) return cached;
   const rows = await db.query.categories.findMany({ orderBy: (c, { asc }) => asc(c.displayOrder) });
-  cache.set("categories:*", rows, { ttl: 300 });
+  await cache.set("categories:*", rows, { ttl: 300 });
   return rows;
 }
 
@@ -33,7 +33,7 @@ export async function createCategoryUsecase(
       .values({ name: input.name, displayOrder: input.displayOrder ?? 0 })
       .returning();
     await logAction(tx, actorId, "category_created", null, { categoryId: r.id, name: r.name });
-    invalidateCategoryRelated();
+    await invalidateCategoryRelated();
     return r;
   });
   return row;
@@ -57,7 +57,7 @@ export async function updateCategoryUsecase(
       .where(eq(categories.id, id))
       .returning();
     await logAction(tx, actorId, "category_updated", null, { categoryId: id, name: r.name });
-    invalidateCategoryRelated();
+    await invalidateCategoryRelated();
     return r;
   });
   return row;
@@ -73,6 +73,6 @@ export async function deleteCategoryUsecase(id: string, actorId: string) {
     await tx.update(products).set({ categoryId: null }).where(eq(products.categoryId, id));
     await tx.delete(categories).where(eq(categories.id, id));
     await logAction(tx, actorId, "category_deleted", null, { categoryId: id, name: existing.name });
-    invalidateCategoryRelated();
+    await invalidateCategoryRelated();
   });
 }

@@ -13,8 +13,8 @@ import { NominatimGeocodingService } from "../integrations/maps/geocoding.servic
 const cache = tenantCache;
 const storage = getStorage();
 
-function invalidateStoreSettingsRelated() {
-  cache.invalidate("store-settings");
+async function invalidateStoreSettingsRelated() {
+  await cache.invalidate("store-settings");
 }
 
 function serialize(s: typeof storeSettings.$inferSelect) {
@@ -50,12 +50,12 @@ function serialize(s: typeof storeSettings.$inferSelect) {
 
 export async function getStoreSettingsUsecase() {
   const key = "store-settings";
-  const cached = cache.get<ReturnType<typeof serialize>>(key);
+  const cached = await cache.get<ReturnType<typeof serialize>>(key);
   if (cached) return cached;
   const s = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
   if (!s) throw Errors.notFound("Configuração da loja");
   const result = serialize(s);
-  cache.set(key, result, { ttl: 300 });
+  await cache.set(key, result, { ttl: 300 });
   return result;
 }
 
@@ -137,7 +137,7 @@ export async function updateStoreSettingsUsecase(input: {
     .where(eq(storeSettings.id, "singleton"))
     .returning();
 
-  invalidateStoreSettingsRelated();
+  await invalidateStoreSettingsRelated();
 
   if (nameOrCityChanged) {
     const geocodingService = new NominatimGeocodingService();
@@ -150,7 +150,7 @@ export async function updateStoreSettingsUsecase(input: {
           .where(eq(storeSettings.id, "singleton"));
         await logAction(tx, "system", "restaurant_geocoded", null, { latitude: coords.latitude, longitude: coords.longitude });
       });
-      invalidateStoreSettingsRelated();
+      await invalidateStoreSettingsRelated();
       updated.restaurantLat = coords.latitude;
       updated.restaurantLong = coords.longitude;
     } catch (err) {
@@ -191,7 +191,7 @@ export async function saveStoreLogoUsecase(input: { buffer: Buffer; ext: string 
     await logAction(tx, actorId, "store_logo_changed", null, { logoPath: filename });
     return row;
   });
-  invalidateStoreSettingsRelated();
+  await invalidateStoreSettingsRelated();
   return serialize(updated);
 }
 
@@ -213,6 +213,6 @@ export async function clearStoreLogoUsecase(actorId: string) {
     await logAction(tx, actorId, "store_logo_removed", null);
     return row;
   });
-  invalidateStoreSettingsRelated();
+  await invalidateStoreSettingsRelated();
   return serialize(updated);
 }

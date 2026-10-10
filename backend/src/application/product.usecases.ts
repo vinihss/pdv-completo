@@ -91,7 +91,7 @@ export async function listProductsUsecase(input: {
   offset: number;
 }) {
   const key = productListKey(input);
-  const cached = cache.get<{ data: unknown[]; total: number }>(key);
+  const cached = await cache.get<{ data: unknown[]; total: number }>(key);
   if (cached) return cached;
 
   const conditions: SQL[] = [];
@@ -133,7 +133,7 @@ export async function listProductsUsecase(input: {
     )
   );
   const result = { data, total: totalRow[0]?.count ?? rows.length };
-  cache.set(key, result, { ttl: 120 });
+  await cache.set(key, result, { ttl: 120 });
   return result;
 }
 
@@ -213,7 +213,7 @@ export async function createProductUsecase(
     return row;
   });
 
-  cache.invalidatePattern("products:*");
+  await cache.invalidatePattern("products:*");
   return serializeWithStock(created);
 }
 
@@ -272,7 +272,7 @@ export async function updateProductUsecase(
     return row;
   });
 
-  cache.invalidatePattern("products:*");
+  await cache.invalidatePattern("products:*");
   return serializeWithStock(updated);
 }
 
@@ -289,7 +289,7 @@ export async function setProductActiveUsecase(id: string, active: boolean, actor
       productId: id,
       name: row.name,
     });
-    cache.invalidatePattern("products:*");
+    await cache.invalidatePattern("products:*");
     return row;
   });
   return serializeWithStock(updated);
@@ -327,7 +327,7 @@ export async function saveProductImageUsecase(
     await logAction(tx, actorId, "product_image_changed", null, { productId: id });
     return row;
   });
-  cache.invalidatePattern("products:*");
+  await cache.invalidatePattern("products:*");
   return serializeWithStock(updated);
 }
 
@@ -343,9 +343,9 @@ export async function clearProductImageUsecase(id: string, actorId: string) {
       .where(eq(products.id, id))
       .returning();
     await logAction(tx, actorId, "product_image_removed", null, { productId: id });
-    cache.invalidatePattern("products:*");
+    await cache.invalidatePattern("products:*");
     return row;
   });
-  cache.invalidatePattern("products:*");
+  await cache.invalidatePattern("products:*");
   return serializeWithStock(updated);
 }

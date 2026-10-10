@@ -8,16 +8,16 @@ import { tenantCache } from "../infra/cache/index.js";
 // Cache particionado por schema (estações de produção são por loja).
 const cache = tenantCache;
 
-function invalidateKitchenGroupRelated() {
-  cache.invalidatePattern("kitchen-groups:*");
-  cache.invalidatePattern("products:*");
+async function invalidateKitchenGroupRelated() {
+  await cache.invalidatePattern("kitchen-groups:*");
+  await cache.invalidatePattern("products:*");
 }
 
 export async function listKitchenGroupsUsecase() {
-  const cached = cache.get("kitchen-groups:*");
+  const cached = await cache.get("kitchen-groups:*");
   if (cached) return cached;
   const rows = await db.query.kitchenGroups.findMany({ orderBy: (g, { asc }) => asc(g.displayOrder) });
-  cache.set("kitchen-groups:*", rows, { ttl: 300 });
+  await cache.set("kitchen-groups:*", rows, { ttl: 300 });
   return rows;
 }
 
@@ -31,7 +31,7 @@ export async function createKitchenGroupUsecase(
       .values({ name: input.name, displayOrder: input.displayOrder ?? 0 })
       .returning();
     await logAction(tx, actorId, "kitchen_group_created", null, { kitchenGroupId: r.id, name: r.name });
-    invalidateKitchenGroupRelated();
+    await invalidateKitchenGroupRelated();
     return r;
   });
   return row;
@@ -55,7 +55,7 @@ export async function updateKitchenGroupUsecase(
       .where(eq(kitchenGroups.id, id))
       .returning();
     await logAction(tx, actorId, "kitchen_group_updated", null, { kitchenGroupId: id });
-    invalidateKitchenGroupRelated();
+    await invalidateKitchenGroupRelated();
     return r;
   });
   return row;
@@ -70,6 +70,6 @@ export async function deleteKitchenGroupUsecase(id: string, actorId: string) {
     await tx.update(products).set({ kitchenGroupId: null }).where(eq(products.kitchenGroupId, id));
     await tx.delete(kitchenGroups).where(eq(kitchenGroups.id, id));
     await logAction(tx, actorId, "kitchen_group_deleted", null, { kitchenGroupId: id, name: existing.name });
-    invalidateKitchenGroupRelated();
+    await invalidateKitchenGroupRelated();
   });
 }

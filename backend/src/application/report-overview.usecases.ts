@@ -184,7 +184,7 @@ export async function overviewReportUsecase(input: {
   if (!isValidTz(tz)) throw Errors.validationFailed("tz deve ser um offset como -03:00.");
 
   const key = `reports:overview:${JSON.stringify({ from, to, groupBy, tz: tz ?? null })}`;
-  const cached = cache.get<OverviewResult>(key);
+  const cached = await cache.get<OverviewResult>(key);
   if (cached) return cached;
 
   // `dayStart`/`dayEnd` convertem "YYYY-MM-DD" no intervalo UTC do dia LOCAL da
@@ -260,7 +260,7 @@ export async function overviewReportUsecase(input: {
       avgTicket: orderCount > 0 ? round2(totalSales / orderCount) : 0,
     },
   };
-  cache.set(key, result, { ttl: 300 });
+  await cache.set(key, result, { ttl: 300 });
   return result;
 }
 

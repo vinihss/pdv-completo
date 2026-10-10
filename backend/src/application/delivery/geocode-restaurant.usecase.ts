@@ -33,7 +33,7 @@ export async function geocodeRestaurantUsecase(): Promise<{
       await logAction(tx, SYSTEM_USER_ID, "restaurant_geocoded", null, { latitude: coords.latitude, longitude: coords.longitude });
     });
 
-    cache.invalidate("store-settings");
+    await cache.invalidate("store-settings");
 
     return coords;
   } catch (err) {

@@ -22,14 +22,14 @@ describe("tenantCache — partição por schema", () => {
     await inScope(SCOPE_A, () => tenantCache.set("store-settings", { merchantName: "Loja A" }));
 
     // O schema B não enxerga o valor de A, e o dele não sobrescreve o de A.
-    await inScope(SCOPE_B, () => {
-      expect(tenantCache.get("store-settings")).toBeNull();
-      tenantCache.set("store-settings", { merchantName: "Loja B" });
-      expect(tenantCache.get("store-settings")).toEqual({ merchantName: "Loja B" });
+    await inScope(SCOPE_B, async () => {
+      expect(await tenantCache.get("store-settings")).toBeNull();
+      await tenantCache.set("store-settings", { merchantName: "Loja B" });
+      expect(await tenantCache.get("store-settings")).toEqual({ merchantName: "Loja B" });
     });
 
-    await inScope(SCOPE_A, () => {
-      expect(tenantCache.get("store-settings")).toEqual({ merchantName: "Loja A" });
+    await inScope(SCOPE_A, async () => {
+      expect(await tenantCache.get("store-settings")).toEqual({ merchantName: "Loja A" });
     });
   });
 
@@ -39,31 +39,31 @@ describe("tenantCache — partição por schema", () => {
 
     await inScope(SCOPE_A, () => tenantCache.invalidate("store-settings"));
 
-    await inScope(SCOPE_A, () => expect(tenantCache.get("store-settings")).toBeNull());
-    await inScope(SCOPE_B, () => expect(tenantCache.get("store-settings")).toBe("B"));
+    await inScope(SCOPE_A, async () => expect(await tenantCache.get("store-settings")).toBeNull());
+    await inScope(SCOPE_B, async () => expect(await tenantCache.get("store-settings")).toBe("B"));
   });
 
   it("invalidatePattern só atinge as chaves do schema corrente", async () => {
-    await inScope(SCOPE_A, () => {
-      tenantCache.set("products:list:1", "A1");
-      tenantCache.set("products:list:2", "A2");
+    await inScope(SCOPE_A, async () => {
+      await tenantCache.set("products:list:1", "A1");
+      await tenantCache.set("products:list:2", "A2");
     });
     await inScope(SCOPE_B, () => tenantCache.set("products:list:1", "B1"));
 
     await inScope(SCOPE_A, () => tenantCache.invalidatePattern("products:*"));
 
-    await inScope(SCOPE_A, () => {
-      expect(tenantCache.get("products:list:1")).toBeNull();
-      expect(tenantCache.get("products:list:2")).toBeNull();
+    await inScope(SCOPE_A, async () => {
+      expect(await tenantCache.get("products:list:1")).toBeNull();
+      expect(await tenantCache.get("products:list:2")).toBeNull();
     });
-    await inScope(SCOPE_B, () => expect(tenantCache.get("products:list:1")).toBe("B1"));
+    await inScope(SCOPE_B, async () => expect(await tenantCache.get("products:list:1")).toBe("B1"));
   });
 
   it("o registry segue GLOBAL (getCache cru, sem prefixo de schema)", async () => {
-    getCache().set("tenant-registry:slug:a", "registry-a");
-    await inScope(SCOPE_B, () => {
+    await getCache().set("tenant-registry:slug:a", "registry-a");
+    await inScope(SCOPE_B, async () => {
       // O registry é de `public`, não pode ganhar prefixo de schema de tenant.
-      expect(getCache().get("tenant-registry:slug:a")).toBe("registry-a");
+      expect(await getCache().get("tenant-registry:slug:a")).toBe("registry-a");
     });
   });
 });
