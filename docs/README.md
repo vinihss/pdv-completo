@@ -52,6 +52,7 @@ Este índice é a porta de entrada para pessoas e agentes. Comece pelo objetivo 
 | [`19-pagarme.md`](19-pagarme.md), [`20-pagarme-pendencias.md`](20-pagarme-pendencias.md) | Pagar.me e pendências |
 | [`21-device-provisioning.md`](21-device-provisioning.md) | Provisionamento de dispositivos |
 | [`22-mobile-react-native.md`](22-mobile-react-native.md) | Plano/histórico de migração RN/Expo; afirmações sobre `mobile/` e estado de branch precisam ser conferidas contra o checkout |
+| [`25-admin-server-tui.md`](25-admin-server-tui.md) | Plano do admin server (Go, no host) + TUI remota de administração — **plano, não implementado** |
 
 `dicionario-japones.md`, `lista-produtos-*` e `alteracoes-produtos-*` são materiais de referência/dados de produto, não guias de implementação. Confira data e contexto antes de usá-los como fonte vigente.
 
