@@ -1,0 +1,52 @@
+import type { TenantCache } from "../../application/ports/effects.js";
+import type { TenantContext } from "../../application/ports/tenant-context.js";
+import { getCache } from "./index.js";
+import type { ICacheClient } from "./cache-client.js";
+
+/**
+ * Adapter do port `TenantCache` (ports/effects.ts) — FASE 0 da refatoração.
+ *
+ * Diferença em relação ao `tenantCache` de `infra/cache/index.ts`: a
+ * partição por loja aqui é por `tenant.schemaName` EXPLÍCITO, recebido no
+ * construtor — sem depender do `AsyncLocalStorage` (seam
+ * `resolveTenantSchemaInScope`). O use case migrado recebe o `TenantContext`
+ * e instancia este adapter com ele; workers/webhooks fora de um request no ar
+ * (onde o ALS não está populado) particionam corretamente por construção.
+ *
+ * O prefixo é `${schemaName}:` — o MESMO formato do `tenantCache` atual, então
+ * as duas superfícies enxergam as mesmas chaves (nenhum warmup/invalidação
+ * muda de significado durante a migração).
+ */
+export class TenantCacheAdapter implements TenantCache {
+  private readonly prefix: string;
+  private readonly cache?: ICacheClient;
+
+  /**
+   * @param tenant contexto do tenant (só o `schemaName` é usado)
+   * @param cache cliente concreto; quando omitido, resolve `getCache()` POR
+   *   CHAMADA — igual ao `tenantCache` atual, que lê a instância corrente do
+   *   processo (`initCache()` pode trocar MemoryCache por Redis no boot, e um
+   *   default avaliado na construção capturaria a instância errada).
+   */
+  constructor(tenant: Pick<TenantContext, "schemaName">, cache?: ICacheClient) {
+    this.prefix = `${tenant.schemaName}:`;
+    this.cache = cache;
+  }
+
+  private client(): ICacheClient {
+    return this.cache ?? getCache();
+  }
+
+  async get<T>(key: string): Promise<T | null> {
+    return this.client().get<T>(`${this.prefix}${key}`);
+  }
+
+  async set<T>(key: string, value: T, options?: { ttl?: number }): Promise<void> {
+    await this.client().set<T>(`${this.prefix}${key}`, value, options);
+  }
+
+  /** Invalida todas as chaves sob o prefixo (`invalidatePattern("<prefixo>*")`). */
+  async invalidatePrefix(prefix: string): Promise<void> {
+    await this.client().invalidatePattern(`${this.prefix}${prefix}*`);
+  }
+}

@@ -21,7 +21,15 @@ import { initCache, getCache } from "../infra/cache/index.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { orderRoutes } from "./routes/order.routes.js";
 import { cashFlowRoutes } from "./routes/cash-flow.routes.js";
-import { miscRoutes } from "./routes/misc.routes.js";
+import { storeSettingsRoutes } from "./routes/store-settings.routes.js";
+import { catalogRoutes } from "./routes/catalog.routes.js";
+import { userRoutes } from "./routes/user.routes.js";
+import { customerRoutes } from "./routes/customer.routes.js";
+import { customerAdminRoutes } from "./routes/customer-admin.routes.js";
+import { reportRoutes } from "./routes/report.routes.js";
+import { stockRoutes } from "./routes/stock.routes.js";
+import { purchaseRoutes } from "./routes/purchase.routes.js";
+import { auditRoutes } from "./routes/audit.routes.js";
 import { realtimeRoutes } from "./routes/realtime.routes.js";
 import { publicRoutes } from "./routes/public.routes.js";
 import { tenantRoutes } from "./routes/tenant.routes.js";
@@ -254,7 +262,17 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(authRoutes);
   await app.register(orderRoutes);
   await app.register(cashFlowRoutes);
-  await app.register(miscRoutes);
+  // Módulos que antes eram um `misc.routes.ts` único — um plugin por feature,
+  // mesmas URLs (sem prefixo), mesmos hooks/validações por encapsulamento.
+  await app.register(storeSettingsRoutes);
+  await app.register(catalogRoutes);
+  await app.register(userRoutes);
+  await app.register(customerRoutes);
+  await app.register(customerAdminRoutes);
+  await app.register(reportRoutes);
+  await app.register(stockRoutes);
+  await app.register(purchaseRoutes);
+  await app.register(auditRoutes);
   await app.register(realtimeRoutes);
   await app.register(publicRoutes);
   // ---------- Resolução de loja para a vitrine de pedidos (Fase 1 do doc 15) ----------

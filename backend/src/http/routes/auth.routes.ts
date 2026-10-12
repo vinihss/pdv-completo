@@ -14,7 +14,7 @@ import {
 } from "../../application/user.usecases.js";
 import { authMiddleware } from "../middlewares/auth.middleware.js";
 import { loginRateLimit } from "../middlewares/rate-limit.middleware.js";
-import { imageExtByMime } from "./misc.routes.js";
+import { imageExtByMime } from "./image-ext.js";
 import { ensureTenantScope } from "../../infra/db/tenant-context.js";
 
 const loginSchema = z.object({
@@ -90,7 +90,7 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   // Foto do PRÓPRIO usuário logado — o par self-service das rotas
-  // `POST`/`DELETE /users/:id/photo` (manager-only, em misc.routes.ts), para
+  // `POST`/`DELETE /users/:id/photo` (manager-only, em user.routes.ts), para
   // a tela de perfil não depender de gerente para trocar a imagem do próprio
   // avatar. Mesmo desenho do PATCH acima: `authMiddleware` por rota e o id
   // vem SEMPRE do token (`req.authUser!.sub`), nunca de params/body — não há
@@ -99,7 +99,7 @@ export async function authRoutes(app: FastifyInstance) {
   // `@fastify/multipart` é registrado na RAIZ do app (server.ts), antes do
   // `authRoutes`, então `req.file()` já funciona aqui sem registro extra.
   // MIME validado com o MESMO `imageExtByMime` da rota manager (fonte única,
-  // exportada de misc.routes.ts) e a gravação é o MESMO `saveUserPhotoUsecase`
+  // em image-ext.ts) e a gravação é o MESMO `saveUserPhotoUsecase`
   // — nada de lógica de arquivo duplicada. Resposta = mesmo `serialize` do
   // PATCH (inclui `photoPath`); 404 quando o usuário do token não existe mais
   // (mesma régua dos usecases de perfil).
