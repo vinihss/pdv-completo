@@ -5,8 +5,8 @@
  * `DELIVERY_ROOM`) por um motivo concreto: o pedaço compartilhado com o
  * `deliverDeliveryUsecase` — marcar itens como entregues e fechar a comanda —
  * precisa morar num lugar que os dois importem sem criar ciclo.
- * `delivery.usecases.ts` importa a impressora e o notificador do WhatsApp, que
- * aqui não têm nada a ver com editar status.
+ * `delivery.usecases.ts` importa a impressora, que aqui não tem nada a ver
+ * com editar status.
  */
 import { and, eq, notInArray } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";

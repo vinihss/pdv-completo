@@ -444,8 +444,8 @@ export default function DeliveriesTab({ showToast }) {
                     />
                     <button
                       // Este botão só ARMA a confirmação: cancelar pedido é
-                      // irreversível e o cliente é avisado por WhatsApp, então
-                      // o clique precisa de um segundo ponto de decisão. Com o
+                      // irreversível, então o clique precisa de um segundo
+                      // ponto de decisão. Com o
                       // motivo já digitado, era um clique de distância do erro.
                       onClick={() => setConfirmCancelFor(d)}
                       disabled={!cancelReason.trim() || submitting}

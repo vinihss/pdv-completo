@@ -238,7 +238,6 @@ func settingsToStoreConfig(settings map[string]any) *StoreConfig {
 	cfg.PrintEnabled = boolFromAny(settings["printer_enabled"])
 	cfg.AutoPrint = boolFromAny(settings["printer_auto_print"])
 	cfg.DeliveryEnabled = boolFromAny(settings["uses_delivery"])
-	cfg.WhatsAppEnabled = boolFromAny(settings["whatsapp_integration_enabled"])
 	return cfg
 }
 
@@ -249,11 +248,10 @@ func storeConfigPatch(cfg *StoreConfig) map[string]any {
 		cfg = &StoreConfig{}
 	}
 	return map[string]any{
-		"merchant_name":                cfg.MerchantName,
-		"printer_enabled":              cfg.PrintEnabled,
-		"printer_auto_print":           cfg.AutoPrint,
-		"uses_delivery":                cfg.DeliveryEnabled,
-		"whatsapp_integration_enabled": cfg.WhatsAppEnabled,
+		"merchant_name":      cfg.MerchantName,
+		"printer_enabled":    cfg.PrintEnabled,
+		"printer_auto_print": cfg.AutoPrint,
+		"uses_delivery":      cfg.DeliveryEnabled,
 	}
 }
 

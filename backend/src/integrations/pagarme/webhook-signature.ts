@@ -12,7 +12,7 @@ import crypto from "node:crypto";
 //   - precisa ser o corpo CRU, não o objeto re-serializado. O parse/re-stringify
 //     do Fastify muda espaçamento e ordem de chave e a HMAC não bate mais. Por
 //     isso o servidor preserva `req.rawBody` (ver o content type parser em
-//     http/server.ts, que já existe pelo webhook do WhatsApp).
+//     http/server.ts, necessário para validar a assinatura).
 //   - a comparação tem que ser de tempo constante, e `timingSafeEqual` LANÇA se
 //     os buffers tiverem tamanhos diferentes — daí a checagem de comprimento
 //     antes (o comprimento do hex é público, então comparar isso não vaza nada).

@@ -34,16 +34,6 @@ describe("menuSectionsFor", () => {
     expect(labels(menuSectionsFor("manager", { ifoodIntegrationEnabled: false }))).not.toContain("Operação/iFood");
   });
 
-  it("WhatsApp não é item de menu: o painel mora em Configurações", () => {
-    const ids = menuSectionsFor("manager", {
-      inventoryEnabled: true,
-      purchaseEnabled: true,
-      ifoodIntegrationEnabled: true,
-    }).flatMap((s) => s.items.map((i) => i.id));
-    expect(ids).not.toContain("whatsapp");
-    expect(labels(menuSectionsFor("manager", { ifoodIntegrationEnabled: true }))).not.toContain("Operação/WhatsApp");
-  });
-
   it("mantém os ids que a página do gerente já usa", () => {
     const ids = menuSectionsFor("manager", {
       inventoryEnabled: true,

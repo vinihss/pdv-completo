@@ -64,10 +64,9 @@ async function assertVariationsSelectable(lines: IntakeLine[]) {
 
 /**
  * Ponto único de checkout self-service (§04 "Decisões de arquitetura" —
- * "Checkout é uma função compartilhada, não duplicada por canal"). Tanto o
- * webhook do WhatsApp quanto a rota pública da página chamam esta função
- * diretamente, nunca reimplementam a lógica de resolver cliente/endereço
- * ou criar o pedido.
+ * "Checkout é uma função compartilhada, não duplicada por canal"). A rota
+ * pública da página chama esta função diretamente, nunca reimplementa a
+ * lógica de resolver cliente/endereço ou criar o pedido.
  *
  * Composição de chamadas já existentes (openOrderUsecase/addItemsUsecase),
  * cada uma com sua própria transação — mesmo padrão de composição que o
@@ -75,7 +74,7 @@ async function assertVariationsSelectable(lines: IntakeLine[]) {
  * como duas chamadas em sequência, não uma transação única.
  */
 export async function createSelfServiceOrderUsecase(input: {
-  channel: "whatsapp" | "web";
+  channel: "web";
   customerPhone: string;
   customerName: string;
   addressId?: string;
@@ -324,7 +323,7 @@ export async function getSelfServiceOrderStatusUsecase(orderId: string) {
 
 /**
  * Pedido em andamento pra retomada — cliente que fechou o browser ou
- * voltou depois vê "Você tem um pedido em andamento" (página e WhatsApp).
+ * voltou depois vê "Você tem um pedido em andamento".
  * Andamento = orders.status "open" (não fechado/cancelado) do canal
  * self-service; o stage pode ser terminal-fracassado ("failed") — o
  * cliente precisa ver isso também pra poder cancelar ou reordenar.
@@ -333,6 +332,9 @@ export async function getActiveSelfServiceOrderByPhoneUsecase(phone: string) {
   const customer = await db.query.customers.findFirst({ where: eq(customers.phone, phone) });
   if (!customer) return null;
 
+  // `whatsapp` entra na lista só por compatibilidade de leitura: pedidos
+  // antigos feitos pelo canal que não existe mais continuam tendo dono, e
+  // escondê-los deixaria o cliente sem o "pedido em andamento".
   const active = await db.query.orders.findFirst({
     where: and(eq(orders.customerId, customer.id), inArray(orders.channel, ["whatsapp", "web"]), eq(orders.status, "open")),
     orderBy: desc(orders.openedAt),

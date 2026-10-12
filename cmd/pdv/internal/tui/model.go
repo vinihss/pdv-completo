@@ -77,7 +77,6 @@ type StoreConfig struct {
 	PrintEnabled    bool
 	AutoPrint       bool
 	DeliveryEnabled bool
-	WhatsAppEnabled bool
 }
 
 // FormMode define qual formulário está ativo
@@ -1266,7 +1265,6 @@ func (m Model) newConfigForm(config *StoreConfig) FormModel {
 		{Label: "Impressão habilitada", Value: boolToStr(config.PrintEnabled), Placeholder: "true/false", Required: true},
 		{Label: "Impressão automática", Value: boolToStr(config.AutoPrint), Placeholder: "true/false", Required: true},
 		{Label: "Entrega habilitada", Value: boolToStr(config.DeliveryEnabled), Placeholder: "true/false", Required: true},
-		{Label: "WhatsApp habilitado", Value: boolToStr(config.WhatsAppEnabled), Placeholder: "true/false", Required: true},
 	})
 }
 
@@ -1278,7 +1276,6 @@ func (m Model) configFromForm() *StoreConfig {
 		PrintEnabled:    parseBool(m.form.fields[1].Value),
 		AutoPrint:       parseBool(m.form.fields[2].Value),
 		DeliveryEnabled: parseBool(m.form.fields[3].Value),
-		WhatsAppEnabled: parseBool(m.form.fields[4].Value),
 	}
 }
 

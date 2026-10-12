@@ -85,14 +85,6 @@ services:
       # schema default. `backend-next` herda via `extends`.
       - TENANT_ROUTING=${TENANT_ROUTING:-false}
 
-      # ---------- WhatsApp Cloud API (Embedded Signup) ----------
-      # Sem isto a aba 'WhatsApp' do gerente mostra 'não configurado' — o
-      # resto do app funciona normal.
-      - META_APP_ID=${META_APP_ID:-}
-      - META_APP_SECRET=${META_APP_SECRET:-}
-      - WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID=${WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID:-}
-      - WHATSAPP_GRAPH_VERSION=${WHATSAPP_GRAPH_VERSION:-v25.0}
-      - WHATSAPP_VERIFY_TOKEN=${WHATSAPP_VERIFY_TOKEN:-}
       - APP_TAG=${APP_TAG:-}
     volumes:
       - backend_uploads:/app/uploads

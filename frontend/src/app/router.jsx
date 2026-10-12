@@ -226,7 +226,7 @@ export function AppRouter() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Pública, sem login — cliente final, chega direto ou pelo link do bot (§04/05) */}
+        {/* Pública, sem login — cliente final, chega direto ou pelo link de retomada (§04/05) */}
         <Route path="/pedido/*" element={<CustomerMenuPage />} />
         {/* Tudo mais: exige login, roteado por papel */}
         <Route

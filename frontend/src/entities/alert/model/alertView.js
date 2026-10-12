@@ -14,6 +14,7 @@ export function alertAgeLabel(createdAt, now = Date.now()) {
   return days === 1 ? "ontem" : `há ${days} dias`;
 }
 
+// `whatsapp` é legado — canal extinto, alerta antigo ainda pode citá-lo.
 const CHANNEL_HINT = {
   balcao: "Comanda",
   web: "Pedido online",

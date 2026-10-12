@@ -160,7 +160,7 @@ Convenção: critérios marcados com ⚠️ cobrem comportamento que já gerou a
 
 ## 17. Central de alertas — sino da casca (frontend §7, backend §7.2)
 
-- **Dado** um gerente, cozinha ou caixa logado, **quando** uma comanda é aberta por qualquer canal (balcão, página pública, WhatsApp, iFood), **então** o sino do header dele incrementa sem reload, via evento `alert.created`, e o alerta aparece na lista com mesa/canal.
+- **Dado** um gerente, cozinha ou caixa logado, **quando** uma comanda é aberta por qualquer canal (balcão, página pública, iFood), **então** o sino do header dele incrementa sem reload, via evento `alert.created`, e o alerta aparece na lista com mesa/canal.
 - **Dado** um garçom logado, **quando** ele abre uma comanda de balcão, **então** nenhum alerta nasce para ele (a audiência é `manager`/`cashier`/`kitchen`) e o sino dele fica vazio — o autor da ação não é notificado.
 - ⚠️ **Dado** um alerta entregue ao gerente, **quando** ele tenta assinar o room `alerts:manager` com o token de garçom, **então** o backend responde `join.denied` — o recorte do realtime é o mesmo do REST, e o garçom nunca vê linha de outro papel.
 - ⚠️ **Dado** mais pendências que a página pedida, **quando** o sino busca `GET /alerts?limit=20`, **então** `total` e `unread` contam o conjunto **todo** (não a página) — o badge acima de 20 pendências mostra o número certo, com teto visual em `99+`.

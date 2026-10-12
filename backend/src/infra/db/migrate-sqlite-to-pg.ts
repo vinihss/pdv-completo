@@ -81,7 +81,6 @@ const TABLES_IN_FK_ORDER = [
   "customer_cart",
   "geocoding_cache",
   "delivery",
-  "whatsapp_conversation",
   // iFood: não existiam nas migrations SQLite — só aparecem se o
   // cliente tiver usado a integração (tabelas criadas pelo código).
   "ifood_event",

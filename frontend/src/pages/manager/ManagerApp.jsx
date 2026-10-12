@@ -57,9 +57,8 @@ export default function ManagerApp() {
     audit: <AuditTab />,
     settlement: <SettlementTab showToast={showToast} />,
     profile: <ProfilePage showToast={showToast} />,
-    // Sem tela "whatsapp": o painel do WhatsApp mora em Configurações
-    // (SettingsTab), atrás do toggle "Integração WhatsApp". Um activeId
-    // guardado de uma versão antiga cai em Comandas pelo fallback do AppMenu.
+    // Um activeId guardado de uma versão antiga cai em Comandas pelo
+    // fallback do AppMenu.
     settings: <SettingsTab showToast={showToast} />,
   };
 

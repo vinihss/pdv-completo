@@ -21,7 +21,6 @@ import { assetUrl } from "@/shared/lib/server";
 export default function MenuScreen({
   menu,
   cart,
-  viaWhatsApp,
   logoUrl,
   merchantName,
   searchTerm,
@@ -80,7 +79,6 @@ export default function MenuScreen({
             </div>
           )}
           <div className="flex justify-end">
-            {viaWhatsApp && <span className="text-[10.5px] font-semibold bg-[#25D366]/15 text-[#25D366] px-2 py-0.5 rounded-full">WhatsApp</span>}
           </div>
         </div>
         <div className="text-center mt-3">

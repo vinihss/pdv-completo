@@ -104,13 +104,10 @@ func CanJoin(role, sub, room string) bool {
 		// prioritário. Fica assim de propósito.
 		return room == "kitchen-display" || room == "deliveries"
 	case "manager":
-		// `whatsapp` = status de entrega/leitura das mensagens enviadas, publicado
-		// pelo webhook `messages.statuses`.
 		return room == "kitchen-display" ||
 			room == "deliveries" ||
 			room == "cash-drawer" ||
-			room == "inventory" ||
-			room == "whatsapp"
+			room == "inventory"
 	case "kitchen":
 		return room == "kitchen-display"
 	case "cashier":

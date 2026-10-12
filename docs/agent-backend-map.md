@@ -19,8 +19,6 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | Self-Service | `cancel-order.usecase.ts` | `backend/src/application/self-service/` | `public.routes.ts` |
 | Self-Service | `customer-address.usecases.ts` | `backend/src/application/self-service/` | `misc.routes.ts` (customers) |
 | Self-Service | `menu.usecases.ts` | `backend/src/application/self-service/` | `public.routes.ts` |
-| Self-Service | `whatsapp-bot.usecases.ts` | `backend/src/application/self-service/` | `whatsapp-webhook.routes.ts` |
-| WhatsApp | `whatsapp.usecases.ts` | `backend/src/application/whatsapp/` | `whatsapp.routes.ts` |
 | Alert | `alert.usecases.ts` | `backend/src/application/alert/` | `alert.routes.ts` |
 | Audit | `audit-log.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (audit-log) |
 | Report | `report.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (reports) |
@@ -48,8 +46,6 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | `print.routes.ts` | Impressão | `/orders/:id/print`, `/printers/status`, `/printers/health` |
 | `misc.routes.ts` | Diversos | `/products`, `/categories`, `/kitchen-groups`, `/users`, `/customers`, `/reports/sales`, `/stock`, `/suppliers`, `/purchases`, `/inventory/value`, `/audit-log`, `/store-settings` |
 | `public.routes.ts` | Público | `/public/menu`, `/public/orders`, `/public/orders/:id`, `/public/orders/:id/cancel`, `/public/orders/:id/status` |
-| `whatsapp.routes.ts` | WhatsApp | `/whatsapp/status`, `/whatsapp/connect`, `/whatsapp/disconnect`, `/whatsapp/history` |
-| `whatsapp-webhook.routes.ts` | Webhooks | `/webhooks/whatsapp` |
 | `realtime.routes.ts` | Realtime | `/realtime` (WebSocket) |
 | `ifood.routes.ts` | iFood | `/ifood/status`, `/ifood/catalog-sync` |
 | `payment.routes.ts` | Cobrança (Pagar.me) | `/orders/:id/payments`, `/payments/:paymentId`, `/payments/:paymentId/cancel`, `/payments/:paymentId/refund` |
@@ -79,7 +75,6 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | `test/stock.test.ts` | Estoque |
 | `test/team-customers.test.ts` | Clientes + equipe |
 | `test/uploads.test.ts` | Storage por tenant |
-| `test/whatsapp.test.ts` | WhatsApp |
 
 ## Infraestrutura
 
@@ -104,5 +99,4 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | iFood | `backend/src/integrations/ifood/` (10 arquivos) |
 | Google Maps | `backend/src/integrations/maps/` (3 arquivos) |
 | Printer | `backend/src/integrations/printer/` (3 arquivos) |
-| WhatsApp | `backend/src/integrations/whatsapp/` (6 arquivos) |
 | Pagar.me | `backend/src/integrations/pagarme/` (7 arquivos) |

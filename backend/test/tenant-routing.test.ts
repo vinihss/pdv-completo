@@ -514,7 +514,8 @@ describe("registry: migrations, isolamento de schema e cache", () => {
       "0005_cash_drawer_denominations.sql",
       "0006_order_refund.sql",
       "0007_order_settlement.sql",
-      "0008_cash_movement_category.sql"
+      "0008_cash_movement_category.sql",
+      "0009_remove_whatsapp.sql"
     ]);
     // E o diretório existe de verdade — a exclusão não é por pasta vazia.
     expect(fs.existsSync(path.dirname(REGISTRY_SQL))).toBe(true);

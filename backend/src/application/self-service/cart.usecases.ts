@@ -1,13 +1,12 @@
 // Carrinho server-side do cliente — continuação do pedido sem localStorage.
 // Cliente que fechou/reload no meio do checkout reabre o link (o telefone
-// já vem nele, via whatsapp-bot.usecases.ts#buildMenuLink) e continua de
-// onde parou. Chaveado pelo telefone — mesma chave de identificação do
-// fluxo self-service; isolado por telefone (dois aparelhos não misturam).
+// já vem nele) e continua de onde parou. Chaveado pelo telefone — mesma
+// chave de identificação do fluxo self-service; isolado por telefone (dois
+// aparelhos não misturam).
 //
 // Sem validação de produto/estoque aqui: é rascunho — a validação acontece
-// no submit (createSelfServiceOrderUsecase → addItemsUsecase). Mesmo
-// desenho previsto no §04 (whatsapp_conversation.cart_items, hoje não
-// usado) — tabela dedicada pra não acoplar carrinho ao estado da conversa.
+// no submit (createSelfServiceOrderUsecase → addItemsUsecase). Tabela
+// dedicada, desacoplada do pedido em si.
 import { eq, lt } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { customerCarts } from "../../infra/db/schema.js";
