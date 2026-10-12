@@ -15,6 +15,8 @@ type ServerConfig struct {
 	User       string `json:"user"`
 	KeyPath    string `json:"key_path"`
 	RemotePath string `json:"remote_path"`
+	URL        string `json:"url,omitempty"`
+	Token      string `json:"token,omitempty"`
 	LastStatus string `json:"last_status,omitempty"`
 }
 
@@ -73,9 +75,10 @@ func SaveServersConfig(config *ServersConfig) error {
 		return err
 	}
 
-	// Cria o diretório se não existir
+	// Cria o diretório se não existir. O diretório guarda o token, então é
+	// privado ao usuário (0700).
 	configDir := filepath.Dir(configPath)
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0700); err != nil {
 		return err
 	}
 
@@ -84,7 +87,13 @@ func SaveServersConfig(config *ServersConfig) error {
 		return err
 	}
 
-	return os.WriteFile(configPath, data, 0644)
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
+		return err
+	}
+
+	// os.WriteFile não altera o modo de um arquivo já existente — força 0600
+	// para que o token nunca fique legível por outros usuários.
+	return os.Chmod(configPath, 0600)
 }
 
 // AddServer adiciona um novo servidor à configuração
@@ -135,6 +144,66 @@ func UpdateServer(server ServerConfig) error {
 			config.Servers[i] = server
 			return SaveServersConfig(config)
 		}
+	}
+
+	return os.ErrNotExist
+}
+
+// UpsertServer salva a URL e o token de um admin-server. Se já existir uma
+// entrada com o mesmo nome, atualiza só Name/URL/Token e preserva os demais
+// campos (host/port/user/key_path/remote_path); senão acrescenta.
+func UpsertServer(name, url, token string) error {
+	config, err := LoadServersConfig()
+	if err != nil {
+		return err
+	}
+
+	for i, s := range config.Servers {
+		if s.Name == name {
+			config.Servers[i].Name = name
+			config.Servers[i].URL = url
+			config.Servers[i].Token = token
+			return SaveServersConfig(config)
+		}
+	}
+
+	config.Servers = append(config.Servers, ServerConfig{
+		Name:  name,
+		URL:   url,
+		Token: token,
+	})
+	return SaveServersConfig(config)
+}
+
+// SetServerSSH atualiza os campos SSH de um servidor já existente. Só os
+// valores não-zero (não-vazios, para strings) são aplicados, preservando o que
+// o usuário não passou. Devolve os.ErrNotExist se o servidor não existir.
+func SetServerSSH(name, host string, port int, user, keyPath, remotePath string) error {
+	config, err := LoadServersConfig()
+	if err != nil {
+		return err
+	}
+
+	for i, s := range config.Servers {
+		if s.Name != name {
+			continue
+		}
+		if host != "" {
+			config.Servers[i].Host = host
+		}
+		if port > 0 {
+			config.Servers[i].Port = port
+		}
+		if user != "" {
+			config.Servers[i].User = user
+		}
+		if keyPath != "" {
+			config.Servers[i].KeyPath = keyPath
+		}
+		if remotePath != "" {
+			config.Servers[i].RemotePath = remotePath
+		}
+		return SaveServersConfig(config)
 	}
 
 	return os.ErrNotExist
