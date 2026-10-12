@@ -9,28 +9,28 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | Auth | `login.usecase.ts` | `backend/src/application/auth/` | `auth.routes.ts` |
 | Order | `order.usecases.ts` | `backend/src/application/order/` | `order.routes.ts` |
 | Cash Flow | `cash-flow.usecases.ts` | `backend/src/application/cash-flow/` | `cash-flow.routes.ts` |
-| Stock | `stock.usecases.ts` | `backend/src/application/stock/` | `misc.routes.ts` (estoque) |
-| Purchase | `purchase.usecases.ts` | `backend/src/application/purchase/` | `misc.routes.ts` (compras) |
+| Stock | `stock.usecases.ts` | `backend/src/application/stock/` | `stock.routes.ts` |
+| Purchase | `purchase.usecases.ts` | `backend/src/application/purchase/` | `purchase.routes.ts` |
 | Delivery | `calcular-entrega.usecase.ts` | `backend/src/application/delivery/` | `courier.routes.ts`, `delivery-manager.routes.ts` |
 | Delivery | `delivery-pricing.usecase.ts` | `backend/src/application/delivery/` | `courier.routes.ts` |
-| Delivery | `geocode-restaurant.usecase.ts` | `backend/src/application/delivery/` | `misc.routes.ts` (geocode) |
+| Delivery | `geocode-restaurant.usecase.ts` | `backend/src/application/delivery/` | `store-settings.routes.ts` (geocode) |
 | Self-Service | `cart.usecases.ts` | `backend/src/application/self-service/` | `public.routes.ts` |
 | Self-Service | `order-intake.usecase.ts` | `backend/src/application/self-service/` | `public.routes.ts` |
 | Self-Service | `cancel-order.usecase.ts` | `backend/src/application/self-service/` | `public.routes.ts` |
-| Self-Service | `customer-address.usecases.ts` | `backend/src/application/self-service/` | `misc.routes.ts` (customers) |
+| Self-Service | `customer-address.usecases.ts` | `backend/src/application/self-service/` | `customer-admin.routes.ts` |
 | Self-Service | `menu.usecases.ts` | `backend/src/application/self-service/` | `public.routes.ts` |
 | Self-Service | `whatsapp-bot.usecases.ts` | `backend/src/application/self-service/` | `whatsapp-webhook.routes.ts` |
 | WhatsApp | `whatsapp.usecases.ts` | `backend/src/application/whatsapp/` | `whatsapp.routes.ts` |
 | Alert | `alert.usecases.ts` | `backend/src/application/alert/` | `alert.routes.ts` |
-| Audit | `audit-log.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (audit-log) |
-| Report | `report.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (reports) |
-| User | `user.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (users) |
-| Customer | `customer.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (customers) |
-| Customer (CPF) | `cpf.ts` | `backend/src/domain/` | `misc.routes.ts` (customers) — valida DV, devolve os 11 dígitos crus |
-| Product | `product.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (products) |
-| Category | `category.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (categories) |
-| Kitchen Group | `kitchen-group.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (kitchen-groups) |
-| Store Settings | `store-settings.usecases.ts` | `backend/src/application/` | `misc.routes.ts` (store-settings) |
+| Audit | `audit-log.usecases.ts` | `backend/src/application/` | `audit.routes.ts` |
+| Report | `report.usecases.ts` | `backend/src/application/` | `report.routes.ts` |
+| User | `user.usecases.ts` | `backend/src/application/` | `user.routes.ts` |
+| Customer | `customer.usecases.ts` | `backend/src/application/` | `customer.routes.ts` |
+| Customer (CPF) | `cpf.ts` | `backend/src/domain/` | `customer.routes.ts` — valida DV, devolve os 11 dígitos crus |
+| Product | `product.usecases.ts` | `backend/src/application/` | `catalog.routes.ts` |
+| Category | `category.usecases.ts` | `backend/src/application/` | `catalog.routes.ts` |
+| Kitchen Group | `kitchen-group.usecases.ts` | `backend/src/application/` | `catalog.routes.ts` |
+| Store Settings | `store-settings.usecases.ts` | `backend/src/application/` | `store-settings.routes.ts` |
 | Payment | `payment.usecases.ts` | `backend/src/application/payment/` | `payment.routes.ts`, `pagarme-webhook.routes.ts` |
 | Payment (domínio) | `payment.ts` | `backend/src/domain/` | `PaymentGateway`, transições de status, `refundableAmount` |
 
@@ -46,7 +46,15 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | `kitchen.routes.ts` | Cozinha | `/kitchen/orders`, `/kitchen/orders/:id/items/:itemId/ready` |
 | `alert.routes.ts` | Alertas | `/alerts`, `/alerts/mark-read` |
 | `print.routes.ts` | Impressão | `/orders/:id/print`, `/printers/status`, `/printers/health` |
-| `misc.routes.ts` | Diversos | `/products`, `/categories`, `/kitchen-groups`, `/users`, `/customers`, `/reports/sales`, `/stock`, `/suppliers`, `/purchases`, `/inventory/value`, `/audit-log`, `/store-settings` |
+| `catalog.routes.ts` | Catálogo | `/products`, `/categories`, `/kitchen-groups` |
+| `user.routes.ts` | Equipe | `/users`, `/users/:id/reset-pin`, foto de usuário |
+| `customer.routes.ts` | Clientes | `/customers`, `/customers/search`, `/customers/:id/orders`, `/customers/:id/summary`, foto de cliente |
+| `customer-admin.routes.ts` | Endereços de cliente | `/customers/:id/addresses*` |
+| `report.routes.ts` | Relatórios | `/reports/sales`, `/reports/overview`, `/reports/deliveries` |
+| `stock.routes.ts` | Estoque | `/stock`, `/stock/movements`, `/inventory/value` |
+| `purchase.routes.ts` | Compras | `/suppliers`, `/purchases` |
+| `audit.routes.ts` | Auditoria | `/audit-log` |
+| `store-settings.routes.ts` | Configurações da loja | `/store-settings`, `/store/geocode-restaurant` |
 | `public.routes.ts` | Público | `/public/menu`, `/public/orders`, `/public/orders/:id`, `/public/orders/:id/cancel`, `/public/orders/:id/status` |
 | `whatsapp.routes.ts` | WhatsApp | `/whatsapp/status`, `/whatsapp/connect`, `/whatsapp/disconnect`, `/whatsapp/history` |
 | `whatsapp-webhook.routes.ts` | Webhooks | `/webhooks/whatsapp` |
