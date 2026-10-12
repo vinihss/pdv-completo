@@ -21,6 +21,7 @@ import (
 
 	"pdv-pagarme-webhook/internal/charge"
 	"pdv-pagarme-webhook/internal/inbox"
+	"pdv-pagarme-webhook/internal/tenancy"
 )
 
 // =============================================================================
@@ -55,7 +56,7 @@ type fakeStore struct {
 	falha      error
 }
 
-func (f *fakeStore) Record(_ context.Context, rawBody []byte, payload *charge.WebhookPayload) (string, bool, error) {
+func (f *fakeStore) Record(_ context.Context, _ tenancy.Tenant, rawBody []byte, payload *charge.WebhookPayload) (string, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.chamadas++
@@ -203,7 +204,7 @@ func assina(body []byte) string {
 // interface faz `nil` aqui significar a mesma coisa que significa lá.
 func novoServer(t *testing.T, store InboxStore, secret string, health *HealthProbe) (*httptest.Server, *Client) {
 	t.Helper()
-	s := New(secret, store, health, "teste")
+	s := New(secret, store, nil, health, "teste")
 	srv := httptest.NewServer(s.Rotas())
 	t.Cleanup(srv.Close)
 	return srv, &Client{base: srv.URL}
@@ -634,7 +635,7 @@ func TestWebhookRecusaMetodoDiferenteDePOST(t *testing.T) {
 // este serviço não pode atravessar.
 func TestRotas(t *testing.T) {
 	store := &fakeStore{isNew: true}
-	s := New(secretKey, store, probeSaudavel(), "teste")
+	s := New(secretKey, store, nil, probeSaudavel(), "teste")
 
 	casos := []struct {
 		metodo  string

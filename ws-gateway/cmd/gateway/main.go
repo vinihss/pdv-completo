@@ -18,6 +18,12 @@
 //	WS_JWT_SECRET    o mesmo JWT_SECRET do backend (fallback: JWT_SECRET)
 //	DATABASE_URL     postgres do backend — sem ele o WS sobe mas nenhum evento
 //	                 é publicado (útil para subir lado a lado na migração)
+//	WS_TENANTS       tenants de forma EXPLÍCITA, `slug=schema` separado por
+//	                 vírgula (ex.: `default=public,umami=tenant_umami`). Sem
+//	                 esta env os tenants vêm do registry `public.tenant`
+//	DEFAULT_TENANT_SCHEMA  schema do tenant default (fallback `public`) — a
+//	                 MESMA env que o backend lê; se os dois discordarem o
+//	                 evento do default some em silêncio
 //	WS_DISPATCH      liga a publicação do outbox. DESLIGADO por padrão e
 //	                 default-deny (só 1/true/yes/on ligam): o gateway só publica
 //	                 quando é o dono do /realtime, e quem decide isso é o Caddy,
@@ -47,7 +53,36 @@ import (
 	"pdv-ws-gateway/internal/db"
 	"pdv-ws-gateway/internal/outbox"
 	"pdv-ws-gateway/internal/roommanager"
+	"pdv-ws-gateway/internal/tenancy"
 )
+
+// fonteTenancy escolhe de onde vêm os tenants do processo, nesta ordem:
+//
+//  1. `WS_TENANTS` (`slug=schema` CSV) — explícita, não depende do banco;
+//  2. registry `public.tenant` quando há pool;
+//  3. só o tenant default — o comportamento de antes do multi-tenant.
+//
+// A env malformada derruba o boot (log.Fatalf) de propósito: `WS_TENANTS` só é
+// lida se alguém a escreveu, e um `slug=schema` errado faria o dispatcher ler e
+// publicar do schema errado. Errar cedo no boot, com o healthcheck ainda
+// recusando tráfego, é o único momento em que isso é barato de corrigir.
+func fonteTenancy(pool *sql.DB) tenancy.Source {
+	static, definida, err := tenancy.FromEnv()
+	if err != nil {
+		log.Fatalf("[gateway] %v — corrija a env antes de subir", err)
+	}
+	if definida {
+		ts, _ := static.Tenants(context.Background())
+		log.Printf("[gateway] tenants de %s: %v", tenancy.EnvTenants, ts)
+		return static
+	}
+	if pool != nil {
+		log.Printf("[gateway] tenants do registry public.tenant (cache %s)", "60s")
+		return tenancy.NewRegistry(pool)
+	}
+	log.Printf("[gateway] AVISO: sem %s e sem banco — só o tenant default será varrido", tenancy.EnvTenants)
+	return tenancy.NewStatic(nil)
+}
 
 // server é tudo que os handlers precisam. Passar por struct em vez de usar
 // variáveis de package deixa o roteamento testável sem subir servidor.
@@ -59,6 +94,7 @@ import (
 type server struct {
 	hub     *connmanager.Manager
 	verify  func(token string) (*auth.User, error)
+	tenants tenancy.Source
 	health  *healthProbe
 	started time.Time
 	version string
@@ -116,7 +152,6 @@ func main() {
 	// shutdown: o `database/sql` segura conexão TCP e não devolve nenhuma no fim
 	// do processo, então quem abre é quem fecha.
 	var pool *sql.DB
-	var dispatcher *outbox.Dispatcher
 	if databaseURL != "" {
 		var err error
 		pool, err = db.Connect(databaseURL)
@@ -133,22 +168,31 @@ func main() {
 			// horário real, e é ele que impede o /health de responder degraded
 			// nos primeiros milissegundos depois do boot.
 			srv.health = newHealthProbe(pool, time.Now())
-			dispatcher = outbox.New(pool, srv.hub)
-			// Só anuncia "conectado" quando o dispatcher vai mesmo publicar.
-			//
-			// Com o gate desligado este é o estado NORMAL enquanto o Node é o
-			// dono do /realtime, e dizer "conectado" seria mentir: `Run` volta
-			// sem criar ticker e nada é publicado. Quem explica esse caso é o
-			// próprio dispatcher, em `Run` → `logInactive()`, no log seguinte —
-			// com a env, o valor lido e o passo do deploy em que ela deve ser
-			// ligada. Repetir aqui só produziria dois logs do mesmo fato em
-			// palavras diferentes.
-			if outbox.DispatchEnabled() {
-				log.Println("[gateway] dispatcher do outbox conectado (WS_DISPATCH ligado) — eventos serão publicados")
-			}
 		}
 	} else {
 		log.Println("[gateway] AVISO: DATABASE_URL ausente — eventos NÃO serão publicados")
+	}
+
+	// A fonte de tenancy nasce do mesmo pool do dispatcher: é ela que diz quais
+	// schemas o outbox varre e de qual loja é o Host de /realtime/public.
+	tenants := fonteTenancy(pool)
+	srv.tenants = tenants
+
+	var dispatcher *outbox.Dispatcher
+	if pool != nil {
+		dispatcher = outbox.NewWithSource(pool, srv.hub, tenants)
+		// Só anuncia "conectado" quando o dispatcher vai mesmo publicar.
+		//
+		// Com o gate desligado este é o estado NORMAL enquanto o Node é o
+		// dono do /realtime, e dizer "conectado" seria mentir: `Run` volta
+		// sem criar ticker e nada é publicado. Quem explica esse caso é o
+		// próprio dispatcher, em `Run` → `logInactive()`, no log seguinte —
+		// com a env, o valor lido e o passo do deploy em que ela deve ser
+		// ligada. Repetir aqui só produziria dois logs do mesmo fato em
+		// palavras diferentes.
+		if outbox.DispatchEnabled() {
+			log.Println("[gateway] dispatcher do outbox conectado (WS_DISPATCH ligado) — eventos serão publicados")
+		}
 	}
 
 	// ctx cancelado no primeiro SIGINT/SIGTERM: derruba o dispatcher e libera
@@ -271,7 +315,10 @@ func (s *server) handleRealtime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	registered := s.hub.Add(conn, user.ID, user.Role)
+	// O claim `tenant` do JWT é a chave de partição da conexão: sem ele o
+	// broadcast por tenant não alcança este socket (e com ele, não alcança o
+	// de outra loja — docs/15 §3.3).
+	registered := s.hub.Add(conn, user.ID, user.Role, user.Tenant)
 	if registered == nil {
 		// Manager morto (shutdown em curso): o socket é nosso para fechar, e o
 		// processo está "não aceito" — sem readLoop, sem writePump, sem room.
@@ -286,8 +333,8 @@ func (s *server) handleRealtime(w http.ResponseWriter, r *http.Request) {
 		s.hub.Join(registered, room)
 	}
 
-	log.Printf("[gateway] conectado sub=%s role=%s conn=%s rooms=%v",
-		user.ID, user.Role, registered.ID, roommanager.InitialRooms(user.Role, user.ID))
+	log.Printf("[gateway] conectado sub=%s role=%s tenant=%q conn=%s rooms=%v",
+		user.ID, user.Role, user.Tenant, registered.ID, roommanager.InitialRooms(user.Role, user.ID))
 
 	readLoop(s, registered, func(msg clientMessage) {
 		if msg.Room == nil {
@@ -305,20 +352,32 @@ func (s *server) handleRealtime(w http.ResponseWriter, r *http.Request) {
 
 // handleRealtimePublic é a máquina de estado do cliente anônimo: o acompanhamento
 // de /pedido, sem JWT. Só `order:<uuid>` é alcançável.
+//
+// Sem token, quem diz a loja é o HOST (`X-Forwarded-Host` do Caddy, ou o Host
+// da conexão): a 1ª label vira slug no registry/`WS_TENANTS`. Sem essa ponte o
+// client da loja B entraria no escopo do default e ficaria ouvindo — ou sendo
+// ouvido por — a sala errada. Host que não resolve é o mesmo fallback do Node:
+// tenant default, com log.
 func (s *server) handleRealtimePublic(w http.ResponseWriter, r *http.Request) {
+	tenant := s.resolveHostTenant(r)
+
 	conn, err := upgrade(w, r, "")
 	if err != nil {
 		log.Printf("[gateway] upgrade público falhou: %v", err)
 		return
 	}
 
-	// Sem identidade: userID/role vazios e nenhum room inicial.
-	registered := s.hub.Add(conn, "", "")
+	// Sem identidade: userID/role vazios e nenhum room inicial. O tenant vem do
+	// Host e é o que partitiona o socket.
+	registered := s.hub.Add(conn, "", "", tenant.Chave())
 	if registered == nil {
 		conn.Close()
 		return
 	}
 	defer s.hub.Remove(registered)
+
+	log.Printf("[gateway] público conectado host=%q tenant=%q conn=%s",
+		hostDaRequisicao(r), tenant.Chave(), registered.ID)
 
 	readLoop(s, registered, func(msg clientMessage) {
 		if msg.Type != "join" {
@@ -336,6 +395,30 @@ func (s *server) handleRealtimePublic(w http.ResponseWriter, r *http.Request) {
 		}
 		s.hub.Send(registered, mustJSON(map[string]any{"type": "join.denied", "room": room}))
 	})
+}
+
+// hostDaRequisicao devolve o Host real do client atrás do proxy:
+// `X-Forwarded-Host` (Caddy) quando existe, senão o `Host` da conexão.
+func hostDaRequisicao(r *http.Request) string {
+	if h := r.Header.Get("X-Forwarded-Host"); h != "" {
+		return h
+	}
+	return r.Host
+}
+
+// resolveHostTenant traduz o Host no tenant do socket. Erro da fonte (registry
+// fora do ar) cai no default COM LOG — no caminho público não existe o que
+// recusar: derrubar a vitrine de uma loja porque o registry piscou piora o
+// defeito que o fallback já cobre (a sala errada fica muda e o client
+// recarrega por REST, o mesmo custo de sempre do outbox).
+func (s *server) resolveHostTenant(r *http.Request) tenancy.Tenant {
+	host := hostDaRequisicao(r)
+	tenant, err := s.tenants.Resolve(r.Context(), host)
+	if err != nil {
+		log.Printf("[gateway] AVISO: não consegui resolver o host %q no registry (%v) — usando o tenant default", host, err)
+		return tenancy.Default()
+	}
+	return tenant
 }
 
 // clientMessage é o envelope de entrada. `Room` é ponteiro para distinguir

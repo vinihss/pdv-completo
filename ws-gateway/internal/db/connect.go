@@ -32,6 +32,14 @@ func Connect(dsn string) (*sql.DB, error) {
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
+	// Auditoria de papel: se a role for superuser/BYPASSRLS, RLS estaria inerte
+	// (docs/15 §2) — aviso no boot, ou recusa quando DB_REQUIRE_RESTRICTED=1.
+	// Ver internal/db/role.go para por que isto só RELATA e não conserta.
+	if err := auditaPapel(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+
 	log.Println("[db] conexão com o PostgreSQL estabelecida")
 	return db, nil
 }

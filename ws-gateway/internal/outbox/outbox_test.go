@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"pdv-ws-gateway/internal/db"
+	"pdv-ws-gateway/internal/tenancy"
 )
 
 // =============================================================================
@@ -63,11 +65,18 @@ import (
 // receberam o frame e guarda o que cada room recebeu. `assinar` é o cliente
 // que entrou na room; sem ele a entrega é 0, que é o caso "nenhum assinante" —
 // um estado legítimo, tratado como paridade com o Node (ver Dispatcher.publish).
+//
+// A chave é TENANT + room, e não só room: é justamente o que este double mede
+// no multi-tenant — duas lojas com a room `cash-drawer` de mesmo nome no wire
+// têm que aparecer como dois registros distintos (docs/15 §3.3, risco R1).
 type recordingHub struct {
 	mu        sync.Mutex
-	assinados map[string]int
+	assinados map[string]int // `tenant\x00room` -> conexões
 	recebidos map[string][][]byte
 }
+
+// chave monta a chave de partição do hub (o MESMO formato do connmanager).
+func chave(tenant, room string) string { return tenant + "\x00" + room }
 
 func newRecordingHub() *recordingHub {
 	return &recordingHub{
@@ -76,33 +85,45 @@ func newRecordingHub() *recordingHub {
 	}
 }
 
+// assinar entra na room do tenant DEFAULT — o caso de todos os testes que não
+// estão testando partição (dispatcher sem fonte = só o default).
 func (h *recordingHub) assinar(room string, conexoes int) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.assinados[room] = conexoes
+	h.assinarNo(tenancy.Default().Chave(), room, conexoes)
 }
 
-func (h *recordingHub) BroadcastToRoom(room string, payload []byte) int {
+func (h *recordingHub) assinarNo(tenant, room string, conexoes int) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.assinados[room] == 0 {
+	h.assinados[chave(tenant, room)] = conexoes
+}
+
+func (h *recordingHub) BroadcastToRoom(tenant, room string, payload []byte) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	k := chave(tenant, room)
+	if h.assinados[k] == 0 {
 		return 0
 	}
 	// Cópia: o frame é reutilizado entre ciclos no código real, e guardar o
 	// slice sem copiar transformaria uma otimização do hub em bug do teste.
 	frame := make([]byte, len(payload))
 	copy(frame, payload)
-	h.recebidos[room] = append(h.recebidos[room], frame)
-	return h.assinados[room]
+	h.recebidos[k] = append(h.recebidos[k], frame)
+	return h.assinados[k]
 }
 
-// frames devolve o que a room recebeu, na ordem.
+// frames devolve o que a room do tenant DEFAULT recebeu, na ordem.
 func (h *recordingHub) frames(room string) [][]byte {
+	return h.framesNo(tenancy.Default().Chave(), room)
+}
+
+func (h *recordingHub) framesNo(tenant, room string) [][]byte {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return append([][]byte(nil), h.recebidos[room]...)
+	return append([][]byte(nil), h.recebidos[chave(tenant, room)]...)
 }
 
+// total devolve quantos frames foram entregues no total, de qualquer tenant.
 func (h *recordingHub) total() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -111,6 +132,23 @@ func (h *recordingHub) total() int {
 		n += len(frames)
 	}
 	return n
+}
+
+// tenantsVistos devolve os tenants que receberam algum frame, em ordem de
+// primeira entrega — é como um teste confirma que o frame saiu ETIQUETADO.
+func (h *recordingHub) tenantsVistos() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var out []string
+	jaViu := map[string]bool{}
+	for k := range h.recebidos {
+		tenant := k[:strings.IndexByte(k, '\x00')]
+		if !jaViu[tenant] {
+			jaViu[tenant] = true
+			out = append(out, tenant)
+		}
+	}
+	return out
 }
 
 // -----------------------------------------------------------------------------
@@ -559,6 +597,144 @@ func TestPollOncePulaQuandoOutroDispatcherTemOLock(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
+// Fail-closed: quem sabe os tenants é a fonte
+// -----------------------------------------------------------------------------
+
+// fonteComErro é o registry indisponível SEM snapshot — o estado em que o
+// serviço não sabe quais lojas existem.
+type fonteComErro struct{}
+
+func (fonteComErro) Tenants(context.Context) ([]tenancy.Tenant, error) {
+	return nil, errors.New("registry public.tenant indisponível")
+}
+
+func (fonteComErro) Resolve(context.Context, string) (tenancy.Tenant, error) {
+	return tenancy.Tenant{}, errors.New("registry public.tenant indisponível")
+}
+
+// A fonte errando NÃO vira "então publica o default": o ciclo aborta sem
+// entregar nada. O defeito que este teste fecha é o fallback silencioso —
+// publicar o que houver como default mandaria evento para um escopo chutado e
+// deixaria os eventos dos outros tenants mudos dentro da fila, sem acusar.
+func TestPollOnceFalhaFechadoQuandoAFonteDeTenantsErra(t *testing.T) {
+	t.Setenv(dispatchEnv, "1")
+	calaLog(t)
+
+	hub := newRecordingHub()
+	d := NewWithSource(bancoInacessivel(t), hub, fonteComErro{})
+
+	if _, err := d.PollOnce(context.Background()); err == nil {
+		t.Fatal("fonte de tenants em erro e PollOnce voltou nil: o ciclo teria publicado sem saber o escopo")
+	}
+	if total := hub.total(); total != 0 {
+		t.Errorf("fonte em erro e %d frame(s) foram entregues", total)
+	}
+}
+
+// Mesma propriedade com banco de verdade: com uma linha PENDENTE plantada, a
+// fonte em erro não pode nem ler nem marcar `published`. Sem esta versão, o
+// teste acima só provaria que a fonte é consultada antes de qualquer coisa —
+// não que a falha dela segura o lote.
+func TestPollOnceFalhaFechadoNaoEncostaNaLinhaPendente(t *testing.T) {
+	bd := testDB(t)
+	t.Setenv(dispatchEnv, "1")
+	calaLog(t)
+
+	id, _ := plantaPendente(t, bd, "order.created", `{"orderId":"abc"}`)
+	hub := newRecordingHub()
+
+	if _, err := NewWithSource(bd, hub, fonteComErro{}).PollOnce(context.Background()); err == nil {
+		t.Fatal("fonte em erro com banco acessível: PollOnce não pode voltar nil")
+	}
+	if publicado(t, bd, id) {
+		t.Errorf("evento %s foi marcado publicado sem que a fonte de tenants existisse", id)
+	}
+	if total := hub.total(); total != 0 {
+		t.Errorf("fonte em erro e %d frame(s) foram entregues", total)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// PollOnce: partição por tenant (pula sem WS_GATEWAY_TEST_DATABASE_URL)
+// -----------------------------------------------------------------------------
+
+// O coração do multi-tenant no dispatcher: duas lojas, rooms de MESMO nome no
+// wire, um único ciclo.
+//
+// O que está em jogo, e que só um Postgres de verdade prova:
+//
+//   - o SELECT de cada tenant roda no SCHEMA do tenant (uma linha plantada em
+//     A não pode sair lida pelo ciclo de B) — é o `tenancy.Apply` antes do
+//     SELECT, e sem ele o teste falha porque a linha nunca é lida;
+//   - o frame sai ETIQUETADO com o slug do tenant (docs/15 §3.3, risco R1):
+//     `hub.framesNo("loja-a", "cash-drawer")` e `hub.framesNo("loja-b",
+//     "cash-drawer")` têm que ser dois registros distintos, cada um com o
+//     payload da própria loja;
+//   - as duas linhas saem da fila no SCHEMA certo.
+func TestPollOnceParticionaPorTenant(t *testing.T) {
+	bd := testDB(t)
+	t.Setenv(dispatchEnv, "1")
+
+	schemaA, schemaB := "tenant_loja_a", "tenant_loja_b"
+	criaSchemaTenant(t, bd, schemaA)
+	criaSchemaTenant(t, bd, schemaB)
+
+	room := "cash-drawer" // mesmo nome nas duas lojas, de propósito
+	idA := plantaPendenteNo(t, bd, schemaA, "cash.drawer.opened", `{"loja":"A"}`, room)
+	idB := plantaPendenteNo(t, bd, schemaB, "cash.drawer.opened", `{"loja":"B"}`, room)
+
+	hub := newRecordingHub()
+	hub.assinarNo("loja-a", room, 1)
+	hub.assinarNo("loja-b", room, 1)
+
+	fonte := tenancy.NewStatic([]tenancy.Tenant{
+		{Slug: "loja-a", Schema: schemaA},
+		{Slug: "loja-b", Schema: schemaB},
+	})
+
+	n, err := NewWithSource(bd, hub, fonte).PollOnce(context.Background())
+	if err != nil {
+		t.Fatalf("PollOnce falhou: %v", err)
+	}
+	if n < 2 {
+		t.Errorf("ciclo leu %d evento(s), no mínimo 2 (uma por schema)", n)
+	}
+
+	confereFrameDe(t, hub, "loja-a", room, "A")
+	confereFrameDe(t, hub, "loja-b", room, "B")
+
+	if !publicadoNo(t, bd, schemaA, idA) {
+		t.Errorf("evento de %s continua pendente: o SELECT não rodou no schema do tenant", schemaA)
+	}
+	if !publicadoNo(t, bd, schemaB, idB) {
+		t.Errorf("evento de %s continua pendente: o SELECT não rodou no schema do tenant", schemaB)
+	}
+}
+
+// confereFrameDe confirma que a room do tenant recebeu EXATAMENTE o frame da
+// própria loja: mesmo nome de room no wire, payload trocado seria o vazamento.
+func confereFrameDe(t *testing.T, hub *recordingHub, tenant, room, loja string) {
+	t.Helper()
+
+	frames := hub.framesNo(tenant, room)
+	if len(frames) != 1 {
+		t.Fatalf("room %q do tenant %q recebeu %d frame(s), quer 1", room, tenant, len(frames))
+	}
+	var envelope struct {
+		Payload struct {
+			Loja string `json:"loja"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(frames[0], &envelope); err != nil {
+		t.Fatalf("frame do tenant %q não é JSON válido: %v (%s)", tenant, err, frames[0])
+	}
+	if envelope.Payload.Loja != loja {
+		t.Errorf("tenant %q recebeu payload da loja %q, quer %q — room de mesmo nome entregue para o inquilino errado",
+			tenant, envelope.Payload.Loja, loja)
+	}
+}
+
+// -----------------------------------------------------------------------------
 // helpers de banco
 // -----------------------------------------------------------------------------
 
@@ -631,6 +807,66 @@ func publicado(t *testing.T, db *sql.DB, id string) bool {
 	var valor bool
 	if err := db.QueryRow(`SELECT published FROM outbox_event WHERE id = $1`, id).Scan(&valor); err != nil {
 		t.Fatalf("não consegui ler published de %s: %v", id, err)
+	}
+	return valor
+}
+
+// criaSchemaTenant garante um schema de tenant com a própria `outbox_event`,
+// como o migrate cria quando provisiona uma loja (docs/15 §3.3).
+//
+// O nome é interpolado porque `CREATE SCHEMA IF NOT EXISTS $1` não aceita
+// parâmetro — e é seguro aqui justamente porque passa pelo MESMO `ValidSchema`
+// que barra a env e o registry, o mesmo CHECK do banco
+// (`^tenant_[a-z0-9_]+$`). Constante de teste sem validação seria o único
+// caminho de injeção, e ele não existe.
+func criaSchemaTenant(t *testing.T, db *sql.DB, schema string) {
+	t.Helper()
+
+	if !tenancy.ValidSchema(schema) {
+		t.Fatalf("schema de teste %q rejeitado pelo ValidSchema: o helper só aceita o formato do registry", schema)
+	}
+	if _, err := db.Exec(`CREATE SCHEMA IF NOT EXISTS ` + schema); err != nil {
+		t.Fatalf("não consegui criar o schema %s (a role de teste precisa de CREATE): %v", schema, err)
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS ` + schema + `.outbox_event ` +
+		`(id text PRIMARY KEY, seq bigint NOT NULL, event_type text NOT NULL, payload text NOT NULL, ` +
+		`room text NOT NULL, published boolean NOT NULL DEFAULT false, ` +
+		`created_at text NOT NULL DEFAULT to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'::text))`); err != nil {
+		t.Fatalf("não consegui criar %s.outbox_event: %v", schema, err)
+	}
+}
+
+// plantaPendenteNo grava em um SCHEMA ESPECÍFICO, sempre qualificando a tabela:
+// um INSERT com a tabela crua cairia no search_path da conexão e plantaria a
+// linha no schema errado, o que transformaria o teste de partição num teste de
+// nada.
+func plantaPendenteNo(t *testing.T, db *sql.DB, schema, eventType, payload, room string) (id string) {
+	t.Helper()
+
+	var suffix [6]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		t.Fatalf("rand falhou: %v", err)
+	}
+	id = "outbox-test-" + hex.EncodeToString(suffix[:])
+
+	_, err := db.Exec(
+		`INSERT INTO `+schema+`.outbox_event (id, seq, event_type, payload, room) VALUES ($1, $2, $3, $4, $5)`,
+		id, time.Now().UnixNano(), eventType, payload, room,
+	)
+	if err != nil {
+		t.Fatalf("não consegui plantar o evento pendente em %s: %v", schema, err)
+	}
+	return id
+}
+
+// publicadoNo lê `published` QUALIFICADO pelo schema — é a asserção de que a
+// linha saiu da fila no lugar certo.
+func publicadoNo(t *testing.T, db *sql.DB, schema, id string) bool {
+	t.Helper()
+
+	var valor bool
+	if err := db.QueryRow(`SELECT published FROM `+schema+`.outbox_event WHERE id = $1`, id).Scan(&valor); err != nil {
+		t.Fatalf("não consegui ler published de %s em %s: %v", id, schema, err)
 	}
 	return valor
 }

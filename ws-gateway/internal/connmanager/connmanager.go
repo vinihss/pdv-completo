@@ -51,6 +51,13 @@ type Conn struct {
 	ID     string
 	UserID string
 	Role   string
+	// Tenant é o slug do tenant desta conexão, vindo do claim `tenant` do JWT
+	// (no caminho público, do Host — ver cmd/gateway/main.go). É a CHAVE de
+	// partição do broadcast: um evento do tenant A só alcança conexões cujo
+	// Tenant é A (docs/15 §3.3 — sem isto, o gerente de A ouviria a gaveta de
+	// caixa de B). String vazia = conexão sem escopo, que não recebe evento
+	// de nenhum tenant (fail-closed).
+	Tenant string
 
 	socket *websocket.Conn
 	// send é a fila, consumida só pela writePump, e NUNCA é fechada. Fechá-la
@@ -100,11 +107,16 @@ func New() *Manager {
 // `socket` já vem upgraded pelo handler; o Manager assume a posse e fecha em
 // Remove/Close.
 //
+// `tenant` é o slug do escopo da conexão (claim `tenant` do JWT; vazio no
+// caminho público, que resolve pelo Host no handler). Ele entra aqui uma única
+// vez e nunca muda: um join não troca de loja, e poder trocar seria o jeito
+// curto de cruzar escopo.
+//
 // Depois de `Close` devolve `nil`: o manager morto não assume posse de socket
 // nenhum. `nil` significa "manager morto, o socket é seu para fechar" — o
 // caller NÃO deve tratar como registro feito, e nenhuma writePump é subida
 // nesse caminho.
-func (m *Manager) Add(socket *websocket.Conn, userID, role string) *Conn {
+func (m *Manager) Add(socket *websocket.Conn, userID, role, tenant string) *Conn {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
@@ -114,20 +126,31 @@ func (m *Manager) Add(socket *websocket.Conn, userID, role string) *Conn {
 		ID:     newConnID(),
 		UserID: userID,
 		Role:   role,
+		Tenant: tenant,
 		socket: socket,
 		send:   make(chan []byte, sendBuffer),
 		rooms:  make(map[string]bool),
 		closed: make(chan struct{}),
 	}
 	m.conns[c.ID] = c
-	if m.users[userID] == nil {
-		m.users[userID] = make(map[string]*Conn)
+	chave := userKey(tenant, userID)
+	if m.users[chave] == nil {
+		m.users[chave] = make(map[string]*Conn)
 	}
-	m.users[userID][c.ID] = c
+	m.users[chave][c.ID] = c
 	m.mu.Unlock()
 
 	go c.writePump()
 	return c
+}
+
+// userKey é a chave do índice de usuários, e ela é POR TENANT: dois tenants
+// podem (e no cutover vão) ter o mesmo `user_id` — os ids são UUIDs gerados
+// dentro de cada schema. Com a chave só do userID, o `BroadcastToUser` de um
+// gerente da loja A entregaria para as abas do mesmo id na loja B, que é o
+// mesmo vazamento do broadcast por room, só que pelo caminho do usuário.
+func userKey(tenant, userID string) string {
+	return tenant + "\x00" + userID
 }
 
 // Remove tira a conexão do registro e sinaliza o fim (a writePump fecha o
@@ -140,10 +163,10 @@ func (m *Manager) Remove(c *Conn) {
 	m.mu.Lock()
 	if _, ok := m.conns[c.ID]; ok {
 		delete(m.conns, c.ID)
-		if set := m.users[c.UserID]; set != nil {
+		if set := m.users[userKey(c.Tenant, c.UserID)]; set != nil {
 			delete(set, c.ID)
 			if len(set) == 0 {
-				delete(m.users, c.UserID)
+				delete(m.users, userKey(c.Tenant, c.UserID))
 			}
 		}
 	}
@@ -253,12 +276,22 @@ func (m *Manager) Send(c *Conn, payload []byte) {
 }
 
 // BroadcastToRoom entrega um frame já serializado a todas as conexões que
-// assinam `room`. É a chamada do dispatcher do outbox.
+// assinam `room` NO TENANT indicado. É a chamada do dispatcher do outbox.
+//
+// ## O filtro de tenant é a barreira de isolamento
+//
+// O nome da room no wire continua igual ao do Node (`cash-drawer`,
+// `kitchen-display`, `waiter:<id>`, docs/15 §3.3) — o client não muda uma
+// linha. O que particiona é ESTE parâmetro: com N lojas no mesmo processo, sem
+// o filtro o gerente de A ouviria a gaveta de caixa de B (risco R1). A comparação
+// é por igualdade exata de slug, inclusive com vazio: conexão sem tenant não
+// recebe evento de tenant nenhum, e ciclo sem tenant não alcança conexão com
+// tenant (fail-closed dos dois lados).
 //
 // Retorna quantas conexões receberam. Zero não é erro: o Node também marca o
 // evento como publicado sem assinante (ver pollOutboxOnce) — evento perdido é
 // recuperado pelo reload por REST do client, redelivery não existe.
-func (m *Manager) BroadcastToRoom(room string, payload []byte) int {
+func (m *Manager) BroadcastToRoom(tenant, room string, payload []byte) int {
 	m.mu.RLock()
 	if m.closed {
 		m.mu.RUnlock()
@@ -266,7 +299,7 @@ func (m *Manager) BroadcastToRoom(room string, payload []byte) int {
 	}
 	targets := make([]*Conn, 0, 8)
 	for _, c := range m.conns {
-		if c.rooms[room] {
+		if c.Tenant == tenant && c.rooms[room] {
 			targets = append(targets, c)
 		}
 	}
@@ -293,15 +326,16 @@ func (m *Manager) BroadcastToRoom(room string, payload []byte) int {
 }
 
 // BroadcastToUser entrega a todas as conexões de um usuário (todas as abas,
-// todos os aparelhos).
-func (m *Manager) BroadcastToUser(userID string, payload []byte) int {
+// todos os aparelhos) DENTRO do tenant — o índice de usuários é por
+// `(tenant, userID)` por isso (ver userKey).
+func (m *Manager) BroadcastToUser(tenant, userID string, payload []byte) int {
 	m.mu.RLock()
 	if m.closed {
 		m.mu.RUnlock()
 		return 0
 	}
 	targets := make([]*Conn, 0, 4)
-	for _, c := range m.users[userID] {
+	for _, c := range m.users[userKey(tenant, userID)] {
 		targets = append(targets, c)
 	}
 	m.mu.RUnlock()

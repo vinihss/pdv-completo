@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"pdv-pagarme-webhook/internal/charge"
+	"pdv-pagarme-webhook/internal/tenancy"
 )
 
 // Provider é o literal de `payment_event.provider`. O Node usa a mesma string em
@@ -104,6 +105,12 @@ func NewStore(db *sql.DB, now func() time.Time) *Store {
 
 // Record grava o evento e devolve o que o chamador precisa para responder.
 //
+// `tenant` é o escopo em que a inbox é gravada: a transação recebe
+// `tenancy.Apply` (SET LOCAL app.tenant_id + search_path) antes do INSERT, e é
+// isso que faz `payment_event` resolver dentro do schema da loja. Um
+// `tenancy.Tenant{}` (slug e schema vazios) NÃO aplica nada, e é o modo
+// legado uma-loja em que a conexão governa o search_path.
+//
 // `rawBody` são os BYTES recebidos, e o que vai para `payload` é o corpo CRU
 // como veio.
 //
@@ -120,7 +127,7 @@ func NewStore(db *sql.DB, now func() time.Time) *Store {
 // `isNew` decide a resposta HTTP, e é o único jeito de o handler distinguir os
 // dois casos: `false` = reenvio, que responde 200 sem fazer nada (4xx faria o
 // Pagar.me reenviar indefinidamente um evento já tratado).
-func (s *Store) Record(ctx context.Context, rawBody []byte, payload *charge.WebhookPayload) (rowID string, isNew bool, err error) {
+func (s *Store) Record(ctx context.Context, tenant tenancy.Tenant, rawBody []byte, payload *charge.WebhookPayload) (rowID string, isNew bool, err error) {
 	if payload == nil || payload.ID == "" {
 		return "", false, ErrNoEventID
 	}
@@ -136,18 +143,40 @@ func (s *Store) Record(ctx context.Context, rawBody []byte, payload *charge.Webh
 		return "", false, err
 	}
 
+	// A transação existe para o `tenancy.Apply` poder fixar o escopo: `SET
+	// LOCAL` só vale dentro de uma transação, e o INSERT tem que rodar com o
+	// `search_path` do tenant — sem a transação, o `SET LOCAL` morreria antes
+	// do INSERT e a linha cairia no schema da conexão.
+	//
+	// `Tenant{}` (vazio) não aplica nada, então o caminho uma-loja continua
+	// gravando no search_path da conexão, exatamente como antes.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", false, err
+	}
+	defer tx.Rollback() // no-op se já commitou
+
+	if err := tenancy.Apply(ctx, tx, tenant); err != nil {
+		return "", false, err
+	}
+
 	// `RETURNING id` + `DO NOTHING`: no conflito NENHUMA linha volta, e é
 	// exatamente esse "nenhuma linha" que diz que o evento já existia. Assim o
 	// dedupe e a descoberta do `id` da linha existente vêm do mesmo statement.
 	var inserted string
-	switch err := s.db.QueryRowContext(ctx, insertStmt,
+	switch err := tx.QueryRowContext(ctx, insertStmt,
 		rowID, Provider, payload.ID, eventType, providerOrderID, providerPaymentID,
 		string(rawBody), NowISO(s.now()),
 	).Scan(&inserted); {
 	case err == sql.ErrNoRows:
-		// Conflito: o evento já foi gravado antes. Não é erro.
+		// Conflito: o evento já foi gravado antes. Não é erro. O Rollback do
+		// `defer` desfaz o `Apply` (que é só SET LOCAL) e a transação vazia.
 		return "", false, nil
 	case err != nil:
+		return "", false, err
+	}
+
+	if err := tx.Commit(); err != nil {
 		return "", false, err
 	}
 	return inserted, true, nil

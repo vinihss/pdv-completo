@@ -55,7 +55,7 @@ func newHarness(t *testing.T) *harness {
 		if err != nil {
 			return
 		}
-		registered := hub.Add(socket, r.URL.Query().Get("user"), r.URL.Query().Get("role"))
+		registered := hub.Add(socket, r.URL.Query().Get("user"), r.URL.Query().Get("role"), r.URL.Query().Get("tenant"))
 		// Publica ANTES do loop de Join, de propósito. Publicar depois tornaria
 		// a publicação dependente do Join, e o `dial` voltaria a poder acordar na
 		// janela entre `Add` e `Join` — a janela em que um broadcast não acha a
@@ -84,9 +84,16 @@ func newHarness(t *testing.T) *harness {
 }
 
 func (h *harness) dial(t *testing.T, user string, rooms ...string) *websocket.Conn {
+	return h.dialTenant(t, "", user, rooms...)
+}
+
+// dialTenant é o dial com escopo: o `tenant` vira query e o handler o repassa
+// ao `Add`, que é o mesmo caminho do claim `tenant` do JWT no gateway de
+// verdade.
+func (h *harness) dialTenant(t *testing.T, tenant, user string, rooms ...string) *websocket.Conn {
 	t.Helper()
 
-	query := []string{"user=" + user}
+	query := []string{"user=" + user, "tenant=" + tenant}
 	for _, room := range rooms {
 		query = append(query, "room="+room)
 	}
@@ -223,7 +230,7 @@ func (h *harness) registrarEncerrada(userID, room string) *Conn {
 
 	h.hub.mu.Lock()
 	h.hub.conns[c.ID] = c
-	h.hub.users[userID] = map[string]*Conn{c.ID: c}
+	h.hub.users[userKey("", userID)] = map[string]*Conn{c.ID: c}
 	h.hub.mu.Unlock()
 	return c
 }
@@ -287,7 +294,7 @@ func TestBroadcastToRoomEntregaParaAssinante(t *testing.T) {
 	sala := h.dial(t, userA, "kitchen-display")
 	fora := h.dial(t, userB, "cash-drawer")
 
-	if got := h.hub.BroadcastToRoom("kitchen-display", []byte(`{"type":"kitchen.order"}`)); got != 1 {
+	if got := h.hub.BroadcastToRoom("", "kitchen-display", []byte(`{"type":"kitchen.order"}`)); got != 1 {
 		t.Errorf("BroadcastToRoom entregou para %d conexões, quer 1", got)
 	}
 
@@ -306,7 +313,7 @@ func TestDuasAbasDoMesmoUsuarioRecebemAsDuas(t *testing.T) {
 	aba1 := h.dial(t, userA, "waiter:"+userA)
 	aba2 := h.dial(t, userA, "waiter:"+userA)
 
-	if got := h.hub.BroadcastToRoom("waiter:"+userA, []byte(`{"type":"order.updated"}`)); got != 2 {
+	if got := h.hub.BroadcastToRoom("", "waiter:"+userA, []byte(`{"type":"order.updated"}`)); got != 2 {
 		t.Fatalf("BroadcastToRoom entregou para %d conexões, quer 2", got)
 	}
 	if frame := readFrame(t, aba1); frame != `{"type":"order.updated"}` {
@@ -327,12 +334,97 @@ func TestBroadcastToUserChegaEmTodasAsAbas(t *testing.T) {
 	desktop := h.dial(t, userA, "alerts:user:"+userA)
 	outro := h.dial(t, userB, "alerts:user:"+userB)
 
-	if got := h.hub.BroadcastToUser(userA, []byte(`{"type":"alert.created"}`)); got != 2 {
+	if got := h.hub.BroadcastToUser("", userA, []byte(`{"type":"alert.created"}`)); got != 2 {
 		t.Fatalf("BroadcastToUser entregou para %d, quer 2", got)
 	}
 	readFrame(t, celular)
 	readFrame(t, desktop)
 	expectNoFrame(t, outro)
+}
+
+// O teste do multi-tenant no hub: duas lojas na MESMA sala.
+//
+// O nome da room no wire continua igual ao do Node (`cash-drawer`,
+// `kitchen-display`, docs/15 §3.3) — os clients não mudam nada. Quem particiona
+// é o primeiro parâmetro do broadcast, e é isto que fecha o risco R1 do doc 15:
+// sem o filtro, o gerente da loja A ouviria a gaveta de caixa da loja B, com o
+// mesmo nome de room e nenhum erro para acusar.
+//
+// O terceiro socket é o claim `tenant` ausente (token antigo): ele não pode
+// receber evento de TENANT NENHUM (fail-closed), e um broadcast sem tenant não
+// pode alcançar conexão com tenant — os dois lados comparam igualdade exata.
+func TestBroadcastToRoomIsoladoPorTenant(t *testing.T) {
+	h := newHarness(t)
+	salaA := h.dialTenant(t, "loja-a", userA, "cash-drawer")
+	salaB := h.dialTenant(t, "loja-b", userB, "cash-drawer")
+	semEscopo := h.dial(t, userB, "cash-drawer")
+
+	// Os dois positivos ANTES de qualquer expectNoFrame, e não por preguiça: o
+	// gorilla guarda o erro do ReadMessage (`readErr` é pegajoso), então um
+	// timeout de "não veio frame" deixa o socket inutilizável para a leitura
+	// seguinte. Um teste que lesse o negativo no meio reprovaria o próprio
+	// aparato, não a partição.
+	if got := h.hub.BroadcastToRoom("loja-a", "cash-drawer", []byte(`{"loja":"A"}`)); got != 1 {
+		t.Fatalf("broadcast do loja-a entregou para %d conexões, quer 1 (só a da loja A)", got)
+	}
+	if frame := readFrame(t, salaA); frame != `{"loja":"A"}` {
+		t.Errorf("loja-a recebeu %s, quer {\"loja\":\"A\"}", frame)
+	}
+
+	if got := h.hub.BroadcastToRoom("loja-b", "cash-drawer", []byte(`{"loja":"B"}`)); got != 1 {
+		t.Fatalf("broadcast do loja-b entregou para %d conexões, quer 1 (só a da loja B)", got)
+	}
+	if frame := readFrame(t, salaB); frame != `{"loja":"B"}` {
+		t.Errorf("loja-b recebeu %s, quer {\"loja\":\"B\"}", frame)
+	}
+
+	// Tenant desconhecido não é "entrega para quem estiver": é entrega zero.
+	if got := h.hub.BroadcastToRoom("loja-inexistente", "cash-drawer", []byte(`{"loja":"?"}`)); got != 0 {
+		t.Errorf("broadcast de tenant sem conexões entregou para %d, quer 0", got)
+	}
+
+	// E sobrou silêncio: nada do que foi publicado nos outros escopos apareceu
+	// aqui — inclusive na conexão sem claim `tenant`, que não pode receber
+	// evento de TENANT NENHUM (fail-closed dos dois lados).
+	expectNoFrame(t, salaA)
+	expectNoFrame(t, salaB)
+	expectNoFrame(t, semEscopo)
+}
+
+// O mesmo vazamento pelo outro caminho: o índice de usuários é por
+// `(tenant, userID)` porque os ids são UUIDs gerados DENTRO de cada schema — no
+// cutover a loja A e a loja B vão ter os mesmos ids. Com a chave só do userID,
+// o alerta de um gerente da loja A chegaria nas abas do "mesmo" gerente na loja
+// B, e a diferença de id nem existiria para denunciar.
+func TestBroadcastToUserIsoladoPorTenant(t *testing.T) {
+	h := newHarness(t)
+	abasA := h.dialTenant(t, "loja-a", userA, "alerts:user:"+userA)
+	abasB := h.dialTenant(t, "loja-b", userA, "alerts:user:"+userA)
+
+	// Os dois sockets têm o MESMO userID e o MESMO room name; só o tenant os
+	// separa. (Os positivos vêm primeiro pelo mesmo motivo do teste acima:
+	// `expectNoFrame` torna o socket ilegível depois.)
+	if got := h.hub.BroadcastToUser("loja-a", userA, []byte(`{"loja":"A"}`)); got != 1 {
+		t.Fatalf("broadcast do usuário no loja-a entregou para %d, quer 1", got)
+	}
+	if frame := readFrame(t, abasA); frame != `{"loja":"A"}` {
+		t.Errorf("aba da loja-a recebeu %s, quer {\"loja\":\"A\"}", frame)
+	}
+
+	if got := h.hub.BroadcastToUser("loja-b", userA, []byte(`{"loja":"B"}`)); got != 1 {
+		t.Fatalf("broadcast do usuário no loja-b entregou para %d, quer 1", got)
+	}
+	if frame := readFrame(t, abasB); frame != `{"loja":"B"}` {
+		t.Errorf("aba da loja-b recebeu %s, quer {\"loja\":\"B\"}", frame)
+	}
+
+	expectNoFrame(t, abasA)
+	expectNoFrame(t, abasB)
+
+	// Com a chave por tenant, os dois são usuários distintos no Counts.
+	if _, users := h.hub.Counts(); users != 2 {
+		t.Errorf("Counts() viu %d usuários, quer 2 (o mesmo id em dois tenants são dois)", users)
+	}
 }
 
 func TestLeaveCancelaAssinatura(t *testing.T) {
@@ -350,13 +442,13 @@ func TestLeaveCancelaAssinatura(t *testing.T) {
 	// chegou: enquanto `deliveries` estiver assinado, o broadcast entrega. Sem
 	// esta linha o teste passaria pelo motivo errado sempre que o `Join` do
 	// handler não tivesse rodado — `Leave` viraria no-op e o 0 viria de graça.
-	if got := h.hub.BroadcastToRoom("deliveries", []byte(`{"type":"delivery.assigned"}`)); got != 1 {
+	if got := h.hub.BroadcastToRoom("", "deliveries", []byte(`{"type":"delivery.assigned"}`)); got != 1 {
 		t.Fatalf("precondição falhou: antes do leave o broadcast entregou para %d, quer 1", got)
 	}
 	readFrame(t, c) // consome o frame da pré-condição, para o expectNoFrame valer
 
 	h.hub.Leave(registered, "deliveries")
-	if got := h.hub.BroadcastToRoom("deliveries", []byte(`{"type":"delivery.assigned"}`)); got != 0 {
+	if got := h.hub.BroadcastToRoom("", "deliveries", []byte(`{"type":"delivery.assigned"}`)); got != 0 {
 		t.Errorf("entregou para %d conexões depois do leave, quer 0", got)
 	}
 	expectNoFrame(t, c)
@@ -387,7 +479,7 @@ func TestRemoveLiberaORegistro(t *testing.T) {
 
 	// Broadcast depois de fechar tudo não pode entrar em panic nem mexer no
 	// registro vazio (o shutdown chama isso com o dispatcher ainda no ar).
-	if got := h.hub.BroadcastToRoom("kitchen-display", []byte(`{"type":"x"}`)); got != 0 {
+	if got := h.hub.BroadcastToRoom("", "kitchen-display", []byte(`{"type":"x"}`)); got != 0 {
 		t.Errorf("entregou para %d conexões com o hub fechado, quer 0", got)
 	}
 	if conns, _ := h.hub.Counts(); conns != 0 {
@@ -450,7 +542,7 @@ func TestFilaCheiaNaoTravaOBroadcast(t *testing.T) {
 	// se exige aqui é só a conclusão.
 	done := make(chan struct{})
 	go func() {
-		h.hub.BroadcastToRoom("kitchen-display", []byte(`{"type":"cheio"}`))
+		h.hub.BroadcastToRoom("", "kitchen-display", []byte(`{"type":"cheio"}`))
 		close(done)
 	}()
 
@@ -523,7 +615,7 @@ func TestEncerrarDuranteBroadcastNaoCausaCorrida(t *testing.T) {
 			defer wg.Done()
 			<-larga
 			for j := 0; j < passadas; j++ {
-				h.hub.BroadcastToRoom(room, []byte(payload))
+				h.hub.BroadcastToRoom("", room, []byte(payload))
 			}
 		}()
 
@@ -582,7 +674,7 @@ func TestCloseDoHubComBroadcastConcorrente(t *testing.T) {
 		defer wg.Done()
 		<-larga
 		for i := 0; i < passadas; i++ {
-			h.hub.BroadcastToRoom(room, []byte(`{"type":"order.updated"}`))
+			h.hub.BroadcastToRoom("", room, []byte(`{"type":"order.updated"}`))
 		}
 	}()
 	close(larga)
@@ -614,7 +706,7 @@ func TestConexaoEncerradaParaDeReceberFrames(t *testing.T) {
 
 	// Prova de vida antes do fim. Sem ela o teste passa pelo motivo errado: uma
 	// conexão que nunca recebeu nada também "não recebe depois".
-	if got := h.hub.BroadcastToRoom("kitchen-display", []byte(`{"type":"antes"}`)); got != 1 {
+	if got := h.hub.BroadcastToRoom("", "kitchen-display", []byte(`{"type":"antes"}`)); got != 1 {
 		t.Fatalf("pré-condição: o broadcast entregou para %d conexões, quer 1", got)
 	}
 	if frame := readFrame(t, cliente); frame != `{"type":"antes"}` {
@@ -628,7 +720,7 @@ func TestConexaoEncerradaParaDeReceberFrames(t *testing.T) {
 	// A sondagem é repetida porque o descarte tem que ser decisão, não sorte: o
 	// `select` do código anterior escolhia ao acaso entre a fila (já fechada) e o
 	// sinal de fim, e só uma das escolhas era o pânico que derrubava o processo.
-	if got := h.hub.BroadcastToRoom("kitchen-display", []byte(`{"type":"depois"}`)); got != 0 {
+	if got := h.hub.BroadcastToRoom("", "kitchen-display", []byte(`{"type":"depois"}`)); got != 0 {
 		t.Errorf("o broadcast entregou para %d conexões encerradas, quer 0", got)
 	}
 	for i := 0; i < 32; i++ {
@@ -655,7 +747,7 @@ func TestConnEncerradoSemRemoveSaiNoProximoBroadcast(t *testing.T) {
 		t.Fatalf("pré-condição: %d conexões/%d usuários registrados, quer 1/1 (o Close não tira do registro)", conexoes, usuarios)
 	}
 
-	if got := h.hub.BroadcastToRoom("kitchen-display", []byte(`{"type":"qualquer"}`)); got != 0 {
+	if got := h.hub.BroadcastToRoom("", "kitchen-display", []byte(`{"type":"qualquer"}`)); got != 0 {
 		t.Errorf("entregou para %d conexões encerradas, quer 0", got)
 	}
 	if conexoes, usuarios := h.hub.Counts(); conexoes != 0 || usuarios != 0 {
@@ -709,7 +801,7 @@ func TestAddDepoisDeCloseDevolveNilENaoRegistra(t *testing.T) {
 	hub := New()
 	hub.Close()
 
-	if c := hub.Add(servidor, userA, "waiter"); c != nil {
+	if c := hub.Add(servidor, userA, "waiter", ""); c != nil {
 		t.Errorf("Add depois de Close devolveu %v, quer nil", c)
 	}
 	if conexoes, usuarios := hub.Counts(); conexoes != 0 || usuarios != 0 {
@@ -741,10 +833,10 @@ func TestBroadcastDepoisDeCloseEntregaZero(t *testing.T) {
 
 	h.hub.Close()
 
-	if got := h.hub.BroadcastToRoom("kitchen-display", []byte(`{"type":"x"}`)); got != 0 {
+	if got := h.hub.BroadcastToRoom("", "kitchen-display", []byte(`{"type":"x"}`)); got != 0 {
 		t.Errorf("BroadcastToRoom depois de Close entregou %d, quer 0", got)
 	}
-	if got := h.hub.BroadcastToUser(userA, []byte(`{"type":"x"}`)); got != 0 {
+	if got := h.hub.BroadcastToUser("", userA, []byte(`{"type":"x"}`)); got != 0 {
 		t.Errorf("BroadcastToUser depois de Close entregou %d, quer 0", got)
 	}
 }
@@ -763,7 +855,7 @@ func TestAddConcorrenteComCloseNaoVazaConexao(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			c = hub.Add(servidor, userA, "waiter")
+			c = hub.Add(servidor, userA, "waiter", "")
 		}()
 		go func() {
 			defer wg.Done()

@@ -121,7 +121,13 @@ type Request struct {
 	ProviderOrderID   string         `json:"providerOrderId,omitempty"`
 	ProviderPaymentID string         `json:"providerPaymentId,omitempty"`
 	Source            string         `json:"source"`
-	Charge            *ChargePayload `json:"charge"`
+	// Tenant é o slug da loja dona do evento (ver internal/tenancy). O Node o
+	// usa para escopar a transação de `applyCharge` no schema daquela loja
+	// (`SET LOCAL search_path`). `omitempty` porque o modo uma-loja (sem
+	// multi-tenant configurado) não manda campo nenhum, e o Node nesse caso
+	// usa o search_path da conexão — o comportamento de antes.
+	Tenant string         `json:"tenant,omitempty"`
+	Charge *ChargePayload `json:"charge"`
 }
 
 // ChargePayload é o `GatewayCharge` que o Node consome.
