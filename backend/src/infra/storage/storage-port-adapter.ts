@@ -25,12 +25,23 @@ export class StoragePortAdapter implements FileStoragePort {
   private readonly storage: FileStorage;
 
   /**
-   * @param tenant contexto do tenant (só o `schemaName` é usado)
-   * @param root raiz do volume de uploads (`config.uploadsDir` por default;
-   *   injetável para teste com diretório temporário)
+   * @param tenant contexto do tenant EXPLÍCITO (só o
+   *   `schemaName` é usado) OU um resolver `() => TenantContext`
+   *   (ex.: o `requireTenant` da composition root, que lê o
+   *   ALS a cada chamada). Quando é um resolver, o schema é
+   *   resolvido POR OPERAÇÃO — o `LocalDiskStorage` chama
+   *   `tenant()` a cada put/remove, então o diretório em disco
+   *   acompanha o tenant corrente sem re-instanciar o adapter.
+   * @param root raiz do volume de uploads (`config.uploadsDir` por
+   *   default; injetável para teste com diretório temporário)
    */
-  constructor(tenant: Pick<TenantContext, "schemaName">, root: string = config.uploadsDir) {
-    this.storage = new LocalDiskStorage({ root, tenant: () => tenant.schemaName });
+  constructor(
+    tenant: Pick<TenantContext, "schemaName"> | (() => TenantContext),
+    root: string = config.uploadsDir,
+  ) {
+    const resolveSchema =
+      typeof tenant === "function" ? () => tenant().schemaName : () => tenant.schemaName;
+    this.storage = new LocalDiskStorage({ root, tenant: resolveSchema });
   }
 
   async put(kind: FileKind, filename: string, content: Buffer): Promise<void> {

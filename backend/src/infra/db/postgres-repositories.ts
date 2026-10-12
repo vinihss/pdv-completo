@@ -45,12 +45,14 @@ import type {
   AuditWriter,
   CashFlowRepository,
   CatalogRepository,
+  CategoryRecord,
   CustomerRecord,
   CustomerRepository,
   DeliveryRecord,
   DeliveryRepository,
   DeliveryStatus,
   Id,
+  KitchenGroupRecord,
   MovingAverageRecord,
   OrderItemRow,
   OrderItemWithProduct,
@@ -113,8 +115,18 @@ function toProductRecord(p: typeof products.$inferSelect): ProductRecord {
     name: p.name,
     description: p.description,
     price: p.price,
+    variations: p.variations,
+    featured: p.featured,
+    costPrice: p.costPrice,
+    lowStockThreshold: p.lowStockThreshold,
+    trackStock: p.trackStock,
+    unit: p.unit,
+    ifoodEnabled: p.ifoodEnabled,
+    ifoodSku: p.ifoodSku,
     active: p.active,
     imagePath: p.imagePath,
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
   };
 }
 
@@ -169,7 +181,7 @@ export class PostgresCatalogRepository implements CatalogRepository {
    * (`initialStock` → ledger) NÃO entra aqui: `ProductRecord` não tem o campo e
    * o ledger é `session.stock.recordMovement` chamado pelo use case.
    */
-  async saveProduct(input: Partial<ProductRecord> & Pick<ProductRecord, "name" | "price">): Promise<ProductRecord> {
+  async saveProduct(input: Partial<ProductRecord> & { id?: Id }): Promise<ProductRecord> {
     assertPriceNotNegative(input.price);
 
     if (input.id) {
@@ -181,6 +193,14 @@ export class PostgresCatalogRepository implements CatalogRepository {
           ...(input.name !== undefined ? { name: input.name } : {}),
           ...(input.description !== undefined ? { description: input.description } : {}),
           ...(input.price !== undefined ? { price: input.price } : {}),
+          ...(input.variations !== undefined ? { variations: input.variations } : {}),
+          ...(input.ifoodEnabled !== undefined ? { ifoodEnabled: input.ifoodEnabled } : {}),
+          ...(input.ifoodSku !== undefined ? { ifoodSku: input.ifoodSku } : {}),
+          ...(input.featured !== undefined ? { featured: input.featured } : {}),
+          ...(input.costPrice !== undefined ? { costPrice: input.costPrice } : {}),
+          ...(input.lowStockThreshold !== undefined ? { lowStockThreshold: input.lowStockThreshold } : {}),
+          ...(input.trackStock !== undefined ? { trackStock: input.trackStock } : {}),
+          ...(input.unit !== undefined ? { unit: input.unit.trim() || "un" } : {}),
           ...(input.active !== undefined ? { active: input.active } : {}),
           ...(input.imagePath !== undefined ? { imagePath: input.imagePath } : {}),
           updatedAt: new Date().toISOString(),
@@ -191,6 +211,10 @@ export class PostgresCatalogRepository implements CatalogRepository {
       return toProductRecord(row);
     }
 
+    if (input.name === undefined || input.price === undefined) {
+      throw Errors.validationFailed({ field: "name" });
+    }
+
     const [row] = await this.tx
       .insert(products)
       .values({
@@ -199,6 +223,14 @@ export class PostgresCatalogRepository implements CatalogRepository {
         name: input.name,
         description: input.description ?? "",
         price: input.price,
+        variations: input.variations ?? "[]",
+        ifoodEnabled: input.ifoodEnabled ?? false,
+        ifoodSku: input.ifoodSku ?? null,
+        featured: input.featured ?? false,
+        costPrice: input.costPrice ?? 0,
+        lowStockThreshold: input.lowStockThreshold ?? 0,
+        trackStock: input.trackStock ?? false,
+        unit: input.unit?.trim() || "un",
         active: input.active ?? true,
         imagePath: input.imagePath ?? null,
       })
@@ -207,14 +239,26 @@ export class PostgresCatalogRepository implements CatalogRepository {
     return toProductRecord(row);
   }
 
-  async listCategories(): Promise<Array<{ id: Id; name: string; active: boolean }>> {
+  async listCategories(): Promise<CategoryRecord[]> {
     const rows = await this.tx.query.categories.findMany({ orderBy: asc(categories.displayOrder) });
-    return rows.map((c) => ({ id: c.id, name: c.name, active: c.active }));
+    return rows.map((c) => ({
+      id: c.id,
+      name: c.name,
+      displayOrder: c.displayOrder,
+      active: c.active,
+      createdAt: c.createdAt,
+    }));
   }
 
-  async listKitchenGroups(): Promise<Array<{ id: Id; name: string }>> {
+  async listKitchenGroups(): Promise<KitchenGroupRecord[]> {
     const rows = await this.tx.query.kitchenGroups.findMany({ orderBy: asc(kitchenGroups.displayOrder) });
-    return rows.map((g) => ({ id: g.id, name: g.name }));
+    return rows.map((g) => ({
+      id: g.id,
+      name: g.name,
+      displayOrder: g.displayOrder,
+      active: g.active,
+      createdAt: g.createdAt,
+    }));
   }
 
   // ---------- ADIÇÃO (Onda 2 — hub de pedidos: mesas e produto de lançamento) ----------
@@ -272,6 +316,168 @@ export class PostgresCatalogRepository implements CatalogRepository {
       trackStock: p.trackStock,
       lowStockThreshold: p.lowStockThreshold,
     };
+  }
+
+  // ---------- ADIÇÃO (Onda 3A — catálogo: categoria, grupo, vitrine) ----------
+
+  async findCategoryById(id: Id): Promise<CategoryRecord | null> {
+    const row = await this.tx.query.categories.findFirst({ where: eq(categories.id, id) });
+    return row
+      ? {
+          id: row.id,
+          name: row.name,
+          displayOrder: row.displayOrder,
+          active: row.active,
+          createdAt: row.createdAt,
+        }
+      : null;
+  }
+
+  async createCategory(input: { name: string; displayOrder?: number }): Promise<CategoryRecord> {
+    const [row] = await this.tx
+      .insert(categories)
+      .values({ name: input.name, displayOrder: input.displayOrder ?? 0 })
+      .returning();
+    if (!row) throw Errors.validationFailed({ field: "name" });
+    return {
+      id: row.id,
+      name: row.name,
+      displayOrder: row.displayOrder,
+      active: row.active,
+      createdAt: row.createdAt,
+    };
+  }
+
+  async updateCategory(
+    id: Id,
+    input: { name?: string; displayOrder?: number; active?: boolean },
+  ): Promise<CategoryRecord> {
+    const [row] = await this.tx
+      .update(categories)
+      .set({
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.displayOrder !== undefined ? { displayOrder: input.displayOrder } : {}),
+        ...(input.active !== undefined ? { active: input.active } : {}),
+      })
+      .where(eq(categories.id, id))
+      .returning();
+    if (!row) throw Errors.notFound("Categoria");
+    return {
+      id: row.id,
+      name: row.name,
+      displayOrder: row.displayOrder,
+      active: row.active,
+      createdAt: row.createdAt,
+    };
+  }
+
+  /** Exclusão real; produtos vinculados ficam com `category_id = null` (§7.5). */
+  async deleteCategory(id: Id): Promise<void> {
+    await this.tx.update(products).set({ categoryId: null }).where(eq(products.categoryId, id));
+    await this.tx.delete(categories).where(eq(categories.id, id));
+  }
+
+  async findKitchenGroupById(id: Id): Promise<KitchenGroupRecord | null> {
+    const row = await this.tx.query.kitchenGroups.findFirst({ where: eq(kitchenGroups.id, id) });
+    return row
+      ? {
+          id: row.id,
+          name: row.name,
+          displayOrder: row.displayOrder,
+          active: row.active,
+          createdAt: row.createdAt,
+        }
+      : null;
+  }
+
+  async createKitchenGroup(input: { name: string; displayOrder?: number }): Promise<KitchenGroupRecord> {
+    const [row] = await this.tx
+      .insert(kitchenGroups)
+      .values({ name: input.name, displayOrder: input.displayOrder ?? 0 })
+      .returning();
+    if (!row) throw Errors.validationFailed({ field: "name" });
+    return {
+      id: row.id,
+      name: row.name,
+      displayOrder: row.displayOrder,
+      active: row.active,
+      createdAt: row.createdAt,
+    };
+  }
+
+  async updateKitchenGroup(
+    id: Id,
+    input: { name?: string; displayOrder?: number; active?: boolean },
+  ): Promise<KitchenGroupRecord> {
+    const [row] = await this.tx
+      .update(kitchenGroups)
+      .set({
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.displayOrder !== undefined ? { displayOrder: input.displayOrder } : {}),
+        ...(input.active !== undefined ? { active: input.active } : {}),
+      })
+      .where(eq(kitchenGroups.id, id))
+      .returning();
+    if (!row) throw Errors.notFound("Grupo de produção");
+    return {
+      id: row.id,
+      name: row.name,
+      displayOrder: row.displayOrder,
+      active: row.active,
+      createdAt: row.createdAt,
+    };
+  }
+
+  /** Exclusão real; produtos vinculados ficam com `kitchen_group_id = null`. */
+  async deleteKitchenGroup(id: Id): Promise<void> {
+    await this.tx.update(products).set({ kitchenGroupId: null }).where(eq(products.kitchenGroupId, id));
+    await this.tx.delete(kitchenGroups).where(eq(kitchenGroups.id, id));
+  }
+
+  async setProductActive(id: Id, active: boolean): Promise<ProductRecord> {
+    const [row] = await this.tx
+      .update(products)
+      .set({ active })
+      .where(eq(products.id, id))
+      .returning();
+    if (!row) throw Errors.notFound("Produto");
+    return toProductRecord(row);
+  }
+
+  async saveProductImage(id: Id, filename: string): Promise<ProductRecord> {
+    const [row] = await this.tx
+      .update(products)
+      .set({ imagePath: filename })
+      .where(eq(products.id, id))
+      .returning();
+    if (!row) throw Errors.notFound("Produto");
+    return toProductRecord(row);
+  }
+
+  async clearProductImage(id: Id): Promise<ProductRecord> {
+    const [row] = await this.tx
+      .update(products)
+      .set({ imagePath: null })
+      .where(eq(products.id, id))
+      .returning();
+    if (!row) throw Errors.notFound("Produto");
+    return toProductRecord(row);
+  }
+
+  async listActiveProducts(): Promise<ProductRecord[]> {
+    const rows = await this.tx.query.products.findMany({
+      where: eq(products.active, true),
+      orderBy: asc(products.name),
+    });
+    return rows.map(toProductRecord);
+  }
+
+  async listActiveCategories(): Promise<Array<{ id: Id; name: string }>> {
+    const rows = await this.tx.query.categories.findMany({
+      where: eq(categories.active, true),
+      orderBy: asc(categories.displayOrder),
+    });
+    return rows.map((c) => ({ id: c.id, name: c.name }));
   }
 }
 

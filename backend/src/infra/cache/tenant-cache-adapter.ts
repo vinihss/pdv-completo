@@ -1,6 +1,6 @@
 import type { TenantCache } from "../../application/ports/effects.js";
 import type { TenantContext } from "../../application/ports/tenant-context.js";
-import { getCache } from "./index.js";
+import { getCache, tenantCache } from "./index.js";
 import type { ICacheClient } from "./cache-client.js";
 
 /**
@@ -50,3 +50,21 @@ export class TenantCacheAdapter implements TenantCache {
     await this.client().invalidatePattern(`${this.prefix}${prefix}*`);
   }
 }
+
+/**
+ * Adapter do port `TenantCache` que resolve o tenant do
+ * **ALS a cada chamada** (não no construtor). É o equivalente
+ * ao `tenantCache` de `infra/cache` (proxy que prefixa com o
+ * schema corrente), mas falando a interface congelada do port —
+ * para a composition root (`default-usecases`) injetar nos use
+ * cases sem que a application importe infra.
+ *
+ * `invalidatePrefix(prefix)` → `tenantCache.invalidatePattern(\`${prefix}*\`)`
+ * (o port acrescenta o `*`; o comportamento de invalidação é
+ * idêntico ao `invalidatePattern("x:*")` original).
+ */
+export const alsTenantCache: TenantCache = {
+  get: (key) => tenantCache.get(key),
+  set: (key, value, options) => tenantCache.set(key, value, options),
+  invalidatePrefix: (prefix) => tenantCache.invalidatePattern(`${prefix}*`),
+};
