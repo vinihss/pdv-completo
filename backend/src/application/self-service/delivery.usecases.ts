@@ -8,16 +8,9 @@ import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
 import { createAlertTx, DELIVERY_ASSIGNED_ALERT_KIND, describeDeliveryAssignedAlert } from "../alert/alert.usecases.js";
 import { emitCustomerStageChangedTx } from "./customer-stage.js";
 import { closeOrderAfterDelivery } from "./manager-delivery-status.usecase.js";
-import {
-  notifyDispatched,
-  notifyDelivered,
-  notifyFailed,
-  notifyArriving,
-} from "../../integrations/whatsapp/whatsapp.notifier.js";
 import { printCourierOrder } from "../../integrations/printer/printer.usecases.js";
 import { getSettings } from "../order/order.usecases.js";
 import { photoUrl } from "../user.usecases.js";
-import { OsmRoutingService } from "../../integrations/maps/routing.service.js";
 
 const DELIVERY_ROOM = "deliveries";
 
@@ -155,8 +148,6 @@ export async function dispatchDeliveryUsecase(input: {
     return result;
   });
 
-  notifyDispatched(updated.orderId).catch((err) => console.error("falha ao notificar saída pro cliente:", err));
-
   // Impressão automática do courier (pós-commit, fire-and-forget).
   try {
     const settings = await getSettings();
@@ -187,9 +178,6 @@ export async function deliverDeliveryUsecase(input: {
       .returning();
     await enqueueEvent(tx, DELIVERY_ROOM, "delivery.status_changed", serialize(result));
     await emitCustomerStageChangedTx(tx, result.orderId);
-    // Notificação WhatsApp de status: disparo real fica pra quando
-    // whatsapp.notifier.ts existir (fora do escopo desta etapa) — aqui só
-    // fica registrado no outbox como evento consumível por esse worker depois.
     await enqueueEvent(tx, `order:${result.orderId}`, "delivery.delivered", { orderId: result.orderId });
     await logAction(tx, input.courierId, "delivery_completed", result.orderId, {});
     return result;
@@ -203,8 +191,6 @@ export async function deliverDeliveryUsecase(input: {
   // pelo balcão): os dois precisam do mesmo efeito, e duas cópias divergem
   // no primeiro conserto de uma delas. O comentário de lá explica o porquê.
   await closeOrderAfterDelivery(updated.orderId, input.courierId);
-
-  notifyDelivered(updated.orderId).catch((err) => console.error("falha ao notificar entrega concluída pro cliente:", err));
 
   return serialize(updated);
 }
@@ -226,8 +212,6 @@ export async function failDeliveryUsecase(input: { deliveryId: string; courierId
     await logAction(tx, input.courierId, "delivery_failed", result.orderId, { reason: input.reason });
     return result;
   });
-
-  notifyFailed(updated.orderId, input.reason).catch((err) => console.error("falha ao notificar problema na entrega pro cliente:", err));
 
   return serialize(updated);
 }
@@ -378,57 +362,6 @@ export async function reportCourierLocationUsecase(input: {
       courierName: courier?.name ?? null,
       photoPath: photoUrl(courier?.photoPath, "user"),
     });
-    // Verifica se o entregador está a <= 5 min do destino (regra de
-    // negócio para o WhatsApp "Sua entrega está chegando!"): calcula a rota
-    // OSRM entre a posição atual do courier e o endereço de entrega e, se o
-    // tempo for <= 5 min e o alerta ainda não foi enviado, envia a mensagem e
-    // marca a flag na própria delivery. Tudo isso é fire-and-forget: falha de
-    // rota, OSRM fora do ar ou erro no envio não derrubam o ping.
-    const deliveryRow = await tx.query.deliveries.findFirst({
-      where: (d, { and, eq: eqOp }) =>
-        and(eqOp(d.courierId, input.courierId), eqOp(d.status, "out_for_delivery")),
-    });
-    if (
-      deliveryRow &&
-      deliveryRow.status === "out_for_delivery" &&
-      !deliveryRow.arrivalAlertSent &&
-      upserted?.latitude != null &&
-      upserted?.longitude != null
-    ) {
-      try {
-        const orderRow = await tx.query.orders.findFirst({
-          where: eq(orders.id, deliveryRow.orderId),
-          columns: { customerId: true },
-        });
-        if (orderRow?.customerId) {
-          const customerRow = await tx.query.customers.findFirst({
-            where: eq(customers.id, orderRow.customerId),
-            columns: { id: true },
-          });
-          if (customerRow) {
-            const coords = await addressCoordsByOrderId([{ id: deliveryRow.orderId, customerId: customerRow.id }]);
-            const coord = coords.get(deliveryRow.orderId);
-            if (coord?.latitude != null && coord?.longitude != null) {
-              const route = await calculateRoute(
-                upserted.longitude, upserted.latitude,
-                coord.longitude, coord.latitude
-              );
-              if (route != null && route.durationMinutes <= 5) {
-                await tx
-                  .update(deliveries)
-                  .set({ arrivalAlertSent: true })
-                  .where(eq(deliveries.id, deliveryRow.id));
-                notifyArriving(deliveryRow.orderId).catch((err) =>
-                  console.error("[whatsapp] erro ao enviar alerta de chegada:", err)
-                );
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.error("[entregas] erro ao checar alerta de chegada:", err);
-      }
-    }
     return [upserted];
   });
 
@@ -466,33 +399,4 @@ export async function listCourierLocationsUsecase() {
 export async function listCouriersUsecase() {
   const rows = await db.query.users.findMany({ where: eq(users.role, "courier") });
   return rows.map((u) => ({ id: u.id, name: u.name, active: u.active }));
-}
-
-/**
- * Calcula a rota entre duas coordenadas usando o serviço OSRM configurado.
- *
- * Retorna o objeto { distanceKm, durationMinutes } ou null em caso de erro.
- * Wrapper leve em torno de `OsmRoutingService` para não depender de `setMapServices`
- * nem do DI do `calcularEntregaUsecase` — o mesmo serviço que o checkout usa.
- */
-async function calculateRoute(
-  courierLongitude: number,
-  courierLatitude: number,
-  destinationLongitude: number,
-  destinationLatitude: number
-): Promise<{ distanceKm: number; durationMinutes: number } | null> {
-  try {
-    const service = new OsmRoutingService();
-    const result = await service.calculateRoute(
-      { latitude: courierLatitude, longitude: courierLongitude },
-      { latitude: destinationLatitude, longitude: destinationLongitude }
-    );
-    return {
-      distanceKm: result.distanceKm,
-      durationMinutes: result.durationMinutes,
-    };
-  } catch (err) {
-    console.error("[entregas] rota OSRM falhou:", err);
-    return null;
-  }
 }

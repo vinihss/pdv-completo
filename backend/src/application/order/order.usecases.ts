@@ -18,7 +18,6 @@ import { canTransitionDelivery } from "../../domain/customer-order-state.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
 import { emitCustomerStageChangedTx } from "../self-service/customer-stage.js";
-import { notifyReady } from "../../integrations/whatsapp/whatsapp.notifier.js";
 import { printKitchenOrder } from "../../integrations/printer/printer.usecases.js";
 import { findOpenDrawerTxForUpdate } from "../cash-flow/cash-flow.usecases.js";
 import { applyStockMovementTx, stockBalance, computeMovingAverageTx, INVENTORY_ROOM } from "../stock/stock.usecases.js";
@@ -192,7 +191,7 @@ export async function openOrderUsecase(input: {
   tableId?: string;
   customerId?: string;
   tabLabel?: string;
-  channel?: "balcao" | "whatsapp" | "web" | "ifood"; // default "balcao" — self-service (§04) e iFood usam
+  channel?: "balcao" | "web" | "ifood"; // default "balcao" — self-service (§04) e iFood usam
   deliveryFee?: number; // snapshot da taxa no momento do pedido, só para channel != "balcao"
   externalRef?: string; // order id do iFood quando channel === "ifood" (único — índice em 0009)
   notes?: string;
@@ -438,9 +437,8 @@ export async function updateItemStatusUsecase(input: {
   if (input.newStatus === "delivered" && !["waiter", "manager"].includes(input.userRole)) throw Errors.forbiddenRole();
 
   // Último item pronto do pedido self-service muda o stage (preparing →
-  // ready) e notifica o cliente no WhatsApp — a página pública e o bot
-  // consomem o evento customer.stage_changed (room order:<orderId>).
-  let readyNotifyOrderId: string | null = null;
+  // ready). A página pública consome o evento customer.stage_changed
+  // (room order:<orderId>) para atualizar a tela do cliente.
   const updated = await db.transaction(async (tx) => {
     const result = await tx
       .update(orderItems)
@@ -467,16 +465,15 @@ export async function updateItemStatusUsecase(input: {
       changedBy: input.userId,
     });
 
-    // Só pra comanda de delivery (whatsapp/web) — comanda de mesa não tem
+    // Só pra comanda de delivery (web) — comanda de mesa não tem
     // máquina de cliente (nobody assina order:<orderId> de mesa). O stage
     // só muda de fato quando o ÚLTIMO item ativo fica pronto.
-    const isSelfService = parentOrder?.channel === "whatsapp" || parentOrder?.channel === "web";
+    const isSelfService = parentOrder?.channel === "web";
     if (isSelfService && input.newStatus === "ready") {
       const allItems = await tx.query.orderItems.findMany({ where: eq(orderItems.orderId, input.orderId) });
       const activeItems = allItems.filter((i) => i.status !== "cancelled");
       if (activeItems.length > 0 && activeItems.every((i) => i.status === "ready" || i.status === "delivered")) {
         await emitCustomerStageChangedTx(tx, input.orderId);
-        readyNotifyOrderId = input.orderId;
       }
     }
 
@@ -485,10 +482,6 @@ export async function updateItemStatusUsecase(input: {
 
     return result[0];
   });
-
-  if (readyNotifyOrderId) {
-    notifyReady(readyNotifyOrderId).catch((err) => console.error("falha ao notificar pedido pronto pro cliente:", err));
-  }
 
   return { ...updated, selectedVariations: JSON.parse(updated.selectedVariations) };
 }

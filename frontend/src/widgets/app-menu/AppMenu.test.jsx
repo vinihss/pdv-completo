@@ -99,10 +99,9 @@ describe("AppMenu", () => {
     expect(outra.getByText("Compras")).toBeTruthy();
   });
 
-  it("iFood só entra no menu com a integração ligada; WhatsApp não é item de menu", () => {
+  it("iFood só entra no menu com a integração ligada", () => {
     const sem = setup("manager", {});
     expect(asideOf(sem.container).queryByText("iFood")).toBeNull();
-    expect(asideOf(sem.container).queryByText("WhatsApp")).toBeNull();
     cleanup();
 
     const com = setup("manager", { ifoodIntegrationEnabled: true });
@@ -110,7 +109,6 @@ describe("AppMenu", () => {
     // iFood aparece ao abrir Operação, independentemente da tela inicial.
     fireEvent.click(aside.getByRole("button", { name: /Operação/ }));
     expect(aside.getByText("iFood")).toBeTruthy();
-    expect(aside.queryByText("WhatsApp")).toBeNull();
   });
 
   it("abrir outra seção mostra os itens dela sem fechar a primeira", () => {

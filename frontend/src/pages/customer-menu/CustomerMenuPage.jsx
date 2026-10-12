@@ -90,9 +90,9 @@ const CANCELLABLE_STAGES = ["received", "preparing", "ready", "failed"];
  */
 export default function CustomerMenuPage() {
   const [searchParams] = useSearchParams();
-  const viaWhatsApp = searchParams.get("via") === "whatsapp";
+  // O telefone vem do `?phone=` do link de retomada do pedido.
   const prefilledPhone = searchParams.get("phone") ?? "";
-  // Retomada direta de um pedido (link do bot / confirmação salva).
+  // Retomada direta de um pedido (link de retomada / confirmação salva).
   const orderParam = searchParams.get("order");
 
   const [menu, setMenu] = useState(null);
@@ -120,7 +120,7 @@ export default function CustomerMenuPage() {
   const [pendingLineKey, setPendingLineKey] = useState(null);
 
   const [checkoutStep, setCheckoutStep] = useState("phone");
-  // O telefone vem do `?phone=` do link do bot; na web direta sai do cache de
+  // O telefone vem do `?phone=` do link; na web direta sai do cache de
   // perfil (entities/customer/model/profileStorage.js) — cliente que já pediu
   // uma vez não digita o número de novo.
   const [phone, setPhone] = useState(() => maskPhone(prefilledPhone) || maskPhone(loadProfileLocal().phone));
@@ -177,7 +177,7 @@ export default function CustomerMenuPage() {
     getPublicMenu()
       .then((m) => {
         setMenu(m);
-        // Telefone do link do bot tem prioridade, mas o rascunho do servidor é
+        // Telefone do link tem prioridade, mas o rascunho do servidor é
         // chaveado por telefone: sem ele, quem já pediu uma vez e volta pelo
         // link simples perde os itens que tinha deixado no rascunho.
         hydrateCartFromServer(m, digitsOnly(prefilledPhone) || digitsOnly(phoneRef.current));
@@ -439,7 +439,7 @@ export default function CustomerMenuPage() {
     setCheckoutError(null);
     // Garante o rascunho salvo antes de sair do carrinho (não espera o debounce).
     flushCartSave(cart);
-    if (viaWhatsApp && prefilledPhone) {
+    if (prefilledPhone) {
       await runLookup(prefilledPhone);
       return;
     }
@@ -448,9 +448,8 @@ export default function CustomerMenuPage() {
     // a revisão — onde nome, endereço e pagamento aparecem editáveis, e é
     // exatamente aí que o cliente quer conferir antes de confirmar.
     //
-    // O `?phone=` do link do bot tem prioridade: é a identidade do rascunho do
-    // servidor, e um cliente que veio pelo WhatsApp precisa do lookup para o
-    // endereço salvo aparecer.
+    // O `?phone=` do link tem prioridade: é a identidade do rascunho do
+    // servidor, e o cliente precisa do lookup para o endereço salvo aparecer.
     const cached = loadProfileLocal();
     if (!prefilledPhone && hasCompleteCheckoutData(cached, addressForReview())) {
       setCustomer(null);
@@ -558,7 +557,7 @@ export default function CustomerMenuPage() {
     setCheckoutError(null);
     try {
       const created = await createPublicOrder({
-        channel: viaWhatsApp ? "whatsapp" : "web",
+        channel: "web",
         customerPhone: digitsOnly(phone),
         // O nome editado na tela de pagamento vale sobre o que está salvo no
         // cadastro: o cliente pode querer "João" e ter cadastrado "Joao
@@ -721,7 +720,6 @@ export default function CustomerMenuPage() {
           <MenuScreen
             menu={menu}
             cart={cart}
-            viaWhatsApp={viaWhatsApp}
             logoUrl={storeInfo?.logoUrl}
             merchantName={storeInfo?.merchantName}
             searchTerm={searchTerm}

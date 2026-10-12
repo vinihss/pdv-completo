@@ -42,7 +42,6 @@ var Columns = []string{
 	"printer_auto_print",
 	"delivery_prep_minutes",
 	"minutes_per_km",
-	"whatsapp_integration_enabled",
 }
 
 // StoreSettings é a linha tipada. Campos anuláveis saem como ponteiro, para o
@@ -74,7 +73,6 @@ type StoreSettings struct {
 	PrinterAutoPrint       bool     `json:"printer_auto_print"`
 	DeliveryPrepMinutes    int      `json:"delivery_prep_minutes"`
 	MinutesPerKM           int      `json:"minutes_per_km"`
-	WhatsappIntegration    bool     `json:"whatsapp_integration_enabled"`
 }
 
 // ScanDest devolve os alvos de Scan na MESMA ordem de Columns. Há um teste que
@@ -108,7 +106,6 @@ func (s *StoreSettings) ScanDest() []any {
 		&s.PrinterAutoPrint,
 		&s.DeliveryPrepMinutes,
 		&s.MinutesPerKM,
-		&s.WhatsappIntegration,
 	}
 }
 
@@ -148,32 +145,31 @@ const (
 // whitelist é a fonte de verdade do que pode ser alterado. `id` fica de fora
 // de propósito: é a chave da linha singleton.
 var whitelist = map[string]fieldKind{
-	"merchant_name":                kindText,
-	"merchant_city":                kindText,
-	"logo_path":                    kindNullableText,
-	"brand_color":                  kindText,
-	"pix_key":                      kindText,
-	"pix_key_type":                 kindPixKeyType,
-	"uses_tables":                  kindBool,
-	"kitchen_enabled":              kindBool,
-	"uses_delivery":                kindBool,
-	"ifood_integration_enabled":    kindBool,
-	"inventory_enabled":            kindBool,
-	"purchase_enabled":             kindBool,
-	"enabled_payment_methods":      kindJSONText,
-	"kitchen_prep_warn_min":        kindInt,
-	"kitchen_prep_urgent_min":      kindInt,
-	"kitchen_pickup_urgent_min":    kindInt,
-	"delivery_fee":                 kindReal,
-	"restaurant_lat":               kindNullableReal,
-	"restaurant_long":              kindNullableReal,
-	"free_delivery_min":            kindReal,
-	"delivery_fee_tiers":           kindJSONText,
-	"printer_enabled":              kindBool,
-	"printer_auto_print":           kindBool,
-	"delivery_prep_minutes":        kindInt,
-	"minutes_per_km":               kindInt,
-	"whatsapp_integration_enabled": kindBool,
+	"merchant_name":             kindText,
+	"merchant_city":             kindText,
+	"logo_path":                 kindNullableText,
+	"brand_color":               kindText,
+	"pix_key":                   kindText,
+	"pix_key_type":              kindPixKeyType,
+	"uses_tables":               kindBool,
+	"kitchen_enabled":           kindBool,
+	"uses_delivery":             kindBool,
+	"ifood_integration_enabled": kindBool,
+	"inventory_enabled":         kindBool,
+	"purchase_enabled":          kindBool,
+	"enabled_payment_methods":   kindJSONText,
+	"kitchen_prep_warn_min":     kindInt,
+	"kitchen_prep_urgent_min":   kindInt,
+	"kitchen_pickup_urgent_min": kindInt,
+	"delivery_fee":              kindReal,
+	"restaurant_lat":            kindNullableReal,
+	"restaurant_long":           kindNullableReal,
+	"free_delivery_min":         kindReal,
+	"delivery_fee_tiers":        kindJSONText,
+	"printer_enabled":           kindBool,
+	"printer_auto_print":        kindBool,
+	"delivery_prep_minutes":     kindInt,
+	"minutes_per_km":            kindInt,
 }
 
 // allowedPixKeyTypes espelha o enum do Postgres.

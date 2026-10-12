@@ -208,18 +208,7 @@ consultado).
 
 ---
 
-## 14. Sem notificação ao cliente quando o pagamento confirma
-
-Quando o webhook marca `paid`, o cliente não recebe aviso. O WhatsApp já está
-integrado (`integrations/whatsapp/`), mas não há hook do pagamento para ele.
-
-**Para resolver:** no `applyCharge`, quando `alvo === 'paid'`, enfileirar uma
-mensagem de WhatsApp para o cliente (se houver telefone). O outbox já existe
-para isso.
-
----
-
-## 15. Duas linhas confirmadas travam o fechamento da comanda
+## 14. Duas linhas confirmadas travam o fechamento da comanda
 
 Há **três** lugares que inserem em `order_payment` com `confirmed = true`, e
 só um deles tem guarda:
@@ -268,7 +257,7 @@ justamente o cenário de "cliente pagou no gateway mas a fila travou".
 
 ---
 
-## 16. `payments.status` e `payments.method` sem tipo no drizzle
+## 15. `payments.status` e `payments.method` sem tipo no drizzle
 
 O item 9 (inbox) amarrou `payment_event.status` ao union `PaymentEventStatus`
 via `text("status").$type<PaymentEventStatus>()`. As duas tabelas irmãs ficaram
@@ -297,7 +286,7 @@ fecha-ho que deve ser feito com calma, porque muda o que compila.
 
 ---
 
-## 17. Webhook pode regredir `payment.status`; reconciliação não
+## 16. Webhook pode regredir `payment.status`; reconciliação não
 
 Achado em leitura de código durante a revisão pós-merge. **Não reproduzi em
 runtime** — vale confirmar antes de agir.
@@ -344,8 +333,7 @@ evento velho" e "erro explícito".
 | P1 | Teste de integração em sandbox (item 8) | médio |
 | P2 | Reconciliação de estornos presos (item 6) | baixo |
 | P2 | Cancelamento automático de expiradas (item 13) | baixo |
-| P2 | Notificação WhatsApp no paid (item 14) | baixo |
-| P2 | Linha de pagamento duplicada trava o fechamento (item 15) | médio, **decisão de produto antes de código** |
+| P2 | Linha de pagamento duplicada trava o fechamento (item 14) | médio, **decisão de produto antes de código** |
 | P3 | Métricas/alertas/dashboard (item 7) | alto |
 | P3 | DLQ com retry manual (item 9) | baixo |
 | P3 | Validação de IP do webhook (item 10) | baixo |

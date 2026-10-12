@@ -92,11 +92,10 @@ func TestRemoteBackendListTenantsMapping(t *testing.T) {
 
 func TestRemoteBackendGetSettingsMapping(t *testing.T) {
 	api := &fakeRemoteAPI{settings: map[string]any{
-		"merchant_name":                "Umami",
-		"printer_enabled":              true,
-		"printer_auto_print":           false,
-		"uses_delivery":                true,
-		"whatsapp_integration_enabled": true,
+		"merchant_name":      "Umami",
+		"printer_enabled":    true,
+		"printer_auto_print": false,
+		"uses_delivery":      true,
 	}}
 
 	cfg, err := newRemoteBackend("prod", api).GetSettings("umami")
@@ -108,7 +107,6 @@ func TestRemoteBackendGetSettingsMapping(t *testing.T) {
 		PrintEnabled:    true,
 		AutoPrint:       false,
 		DeliveryEnabled: true,
-		WhatsAppEnabled: true,
 	}
 	if *cfg != *want {
 		t.Fatalf("cfg = %+v, want %+v", *cfg, *want)
@@ -131,16 +129,14 @@ func TestStoreConfigPatchBuilding(t *testing.T) {
 		PrintEnabled:    true,
 		AutoPrint:       true,
 		DeliveryEnabled: false,
-		WhatsAppEnabled: true,
 	}
 	patch := storeConfigPatch(cfg)
 
 	want := map[string]any{
-		"merchant_name":                "Umami",
-		"printer_enabled":              true,
-		"printer_auto_print":           true,
-		"uses_delivery":                false,
-		"whatsapp_integration_enabled": true,
+		"merchant_name":      "Umami",
+		"printer_enabled":    true,
+		"printer_auto_print": true,
+		"uses_delivery":      false,
 	}
 	if len(patch) != len(want) {
 		t.Fatalf("patch has %d keys, want %d", len(patch), len(want))

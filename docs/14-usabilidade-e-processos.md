@@ -26,7 +26,7 @@ Antes de propor, o que já funciona bem e não deve ser reescrito:
 | Overlays | `Modal`/`Drawer`/`ConfirmModal` com dono, focus trap, swipe-to-dismiss, Esc em pilha — acima da média |
 | Caixa | Fórmula do esperado **recalculada** (nunca denormalizada), sessão única garantida por índice parcial no banco, estorno automático com `ref_order_id` rastreável |
 | Cozinha | FIFO, urgency colorida, nota do pedido em destaque, grouping por estação |
-| Integrações | iFood e WhatsApp **reais** (não stub), impressora com spooler em BoltDB |
+| Integrações | iFood **real** (não stub), impressora com spooler em BoltDB |
 | Unificação web/standalone | **Já é verdade**: os 4 apps Tauri consomem o mesmo bundle React (`build:pdv\|kds\|garcon\|entregador`). Não há lógica duplicada entre web e nativo. |
 
 O achado mais importante do diagnóstico é o da última linha: a decisão
@@ -93,10 +93,8 @@ existe. Também foram corrigidas: `GET /kitchen/orders` e `PATCH
 /kitchen/orders/:id/items/:itemId/ready` (a cozinha não tem rota própria — o KDS
 usa `GET /orders?status=open` e `PATCH /orders/:id/items/:itemId` com
 `status: "ready"`), `GET /public/orders/:id` (existem `/public/orders/:id/status`
-e `POST /public/orders/active`), `POST /whatsapp/connect` (existe `POST
-/whatsapp/embedded-signup/exchange`) e `GET /whatsapp/history` (existe `GET
-/whatsapp/messages`). Quem for implementar contra a API deve conferir a rota
-no código, não pelo nome antigo.
+e `POST /public/orders/active`). Quem for implementar contra a API deve conferir a
+rota no código, não pelo nome antigo.
 
 A implementação de qualquer linha desta tabela é decisão de produto e vai em
 PR próprio, com rota, validação, `audit_log` e suíte — não junto com ajuste de
@@ -142,7 +140,7 @@ prato porque não existe quem entregue.
 | # | Proposta | Esforço | Impacto |
 |---|---|---|---|
 | C1 | **Perfil `expeditor` + tela Passe.** Não existe (`userRole` = waiter, kitchen, manager, courier, system, cashier em `schema.ts:48`). Sem expedidor, o garçom é obrigado a ir ao balcão buscar o prato. Tela: prontos em ordem de chegada, timer de SLA, 1 toque = "serviu" (marcando `delivered`). Padrão iFood/Anotaí. Novo room `expedicao`. | G | Altíssimo |
-| C2 | **KDS: separar por canal.** Hoje iFood, WhatsApp, web e salão caem no mesmo grid (`KitchenDisplay.jsx` agrupa só por `kitchenGroupId`). Num volume de delivery o garçom de mesa não acha o pedido. Chip de canal + filtro "Só salão / Só delivery". | S | Altíssimo |
+| C2 | **KDS: separar por canal.** Hoje iFood, web e salão caem no mesmo grid (`KitchenDisplay.jsx` agrupa só por `kitchenGroupId`). Num volume de delivery o garçom de mesa não acha o pedido. Chip de canal + filtro "Só salão / Só delivery". | S | Altíssimo |
 | C3 | **KDS: "chamar de volta" (recall).** Prato pronto que o cliente devolve precisa voltar a `ordered`. Hoje só há `ordered→ready→delivered`, sem volta. | S | Alto |
 | C4 | **Itens sem dono.** Item sem `kitchen_group_id` não entra em nenhuma estação e, como `ready` é rejeitado sem cozinha, nasce `delivered` e ninguém produz. Com 1 KDS + bar, metade do menu é invisível. Resolver com estação explícita (bar/cozinha/passe) e default por categoria. | M | Alto |
 | C5 | **Painel do salão (mapa de mesas).** `GET /tables` devolve `free/occupied/closing` e `closing` não é usado em lugar nenhum. TV do dono: mesa colorida por etapa (livre / aberta Xmin / em preparo / pronta / conta pedida / fechada), fila de delivery, ticket médio ao vivo. Hoje não existe painel de salão. | M | Alto |
@@ -179,7 +177,6 @@ copy-paste. A camada E é sobre transformar iFood em *um canal entre vários*.
 | E2 | **Painel de Canais**: saúde por canal (último poll, erro, pedidos/dia, receita bruta, comissão, líquido, % falha). Hoje o único sinal é `lastPollError` escondido em KV (`ifood/state.ts`). | M | Alto |
 | E3 | **Preço e disponibilidade por canal.** `product_channel (channel, price, available, sku, sync_status)`. Hoje `product.active` é global — não dá para tirar o prato do iFood mantendo no balcão. | M | Alto |
 | E4 | **Tempo estimado real no app do cliente.** `deliveryPrepMinutes` é fixo. Com A1 dá para calcular pela fila real da cozinha (mediana histórica por produto × itens pendentes). | M | Alto |
-| E5 | **Push de etapa pro cliente via WhatsApp.** A máquina `CustomerStage` (`backend/src/domain/customer-order-state.ts`) e o `whatsapp_state` já existem e são ricos, mas nada é enviado automaticamente ao cliente. Cobrindo received→preparing→ready→out_for_delivery→delivered, o cliente para de ligar perguntando. | S | Altíssimo |
 | E6 | **Promoções/cupons.** Não existe entidade nenhuma. `freeDeliveryMin` é estático. Marketplace vive de cupom. | M | Médio |
 | E7 | **Avaliação pós-entrega.** Canaliza decisão de ranqueamento no marketplace. Hoje zero dado. | M | Médio |
 
@@ -238,7 +235,7 @@ Regra prática: nenhuma tela nova antes de P0 e P1.
 | Fase | Conteúdo | Por que nesta ordem |
 |---|---|---|
 | P0 — Correção | Os 8 bugs do Tier 0 (o 7 já teve a documentação corrigida; falta a decisão de produto sobre as rotas) | Barreira de confiabilidade. Nada acima é seguro sem isso. |
-| P1 — Fundação | A1 (tempos) + D3 (business_date) + B1 (repetir) + E5 (push de etapa) + D8 (Pix) | Itens pequenos, cada um destrava um painel. Entrega valor antes de qualquer tela nova. |
+| P1 — Fundação | A1 (tempos) + D3 (business_date) + B1 (repetir) + D8 (Pix) | Itens pequenos, cada um destrava um painel. Entrega valor antes de qualquer tela nova. |
 | P2 — Dinheiro | D1 (settlement) + D2 (DRE) + A4 (estorno) + D4 (contagem por cédula) | O financeiro hoje mente sobre marketplace. Maior risco do projeto. |
 | P3 — Operação | C1 (expedidor) + C2 (canal no KDS) + C5 (mapa de mesas) + A2/A3 (dividir/juntar/transferir) | Remove o gargalo físico do garçom. |
 | P4 — Escala de canais | E1/E2/E3 (hub, painel de canais, preço/disponibilidade por canal) + E7 (avaliação) | É o que torna "nível Anotaí" sustentável em vez de copy-paste por canal. |

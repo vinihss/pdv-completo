@@ -42,7 +42,7 @@ export async function loginRateLimit(req: FastifyRequest, _reply: FastifyReply) 
   hits.set(`login:${ip}`, timestamps);
 }
 
-// ---------- Rotas públicas de self-service (checkout via página/WhatsApp) ----------
+// ---------- Rotas públicas de self-service (checkout via página) ----------
 
 // Enumeração de telefone (nome + endereços salvos vazam PII) — limite mais
 // apertado que o padrão de escrita, já que é o endpoint mais barato de abusar.

@@ -29,7 +29,7 @@ import type { SettlementPayoutStatus } from "../../domain/settlement.js";
 //                      também preserva os ids externos/não-UUID que já
 //                      existem: 'system' (SYSTEM_USER_ID), 'singleton'
 //                      (store_settings), ids do iFood (evt_/ord_), telefone
-//                      (customer_cart/whatsapp_conversation) e o cardápio
+//                      (customer_cart) e o cardápio
 //                      Unami (cat-unami-*, p-unami-NNN).
 //   - TIMESTAMPTZ   -> text ISO-8601 UTC. O app compara/deduplica com
 //                      new Date().toISOString(); em text o ORDEM é
@@ -56,20 +56,18 @@ export const userRole = pgEnum("user_role", ["waiter", "kitchen", "manager", "co
 export const tableStatus = pgEnum("table_status", ["free", "occupied", "closing"]);
 export const orderStatus = pgEnum("order_status", ["open", "closed", "cancelled"]);
 export const paymentMethod = pgEnum("payment_method", ["cash", "card", "pix", "other"]);
+// "whatsapp" segue no enum do banco só por compatibilidade: o canal deixou
+// de existir, mas linhas antigas continuam com esse valor (README das
+// migrations explica por que o valor não é removido de um enum em uso).
 export const orderChannel = pgEnum("channel", ["balcao", "whatsapp", "web", "ifood"]);
 export const orderItemStatus = pgEnum("order_item_status", ["ordered", "ready", "delivered", "cancelled"]);
 export const stockMovementType = pgEnum("stock_movement_type", ["sale", "refund", "purchase", "adjustment"]);
 export const cashDrawerStatus = pgEnum("cash_drawer_status", ["open", "closed"]);
 export const cashMovementType = pgEnum("cash_movement_type", ["sangria", "suprimento"]);
 export const ifoodEventStatus = pgEnum("ifood_event_status", ["received", "processed", "ignored", "failed", "acked"]);
-export const whatsappState = pgEnum("whatsapp_state", ["welcome", "browsing", "cart", "checkout", "done", "awaiting_location", "awaiting_confirmation", "awaiting_correction"]);
 export const deliveryStatus = pgEnum("delivery_status", ["awaiting_courier", "out_for_delivery", "delivered", "failed", "cancelled"]);
 export const pixKeyType = pgEnum("pix_key_type", ["cpf", "cnpj", "email", "phone", "random"]);
 export const idempotencyStatus = pgEnum("idempotency_status", ["processing", "completed", "failed"]);
-export const whatsappConnectionStatus = pgEnum("whatsapp_connection_status", ["active", "expired", "revoked", "disconnected"]);
-export const whatsappMessageStatus = pgEnum("whatsapp_message_status", ["sent", "delivered", "read", "failed"]);
-export const whatsappMessageKind = pgEnum("whatsapp_message_kind", ["notification", "bot_reply"]);
-
 const id = () =>
   text("id")
     .primaryKey()
@@ -460,9 +458,7 @@ export const storeSettings = pgTable("store_settings", {
   kitchenEnabled: boolean("kitchen_enabled").notNull().default(true),
   usesDelivery: boolean("uses_delivery").notNull().default(true),
   ifoodIntegrationEnabled: boolean("ifood_integration_enabled").notNull().default(false),
-  // Integração WhatsApp (baseline 0001): master switch do painel em Configurações.
-  whatsappIntegrationEnabled: boolean("whatsapp_integration_enabled").notNull().default(false),
-  // Pagar.me V5 (0002): mesmo desenho do toggle do WhatsApp — a cobrança no
+  // Pagar.me V5 (0002): toggle opt-in por loja — a cobrança no
   // gateway é opt-in por loja e nada acontece enquanto estiver false.
   pagarmeEnabled: boolean("pagarme_enabled").notNull().default(false),
   inventoryEnabled: boolean("inventory_enabled").notNull().default(false), // estoque (baseline 0001)
@@ -598,20 +594,6 @@ export const customerAddresses = pgTable(
   (t) => [index("idx_customer_address_customer").on(t.customerId)],
 );
 
-export const whatsappConversations = pgTable("whatsapp_conversation", {
-  phone: text("phone").primaryKey(),
-  state: whatsappState("state").notNull().default("welcome"),
-  cartItems: text("cart_items").notNull().default("[]"), // JSON string
-  customerName: text("customer_name"),
-  deliveryAddress: text("delivery_address"),
-  // Rastreabilidade (baseline 0001): a WABA de onde a conversa veio. Não é parte
-  // do PK porque há UMA conexão ativa por instalação — enforced no banco
-  // por uq_whatsapp_single_active. Nullable porque a coluna entrou depois.
-  wabaId: text("waba_id"),
-  updatedAt: text("updated_at").notNull().default(isoNow),
-  expiresAt: text("expires_at").notNull(),
-});
-
 // 1:1 com orders. Eixo separado de order_item.status, que já significa
 // "servido na mesa" — não reaproveitado aqui para evitar ambiguidade.
 export const deliveries = pgTable(
@@ -632,7 +614,6 @@ export const deliveries = pgTable(
     dispatchedAt: text("dispatched_at"),
     deliveredAt: text("delivered_at"),
     notes: text("notes"),
-    arrivalAlertSent: boolean("arrival_alert_sent").notNull().default(false),
     createdAt: text("created_at").notNull().default(isoNow),
   },
   (t) => [index("idx_delivery_status").on(t.status), index("idx_delivery_courier").on(t.courierId)],
@@ -676,77 +657,6 @@ export const geocodingCache = pgTable(
 );
 
 // ============================================================
-// Embedded Signup / WhatsApp Cloud API (baseline 0001) — ver
-// docs/10-whatsapp-embedded-signup.md
-// ============================================================
-
-// A WABA que o dono da loja conectou pelo Embedded Signup, com o token
-// que o servidor trocou pelo código de autorização. Chave natural é
-// waba_id: reconectar o mesmo WABA atualiza a linha em vez de duplicar.
-// A unicidade de UMA conexão `active` é do BANCO
-// (uq_whatsapp_single_active, índice parcial em status) — por isso o
-// saveConnection desativa a anterior antes de promover a nova.
-export const whatsappConnections = pgTable("whatsapp_connection", {
-  id: id(),
-  wabaId: text("waba_id").notNull().unique(),
-  phoneNumberId: text("phone_number_id").notNull(),
-  businessId: text("business_id"),
-  businessName: text("business_name"),
-  displayPhoneNumber: text("display_phone_number"),
-  displayName: text("display_name"),
-  accessToken: text("access_token").notNull(), // texto puro — mesmo tratamento do token do iFood (ifood_state)
-  tokenExpiresAt: text("token_expires_at"), // null = token BISU sem expiração
-  status: whatsappConnectionStatus("status").notNull().default("active"),
-  lastError: text("last_error"),
-  createdAt: text("created_at").notNull().default(isoNow),
-  updatedAt: text("updated_at").notNull().default(isoNow),
-});
-
-// Uma linha por mensagem ENVIADA, chaveada pelo wamid que a Meta devolve.
-// É a junta entre o POST /messages e o webhook `messages.statuses`:
-// sem esta linha não dá para dizer a qual pedido a mensagem entregue
-// pertence. orderId é nullable porque o bot de auto-atendimento também
-// envia, e essa mensagem não pertence a nenhum pedido.
-export const whatsappOutboundMessages = pgTable(
-  "whatsapp_outbound_message",
-  {
-    id: text("id").primaryKey(), // wamid (wamid.XXXX...)
-    wabaId: text("waba_id")
-      .notNull()
-      .references(() => whatsappConnections.wabaId, { onDelete: "cascade" }),
-    orderId: text("order_id").references(() => orders.id, { onDelete: "cascade" }),
-    toPhone: text("to_phone").notNull(),
-    kind: whatsappMessageKind("kind").notNull(),
-    status: whatsappMessageStatus("status").notNull().default("sent"),
-    errorCode: integer("error_code"),
-    errorMessage: text("error_message"),
-    createdAt: text("created_at").notNull().default(isoNow),
-    updatedAt: text("updated_at").notNull().default(isoNow),
-  },
-  (t) => [
-    index("idx_whatsapp_outbound_order").on(t.orderId),
-    index("idx_whatsapp_outbound_waba_created").on(t.wabaId, t.createdAt),
-  ],
-);
-
-// Dedupe do inbound: a Meta reenvia o MESMO webhook enquanto não receber
-// 200, por até ~7 dias. `type` é TEXT de propósito (não enum) — a Meta
-// adiciona tipos sem aviso e um enum quebraria no primeiro novo.
-export const whatsappInboundMessages = pgTable(
-  "whatsapp_inbound_message",
-  {
-    id: text("id").primaryKey(), // wamid (wamid.XXXX...)
-    wabaId: text("waba_id")
-      .notNull()
-      .references(() => whatsappConnections.wabaId, { onDelete: "cascade" }),
-    fromPhone: text("from_phone").notNull(),
-    type: text("type").notNull(),
-    createdAt: text("created_at").notNull().default(isoNow),
-  },
-  (t) => [index("idx_whatsapp_inbound_waba").on(t.wabaId)],
-);
-
-// ============================================================
 // Pagar.me V5 (0002) — ver migrations/0002_pagarme.sql
 // ============================================================
 
@@ -786,8 +696,8 @@ export const whatsappInboundMessages = pgTable(
 //
 // ## Status em TEXT, não pgEnum
 //
-// `status` (aqui e em `payment_event`) é TEXT pelo mesmo motivo de
-// `whatsapp_inbound_message.type`: o valor vem do EXTERNO e a doc do Pagar.me
+// `status` (aqui e em `payment_event`) é TEXT porque o valor vem do
+// EXTERNO e a doc do Pagar.me
 // não o enumera. Um enum quebraria no primeiro status novo que o gateway
 // inventar, e quebrar aqui é perder dinheiro — o mapper devolve `null` para
 // valor desconhecido e quem chama decide (reconciliação/alerta), em vez de

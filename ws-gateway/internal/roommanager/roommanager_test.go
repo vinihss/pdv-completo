@@ -44,7 +44,6 @@ func TestCanJoin(t *testing.T) {
 		{"garçom vê entregas", "waiter", u1, "deliveries", true},
 		{"garçom NÃO vê gaveta de caixa", "waiter", u1, "cash-drawer", false},
 		{"garçom NÃO vê estoque", "waiter", u1, "inventory", false},
-		{"garçom NÃO vê whatsapp", "waiter", u1, "whatsapp", false},
 
 		// --- kitchen ---
 		{"cozinha vê cozinha", "kitchen", u1, "kitchen-display", true},
@@ -69,7 +68,6 @@ func TestCanJoin(t *testing.T) {
 		{"gerente vê entregas", "manager", u1, "deliveries", true},
 		{"gerente vê gaveta", "manager", u1, "cash-drawer", true},
 		{"gerente vê estoque", "manager", u1, "inventory", true},
-		{"gerente vê whatsapp", "manager", u1, "whatsapp", true},
 
 		// --- papel desconhecido / token forjado ---
 		{"papel desconhecido não acessa gaveta", "hacker", u1, "cash-drawer", false},

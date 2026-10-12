@@ -19,6 +19,7 @@ function channelToType(channel) {
   switch (channel) {
     case "balcao":
       return "MESA";
+    // "whatsapp" é legado: pedido antigo reimpresso continua sendo entrega.
     case "whatsapp":
     case "web":
       return "DELIVERY";

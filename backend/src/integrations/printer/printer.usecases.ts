@@ -16,7 +16,7 @@ import { toDaemonOrder, type PdvOrder, type PdvCustomer, type PdvDelivery } from
 /**
  * Impressão térmica — integração com o daemon local (printer/).
  *
- * Padrão fire-and-forget (igual whatsapp.notifier): as funções de impressão
+ * Padrão fire-and-forget: as funções de impressão
  * são chamadas pós-commit das usecases de domínio, com .catch() para nunca
  * quebrar o fluxo principal. O daemon tem sua própria fila de retry.
  */

@@ -93,7 +93,6 @@ describe("texto do alerta de comanda (puro)", () => {
       title: "Novo pedido de Ana",
       body: "Entrega · página",
     });
-    expect(describeOrderAlert({ channel: "whatsapp", customerName: "Beto" }).body).toBe("Entrega · WhatsApp");
   });
 
   it("entrega sem nome nem rótulo não some com a informação do canal", () => {

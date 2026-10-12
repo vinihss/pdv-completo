@@ -86,11 +86,6 @@
 		reverse_proxy {$PDV_PAGARME_UPSTREAM:backend:3000}
 	}
 
-	# Webhooks da Meta (WhatsApp Cloud API)
-	handle /webhooks/* {
-		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
-	}
-
 	# Health check direto
 	handle /health {
 		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}

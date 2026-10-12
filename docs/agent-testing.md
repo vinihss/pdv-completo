@@ -45,7 +45,7 @@ publicam de verdade e disputam o advisory lock `pdv:payment:worker` e o
 | `test/alerts.test.ts` | Central de alertas (25 testes): rollback, desempate de seq, público, rooms |
 | `test/cash-flow.test.ts` | Fluxo de caixa: sessão única, sangria/suprimento/fechamento, idempotência, hard block, estorno, resumo |
 | `test/catalog.test.ts` | Catálogo: CRUD produtos, categorias, ordenação, busca |
-| `test/delivery-location.test.ts` | Geocoding, cache, cálculo de distância |
+| `test/delivery-location.test.ts` | Cálculo de entrega: validação de `POST /calcular-entrega` (intervalos, restaurante sem coordenadas) e a previsão escolhida no checkout virando `distance_km`/`estimated_minutes` na delivery e na lista do gerente |
 | `test/delivery-pricing.test.ts` | Cálculo de preço de entrega |
 | `test/idempotency.test.ts` | Retry de failed/expirado, 409 processing, cache de completed |
 | `test/maintenance.test.ts` | Outbox corrompido não derruba, cleanup |
@@ -62,13 +62,12 @@ publicam de verdade e disputam o advisory lock `pdv:payment:worker` e o
 | `test/team-customers.test.ts` | Clientes + equipe (28 testes): CRUD, CPF/observações, foto do cliente, comanda aberta, histórico paginado, série do gráfico, PIN |
 | `test/tenant-routing.test.ts` | Multi-tenant Fase 1 (29 testes): resolução por subdomínio/domínio próprio/apex/`localhost`, rótulos reservados (`www`/`app`/`api`), **slug inválido → 404 e nunca o default**, kill-switch `TENANT_ROUTING`, `PLATFORM_ROOT_DOMAIN`, `tenant_inactive` (403), validação de `schema_name` em código, contrato do `GET /public/tenants/resolve` (inclusive o que **não** sai), `migrations/registry/` fora do glob do runner de tenant, DDL do registry nascendo em `public` mesmo com `search_path` de tenant, e o cache do registry (TTL, invalidação, resultado negativo) |
 | `test/uploads.test.ts` | Storage por tenant (14 testes): serving de `/uploads/:kind/:filename`, logo com `no-cache`, ETag/304, só basename no banco, arquivo só no kind dele, remoção, isolamento entre tenants, traversal barrado, e o `migrate-uploads-layout` (idempotente, `--dry-run`, `--revert`) |
-| `test/whatsapp.test.ts` | WhatsApp: webhooks, dedupe, status (35 testes) |
 
 ### Padrões
 
 - **Postgres dedicado**: o global setup recria o banco `pdv_test` antes de cada suíte
 - **`resetState()`**: algumas suítes (printer) precisam resetar o estado entre testes (mesa compartilhada)
-- **Stub HTTP**: printer usa stub na porta 3456; whatsapp usa stub da Graph em porta fixa apontada pelo `env` do `vitest.config.ts`
+- **Stub HTTP**: printer usa stub na porta 3456
 
 ### Isolamento do banco de teste
 
@@ -267,7 +266,7 @@ lados ainda é conferido por smoke.
 1. Criar arquivo `test/<dominio>.test.ts`
 2. Usar o global setup (banco `pdv_test` já é recriado)
 3. Se precisar de estado limpo entre testes, usar `resetState()`
-4. Para stub de HTTP, usar porta fixa (padrão: 3456 para printer, porta configurável para whatsapp)
+4. Para stub de HTTP, usar porta fixa (padrão: 3456 para printer)
 
 ### Frontend
 

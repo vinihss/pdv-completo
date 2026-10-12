@@ -134,7 +134,7 @@ describe("CourierApp — as três seções", () => {
       deliveries: [
         entrega({
           customerName: "Maria Silva",
-          channel: "whatsapp",
+          channel: "web",
           customerPhone: "11987654321",
           estimatedMinutes: 30,
           createdAt: minutosAtras(35),
@@ -148,7 +148,7 @@ describe("CourierApp — as três seções", () => {
     expect(elapsed.className).toContain("urgent-pulse");
 
     expect(screen.getByText("Maria Silva")).toBeTruthy();
-    expect(screen.getByText("WhatsApp")).toBeTruthy();
+    expect(screen.getByText("Site")).toBeTruthy();
     expect(screen.getByText("≈ 30 min")).toBeTruthy();
     expect(screen.getByLabelText("Ligar para Maria Silva").getAttribute("href")).toBe("tel:11987654321");
   });

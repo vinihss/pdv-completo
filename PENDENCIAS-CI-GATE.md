@@ -12,4 +12,3 @@ funcionou; deploys automáticos de v1.32.1/v1.33.0 NÃO saíram (PAT quebrado).
    - `test/courier-location.test.ts`: colisão de fixture `u-courier` (`Entregador Teste` vs `Entregador Um` — `profiles`/`self-service` usam o mesmo id).
    - `test/uploads.test.ts`: vazamento ALS de tenant (`public` ao invés de `tenant_x` — regressão da PR #113, que mergeou com gate vazio).
 4. `app-v0.1.0` (build-desktop) falhando desde ontem (não investigado).
-5. `test/whatsapp.test.ts`: timeouts de hook (ambiente/CI, não código).
