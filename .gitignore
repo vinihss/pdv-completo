@@ -68,6 +68,10 @@ standalone-*/.local-signing.key.pub
 /ws-gateway/ws-gateway
 /ws-gateway/*.exe
 
+# Admin server (Go, módulo aninhado).
+/admin-server/admin-server
+/admin-server/*.exe
+
 # CLI Go (`cmd/pdv`). O binário é compilado e instalado por
 # `scripts/build/install-cli.sh` em `$PREFIX/bin`; a cópia solta na raiz do
 # repo é artefato de build, nunca versionada.

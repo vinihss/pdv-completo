@@ -32,6 +32,8 @@ Domínios:
   tenant <add|verify|restart|health>
                                  Rotina completa de onboarding do novo tenant
                                  (provision + verificação SQL + restart + health)
+  connect <nome> <url> <token>   Valida e salva um admin-server remoto
+  servers <list|remove>          Gerencia os admin-servers salvos
   tui                            Interface interativa (TUI) para gerenciamento
                                  de tenants (menu-driven, formulários visuais)
   check [backend|frontend|all]   critérios de verificação gerais do AGENTS.md
@@ -83,6 +85,8 @@ func init() {
 	rootCmd.AddCommand(releaseCmd)
 	rootCmd.AddCommand(deployCmd)
 	rootCmd.AddCommand(tenantCmd)
+	rootCmd.AddCommand(connectCmd)
+	rootCmd.AddCommand(serversCmd)
 	rootCmd.AddCommand(tuiCmd)
 }
 
