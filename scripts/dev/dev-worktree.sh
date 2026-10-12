@@ -61,6 +61,20 @@ main_repo() {
 	[ -n "$common" ] && dirname "$common"
 }
 
+prompt_enter_worktree() {
+	_target="$1"
+	if [ -t 0 ]; then
+		printf 'Deseja mudar para a nova worktree? (Y/n) '
+		read -r _resp || _resp="n"
+		case "$_resp" in
+			[nN]*) ;;
+			*)
+				cd "$_target" && exec "${SHELL:-/bin/sh}"
+				;;
+		esac
+	fi
+}
+
 cmd_new() {
 	[ $# -eq 1 ] || { usage >&2; die "informe o nome da branch"; }
 	branch="$1"
@@ -87,6 +101,7 @@ cmd_new() {
 		if [ -d "$target" ] && [ -f "$target/.git" ]; then
 			printf 'worktree já existe em %s\n' "$target"
 			( cd "$repo" && git worktree list )
+			prompt_enter_worktree "$target"
 			return 0
 		fi
 		die "$target existe e não é um worktree. Remova ou renomeie antes."
@@ -102,7 +117,7 @@ cmd_new() {
 		printf 'criado: %s -> %s (a partir de %s)\n' "$branch" "$target" "$REMOTE_REF"
 	fi
 
-	printf '\nPróximo passo:\n  cd %s\n' "$target"
+	prompt_enter_worktree "$target"
 }
 
 cmd_list() {
