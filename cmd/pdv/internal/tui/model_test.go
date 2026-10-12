@@ -255,7 +255,20 @@ func TestRemoteCreateTenantShowsPINOnce(t *testing.T) {
 	m.form.fields[0].Value = "umami"
 	m.form.fields[1].Value = "Umami"
 
+	// Enter vai para a confirmação, sem criar ainda.
 	m, cmd := press(t, m, "enter")
+	if cmd != nil {
+		t.Fatal("não deveria criar antes de confirmar")
+	}
+	if m.screen != ScreenConfirm {
+		t.Fatalf("screen = %v, want ScreenConfirm", m.screen)
+	}
+	if fb.createdSlug != "" {
+		t.Fatalf("createdSlug = %q, não deveria ter criado antes de confirmar", fb.createdSlug)
+	}
+
+	// Confirma a criação.
+	m, cmd = press(t, m, "y")
 	if cmd == nil {
 		t.Fatal("esperado comando de criação")
 	}
@@ -266,6 +279,35 @@ func TestRemoteCreateTenantShowsPINOnce(t *testing.T) {
 	}
 	if !strings.Contains(m.statusBar.message, "PIN do manager: 1234") {
 		t.Fatalf("status = %q, esperado conter o PIN", m.statusBar.message)
+	}
+}
+
+func TestRemoteCreateTenantCancelReturnsToForm(t *testing.T) {
+	fb := &fakeBackend{createPIN: "1234"}
+	m := remoteModel(fb)
+	m.screen = ScreenAdd
+	m.formMode = FormAddTenant
+	m.form = m.newTenantForm()
+	m.form.fields[0].Value = "umami"
+	m.form.fields[1].Value = "Umami"
+
+	m, _ = press(t, m, "enter")
+	if m.screen != ScreenConfirm {
+		t.Fatalf("screen = %v, want ScreenConfirm", m.screen)
+	}
+
+	m, cmd := press(t, m, "n")
+	if cmd != nil {
+		t.Fatal("cancelar não deveria disparar comando")
+	}
+	if m.screen != ScreenAdd {
+		t.Fatalf("screen = %v, want ScreenAdd", m.screen)
+	}
+	if fb.createdSlug != "" {
+		t.Fatalf("createdSlug = %q, não deveria ter criado", fb.createdSlug)
+	}
+	if m.form.fields[0].Value != "umami" {
+		t.Fatalf("slug = %q, want umami (formulário preservado)", m.form.fields[0].Value)
 	}
 }
 

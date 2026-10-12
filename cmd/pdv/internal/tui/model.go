@@ -186,6 +186,10 @@ type Model struct {
 	confirmFn func() tea.Cmd
 	formMode  FormMode
 
+	// Confirmação de criação de tenant (mostrada na tela de confirmação)
+	pendingSlug string
+	pendingName string
+
 	// Deploy via SSH
 	deployCh        chan deployEvent
 	deployLines     []string
@@ -673,6 +677,12 @@ func (m Model) handleConfirmKey(keyStr string) (tea.Model, tea.Cmd) {
 			m.screen = ScreenMenu
 			return m, nil
 		}
+		if m.formMode == FormAddTenant {
+			// Volta ao formulário preservando o que foi digitado.
+			m.confirmFn = nil
+			m.screen = ScreenAdd
+			return m, nil
+		}
 		m.screen = ScreenList
 		m.confirmFn = nil
 	}
@@ -686,14 +696,22 @@ func (m Model) submitForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Criar tenant provisiona schema/migrations e cria o manager: exige
+	// confirmação explícita antes de disparar.
+	if m.formMode == FormAddTenant {
+		slug := strings.TrimSpace(m.form.fields[0].Value)
+		name := strings.TrimSpace(m.form.fields[1].Value)
+		m.pendingSlug = slug
+		m.pendingName = name
+		m.confirmFn = func() tea.Cmd { return m.createTenantCmd(slug, name) }
+		m.screen = ScreenConfirm
+		return m, nil
+	}
+
 	m.spinner.Start("Processando...")
 	m.screen = ScreenLoading
 
 	switch m.formMode {
-	case FormAddTenant:
-		slug := m.form.fields[0].Value
-		name := m.form.fields[1].Value
-		return m, m.createTenantCmd(slug, name)
 	case FormRenameTenant:
 		if m.selected != nil {
 			return m, m.renameTenantCmd(m.selected.Slug, m.form.fields[0].Value)
@@ -840,6 +858,8 @@ func (m Model) viewConfirm() string {
 		action = "executar o deploy azul/verde no host via SSH (bash deploy/switch.sh). A produção terá um deploy imediato"
 	default:
 		switch m.formMode {
+		case FormAddTenant:
+			action = fmt.Sprintf("criar o tenant '%s' (%s) — provisiona schema, migrations e manager", m.pendingSlug, m.pendingName)
 		case FormResetPIN:
 			action = "resetar o PIN do manager"
 		case FormToggleStatus:
