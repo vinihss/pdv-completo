@@ -4,7 +4,7 @@ import { customers, deliveries, orders, products } from "../../infra/db/schema.j
 import { SYSTEM_USER_ID } from "../../domain/constants.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
-import { openOrderUsecase, addItemsUsecase } from "../../application/order/order.usecases.js";
+import { openOrderUsecase, addItemsUsecase } from "../../infra/composition/default-usecases.js";
 import type { IfoodOrder, IfoodDeliveryAddress } from "./order.types.js";
 
 const DELIVERY_ROOM = "deliveries"; // mesmo room do painel do manager / listagem do entregador

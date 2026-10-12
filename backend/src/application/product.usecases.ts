@@ -3,7 +3,7 @@ import { db } from "../infra/db/client.js";
 import { products, categories, kitchenGroups } from "../infra/db/schema.js";
 import { Errors } from "../domain/errors.js";
 import { logAction } from "../infra/audit-log.js";
-import { stockBalances, currentStock, applyStockMovementTx } from "./stock/stock.usecases.js";
+import { stockBalances, currentStock, applyStockMovementTx } from "../infra/composition/order-compat.js";
 import { normalizeVariations, type VariationGroup } from "../domain/variations.js";
 import { tenantCache } from "../infra/cache/index.js";
 import { getStorage, isSafeFilename, storageAssetPath, storageFilename } from "../infra/storage/index.js";

@@ -4,7 +4,9 @@
  *
  * Cada port espelha uma seam que já existe no código (comentário em cada um);
  * a tradução para a implementação atual acontece nos adapters, nas ondas
- * seguintes. Nenhum use case consome estes ports ainda.
+ * seguintes. A ONDA 2 passou a injetá-los no hub de pedidos
+ * (`application/order/order.usecases.ts` → factory `createOrderUsecases`):
+ * `TenantCache`, `StoreSettingsReader`, `OrderPrinter` e `CustomerNotifier`.
  */
 import type { Id, Json } from "./repositories.js";
 
@@ -24,6 +26,36 @@ export interface TenantCache {
   set<T>(key: string, value: T, options?: { ttl?: number }): Promise<void>;
   /** Invalida TODAS as chaves sob o prefixo (adapter atual: `invalidatePattern(\`${prefix}*\`)`). */
   invalidatePrefix(prefix: string): Promise<void>;
+}
+
+// ---------- settings da loja (espelha `getSettings` de order.usecases) ----------
+
+/**
+ * ADIÇÃO (Onda 2): leitura do singleton `store_settings`.
+ *
+ * `store_settings` tem 40+ colunas; este record traz EXATAMENTE os campos que
+ * os consumidores de `getSettings()` usam hoje (hub de pedidos + self-service).
+ * Ajustar aqui é explícito — mudar o settings passa a ser diff visível, e não
+ * uma leitura esquecida num use case distante.
+ */
+export interface StoreSettingsRecord {
+  kitchenEnabled: boolean;
+  inventoryEnabled: boolean;
+  purchaseEnabled: boolean;
+  printerEnabled: boolean;
+  printerAutoPrint: boolean;
+  /** JSON string de `["cash","card",...]` — o use case faz o parse (como hoje). */
+  enabledPaymentMethods: string;
+  deliveryFee: number;
+  /** JSON string das faixas de frete — o use case faz o parse (como hoje). */
+  deliveryFeeTiers: string;
+  deliveryPrepMinutes: number;
+  minutesPerKm: number;
+}
+
+export interface StoreSettingsReader {
+  /** Lança se o singleton não existir (mensagem igual à de `getSettings` atual). */
+  get(): Promise<StoreSettingsRecord>;
 }
 
 // ---------- gateway de pagamento (espelha `domain/payment.ts` → PaymentGateway) ----------
@@ -94,6 +126,19 @@ export interface OrderNotifier {
   notify(input: { room: string; type: string; aggregateId?: Id; payload?: Json }): Promise<void>;
 }
 
+/**
+ * ADIÇÃO (Onda 2): notificação WhatsApp de status AO CLIENTE
+ * (`notifyReady` quando a cozinha termina o último item de um pedido
+ * self-service). O `OrderNotifier` acima é o outbox REALTIME (payload pronto,
+ * room/type); o notifier de WhatsApp recebe `orderId` e resolve o telefone no
+ * banco — era exatamente o "CustomerNotifier" que o comentário do
+ * `outbox-order-notifier.ts` deixou para uma onda futura. Fire-and-forget:
+ * adapter delega à função `notifyReady` de `integrations/whatsapp`.
+ */
+export interface CustomerNotifier {
+  notifyReady(orderId: Id): Promise<void>;
+}
+
 // ---------- impressão térmica (espelha `integrations/printer` → printerClient.enqueuePrint) ----------
 
 export interface PrintJob {
@@ -108,6 +153,21 @@ export interface PrintJob {
 
 export interface Printer {
   enqueue(job: PrintJob): Promise<void>;
+}
+
+/**
+ * ADIÇÃO (Onda 2): impressão pós-commit do pedido (`printKitchenOrder`).
+ *
+ * Por que um port dedicado e não o `Printer` acima: `Printer.enqueue` exige o
+ * payload JÁ FORMATADO (o `DaemonOrder` do mapper de cupom, que mora em
+ * `integrations/printer` — a application não pode importá-lo, nem conhece
+ * layout de cupom). O use case tem o `orderId`, não o cupom: este port dá a
+ * granularidade certa ("imprimir a comanda da cozinha desta comanda"), e o
+ * adapter delega à função `printKitchenOrder` existente — mesmo cupom, mesma
+ * semântica fire-and-forget (`printerClient` nunca lança; daemon tem retry).
+ */
+export interface OrderPrinter {
+  printKitchenOrder(orderId: Id): Promise<void>;
 }
 
 // ---------- e-mail (espelha `infra/mail` → MailerTransport.send) ----------

@@ -1,0 +1,44 @@
+import type { Tx } from "./client.js";
+import type { TenantSession } from "../../application/ports/unit-of-work.js";
+import {
+  PostgresAlertRepository,
+  PostgresAuditWriter,
+  PostgresCatalogRepository,
+  PostgresCashFlowRepository,
+  PostgresCustomerRepository,
+  PostgresDeliveryRepository,
+  PostgresOrderRepository,
+  PostgresOutboxWriter,
+  PostgresPaymentRepository,
+  PostgresPurchaseRepository,
+  PostgresStockRepository,
+  PostgresUserRepository,
+} from "./postgres-repositories.js";
+
+/**
+ * Monta um `TenantSession` (repositórios + audit + outbox) sobre a transação
+ * corrente — a fábrica injetada em `PostgresTenantUnitOfWork` (ONDA 2).
+ *
+ * Uma instância por transação: os adapters guardam o `tx` e são stateless
+ * além disso, então reutilizar a mesma sessão entre transações não é previsto
+ * (e não é necessário: o UoW cria uma nova a cada `run`).
+ *
+ * Todas as escritas de domínio, o `audit.record` e o `outbox.enqueue` saem
+ * daqui na MESMA transação (regra do repo: audit + outbox no mesmo commit).
+ */
+export function createPostgresTenantSession(tx: Tx): TenantSession {
+  return {
+    catalog: new PostgresCatalogRepository(tx),
+    customers: new PostgresCustomerRepository(tx),
+    users: new PostgresUserRepository(tx),
+    orders: new PostgresOrderRepository(tx),
+    stock: new PostgresStockRepository(tx),
+    cashFlow: new PostgresCashFlowRepository(tx),
+    purchases: new PostgresPurchaseRepository(tx),
+    payments: new PostgresPaymentRepository(tx),
+    deliveries: new PostgresDeliveryRepository(tx),
+    alerts: new PostgresAlertRepository(tx),
+    audit: new PostgresAuditWriter(tx),
+    outbox: new PostgresOutboxWriter(tx),
+  };
+}

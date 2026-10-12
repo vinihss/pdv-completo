@@ -16,7 +16,7 @@ import { db } from "../../infra/db/client.js";
 import { orders, orderItems, deliveries, customers } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
 import { SYSTEM_USER_ID } from "../../domain/constants.js";
-import { cancelOrderUsecase } from "../order/order.usecases.js";
+import { cancelOrderUsecase } from "../../infra/composition/default-usecases.js";
 import { deriveCustomerStage, isCustomerCancellable } from "../../domain/customer-order-state.js";
 import { notifyCancelled } from "../../integrations/whatsapp/whatsapp.notifier.js";
 

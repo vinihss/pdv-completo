@@ -63,7 +63,7 @@ import { PagarmeGateway } from "../../integrations/pagarme/gateway.js";
 import { isPagarmeEnabled } from "../../integrations/pagarme/config.js";
 import { mapOrderToCharge } from "../../integrations/pagarme/mapper.js";
 import type { PagarmeWebhookPayload } from "../../integrations/pagarme/types.js";
-import { computeOrderTotal } from "../order/order.usecases.js";
+import { computeOrderTotal } from "../../infra/composition/order-compat.js";
 
 export const PROVIDER = "pagarme";
 

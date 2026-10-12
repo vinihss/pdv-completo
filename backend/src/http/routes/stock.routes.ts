@@ -19,7 +19,7 @@ import {
   listStockUsecase,
   getStockMovementsUsecase,
   registerStockMovementUsecase,
-} from "../../application/stock/stock.usecases.js";
+} from "../../infra/composition/default-usecases.js";
 import { inventoryValuationUsecase } from "../../application/purchase/purchase.usecases.js";
 import { withIdempotency } from "../middlewares/idempotency.middleware.js";
 

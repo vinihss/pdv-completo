@@ -15,8 +15,8 @@ import { Errors } from "../../domain/errors.js";
 import { canTransitionDelivery, type DeliveryStatus } from "../../domain/customer-order-state.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
-import { emitCustomerStageChangedTx } from "./customer-stage.js";
-import { registerPaymentUsecase, closeOrderUsecase, getSettings } from "../order/order.usecases.js";
+import { emitCustomerStageChangedTx } from "../../infra/composition/order-compat.js";
+import { registerPaymentUsecase, closeOrderUsecase, getSettings } from "../../infra/composition/default-usecases.js";
 import { printCourierOrder } from "../../integrations/printer/printer.usecases.js";
 
 const DELIVERY_ROOM = "deliveries";

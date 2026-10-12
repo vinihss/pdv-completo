@@ -24,7 +24,7 @@ import {
   round2,
   stockBalances,
   INVENTORY_ROOM,
-} from "../stock/stock.usecases.js";
+} from "../../infra/composition/order-compat.js";
 
 // ---------- Fornecedores ----------
 

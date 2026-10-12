@@ -1,5 +1,18 @@
 import type { TenantContext } from "./tenant-context.js";
-import type { AuditWriter, OutboxWriter, CatalogRepository, CustomerRepository, UserRepository, OrderRepository, StockRepository, CashFlowRepository, PurchaseRepository, PaymentRepository, DeliveryRepository } from "./repositories.js";
+import type {
+  AuditWriter,
+  OutboxWriter,
+  AlertRepository,
+  CatalogRepository,
+  CustomerRepository,
+  UserRepository,
+  OrderRepository,
+  StockRepository,
+  CashFlowRepository,
+  PurchaseRepository,
+  PaymentRepository,
+  DeliveryRepository,
+} from "./repositories.js";
 
 export interface TenantSession {
   catalog: CatalogRepository;
@@ -11,6 +24,8 @@ export interface TenantSession {
   purchases: PurchaseRepository;
   payments: PaymentRepository;
   deliveries: DeliveryRepository;
+  /** ADIÇÃO (Onda 2): central de alertas (sino) — hub de pedidos. */
+  alerts: AlertRepository;
   audit: AuditWriter;
   outbox: OutboxWriter;
 }

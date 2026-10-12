@@ -5,8 +5,8 @@ import { Errors } from "../../domain/errors.js";
 import { canTransitionDelivery, type DeliveryStatus } from "../../domain/customer-order-state.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
-import { createAlertTx, DELIVERY_ASSIGNED_ALERT_KIND, describeDeliveryAssignedAlert } from "../alert/alert.usecases.js";
-import { emitCustomerStageChangedTx } from "./customer-stage.js";
+import { DELIVERY_ASSIGNED_ALERT_KIND, describeDeliveryAssignedAlert } from "../alert/alert.usecases.js";
+import { createAlertTx, emitCustomerStageChangedTx } from "../../infra/composition/order-compat.js";
 import { closeOrderAfterDelivery } from "./manager-delivery-status.usecase.js";
 import {
   notifyDispatched,
@@ -15,7 +15,7 @@ import {
   notifyArriving,
 } from "../../integrations/whatsapp/whatsapp.notifier.js";
 import { printCourierOrder } from "../../integrations/printer/printer.usecases.js";
-import { getSettings } from "../order/order.usecases.js";
+import { getSettings } from "../../infra/composition/default-usecases.js";
 import { photoUrl } from "../user.usecases.js";
 import { OsmRoutingService } from "../../integrations/maps/routing.service.js";
 

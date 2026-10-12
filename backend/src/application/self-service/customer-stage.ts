@@ -3,19 +3,23 @@
 // (/public/orders/:id/status) consomem o evento customer.stage_changed —
 // a tela de confirmação atualiza sozinha em cada mudança de etapa
 // (dispatch, item pronto, entrega, cancelamento).
-import { eq } from "drizzle-orm";
-import { orders, orderItems, deliveries } from "../../infra/db/schema.js";
+//
+// ONDA 2: sem Drizzle/infra — a leitura do trio (comanda, itens, entrega) vem
+// dos ports do `TenantSession`, e o evento entra no `session.outbox` da MESMA
+// transação da escrita de domínio. O wrapper `emitCustomerStageChangedTx(tx, ...)`
+// para chamadores que ainda têm um `tx` cru mora em
+// `infra/composition/order-compat.ts`.
 import { deriveCustomerStage, CUSTOMER_STAGES, type CustomerStage } from "../../domain/customer-order-state.js";
-import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
-import type { Tx } from "../../infra/db/client.js";
+import type { TenantSession } from "../ports/unit-of-work.js";
 
-// Deriva o stage atual dos 3 eixos e enfileira o evento. Chamar DENTRO do
-// db.transaction da mutação, sempre com await (ver a nota de async em
+// Deriva o stage atual dos 3 eixos e enfileira o evento. Chamar DENTRO da
+// transação da mutação (o `TenantSession` compartilha a transação com o
+// repositório), sempre com await (ver a nota de async em
 // application/order/order.usecases.ts).
-export async function emitCustomerStageChangedTx(tx: Tx, orderId: string): Promise<CustomerStage> {
-  const order = await tx.query.orders.findFirst({ where: eq(orders.id, orderId) });
-  const items = await tx.query.orderItems.findMany({ where: eq(orderItems.orderId, orderId) });
-  const delivery = (await tx.query.deliveries.findFirst({ where: eq(deliveries.orderId, orderId) })) ?? null;
+export async function emitCustomerStageChanged(session: TenantSession, orderId: string): Promise<CustomerStage> {
+  const order = await session.orders.findRow(orderId);
+  const items = await session.orders.listItemRows(orderId);
+  const delivery = await session.deliveries.findByOrder(orderId);
 
   const stage = deriveCustomerStage(
     { status: order?.status ?? "open" },
@@ -24,11 +28,16 @@ export async function emitCustomerStageChangedTx(tx: Tx, orderId: string): Promi
   );
 
   const meta = CUSTOMER_STAGES[stage];
-  await enqueueEvent(tx, `order:${orderId}`, "customer.stage_changed", {
-    orderId,
-    stage,
-    label: meta.label,
-    terminal: meta.terminal,
+  await session.outbox.enqueue({
+    room: `order:${orderId}`,
+    type: "customer.stage_changed",
+    aggregateId: orderId,
+    payload: {
+      orderId,
+      stage,
+      label: meta.label,
+      terminal: meta.terminal,
+    },
   });
   return stage;
 }

@@ -16,9 +16,10 @@
  * Métodos ainda não implementados lançam `Error("not_implemented: ...")` com o
  * TODO da onda responsável — nenhum use case os consome nesta fase.
  */
-import { and, asc, count, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
 import type { Tx } from "./client.js";
 import {
+  alerts,
   auditLog,
   cashDrawers,
   cashDrawerMovements,
@@ -27,16 +28,20 @@ import {
   deliveries,
   kitchenGroups,
   orderItems,
+  orderPayments,
   orders,
   outboxEvents,
   payments,
   products,
   purchases,
+  restaurantTables,
   stockMovements,
   users,
 } from "./schema.js";
 import { isUniqueViolationOn } from "./errors.js";
 import type {
+  AlertRecord,
+  AlertRepository,
   AuditWriter,
   CashFlowRepository,
   CatalogRepository,
@@ -46,8 +51,14 @@ import type {
   DeliveryRepository,
   DeliveryStatus,
   Id,
+  MovingAverageRecord,
+  OrderItemRow,
+  OrderItemWithProduct,
+  OrderPaymentLineRow,
   OrderRecord,
   OrderRepository,
+  OrderRow,
+  OrderingProductRecord,
   Page,
   PageQuery,
   PaymentRecord,
@@ -55,7 +66,10 @@ import type {
   ProductRecord,
   PurchaseRecord,
   PurchaseRepository,
+  StockMovementViewRecord,
   StockRepository,
+  TableRecord,
+  TrackedStockProductRecord,
   UserRecord,
   UserRepository,
   OutboxWriter,
@@ -64,6 +78,13 @@ import { Errors } from "../../domain/errors.js";
 import { SYSTEM_USER_ID } from "../../domain/constants.js";
 import { round2 } from "../../domain/money.js";
 import { normalizeAccents } from "../../domain/text.js";
+// ADIÇÃO (Onda 2): o recorte de audiência do sino usa o MESMO token `user:<id>`
+// que o use case/publicação usa — a régua mora no adapter (port não conhece SQL),
+// mas o vocabulário continua sendo o da application.
+import { alertUserToken } from "../../application/alert/alert.usecases.js";
+// ADIÇÃO (Onda 2): replay puro do ledger para a média móvel — mesma fórmula
+// de `computeMovingAverageTx`, sem reimplementar a valoração aqui.
+import { replayMovingAverage, type MovingAverage } from "../../application/stock/stock.usecases.js";
 
 function notImplemented(what: string): never {
   throw new Error(`not_implemented: ${what}`);
@@ -195,6 +216,63 @@ export class PostgresCatalogRepository implements CatalogRepository {
     const rows = await this.tx.query.kitchenGroups.findMany({ orderBy: asc(kitchenGroups.displayOrder) });
     return rows.map((g) => ({ id: g.id, name: g.name }));
   }
+
+  // ---------- ADIÇÃO (Onda 2 — hub de pedidos: mesas e produto de lançamento) ----------
+
+  async findTable(id: Id): Promise<TableRecord | null> {
+    const row = await this.tx.query.restaurantTables.findFirst({ where: eq(restaurantTables.id, id) });
+    return row ?? null;
+  }
+
+  /** Mesas em ordem de número — texto, como o `asc(t.number)` de `listTablesUsecase`. */
+  async listTables(): Promise<TableRecord[]> {
+    return this.tx.query.restaurantTables.findMany({ orderBy: (t, { asc: asc_ }) => asc_(t.number) });
+  }
+
+  async listTablesByIds(ids: Id[]): Promise<TableRecord[]> {
+    if (ids.length === 0) return [];
+    return this.tx.query.restaurantTables.findMany({ where: inArray(restaurantTables.id, ids) });
+  }
+
+  /**
+   * Claim atômico: UPDATE condicional `status = 'free'` → `occupied`, como em
+   * `openOrderUsecase`. Devolve `false` sem nenhuma leitura extra — decidir
+   * 404/409 é do use case (`findTable` depois), para não reintroduzir a corrida.
+   */
+  async tryClaimTable(tableId: Id): Promise<boolean> {
+    const claimed = await this.tx
+      .update(restaurantTables)
+      .set({ status: "occupied" })
+      .where(and(eq(restaurantTables.id, tableId), eq(restaurantTables.status, "free")))
+      .returning({ id: restaurantTables.id });
+    return claimed.length > 0;
+  }
+
+  /** Libera a mesa no fechamento/cancelamento (UPDATE incondicional, como hoje). */
+  async releaseTable(tableId: Id): Promise<void> {
+    await this.tx.update(restaurantTables).set({ status: "free" }).where(eq(restaurantTables.id, tableId));
+  }
+
+  /**
+   * Produto do ponto de vista do LANÇAMENTO: snapshot de preço/custo,
+   * rastreamento/threshold e estação de produção — é o que `addItems` e o
+   * movimento manual de estoque leem (`findProduct` não traz estes campos).
+   */
+  async findProductForOrdering(id: Id): Promise<OrderingProductRecord | null> {
+    const p = await this.tx.query.products.findFirst({ where: eq(products.id, id) });
+    if (!p) return null;
+    return {
+      id: p.id,
+      name: p.name,
+      price: p.price,
+      costPrice: p.costPrice,
+      active: p.active,
+      imagePath: p.imagePath,
+      kitchenGroupId: p.kitchenGroupId,
+      trackStock: p.trackStock,
+      lowStockThreshold: p.lowStockThreshold,
+    };
+  }
 }
 
 // =====================================================================
@@ -303,6 +381,13 @@ export class PostgresCustomerRepository implements CustomerRepository {
       .where(eq(customers.id, id))
       .returning({ id: customers.id });
     if (!row) throw Errors.notFound("Cliente");
+  }
+
+  /** ADIÇÃO (Onda 2): lote por ids — hidratação da listagem de comandas sem N+1. */
+  async findByIds(ids: Id[]): Promise<CustomerRecord[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.tx.query.customers.findMany({ where: inArray(customers.id, ids) });
+    return rows.map(toCustomerRecord);
   }
 }
 
@@ -438,6 +523,64 @@ async function orderTotals(
   return totals;
 }
 
+// ---------- ADIÇÃO (Onda 2): mappers linha-a-linha (fiéis ao schema) ----------
+
+function toOrderRow(r: typeof orders.$inferSelect): OrderRow {
+  return {
+    id: r.id,
+    tableId: r.tableId,
+    customerId: r.customerId,
+    tabLabel: r.tabLabel,
+    waiterId: r.waiterId,
+    status: r.status,
+    openedAt: r.openedAt,
+    closedAt: r.closedAt,
+    paymentMethod: r.paymentMethod,
+    paymentConfirmedAt: r.paymentConfirmedAt,
+    paymentConfirmedBy: r.paymentConfirmedBy,
+    channel: r.channel,
+    externalRef: r.externalRef,
+    deliveryFee: r.deliveryFee,
+    cancelReason: r.cancelReason,
+    notes: r.notes,
+    ifoodPayments: r.ifoodPayments,
+  };
+}
+
+function toOrderItemRow(r: typeof orderItems.$inferSelect): OrderItemRow {
+  return {
+    id: r.id,
+    orderId: r.orderId,
+    productId: r.productId,
+    quantity: r.quantity,
+    unitPrice: r.unitPrice,
+    costPrice: r.costPrice,
+    selectedVariations: r.selectedVariations,
+    notes: r.notes,
+    status: r.status,
+    version: r.version,
+    createdBy: r.createdBy,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  };
+}
+
+function toPaymentLineRow(r: typeof orderPayments.$inferSelect): OrderPaymentLineRow {
+  return {
+    id: r.id,
+    orderId: r.orderId,
+    method: r.method,
+    amount: r.amount,
+    received: r.received,
+    change: r.change,
+    confirmed: r.confirmed,
+    confirmedAt: r.confirmedAt,
+    confirmedBy: r.confirmedBy,
+    createdBy: r.createdBy,
+    createdAt: r.createdAt,
+  };
+}
+
 export class PostgresOrderRepository implements OrderRepository {
   constructor(private readonly tx: Tx) {}
 
@@ -511,6 +654,298 @@ export class PostgresOrderRepository implements OrderRepository {
   async delete(_id: Id): Promise<void> {
     return notImplemented("OrderRepository.delete — semântica a definir (o sistema cancela, não apaga)");
   }
+
+  // ---------- ADIÇÃO (Onda 2 — hub de pedidos) ----------
+
+  async findRow(id: Id): Promise<OrderRow | null> {
+    const row = await this.tx.query.orders.findFirst({ where: eq(orders.id, id) });
+    return row ? toOrderRow(row) : null;
+  }
+
+  /** Mesma régua de `listOrdersUsecase`: `openedAt DESC` + contagem em 1 query extra. */
+  async listRows(query: { status?: "open" | "closed" | "cancelled"; limit: number; offset: number }): Promise<Page<OrderRow>> {
+    const where = query.status ? eq(orders.status, query.status) : undefined;
+    const rows = await this.tx.query.orders.findMany({
+      where,
+      orderBy: desc(orders.openedAt),
+      limit: query.limit,
+      offset: query.offset,
+    });
+    const totalRow = await this.tx.select({ count: count() }).from(orders).where(where);
+    return { data: rows.map(toOrderRow), total: Number(totalRow[0]?.count ?? rows.length) };
+  }
+
+  /**
+   * INSERT da comanda (`POST /orders`). Identificação (mesa/cliente/tabLabel)
+   * é conferida pelo CHECK `chk_order_identification_required`; o claim da mesa
+   * e o alerta ficam no use case.
+   */
+  async open(input: {
+    waiterId: Id;
+    tableId?: Id | null;
+    customerId?: Id | null;
+    tabLabel?: Id | null;
+    channel?: "balcao" | "whatsapp" | "web" | "ifood";
+    deliveryFee?: number | null;
+    externalRef?: string | null;
+    notes?: string | null;
+  }): Promise<OrderRow> {
+    const [row] = await this.tx
+      .insert(orders)
+      .values({
+        waiterId: input.waiterId,
+        tableId: input.tableId ?? null,
+        customerId: input.customerId ?? null,
+        tabLabel: input.tabLabel ?? null,
+        channel: input.channel ?? "balcao",
+        deliveryFee: input.deliveryFee ?? null,
+        externalRef: input.externalRef ?? null,
+        notes: input.notes ?? null,
+      })
+      .returning();
+    if (!row) throw Errors.validationFailed({ field: "waiterId" });
+    return toOrderRow(row);
+  }
+
+  async markClosed(id: Id): Promise<OrderRow> {
+    const [row] = await this.tx
+      .update(orders)
+      .set({ status: "closed", closedAt: new Date().toISOString() })
+      .where(eq(orders.id, id))
+      .returning();
+    if (!row) throw Errors.notFound("Comanda");
+    return toOrderRow(row);
+  }
+
+  async markCancelled(id: Id, reason: string): Promise<OrderRow> {
+    const [row] = await this.tx
+      .update(orders)
+      .set({ status: "cancelled", closedAt: new Date().toISOString(), cancelReason: reason })
+      .where(eq(orders.id, id))
+      .returning();
+    if (!row) throw Errors.notFound("Comanda");
+    return toOrderRow(row);
+  }
+
+  async listStatuses(ids: Id[]): Promise<Array<{ id: Id; status: string }>> {
+    if (ids.length === 0) return [];
+    const rows = await this.tx
+      .select({ id: orders.id, status: orders.status })
+      .from(orders)
+      .where(inArray(orders.id, ids));
+    return rows.map((r) => ({ id: r.id, status: r.status }));
+  }
+
+  // -- itens --
+
+  /** Itens crus (sem join de produto) — o que a máquina de stage/lote consome. */
+  async listItemRows(orderId: Id): Promise<OrderItemRow[]> {
+    const rows = await this.tx.query.orderItems.findMany({ where: eq(orderItems.orderId, orderId) });
+    return rows.map(toOrderItemRow);
+  }
+
+  async listItemsWithProduct(orderId: Id): Promise<OrderItemWithProduct[]> {
+    const rows = await this.tx
+      .select({
+        item: orderItems,
+        productName: products.name,
+        productImagePath: products.imagePath,
+        productKitchenGroupId: products.kitchenGroupId,
+      })
+      .from(orderItems)
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(eq(orderItems.orderId, orderId));
+    return rows.map(({ item, productName, productImagePath, productKitchenGroupId }) => ({
+      ...toOrderItemRow(item),
+      productName,
+      productImagePath,
+      productKitchenGroupId,
+    }));
+  }
+
+  async listItemsWithProductForOrders(ids: Id[]): Promise<OrderItemWithProduct[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.tx
+      .select({
+        item: orderItems,
+        productName: products.name,
+        productImagePath: products.imagePath,
+        productKitchenGroupId: products.kitchenGroupId,
+      })
+      .from(orderItems)
+      .innerJoin(products, eq(products.id, orderItems.productId))
+      .where(inArray(orderItems.orderId, ids));
+    return rows.map(({ item, productName, productImagePath, productKitchenGroupId }) => ({
+      ...toOrderItemRow(item),
+      productName,
+      productImagePath,
+      productKitchenGroupId,
+    }));
+  }
+
+  async findItem(itemId: Id): Promise<OrderItemRow | null> {
+    const row = await this.tx.query.orderItems.findFirst({ where: eq(orderItems.id, itemId) });
+    return row ? toOrderItemRow(row) : null;
+  }
+
+  async insertItem(input: {
+    orderId: Id;
+    productId: Id;
+    quantity: number;
+    unitPrice: number;
+    costPrice: number;
+    selectedVariations: string;
+    notes?: string | null;
+    createdBy: Id;
+    status: "ordered" | "ready" | "delivered" | "cancelled";
+  }): Promise<OrderItemRow> {
+    const [row] = await this.tx
+      .insert(orderItems)
+      .values({
+        orderId: input.orderId,
+        productId: input.productId,
+        quantity: input.quantity,
+        unitPrice: input.unitPrice,
+        costPrice: input.costPrice,
+        selectedVariations: input.selectedVariations,
+        notes: input.notes ?? null,
+        createdBy: input.createdBy,
+        status: input.status,
+      })
+      .returning();
+    if (!row) throw Errors.validationFailed({ field: "productId" });
+    return toOrderItemRow(row);
+  }
+
+  /**
+   * Lock otimista: o UPDATE só casa quando a `version` esperada ainda vale
+   * (mesma condição de `updateItemStatusUsecase`). `null` = conflito — o use
+   * case relê a linha e responde `concurrency_conflict` com a versão corrente.
+   */
+  async transitionItemStatus(
+    itemId: Id,
+    status: "ready" | "delivered",
+    expectedVersion: number,
+  ): Promise<OrderItemRow | null> {
+    const [row] = await this.tx
+      .update(orderItems)
+      .set({ status, version: sql`${orderItems.version} + 1`, updatedAt: new Date().toISOString() })
+      .where(and(eq(orderItems.id, itemId), eq(orderItems.version, expectedVersion)))
+      .returning();
+    return row ? toOrderItemRow(row) : null;
+  }
+
+  async deleteItem(itemId: Id): Promise<void> {
+    await this.tx.delete(orderItems).where(eq(orderItems.id, itemId));
+  }
+
+  async cancelActiveItems(orderId: Id): Promise<void> {
+    await this.tx
+      .update(orderItems)
+      .set({ status: "cancelled" })
+      .where(and(eq(orderItems.orderId, orderId), notInArray(orderItems.status, ["delivered", "cancelled"])));
+  }
+
+  // -- linhas de pagamento (`order_payment` — pagamento fracionado) --
+
+  async listPaymentLines(orderId: Id): Promise<OrderPaymentLineRow[]> {
+    const rows = await this.tx.select().from(orderPayments).where(eq(orderPayments.orderId, orderId));
+    return rows.map(toPaymentLineRow);
+  }
+
+  async listPaymentLinesForOrders(ids: Id[]): Promise<OrderPaymentLineRow[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.tx.select().from(orderPayments).where(inArray(orderPayments.orderId, ids));
+    return rows.map(toPaymentLineRow);
+  }
+
+  async findPaymentLine(id: Id): Promise<OrderPaymentLineRow | null> {
+    const row = await this.tx.query.orderPayments.findFirst({ where: eq(orderPayments.id, id) });
+    return row ? toPaymentLineRow(row) : null;
+  }
+
+  async insertPaymentLine(input: {
+    orderId: Id;
+    method: "cash" | "card" | "pix" | "other";
+    amount: number;
+    received: number | null;
+    change: number | null;
+    confirmed: boolean;
+    confirmedAt: string | null;
+    confirmedBy: Id | null;
+    createdBy: Id;
+  }): Promise<OrderPaymentLineRow> {
+    const [row] = await this.tx
+      .insert(orderPayments)
+      .values({
+        orderId: input.orderId,
+        method: input.method,
+        amount: input.amount,
+        received: input.received,
+        change: input.change,
+        confirmed: input.confirmed,
+        confirmedAt: input.confirmedAt,
+        confirmedBy: input.confirmedBy,
+        createdBy: input.createdBy,
+      })
+      .returning();
+    if (!row) throw Errors.validationFailed({ field: "orderId" });
+    return toPaymentLineRow(row);
+  }
+
+  async updatePaymentLineReceived(
+    id: Id,
+    input: { received: number | null; change: number | null },
+  ): Promise<OrderPaymentLineRow> {
+    const [row] = await this.tx
+      .update(orderPayments)
+      .set({ received: input.received, change: input.change })
+      .where(eq(orderPayments.id, id))
+      .returning();
+    if (!row) throw Errors.notFound("Pagamento");
+    return toPaymentLineRow(row);
+  }
+
+  async confirmPaymentLine(
+    id: Id,
+    input: { confirmedAt: string; confirmedBy: Id },
+  ): Promise<OrderPaymentLineRow> {
+    const [row] = await this.tx
+      .update(orderPayments)
+      .set({ confirmed: true, confirmedAt: input.confirmedAt, confirmedBy: input.confirmedBy })
+      .where(eq(orderPayments.id, id))
+      .returning();
+    if (!row) throw Errors.notFound("Pagamento");
+    return toPaymentLineRow(row);
+  }
+
+  async deletePaymentLine(id: Id): Promise<void> {
+    await this.tx.delete(orderPayments).where(eq(orderPayments.id, id));
+  }
+
+  async deletePaymentLines(ids: Id[]): Promise<void> {
+    if (ids.length === 0) return;
+    await this.tx.delete(orderPayments).where(inArray(orderPayments.id, ids));
+  }
+
+  /**
+   * Denormalizado de exibição em `order`. Só os campos presentes no patch são
+   * escritos: a confirmação de UMA linha (confirmOrderPayment) muda só o
+   * carimbo, sem regravar `payment_method`.
+   */
+  async updatePaymentSummary(
+    id: Id,
+    patch: { paymentMethod?: string | null; paymentConfirmedAt: string | null; paymentConfirmedBy: Id | null },
+  ): Promise<void> {
+    await this.tx
+      .update(orders)
+      .set({
+        ...(patch.paymentMethod !== undefined ? { paymentMethod: patch.paymentMethod as "cash" | "card" | "pix" | "other" } : {}),
+        paymentConfirmedAt: patch.paymentConfirmedAt,
+        paymentConfirmedBy: patch.paymentConfirmedBy,
+      })
+      .where(eq(orders.id, id));
+  }
 }
 
 // =====================================================================
@@ -534,14 +969,19 @@ export class PostgresStockRepository implements StockRepository {
    * o saldo pós-movimento. O evento `stock.movement` (room `inventory`) NÃO é
    * emitido aqui — o use case migrado chama `session.outbox.enqueue` na mesma
    * transação (o adapter não tem acesso ao session).
+   *
+   * ADIÇÃO (Onda 2): `orderId`/`purchaseItemId` — colunas reais que os refunds
+   * por comanda/item gravam; sem elas o estorno ficaria órfão no ledger.
    */
   async recordMovement(input: {
     productId: Id;
     quantityDelta: number;
     type: "sale" | "refund" | "purchase" | "adjustment";
     unitCost?: number;
-    orderItemId?: Id;
-    note?: string;
+    purchaseItemId?: Id | null;
+    orderId?: Id | null;
+    orderItemId?: Id | null;
+    note?: string | null;
     actorId?: Id;
   }): Promise<number> {
     if (input.quantityDelta === 0) {
@@ -552,6 +992,8 @@ export class PostgresStockRepository implements StockRepository {
       type: input.type,
       quantityDelta: input.quantityDelta,
       unitCost: input.unitCost ?? null,
+      purchaseItemId: input.purchaseItemId ?? null,
+      orderId: input.orderId ?? null,
       orderItemId: input.orderItemId ?? null,
       note: input.note ?? null,
       createdBy: input.actorId ?? SYSTEM_USER_ID,
@@ -569,6 +1011,161 @@ export class PostgresStockRepository implements StockRepository {
 
   async releaseForOrder(_orderId: Id): Promise<void> {
     return notImplemented("StockRepository.releaseForOrder — conceito não existe no ledger atual");
+  }
+
+  // ---------- ADIÇÃO (Onda 2 — hub de pedidos) ----------
+
+  /** Saldos de vários produtos em uma query agrupada (mesmo SQL de `stockBalances`). */
+  async balances(productIds: Id[]): Promise<Map<Id, number>> {
+    if (productIds.length === 0) return new Map();
+    const rows = await this.tx
+      .select({ productId: stockMovements.productId, total: sql<number>`sum(${stockMovements.quantityDelta})` })
+      .from(stockMovements)
+      .where(inArray(stockMovements.productId, productIds))
+      .groupBy(stockMovements.productId);
+    return new Map(rows.map((r) => [r.productId, r.total ?? 0]));
+  }
+
+  /** Replay do ledger de 1 produto — mesma query/ordenação de `computeMovingAverageTx`. */
+  async movingAverage(productId: Id, fallbackCost: number): Promise<MovingAverageRecord> {
+    const rows = await this.tx
+      .select({ quantityDelta: stockMovements.quantityDelta, unitCost: stockMovements.unitCost })
+      .from(stockMovements)
+      .where(eq(stockMovements.productId, productId))
+      .orderBy(stockMovements.createdAt, stockMovements.seq);
+    return replayMovingAverage(rows, fallbackCost);
+  }
+
+  /** Custo médio de vários produtos — replay em 1 query, como `averageCosts`. */
+  async averageCosts(productIds: Id[]): Promise<Map<Id, MovingAverageRecord>> {
+    const res = new Map<Id, MovingAverage>();
+    if (productIds.length === 0) return res;
+    const rows = await this.tx
+      .select({
+        productId: stockMovements.productId,
+        quantityDelta: stockMovements.quantityDelta,
+        unitCost: stockMovements.unitCost,
+      })
+      .from(stockMovements)
+      .where(inArray(stockMovements.productId, productIds))
+      .orderBy(stockMovements.createdAt, stockMovements.seq);
+    const groups = new Map<Id, { quantityDelta: number; unitCost: number | null }[]>();
+    for (const r of rows) {
+      let list = groups.get(r.productId);
+      if (!list) {
+        list = [];
+        groups.set(r.productId, list);
+      }
+      list.push({ quantityDelta: r.quantityDelta, unitCost: r.unitCost });
+    }
+    for (const [productId, group] of groups) res.set(productId, replayMovingAverage(group, 0));
+    return res;
+  }
+
+  /**
+   * Linhas de `GET /stock` — mesmos filtros de `listStockUsecase` (trackStock,
+   * busca `unaccent ILIKE`, `name ASC`) + contagem + nome de categoria
+   * resolvido (o use case monta saldo/média a partir disto).
+   */
+  async listTrackedProducts(query: { search?: string; limit: number; offset: number }): Promise<{
+    rows: TrackedStockProductRecord[];
+    total: number;
+  }> {
+    const conditions: SQL[] = [eq(products.trackStock, true)];
+    if (query.search) {
+      const term = `%${normalizeAccents(query.search)}%`;
+      conditions.push(sql`unaccent(${products.name}) ILIKE unaccent(${term})`);
+    }
+    const where = and(...conditions);
+
+    const rows = await this.tx.query.products.findMany({
+      where,
+      limit: query.limit,
+      offset: query.offset,
+      orderBy: (p, { asc: asc_ }) => asc_(p.name),
+    });
+    const totalRow = await this.tx.select({ count: count() }).from(products).where(where);
+    const categoryNames = await this.tx.query.categories.findMany({ columns: { id: true, name: true } });
+    const catMap = new Map(categoryNames.map((c) => [c.id, c.name]));
+
+    return {
+      rows: rows.map((p) => ({
+        productId: p.id,
+        name: p.name,
+        categoryId: p.categoryId,
+        categoryName: p.categoryId ? catMap.get(p.categoryId) ?? null : null,
+        unit: p.unit,
+        costPrice: p.costPrice,
+        lowStockThreshold: p.lowStockThreshold,
+      })),
+      total: Number(totalRow[0]?.count ?? rows.length),
+    };
+  }
+
+  /** Linhas de `GET /stock/movements` (produto/usuário resolvidos, `createdAt DESC`). */
+  async listMovements(query: { productId?: Id; limit: number; offset: number }): Promise<{
+    rows: StockMovementViewRecord[];
+    total: number;
+  }> {
+    const where = query.productId ? eq(stockMovements.productId, query.productId) : undefined;
+    const rows = await this.tx
+      .select({
+        id: stockMovements.id,
+        productId: stockMovements.productId,
+        productName: products.name,
+        type: stockMovements.type,
+        quantityDelta: stockMovements.quantityDelta,
+        unitCost: stockMovements.unitCost,
+        orderId: stockMovements.orderId,
+        note: stockMovements.note,
+        userName: users.name,
+        createdAt: stockMovements.createdAt,
+      })
+      .from(stockMovements)
+      .leftJoin(products, eq(products.id, stockMovements.productId))
+      .leftJoin(users, eq(users.id, stockMovements.createdBy))
+      .where(where)
+      .orderBy(desc(stockMovements.createdAt))
+      .limit(query.limit)
+      .offset(query.offset);
+    const totalRow = await this.tx.select({ count: count() }).from(stockMovements).where(where);
+    return {
+      rows: rows.map((r) => ({
+        id: r.id,
+        productId: r.productId,
+        productName: r.productName,
+        type: r.type,
+        quantityDelta: r.quantityDelta,
+        unitCost: r.unitCost,
+        orderId: r.orderId,
+        note: r.note,
+        userName: r.userName,
+        createdAt: r.createdAt,
+      })),
+      total: Number(totalRow[0]?.count ?? rows.length),
+    };
+  }
+
+  /** Movimentos `sale` de um item — estorno em `deleteItem` lê o ledger, não flags. */
+  async listSalesMovementsForItem(orderItemId: Id): Promise<Array<{ quantityDelta: number }>> {
+    return this.tx
+      .select({ quantityDelta: stockMovements.quantityDelta })
+      .from(stockMovements)
+      .where(and(eq(stockMovements.orderItemId, orderItemId), eq(stockMovements.type, "sale")));
+  }
+
+  /** Movimentos `sale` de uma comanda — estorno integral em `cancelOrder`. */
+  async listSalesMovementsForOrder(orderId: Id): Promise<
+    Array<{ productId: Id; orderItemId: Id | null; quantityDelta: number }>
+  > {
+    return this.tx
+      .select({
+        productId: stockMovements.productId,
+        orderItemId: stockMovements.orderItemId,
+        quantityDelta: stockMovements.quantityDelta,
+      })
+      .from(stockMovements)
+      .where(and(eq(stockMovements.orderId, orderId), eq(stockMovements.type, "sale")));
   }
 }
 
@@ -616,6 +1213,10 @@ export class PostgresCashFlowRepository implements CashFlowRepository {
    * Sangria/suprimento. As validações de domínio (categoria da lista
    * permitida, valor > 0, gaveta aberta) e audit/outbox ficam no use case
    * migrado; `category` cai no default "outros" do schema.
+   *
+   * ADIÇÃO (Onda 2): `refOrderId` (coluna real `ref_order_id` — estorno de
+   * comanda cancelada rastreia a origem) e o retorno `{ id, amount }` (o
+   * audit/outbox do cancelamento publicam `movementId`/`amount` gravados).
    */
   async recordMovement(input: {
     drawerId: Id;
@@ -623,14 +1224,21 @@ export class PostgresCashFlowRepository implements CashFlowRepository {
     type: "sangria" | "suprimento";
     amount: number;
     note?: string;
-  }): Promise<void> {
-    await this.tx.insert(cashDrawerMovements).values({
-      drawerId: input.drawerId,
-      type: input.type,
-      amount: input.amount,
-      note: input.note ?? null,
-      createdBy: input.actorId,
-    });
+    refOrderId?: Id | null;
+  }): Promise<{ id: Id; amount: number }> {
+    const [row] = await this.tx
+      .insert(cashDrawerMovements)
+      .values({
+        drawerId: input.drawerId,
+        type: input.type,
+        amount: input.amount,
+        note: input.note ?? null,
+        refOrderId: input.refOrderId ?? null,
+        createdBy: input.actorId,
+      })
+      .returning();
+    if (!row) throw Errors.validationFailed({ field: "drawerId" });
+    return { id: row.id, amount: row.amount };
   }
 
   // TODO(onda de cash-flow): fechar gaveta calcula `closing_expected`
@@ -876,6 +1484,112 @@ export class PostgresDeliveryRepository implements DeliveryRepository {
       .returning();
     if (!row) throw Errors.notFound("Entrega");
     return toDeliveryRecord(row);
+  }
+
+  /** ADIÇÃO (Onda 2): lote por comandas — hidratação da listagem sem N+1. */
+  async listByOrderIds(ids: Id[]): Promise<DeliveryRecord[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.tx.query.deliveries.findMany({ where: inArray(deliveries.orderId, ids) });
+    return rows.map(toDeliveryRecord);
+  }
+}
+
+// =====================================================================
+// Alertas (sino) — ADIÇÃO (Onda 2)
+// =====================================================================
+
+/**
+ * Recorte de visibilidade do sino — MESMO predicado da função `visibleTo`
+ * original (auditada em `alert.usecases.ts`): audiência vazia (NULL) ou
+ * cardinalidade 0 é para todos; senão, o papel (e/ou o token `user:<id>` de
+ * quem pergunta) precisa estar na lista. O `mark-read` usa o mesmo WHERE —
+ * se divergissem, o "marcar todas" do garçom limparia o contador do gerente.
+ */
+function alertVisibleTo(role: string, userId?: string | null): SQL {
+  const tokens = userId ? [role, alertUserToken(userId)] : [role];
+  return or(
+    isNull(alerts.audienceRoles),
+    sql`cardinality(${alerts.audienceRoles}) = 0`,
+    ...tokens.map((token) => sql`${token} = ANY(${alerts.audienceRoles})`),
+  )!;
+}
+
+function toAlertRecord(r: typeof alerts.$inferSelect): AlertRecord {
+  return {
+    id: r.id,
+    kind: r.kind,
+    title: r.title,
+    body: r.body,
+    orderId: r.orderId,
+    channel: r.channel,
+    audienceRoles: r.audienceRoles,
+    readAt: r.readAt,
+    createdAt: r.createdAt,
+  };
+}
+
+export class PostgresAlertRepository implements AlertRepository {
+  constructor(private readonly tx: Tx) {}
+
+  async create(input: {
+    kind: string;
+    title: string;
+    body?: string | null;
+    orderId?: Id | null;
+    channel?: string | null;
+    audienceRoles: string[];
+  }): Promise<AlertRecord> {
+    const [row] = await this.tx
+      .insert(alerts)
+      .values({
+        kind: input.kind,
+        title: input.title,
+        body: input.body ?? null,
+        orderId: input.orderId ?? null,
+        channel: input.channel ?? null,
+        audienceRoles: input.audienceRoles,
+      })
+      .returning();
+    if (!row) throw Errors.validationFailed({ field: "title" });
+    return toAlertRecord(row);
+  }
+
+  async listVisible(query: {
+    role: string;
+    userId?: Id | null;
+    limit: number;
+    unreadOnly?: boolean;
+  }): Promise<AlertRecord[]> {
+    const conditions: SQL[] = [alertVisibleTo(query.role, query.userId)];
+    if (query.unreadOnly) conditions.push(isNull(alerts.readAt));
+    const rows = await this.tx.query.alerts.findMany({
+      where: and(...conditions),
+      orderBy: [desc(alerts.createdAt), desc(alerts.seq)],
+      limit: query.limit,
+    });
+    return rows.map(toAlertRecord);
+  }
+
+  async countVisible(query: { role: string; userId?: Id | null }): Promise<{ total: number; unread: number }> {
+    const [counts] = await this.tx
+      .select({
+        total: sql<number>`count(*)::int`,
+        unread: sql<number>`count(*) filter (where ${alerts.readAt} is null)::int`,
+      })
+      .from(alerts)
+      .where(alertVisibleTo(query.role, query.userId));
+    return { total: counts?.total ?? 0, unread: counts?.unread ?? 0 };
+  }
+
+  async markRead(query: { role: string; userId?: Id | null; orderId?: Id }): Promise<number> {
+    const conditions: SQL[] = [alertVisibleTo(query.role, query.userId), isNull(alerts.readAt)];
+    if (query.orderId) conditions.push(eq(alerts.orderId, query.orderId));
+    const marked = await this.tx
+      .update(alerts)
+      .set({ readAt: new Date().toISOString() })
+      .where(and(...conditions))
+      .returning({ id: alerts.id });
+    return marked.length;
   }
 }
 
