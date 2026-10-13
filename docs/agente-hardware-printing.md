@@ -46,20 +46,15 @@ Ver nota completa em `src/application/order/order.usecases.ts:15-28`.
 
 ## Migrations
 
-Diretório `backend/migrations/` com 5 arquivos:
+Diretório `backend/migrations/`. A cadeia ativa do runner principal, o registry de
+tenants e o arquivo histórico estão descritos em
+[`backend/migrations/README.md`](../backend/migrations/README.md) — a lista exata
+de arquivos é mantida lá, não aqui.
 
-| Arquivo | Conteúdo |
-|---|---|
-| `0001_init.sql` | **todo** o schema (tabelas, índices, extensões) |
-| `0002_whatsapp_connections.sql` | token por WABA + tabelas de inbound/outbound |
-| `0003_printer.sql` | flags `printer_enabled` / `printer_auto_print` |
-| `0003_profile_fields.sql` | `user.phone/email/photo_path`, `customer.email/active`, extensão `unaccent` |
-| `0004_alerts.sql` | tabela `alert` (sino da casca) |
-
-**Colisão `0003_*`**: são dois arquivos com o mesmo prefixo. É de propósito — o runner chaveia por filename em `_migrations.name`. **Não renomear**.
+**Colisão `0004_*`**: são dois arquivos com o mesmo prefixo. É de propósito — o runner chaveia por filename em `_migrations.name`. **Não renomear**.
 
 **Regras**:
-- Sempre usar número zero-padded lexicograficamente **maior** (próximo: `0005_*`)
+- Sempre usar número zero-padded lexicograficamente **maior** (próximo: `0010_*`)
 - Escrever migration idempotente (`ADD COLUMN IF NOT EXISTS`, `CREATE ... IF NOT EXISTS`)
 - O boot **aborta** se a migration falhar (`runMigrations()` com `await` no `server.ts`)
 - **Não reintroduza** `runMigrations()` sem `await`

@@ -24,13 +24,6 @@ import { enqueueEvent } from "./outbox-dispatcher.js";
  * ROTEAMENTO DE TENANT: sem ALS. `createOrderNotifier(tenant)` liga o adapter
  * ao pool dedicado do `tenant.schemaName` (`tenantDb`); sem tenant explícito,
  * o default é o proxy `db` (escopo ALS corrente — o mesmo de hoje).
- *
- * NOTA SOBRE O WHATSAPP: `integrations/whatsapp/whatsapp.notifier.ts` NÃO é
- * a implementação deste port — ele recebe `orderId` e consulta pedido/cliente
- * para achar o telefone. O port recebe payload JÁ PREPARADO e em formato de
- * evento realtime (room/type), então a tradução correta é este outbox. Um
- * "notificar por WhatsApp" com payload pronto exigiria outro port (ex.:
- * `CustomerNotifier`), ficou fora do escopo desta onda.
  */
 export class OutboxOrderNotifier implements OrderNotifier {
   /** `db` por default = proxy ALS (comportamento dos `enqueueEvent` atuais). */

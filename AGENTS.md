@@ -45,7 +45,6 @@ O código React Native/Expo não está neste checkout. `docs/22-mobile-react-nat
 | `docs/07-estoque.md` | Controle de estoque: ledger, flags, endpoints, regras |
 | `docs/08-estoque-profissional.md` | Estoque profissional: fornecedores, compras, custo médio móvel |
 | `docs/09-frontend-fsd.md` | Histórico das fases da migração para FSD no frontend |
-| `docs/10-whatsapp-embedded-signup.md` | WhatsApp Cloud API: Embedded Signup v4, webhooks |
 | `docs/11-desktop-instalador.md` | App Windows (Tauri): instalador, boot/update, daemon |
 | `docs/11-pix-pendencias.md` | BR Code do Pix: por que o QR era recusado (GUI minúscula, txid, teto de 99 bytes) e o que ficou pendente |
 | `docs/12-n-plus-one-list-orders.md` | Roadmap: eliminar N+1 em `listOrders` |

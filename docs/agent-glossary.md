@@ -14,7 +14,6 @@ Termos usados no projeto PDV Restaurante/Pub.
 | **Gerente** | Perfil com acesso total |
 | **Caixa** | Perfil que gerencia o fluxo de caixa |
 | **Entregador** | Perfil que realiza entregas |
-| **WABA** | WhatsApp Business Account — conta comercial do WhatsApp |
 | **BR Code** | Padrão de QR Code do Pix (EMV + CRC-16) |
 | **ESC/POS** | Protocolo de impressão térmica |
 | **FSD** | Feature-Sliced Design — arquitetura frontend |

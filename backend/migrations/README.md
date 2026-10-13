@@ -23,8 +23,20 @@ A lista abaixo reflete o checkout atual; confirme os arquivos antes de cada muda
 | 3 | `0003_courier_location.sql` | Última localização do entregador |
 | 4 | `0004_delivery_arrival_alert_sent.sql` | Controle do alerta de chegada |
 | 5 | `0004_device_provisioning.sql` | Chaves e dispositivos provisionados |
+| 6 | `0005_cash_drawer_denominations.sql` | Fechamento de caixa com contagem por denominação |
+| 7 | `0006_order_refund.sql` | Tabela `order_refund` — estorno de linhas de pagamento |
+| 8 | `0007_order_settlement.sql` | Tabela `order_settlement` — repasse de marketplace (iFood) |
+| 9 | `0008_cash_movement_category.sql` | Categoria de sangria/suprimento + alçadas |
+| 10 | `0009_remove_whatsapp.sql` | Remoção da integração WhatsApp |
 
-Os dois nomes `0004_*` são uma colisão histórica já implantada; a ordenação lexical atual executa `delivery_arrival_alert_sent` antes de `device_provisioning`. **Não renomeie nenhum dos dois**. Para migrations novas, use um prefixo numérico lexicograficamente posterior ao maior existente (no estado atual, `0005_*`) e evite reutilizar prefixos.
+`0009_remove_whatsapp.sql` derruba `whatsapp_connection`, `whatsapp_conversation`,
+`whatsapp_inbound_message` e `whatsapp_outbound_message`, os enums `whatsapp_*`,
+a coluna `store_settings.whatsapp_integration_enabled` e `delivery.arrival_alert_sent`
+(a coluna só existia para marcar o alerta "sua entrega está chegando", que era
+mensagem de WhatsApp). O valor `'whatsapp'` do enum `channel` **permanece**, por
+compatibilidade de leitura de pedidos antigos — é read-only no código.
+
+Os dois nomes `0004_*` são uma colisão histórica já implantada; a ordenação lexical atual executa `delivery_arrival_alert_sent` antes de `device_provisioning`. **Não renomeie nenhum dos dois**. Para migrations novas, use um prefixo numérico lexicograficamente posterior ao maior existente (no estado atual, `0010_*`) e evite reutilizar prefixos.
 
 ## Regras para mudanças futuras
 

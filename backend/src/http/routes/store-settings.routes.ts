@@ -32,7 +32,6 @@ const storeSettingsSchema = z.object({
   ifoodIntegrationEnabled: z.boolean(),
   // Opcional (expand/contract): um frontend antigo não envia o campo e não
   // pode ligar/desligar a integração por acidente — o usecase mantém o valor.
-  whatsappIntegrationEnabled: z.boolean().optional(),
   inventoryEnabled: z.boolean(),
   purchaseEnabled: z.boolean(),
   printerEnabled: z.boolean(),

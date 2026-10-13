@@ -6,7 +6,7 @@
  * a tradução para a implementação atual acontece nos adapters, nas ondas
  * seguintes. A ONDA 2 passou a injetá-los no hub de pedidos
  * (`application/order/order.usecases.ts` → factory `createOrderUsecases`):
- * `TenantCache`, `StoreSettingsReader`, `OrderPrinter` e `CustomerNotifier`.
+ * `TenantCache`, `StoreSettingsReader` e `OrderPrinter`.
  */
 import type { Id, Json } from "./repositories.js";
 
@@ -124,19 +124,6 @@ export interface RoutingService {
 
 export interface OrderNotifier {
   notify(input: { room: string; type: string; aggregateId?: Id; payload?: Json }): Promise<void>;
-}
-
-/**
- * ADIÇÃO (Onda 2): notificação WhatsApp de status AO CLIENTE
- * (`notifyReady` quando a cozinha termina o último item de um pedido
- * self-service). O `OrderNotifier` acima é o outbox REALTIME (payload pronto,
- * room/type); o notifier de WhatsApp recebe `orderId` e resolve o telefone no
- * banco — era exatamente o "CustomerNotifier" que o comentário do
- * `outbox-order-notifier.ts` deixou para uma onda futura. Fire-and-forget:
- * adapter delega à função `notifyReady` de `integrations/whatsapp`.
- */
-export interface CustomerNotifier {
-  notifyReady(orderId: Id): Promise<void>;
 }
 
 // ---------- impressão térmica (espelha `integrations/printer` → printerClient.enqueuePrint) ----------

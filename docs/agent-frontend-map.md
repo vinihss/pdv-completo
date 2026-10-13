@@ -8,7 +8,7 @@ Mapa de telas, componentes e entities para agentes encontrarem código rapidamen
 |---|---|---|---|---|
 | Login | todos | `pages/login/LoginPage.jsx` | `LoginPage`, `LoginForm` | `session`, `user` |
 | PDV (Comandas) | waiter | `pages/pdv/PdvPage.jsx` | `OrderBoard`, `OrderDetailScreen`, `AddItemScreen` | `order`, `product`, `category`, `table`, `cart` |
-| Gerente | manager | `pages/manager/ManagerApp.jsx` | `OrderBoard` + abas (ver abaixo) | `order`, `product`, `category`, `table`, `cart`, `stock`, `cash`, `customer`, `user`, `reports`, `audit`, `delivery`, `ifood`, `whatsapp`, `printer` |
+| Gerente | manager | `pages/manager/ManagerApp.jsx` | `OrderBoard` + abas (ver abaixo) | `order`, `product`, `category`, `table`, `cart`, `stock`, `cash`, `customer`, `user`, `reports`, `audit`, `delivery`, `ifood`, `printer` |
 | Cozinha | kitchen | `pages/kitchen/KitchenDisplay.jsx` | `KitchenDisplay` | `order`, `kitchen-group` |
 | Caixa | cashier | `pages/cashier/CashierApp.jsx` | `CashDrawer`, `CustomersTab` | `cash`, `customer` |
 | Entregador | courier | `pages/courier/CourierApp.jsx` | `CourierApp` | `delivery` |
@@ -19,7 +19,7 @@ Mapa de telas, componentes e entities para agentes encontrarem código rapidamen
 | Aba | Arquivo | Entities |
 |---|---|---|
 | Comandas | `pages/manager/ManagerApp.jsx` (default) | `order`, `product`, `category`, `table` |
-| Configurações | `pages/manager/tabs/settings/SettingsTab.jsx` | `store`, `printer`, `whatsapp` (painel embutido) |
+| Configurações | `pages/manager/tabs/settings/SettingsTab.jsx` | `store`, `printer` |
 | Dinheiro | `pages/manager/tabs/cash/CashTab.jsx` | `cash` |
 | Clientes | `pages/manager/tabs/customers/CustomersTab.jsx` | `customer` |
 | Entregar | `pages/manager/tabs/deliveries/DeliveriesTab.jsx` | `delivery` |
@@ -29,7 +29,6 @@ Mapa de telas, componentes e entities para agentes encontrarem código rapidamen
 | Catálogo | `pages/manager/tabs/catalog/CatalogTab.jsx` | `product`, `category` |
 | Auditoria | `pages/manager/tabs/audit/AuditTab.jsx` | `audit` |
 | Equipe | `pages/manager/tabs/users/UsersTab.jsx` | `user` |
-| WhatsApp | `pages/manager/tabs/whatsapp/WhatsAppTab.jsx` — não é aba de menu: o `SettingsTab` o renderiza embutido, só com `store_settings.whatsapp_integration_enabled` ligado | `whatsapp` |
 | iFood | `pages/manager/tabs/ifood/IfoodTab.jsx` — some do menu quando `store_settings.ifood_integration_enabled` está desligado | `ifood` |
 
 ## Widgets
@@ -63,7 +62,6 @@ Mapa de telas, componentes e entities para agentes encontrarem código rapidamen
 | reports | `entities/reports/api/` | `entities/reports/model/` | — |
 | audit | `entities/audit/api/` | `entities/audit/model/` | — |
 | ifood | `entities/ifood/api/` | — | — |
-| whatsapp | `entities/whatsapp/api/` | — | — |
 | printer | `entities/printer/api/` | — | — |
 | store | `entities/store/api/` | — | — |
 | table | `entities/table/api/` | — | — |

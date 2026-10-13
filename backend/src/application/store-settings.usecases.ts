@@ -29,7 +29,6 @@ function serialize(s: typeof storeSettings.$inferSelect) {
     kitchenEnabled: s.kitchenEnabled,
     usesDelivery: s.usesDelivery,
     ifoodIntegrationEnabled: s.ifoodIntegrationEnabled,
-    whatsappIntegrationEnabled: s.whatsappIntegrationEnabled,
     inventoryEnabled: s.inventoryEnabled,
     purchaseEnabled: s.purchaseEnabled,
     printerEnabled: s.printerEnabled,
@@ -69,9 +68,6 @@ export async function updateStoreSettingsUsecase(input: {
   kitchenEnabled: boolean;
   usesDelivery: boolean;
   ifoodIntegrationEnabled: boolean;
-  // Opcional de propósito: um client antigo (sem o campo no body) não pode
-  // apagar a flag — ver o fallback para `current` na gravação.
-  whatsappIntegrationEnabled?: boolean;
   inventoryEnabled: boolean;
   purchaseEnabled: boolean;
   printerEnabled: boolean;
@@ -117,7 +113,6 @@ export async function updateStoreSettingsUsecase(input: {
       kitchenEnabled: input.kitchenEnabled,
       usesDelivery: input.usesDelivery,
       ifoodIntegrationEnabled: input.ifoodIntegrationEnabled,
-      whatsappIntegrationEnabled: input.whatsappIntegrationEnabled ?? current.whatsappIntegrationEnabled,
       inventoryEnabled: input.inventoryEnabled,
       purchaseEnabled: input.purchaseEnabled,
       printerEnabled: input.printerEnabled,

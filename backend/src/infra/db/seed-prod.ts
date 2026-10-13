@@ -56,7 +56,6 @@ export async function runProdSeed(opts: ProdSeedOptions = {}): Promise<void> {
     kitchenEnabled: true,
     usesDelivery: true,
     ifoodIntegrationEnabled: false,
-    whatsappIntegrationEnabled: false,
     enabledPaymentMethods: JSON.stringify(["cash", "card", "pix", "other"]),
     kitchenPrepWarnMin: 3,
     kitchenPrepUrgentMin: 6,

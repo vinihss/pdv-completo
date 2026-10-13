@@ -19,7 +19,6 @@ import { StoragePortAdapter } from "../storage/storage-port-adapter.js";
 import { createOrderNotifier } from "../realtime/outbox-order-notifier.js";
 import { PostgresStoreSettingsReader } from "../db/store-settings-reader.js";
 import { OrderPrinterAdapter } from "../../integrations/printer/order-printer-adapter.js";
-import { CustomerNotifierAdapter } from "../../integrations/whatsapp/customer-notifier-adapter.js";
 import { createOrderUsecases } from "../../application/order/order.usecases.js";
 import { createAlertUsecases } from "../../application/alert/alert.usecases.js";
 import { createStockUsecases } from "../../application/stock/stock.usecases.js";
@@ -77,7 +76,6 @@ const orderInstances = createOrderUsecases({
   uow,
   cache: { get: () => Promise.resolve(null), set: () => Promise.resolve(), invalidatePrefix: () => Promise.resolve() },
   printer: new OrderPrinterAdapter(),
-  notifier: new CustomerNotifierAdapter(),
   settings: new PostgresStoreSettingsReader(),
   tenant,
 });

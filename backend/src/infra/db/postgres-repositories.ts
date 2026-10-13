@@ -57,6 +57,7 @@ import type {
   OrderItemRow,
   OrderItemWithProduct,
   OrderPaymentLineRow,
+  OrderChannel,
   OrderRecord,
   OrderRepository,
   OrderRow,
@@ -744,7 +745,7 @@ function toOrderRow(r: typeof orders.$inferSelect): OrderRow {
     paymentMethod: r.paymentMethod,
     paymentConfirmedAt: r.paymentConfirmedAt,
     paymentConfirmedBy: r.paymentConfirmedBy,
-    channel: r.channel,
+    channel: r.channel as OrderChannel, // legado: linhas antigas podem trazer 'whatsapp'
     externalRef: r.externalRef,
     deliveryFee: r.deliveryFee,
     cancelReason: r.cancelReason,
@@ -891,7 +892,7 @@ export class PostgresOrderRepository implements OrderRepository {
     tableId?: Id | null;
     customerId?: Id | null;
     tabLabel?: Id | null;
-    channel?: "balcao" | "whatsapp" | "web" | "ifood";
+    channel?: "balcao" | "web" | "ifood";
     deliveryFee?: number | null;
     externalRef?: string | null;
     notes?: string | null;
@@ -1617,7 +1618,6 @@ function toDeliveryRecord(d: typeof deliveries.$inferSelect): DeliveryRecord {
     dispatchedAt: d.dispatchedAt,
     deliveredAt: d.deliveredAt,
     notes: d.notes,
-    arrivalAlertSent: d.arrivalAlertSent,
     createdAt: d.createdAt,
   };
 }

@@ -202,16 +202,6 @@ em cada caso). "autenticado" ≠ "público": rota sem token nenhum é só a de
 |---|---|---|---|
 | GET | `/audit-log` | manager | Listar logs de auditoria |
 
-## WhatsApp
-
-| Método | Path | Papel | Descrição |
-|---|---|---|---|
-| GET | `/whatsapp/status` | manager | Status da conexão |
-| GET | `/whatsapp/config` | manager | App id e config id públicos (monta o `FB.login`) |
-| POST | `/whatsapp/embedded-signup/exchange` | manager | Fecha o Embedded Signup (troca o `code`; uso único) |
-| POST | `/whatsapp/disconnect` | manager | Desconectar (apaga o token) |
-| GET | `/whatsapp/messages` | manager | Histórico de mensagens com status da Meta |
-
 ## iFood
 
 | Método | Path | Papel | Descrição |
@@ -260,8 +250,6 @@ outra chamada. Detalhe em `docs/15-multi-tenant-schema.md` §6 (Fase 1).
 
 | Método | Path | Papel | Descrição |
 |---|---|---|---|
-| POST | `/webhooks/whatsapp` | público | Webhook da Meta (assinatura verificada) |
-| GET | `/webhooks/whatsapp` | público | Verificação de assinatura do webhook |
 | POST | `/webhooks/pagarme` | público | Webhook do Pagar.me V5 (assinatura verificada; grava a inbox antes do 200) |
 
 ## Cobrança no Pagar.me (`payment`)

@@ -64,6 +64,24 @@ export type CashMovementKind = "sangria" | "suprimento";
 
 // ---------- records ----------
 
+/** ADIÇÃO (Onda 3A — catálogo): categoria do produto. */
+export interface CategoryRecord {
+  id: Id;
+  name: string;
+  displayOrder: number;
+  active: boolean;
+  createdAt: string;
+}
+
+/** ADIÇÃO (Onda 3A — catálogo): grupo de produção (estação da cozinha). */
+export interface KitchenGroupRecord {
+  id: Id;
+  name: string;
+  displayOrder: number;
+  active: boolean;
+  createdAt: string;
+}
+
 export interface ProductRecord {
   id: Id;
   categoryId: Id | null;
@@ -71,8 +89,25 @@ export interface ProductRecord {
   name: string;
   description: string;
   price: number;
+  /** JSON string — o parse para `VariationGroup[]` é do use case (domínio). */
+  variations: string;
+  /** Curadoria da vitrine pública (§04): produto marcado aparece na seção "Destaques". */
+  featured: boolean;
+  /** Configuração de estoque (baseline 0001): custo unitário (margem). */
+  costPrice: number;
+  /** Configuração de estoque: saldo mínimo antes de alertar. */
+  lowStockThreshold: number;
+  /** Configuração de estoque: se o saldo é rastreado no ledger. */
+  trackStock: boolean;
+  /** Unidade de medida (baseline 0001), ex.: "un", "kg". */
+  unit: string;
+  /** Integração iFood (docs/18): habilitado e SKU externo. */
+  ifoodEnabled: boolean;
+  ifoodSku: string | null;
   active: boolean;
   imagePath: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CustomerRecord {
@@ -142,7 +177,10 @@ export interface OrderRecord {
 
 // ---------- ADIÇÕES (Onda 2 — hub de pedidos): records de linha ----------
 
-export type OrderChannel = "balcao" | "whatsapp" | "web" | "ifood";
+// `whatsapp` seguia no enum do banco só por compatibilidade: o canal deixou
+// de existir no código, mas pedidos antigos de delivery feitos por ele
+// continuam válidos como histórico (relatórios, reimpressão, retomada).
+export type OrderChannel = "balcao" | "web" | "ifood";
 export type OrderItemStatus = "ordered" | "ready" | "delivered" | "cancelled";
 
 /** Linha completa de `order` (todas as colunas), fiel ao schema. */
@@ -307,7 +345,6 @@ export interface DeliveryRecord {
   dispatchedAt: string | null;
   deliveredAt: string | null;
   notes: string | null;
-  arrivalAlertSent: boolean;
   createdAt: string;
 }
 
@@ -329,10 +366,17 @@ export interface CatalogRepository {
     query: PageQuery & { categoryId?: Id; active?: boolean; search?: string; sort?: string },
   ): Promise<Page<ProductRecord>>;
   findProduct(id: Id): Promise<ProductRecord | null>;
-  /** `input.id` presente = update; ausente = create. Defaults de criação = mesmos de `createProductUsecase`. */
-  saveProduct(input: Partial<ProductRecord> & Pick<ProductRecord, "name" | "price">): Promise<ProductRecord>;
-  listCategories(): Promise<Array<{ id: Id; name: string; active: boolean }>>;
-  listKitchenGroups(): Promise<Array<{ id: Id; name: string }>>;
+  /**
+   * `input.id` presente = update; ausente = create. Create exige
+   * `name`/`price` (validados em runtime — o update é parcial,
+   * então ambos são opcionais no tipo). Defaults de criação =
+   * mesmos de `createProductUsecase`.
+   */
+  saveProduct(input: Partial<ProductRecord> & { id?: Id }): Promise<ProductRecord>;
+  /** Categorias em ordem de exibição (linha inteira — a listagem expõe `createdAt`). */
+  listCategories(): Promise<CategoryRecord[]>;
+  /** Grupos de produção em ordem de exibição (linha inteira). */
+  listKitchenGroups(): Promise<KitchenGroupRecord[]>;
 
   // ---------- ADIÇÕES (Onda 2 — hub de pedidos) ----------
   /** Mesa (restaurant_table) por id — abertura de comanda e alerta "Mesa N". */
@@ -356,6 +400,34 @@ export interface CatalogRepository {
    * `findProduct` não traz `trackStock`/`costPrice`/`lowStockThreshold`.
    */
   findProductForOrdering(id: Id): Promise<OrderingProductRecord | null>;
+
+  // ---------- ADIÇÕES (Onda 3A — catálogo) ----------
+  /** Categoria por id (validação antes de update/delete de produto). */
+  findCategoryById(id: Id): Promise<CategoryRecord | null>;
+  /** INSERT de categoria (`name`, `displayOrder`). */
+  createCategory(input: { name: string; displayOrder?: number }): Promise<CategoryRecord>;
+  /** UPDATE parcial de categoria (`name`, `displayOrder`, `active`). */
+  updateCategory(id: Id, input: { name?: string; displayOrder?: number; active?: boolean }): Promise<CategoryRecord>;
+  /** Exclusão real da categoria; produtos vinculados ficam com `category_id = null`. */
+  deleteCategory(id: Id): Promise<void>;
+  /** Grupo de produção por id. */
+  findKitchenGroupById(id: Id): Promise<KitchenGroupRecord | null>;
+  /** INSERT de grupo de produção. */
+  createKitchenGroup(input: { name: string; displayOrder?: number }): Promise<KitchenGroupRecord>;
+  /** UPDATE parcial de grupo de produção. */
+  updateKitchenGroup(id: Id, input: { name?: string; displayOrder?: number; active?: boolean }): Promise<KitchenGroupRecord>;
+  /** Exclusão real do grupo; produtos vinculados ficam com `kitchen_group_id = null`. */
+  deleteKitchenGroup(id: Id): Promise<void>;
+  /** Set de `active` do produto (`product_activated`/`product_deactivated`). */
+  setProductActive(id: Id, active: boolean): Promise<ProductRecord>;
+  /** UPDATE de `image_path` (foto do produto). */
+  saveProductImage(id: Id, filename: string): Promise<ProductRecord>;
+  /** Limpa `image_path` (foto removida). */
+  clearProductImage(id: Id): Promise<ProductRecord>;
+  /** Produtos ativos (menu público) — `active = true`, ordem alfabética. */
+  listActiveProducts(): Promise<ProductRecord[]>;
+  /** Categorias ativas (menu público) — ordem de exibição. */
+  listActiveCategories(): Promise<Array<{ id: Id; name: string }>>;
 }
 
 export interface CustomerRepository {

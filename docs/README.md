@@ -40,7 +40,6 @@ Este índice é a porta de entrada para pessoas e agentes. Comece pelo objetivo 
 | [`06-ifood-integration.md`](06-ifood-integration.md), [`18-ifood-por-loja.md`](18-ifood-por-loja.md) | Integração iFood |
 | [`07-estoque.md`](07-estoque.md), [`08-estoque-profissional.md`](08-estoque-profissional.md) | Estoque, compras e custos |
 | [`09-frontend-fsd.md`](09-frontend-fsd.md) | Histórico da migração FSD; práticas atuais ficam no guia frontend |
-| [`10-whatsapp-embedded-signup.md`](10-whatsapp-embedded-signup.md) | WhatsApp Embedded Signup |
 | [`11-desktop-instalador.md`](11-desktop-instalador.md) | Instalador e atualização desktop |
 | [`11-pix-pendencias.md`](11-pix-pendencias.md) | Pendências Pix |
 | [`12-n-plus-one-list-orders.md`](12-n-plus-one-list-orders.md) | Plano/diagnóstico de N+1 |

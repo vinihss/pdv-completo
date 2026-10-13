@@ -85,7 +85,6 @@ const KNOWN_VIOLATIONS: readonly string[] = [
   "src/application/report.usecases.ts :: application :: dir:infra",
   "src/application/report.usecases.ts :: application :: pkg:drizzle-orm",
   "src/application/self-service/cancel-order.usecase.ts :: application :: dir:infra",
-  "src/application/self-service/cancel-order.usecase.ts :: application :: dir:integrations",
   "src/application/self-service/cancel-order.usecase.ts :: application :: pkg:drizzle-orm",
   "src/application/self-service/cart.usecases.ts :: application :: dir:infra",
   "src/application/self-service/cart.usecases.ts :: application :: pkg:drizzle-orm",
@@ -99,10 +98,6 @@ const KNOWN_VIOLATIONS: readonly string[] = [
   "src/application/self-service/menu.usecases.ts :: application :: pkg:drizzle-orm",
   "src/application/self-service/order-intake.usecase.ts :: application :: dir:infra",
   "src/application/self-service/order-intake.usecase.ts :: application :: pkg:drizzle-orm",
-  "src/application/self-service/whatsapp-bot.usecases.ts :: application :: dir:config",
-  "src/application/self-service/whatsapp-bot.usecases.ts :: application :: dir:infra",
-  "src/application/self-service/whatsapp-bot.usecases.ts :: application :: dir:integrations",
-  "src/application/self-service/whatsapp-bot.usecases.ts :: application :: pkg:drizzle-orm",
   "src/application/settlement/settlement.usecases.ts :: application :: dir:infra",
   "src/application/settlement/settlement.usecases.ts :: application :: pkg:drizzle-orm",
   "src/application/store-settings.usecases.ts :: application :: dir:infra",
@@ -111,8 +106,6 @@ const KNOWN_VIOLATIONS: readonly string[] = [
   "src/application/tenant/resolve-tenant.usecase.ts :: application :: dir:infra",
   "src/application/user.usecases.ts :: application :: dir:infra",
   "src/application/user.usecases.ts :: application :: pkg:drizzle-orm",
-  "src/application/whatsapp/whatsapp.usecases.ts :: application :: dir:infra",
-  "src/application/whatsapp/whatsapp.usecases.ts :: application :: dir:integrations",
   // ------------------------------------------------------------------
   // http: rotas/middleware que ainda tocam em Drizzle/schema/client (9).
   // Quando o acesso a dado sair das rotas, apague estas linhas.

@@ -35,8 +35,7 @@
  *
  * Sem `PAGARME_SECRET_KEY` não há como validar, e responder 200 sem verificar
  * deixaria qualquer um marcar cobrança como paga chamando este endpoint. A
- * recusa é explícita (503), como no webhook do WhatsApp depois de corrigida a
- * validação que era pulada em silêncio.
+ * recusa é explícita (503) — validar "com nada" aprovaria qualquer coisa.
  */
 import type { FastifyInstance } from "fastify";
 import { recordWebhookEventUsecase } from "../../application/payment/payment.usecases.js";

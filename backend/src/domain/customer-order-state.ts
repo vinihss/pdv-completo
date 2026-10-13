@@ -1,5 +1,5 @@
 // Máquina de estado do pedido do cliente — fonte única da verdade da
-// "etapa do pedido" exibida pro cliente (página pública /pedido, WhatsApp).
+// "etapa do pedido" exibida pro cliente na página pública /pedido.
 // Os 3 eixos de status do schema (orders.status, order_item.status,
 // delivery.status) são internos; o cliente consome um estado canônico
 // derivado daqui. Módulo puro — sem imports de infra/db; a orquestração

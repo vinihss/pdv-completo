@@ -264,7 +264,7 @@ describe("Settlement iFood (Bloco 5)", () => {
         body: {
           correlationId: crypto.randomUUID(),
           orderId: orderId2,
-          channel: "whatsapp",
+          channel: "web",
           grossAmount: 25.0,
           commissionAmount: 0,
         },

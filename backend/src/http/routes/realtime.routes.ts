@@ -29,14 +29,11 @@ function canJoinRoom(user: AuthUser, room: string): boolean {
       // depende disso.
       return room === "kitchen-display" || room === "deliveries";
     case "manager":
-      // `whatsapp` = status de entrega/leitura das mensagens enviadas,
-      // publicado pelo webhook `messages.statuses` (whatsapp.usecases.ts).
       return (
         room === "kitchen-display" ||
         room === "deliveries" ||
         room === "cash-drawer" ||
-        room === "inventory" ||
-        room === "whatsapp"
+        room === "inventory"
       );
     case "kitchen":
       return room === "kitchen-display";

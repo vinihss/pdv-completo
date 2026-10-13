@@ -34,7 +34,7 @@ import { round2, moneyEq } from "../../domain/money.js";
 import { canTransitionDelivery } from "../../domain/customer-order-state.js";
 import type { TenantSession, TenantUnitOfWork } from "../ports/unit-of-work.js";
 import type { TenantContext } from "../ports/tenant-context.js";
-import type { CustomerNotifier, OrderPrinter, StoreSettingsReader, TenantCache } from "../ports/effects.js";
+import type { OrderPrinter, StoreSettingsReader, TenantCache } from "../ports/effects.js";
 import type {
   DeliveryRecord,
   OrderItemRow,
@@ -172,7 +172,7 @@ export async function openOrderUsecase(
     tableId?: string;
     customerId?: string;
     tabLabel?: string;
-    channel?: "balcao" | "whatsapp" | "web" | "ifood"; // default "balcao" — self-service (§04) e iFood usam
+    channel?: "balcao" | "web" | "ifood"; // default "balcao" — self-service (§04) e iFood usam
     deliveryFee?: number; // snapshot da taxa no momento do pedido, só para channel != "balcao"
     externalRef?: string; // order id do iFood quando channel === "ifood" (único — índice em 0009)
     notes?: string;
@@ -414,9 +414,9 @@ export async function updateItemStatusUsecase(
   },
 ) {
   // Último item pronto do pedido self-service muda o stage (preparing →
-  // ready) e notifica o cliente no WhatsApp — a página pública e o bot
-  // consomem o evento customer.stage_changed (room order:<orderId>).
-  const { updated, readyNotifyOrderId } = await deps.uow.run(deps.tenant(), async (session) => {
+  // ready) — a página pública consome o evento customer.stage_changed
+  // (room order:<orderId>) para atualizar a tela do cliente.
+  const { updated } = await deps.uow.run(deps.tenant(), async (session) => {
     const item = await session.orders.findItem(input.itemId);
     if (!item || item.orderId !== input.orderId) throw Errors.notFound("Item");
     const settings = await deps.settings.get();
@@ -435,7 +435,6 @@ export async function updateItemStatusUsecase(
     if (input.newStatus === "ready" && !["kitchen", "manager"].includes(input.userRole)) throw Errors.forbiddenRole();
     if (input.newStatus === "delivered" && !["waiter", "manager"].includes(input.userRole)) throw Errors.forbiddenRole();
 
-    let readyNotify: string | null = null;
     const result = await session.orders.transitionItemStatus(input.itemId, input.newStatus, input.expectedVersion);
     if (!result) {
       const current = await session.orders.findItem(input.itemId);
@@ -466,16 +465,15 @@ export async function updateItemStatusUsecase(
       },
     });
 
-    // Só pra comanda de delivery (whatsapp/web) — comanda de mesa não tem
+    // Só pra comanda de delivery (web) — comanda de mesa não tem
     // máquina de cliente (nobody assina order:<orderId> de mesa). O stage
     // só muda de fato quando o ÚLTIMO item ativo fica pronto.
-    const isSelfService = parentOrder?.channel === "whatsapp" || parentOrder?.channel === "web";
+    const isSelfService = parentOrder?.channel === "web";
     if (isSelfService && input.newStatus === "ready") {
       const allItems = await session.orders.listItemRows(input.orderId);
       const activeItems = allItems.filter((i) => i.status !== "cancelled");
       if (activeItems.length > 0 && activeItems.every((i) => i.status === "ready" || i.status === "delivered")) {
         await emitCustomerStageChanged(session, input.orderId);
-        readyNotify = input.orderId;
       }
     }
 
@@ -487,12 +485,8 @@ export async function updateItemStatusUsecase(
       details: { itemId: input.itemId },
     });
 
-    return { updated: result, readyNotifyOrderId: readyNotify };
+    return { updated: result };
   });
-
-  if (readyNotifyOrderId) {
-    deps.notifier.notifyReady(readyNotifyOrderId).catch((err) => console.error("falha ao notificar pedido pronto pro cliente:", err));
-  }
 
   return { ...updated, selectedVariations: JSON.parse(updated.selectedVariations) };
 }
@@ -1326,7 +1320,6 @@ export interface OrderUsecasesDeps {
   uow: TenantUnitOfWork;
   cache: TenantCache;
   printer: OrderPrinter;
-  notifier: CustomerNotifier;
   settings: StoreSettingsReader;
   /** Resolvido a cada chamada (ALS/request corrente) — nunca memoizado. */
   tenant: () => TenantContext;

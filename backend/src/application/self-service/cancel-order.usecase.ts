@@ -1,5 +1,5 @@
 // Cancelamento pelo cliente — dor real de quem pediu errado pela página
-// ou pelo WhatsApp (§04: continuação/correção do ciclo sem intervenção
+// (§04: continuação/correção do ciclo sem intervenção
 // manual). Segurança: o endpoint é público, então o body traz o telefone —
 // só o dono do pedido (customer.phone match) cancela; o UUID do pedido
 // sozinho não autoriza. Restrição de estágio: CUSTOMER_CANCELLABLE_STAGES
@@ -8,9 +8,7 @@
 //
 // Reusa cancelOrderUsecase (estorno de estoque/caixa, eventos outbox,
 // propagação pra delivery na mesma transação) — mesmo padrão de composição
-// do createSelfServiceOrderUsecase. Cancelamento manager-driven notifica
-// pelo mesmo caminho (ver order.usecases.ts#cancelOrderUsecase → não; a
-// notificação do manager é responsabilidade do painel).
+// do createSelfServiceOrderUsecase.
 import { eq } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
 import { orders, orderItems, deliveries, customers } from "../../infra/db/schema.js";
@@ -18,7 +16,6 @@ import { Errors } from "../../domain/errors.js";
 import { SYSTEM_USER_ID } from "../../domain/constants.js";
 import { cancelOrderUsecase } from "../../infra/composition/default-usecases.js";
 import { deriveCustomerStage, isCustomerCancellable } from "../../domain/customer-order-state.js";
-import { notifyCancelled } from "../../integrations/whatsapp/whatsapp.notifier.js";
 
 export async function cancelSelfServiceOrderUsecase(input: { orderId: string; customerPhone: string }) {
   const digitsPhone = input.customerPhone.replace(/\D/g, "");
@@ -30,7 +27,7 @@ export async function cancelSelfServiceOrderUsecase(input: { orderId: string; cu
   const order = await db.query.orders.findFirst({ where: eq(orders.id, input.orderId) });
   if (!order || !customer || order.customerId !== customer.id) throw Errors.forbiddenRole();
 
-  if (order.channel !== "whatsapp" && order.channel !== "web") throw Errors.forbiddenRole();
+  if (order.channel !== "web") throw Errors.forbiddenRole();
 
   // Stage atual via máquina central — cancelável antes do entregador sair
   // em rota, ou quando a entrega falhou e o pedido continua aberto.
@@ -52,10 +49,6 @@ export async function cancelSelfServiceOrderUsecase(input: { orderId: string; cu
     userId: SYSTEM_USER_ID,
     reason: "Cancelado pelo cliente",
   });
-
-  notifyCancelled(order.id, "cancelado pelo cliente").catch((err) =>
-    console.error("falha ao notificar cancelamento pro cliente:", err)
-  );
 
   return { orderId: cancelled.id, status: cancelled.status };
 }
