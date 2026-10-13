@@ -4,7 +4,7 @@ import { listCategories, createCategory, updateCategory, deleteCategory } from "
 import { listKitchenGroups, createKitchenGroup, updateKitchenGroup, deleteKitchenGroup } from "@/entities/kitchen-group";
 import { listAllProducts, setProductActive } from "@/entities/product";
 import { useAuth } from "@/app/providers/auth";
-import { Section, inputClass, ConfirmModal } from "@/shared/components";
+import { Section, inputClass, ConfirmModal, TabbedWorkspace } from "@/shared/components";
 import { ProductRow } from "./ProductRow.jsx";
 import ProductModal from "./ProductModal.jsx";
 
@@ -17,6 +17,7 @@ const SORT_OPTIONS = [
 export default function CatalogTab({ showToast }) {
   const { storeSettings } = useAuth();
   const kitchenEnabled = storeSettings?.kitchenEnabled ?? true;
+  const [activeTab, setActiveTab] = useState("products");
   const [categories, setCategories] = useState([]);
   const [kitchenGroups, setKitchenGroups] = useState([]);
   const [products, setProducts] = useState([]);
@@ -31,7 +32,6 @@ export default function CatalogTab({ showToast }) {
   const [activeFilter, setActiveFilter] = useState("all"); // "all" | "active" | "inactive"
   const [sort, setSort] = useState("name");
   const [collapsedCats, setCollapsedCats] = useState(() => new Set());
-  const [catsSectionOpen, setCatsSectionOpen] = useState(false);
 
   // Debounce da busca: digitar não dispara request a cada tecla.
   useEffect(() => {
@@ -173,6 +173,10 @@ export default function CatalogTab({ showToast }) {
     [products]
   );
   const visibleCount = sortedProducts.length;
+  const tabs = [
+    { id: "products", label: "Produtos", count: visibleCount },
+    { id: "organization", label: "Categorias e grupos", count: categories.length + (kitchenEnabled ? kitchenGroups.length : 0) },
+  ];
 
   // Agrupa por categoria respeitando o filtro: com categoria escolhida, só o
   // bloco dela; sem filtro, todos + "Sem categoria" no final.
@@ -223,203 +227,216 @@ export default function CatalogTab({ showToast }) {
   }
 
   return (
-    <div className="p-5 max-w-2xl mx-auto space-y-6">
-      {/* Categorias e grupos de produção: gestão secundária, começa recolhida */}
-      <Section
-        title="Categorias"
-        collapsed={!catsSectionOpen}
-        onToggle={() => setCatsSectionOpen(!catsSectionOpen)}
-      >
-        <div className="space-y-2">
-          {categories.map((cat) => (
-            <div key={cat.id} className="flex items-center gap-2 bg-surface-overlay/60 rounded-xl px-3 py-2">
-              <input
-                defaultValue={cat.name}
-                onBlur={(e) => e.target.value !== cat.name && handleRenameCategory(cat, e.target.value)}
-                className="flex-1 bg-transparent text-sm font-medium outline-none"
-              />
-              <button onClick={() => handleToggleCategoryActive(cat)} title={cat.active ? "Desativar" : "Ativar"} className="text-text-muted hover:text-primary">
-                {cat.active ? <Eye size={16} /> : <EyeOff size={16} />}
-              </button>
-              <button onClick={() => handleReorder(cat, "up")} className="text-text-muted hover:text-text-secondary"><ChevronUp size={16} /></button>
-              <button onClick={() => handleReorder(cat, "down")} className="text-text-muted hover:text-text-secondary"><ChevronDown size={16} /></button>
-              <button onClick={() => setDeleteCategoryTarget(cat)} className="text-text-muted hover:text-destructive"><Trash2 size={15} /></button>
-            </div>
-          ))}
-        </div>
-        <div className="flex gap-2 pt-2">
-          <input
-            value={newCategoryName}
-            onChange={(e) => setNewCategoryName(e.target.value)}
-            placeholder="Nova categoria..."
-            className={inputClass}
-          />
-          <button onClick={handleAddCategory} className="bg-primary hover:bg-primary-strong text-primary-foreground px-4 rounded-xl font-semibold shrink-0">
-            <Plus size={16} />
-          </button>
-        </div>
-        {categories.some((c) => !c.active) && (
-          <p className="text-text-muted text-xs">Categorias desativadas não aparecem no cardápio público, mas continuam no app do garçom.</p>
-        )}
-      </Section>
-
-      {kitchenEnabled && (
-        <Section title="Grupos de produção" collapsed={!catsSectionOpen} onToggle={() => setCatsSectionOpen(!catsSectionOpen)}>
-          <div className="space-y-2">
-            {kitchenGroups.map((group) => (
-              <div key={group.id} className="flex items-center gap-2 bg-surface-overlay/60 rounded-xl px-3 py-2">
-                <ChefHat size={15} className="text-text-muted shrink-0" />
-                <input
-                  defaultValue={group.name}
-                  onBlur={(e) => e.target.value !== group.name && handleRenameKitchenGroup(group, e.target.value)}
-                  className="flex-1 bg-transparent text-sm font-medium outline-none"
-                />
-                <button onClick={() => handleReorderKitchenGroup(group, "up")} className="text-text-muted hover:text-text-secondary"><ChevronUp size={16} /></button>
-                <button onClick={() => handleReorderKitchenGroup(group, "down")} className="text-text-muted hover:text-text-secondary"><ChevronDown size={16} /></button>
-                <button onClick={() => setDeleteKitchenGroupTarget(group)} className="text-text-muted hover:text-destructive"><Trash2 size={15} /></button>
-              </div>
-            ))}
-            {kitchenGroups.length === 0 && (
-              <p className="text-text-muted text-xs">Nenhum grupo cadastrado. Produtos sem grupo não entram no fluxo da cozinha.</p>
-            )}
-          </div>
-          <div className="flex gap-2 pt-2">
-            <input
-              value={newKitchenGroupName}
-              onChange={(e) => setNewKitchenGroupName(e.target.value)}
-              placeholder="Novo grupo (ex.: Cozinha, Grelha, Bar)..."
-              className={inputClass}
-            />
-            <button onClick={handleAddKitchenGroup} className="bg-primary hover:bg-primary-strong text-primary-foreground px-4 rounded-xl font-semibold shrink-0">
-              <Plus size={16} />
-            </button>
-          </div>
-        </Section>
-      )}
-
-      <Section title={`Produtos (${visibleCount})`}>
-        <div className="flex gap-2 flex-wrap items-center">
-          <div className="relative flex-1 min-w-[160px]">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar produto (ignora acentos)..."
-              className={inputClass + " pl-9"}
-            />
-            {search && (
-              <button
-                onClick={() => setSearch("")}
-                aria-label="Limpar busca"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-          <Filter size={15} className="text-text-muted shrink-0" />
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            className={inputClass + " w-auto shrink-0"}
-          >
-            <option value="all">Todas as categorias</option>
-            <option value="uncategorized">Sem categoria</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-          <select
-            value={activeFilter}
-            onChange={(e) => setActiveFilter(e.target.value)}
-            className={inputClass + " w-auto shrink-0"}
-          >
-            <option value="all">Todos</option>
-            <option value="active">Disponíveis</option>
-            <option value="inactive">Indisponíveis</option>
-          </select>
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value)}
-            className={inputClass + " w-auto shrink-0"}
-          >
-            {SORT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          {hasFilters && (
-            <button
-              onClick={clearFilters}
-              className="text-xs font-semibold text-text-secondary hover:text-primary shrink-0"
-            >
-              Limpar
-            </button>
-          )}
-        </div>
-
-        <div className="flex justify-end gap-3 pt-1">
-          <button onClick={expandAll} className="flex items-center gap-1 text-[11px] font-semibold text-text-muted hover:text-text-secondary">
-            <ChevronsUpDown size={12} /> Expandir tudo
-          </button>
-          <button onClick={collapseAll} className="flex items-center gap-1 text-[11px] font-semibold text-text-muted hover:text-text-secondary">
-            <ChevronsDownUp size={12} /> Recolher tudo
-          </button>
-        </div>
-
-        <div className="space-y-3">
-          {blocks.map((block) => {
-            const collapsed = collapsedCats.has(block.key);
-            return (
-              <div key={block.key} className="border border-border rounded-xl overflow-hidden">
-                <button
-                  onClick={() => toggleCatCollapse(block.key)}
-                  aria-expanded={!collapsed}
-                  className="w-full flex items-center gap-2 bg-surface px-3 py-2.5 text-left hover:bg-surface-overlay/60 transition-colors"
-                >
-                  <ChevronDown size={15} className={`text-text-muted transition-transform ${collapsed ? "-rotate-90" : ""}`} />
-                  <span className="flex-1 text-sm font-semibold truncate">{block.title}</span>
-                  {!block.active && (
-                    <span className="text-[10px] font-bold text-text-muted bg-surface-overlay/60 rounded-full px-1.5 py-0.5">inativa</span>
-                  )}
-                  <span className="text-xs text-text-muted shrink-0">{block.products.length}</span>
-                </button>
-                {!collapsed && (
-                  <div className="p-2 space-y-1.5 bg-background/40">
-                    {block.products.map((p) => (
-                      <ProductRow
-                        key={p.id}
-                        product={p}
-                        categoryName={p.categoryName ?? "Sem categoria"}
-                        ifoodIntegrationEnabled={storeSettings?.ifoodIntegrationEnabled ?? false}
-                        deliveryEnabled={storeSettings?.usesDelivery ?? false}
-                        kitchenEnabled={kitchenEnabled}
-                        onOpen={() => setEditingProduct(p)}
-                        onToggleActive={() => handleToggleProductActive(p)}
-                      />
-                    ))}
-                    {block.products.length === 0 && (
-                      <div className="text-text-muted text-center py-6 text-xs">Nenhum produto neste grupo.</div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          {blocks.length === 0 && (
-            <div className="text-text-muted text-center py-12 text-sm">
-              {hasFilters ? "Nenhum produto encontrado para os filtros." : "Nenhum produto cadastrado."}
-            </div>
-          )}
-        </div>
-
+    <TabbedWorkspace
+      id="catalog"
+      title="Produtos"
+      description="Cadastre itens e organize como aparecem no cardápio e no fluxo de produção."
+      tabs={tabs}
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
+      actions={activeTab === "products" && (
         <button
+          type="button"
           onClick={() => setEditingProduct("new")}
-          className="w-full flex items-center justify-center gap-2 bg-surface-overlay hover:bg-surface-overlay border border-border text-sm font-semibold py-2.5 rounded-xl"
+          className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary-strong"
         >
           <Plus size={16} /> Novo produto
         </button>
-      </Section>
+      )}
+    >
+      <div className="space-y-5">
+        <div hidden={activeTab !== "organization"} className="space-y-5">
+          <Section
+            title="Categorias"
+          >
+            <div className="space-y-2">
+              {categories.map((cat) => (
+                <div key={cat.id} className="flex items-center gap-2 bg-surface-overlay/60 rounded-xl px-3 py-2">
+                  <input
+                    defaultValue={cat.name}
+                    onBlur={(e) => e.target.value !== cat.name && handleRenameCategory(cat, e.target.value)}
+                    className="flex-1 bg-transparent text-sm font-medium outline-none"
+                  />
+                  <button onClick={() => handleToggleCategoryActive(cat)} title={cat.active ? "Desativar" : "Ativar"} className="text-text-muted hover:text-primary">
+                    {cat.active ? <Eye size={16} /> : <EyeOff size={16} />}
+                  </button>
+                  <button onClick={() => handleReorder(cat, "up")} className="text-text-muted hover:text-text-secondary"><ChevronUp size={16} /></button>
+                  <button onClick={() => handleReorder(cat, "down")} className="text-text-muted hover:text-text-secondary"><ChevronDown size={16} /></button>
+                  <button onClick={() => setDeleteCategoryTarget(cat)} className="text-text-muted hover:text-destructive"><Trash2 size={15} /></button>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 pt-2">
+              <input
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                placeholder="Nova categoria..."
+                className={inputClass}
+              />
+              <button onClick={handleAddCategory} className="bg-primary hover:bg-primary-strong text-primary-foreground px-4 rounded-xl font-semibold shrink-0">
+                <Plus size={16} />
+              </button>
+            </div>
+            {categories.some((c) => !c.active) && (
+              <p className="text-text-muted text-xs">Categorias desativadas não aparecem no cardápio público, mas continuam no app do garçom.</p>
+            )}
+          </Section>
+
+          {kitchenEnabled && (
+            <Section title="Grupos de produção">
+              <div className="space-y-2">
+                {kitchenGroups.map((group) => (
+                  <div key={group.id} className="flex items-center gap-2 bg-surface-overlay/60 rounded-xl px-3 py-2">
+                    <ChefHat size={15} className="text-text-muted shrink-0" />
+                    <input
+                      defaultValue={group.name}
+                      onBlur={(e) => e.target.value !== group.name && handleRenameKitchenGroup(group, e.target.value)}
+                      className="flex-1 bg-transparent text-sm font-medium outline-none"
+                    />
+                    <button onClick={() => handleReorderKitchenGroup(group, "up")} className="text-text-muted hover:text-text-secondary"><ChevronUp size={16} /></button>
+                    <button onClick={() => handleReorderKitchenGroup(group, "down")} className="text-text-muted hover:text-text-secondary"><ChevronDown size={16} /></button>
+                    <button onClick={() => setDeleteKitchenGroupTarget(group)} className="text-text-muted hover:text-destructive"><Trash2 size={15} /></button>
+                  </div>
+                ))}
+                {kitchenGroups.length === 0 && (
+                  <p className="text-text-muted text-xs">Nenhum grupo cadastrado. Produtos sem grupo não entram no fluxo da cozinha.</p>
+                )}
+              </div>
+              <div className="flex gap-2 pt-2">
+                <input
+                  value={newKitchenGroupName}
+                  onChange={(e) => setNewKitchenGroupName(e.target.value)}
+                  placeholder="Novo grupo (ex.: Cozinha, Grelha, Bar)..."
+                  className={inputClass}
+                />
+                <button onClick={handleAddKitchenGroup} className="bg-primary hover:bg-primary-strong text-primary-foreground px-4 rounded-xl font-semibold shrink-0">
+                  <Plus size={16} />
+                </button>
+              </div>
+            </Section>
+          )}
+        </div>
+
+        <div hidden={activeTab !== "products"}>
+          <Section title={`Produtos (${visibleCount})`}>
+            <div className="flex gap-2 flex-wrap items-center">
+              <div className="relative flex-1 min-w-[160px]">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar produto (ignora acentos)..."
+                  className={inputClass + " pl-9"}
+                />
+                {search && (
+                  <button
+                    onClick={() => setSearch("")}
+                    aria-label="Limpar busca"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              <Filter size={15} className="text-text-muted shrink-0" />
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                className={inputClass + " w-auto shrink-0"}
+              >
+                <option value="all">Todas as categorias</option>
+                <option value="uncategorized">Sem categoria</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              <select
+                value={activeFilter}
+                onChange={(e) => setActiveFilter(e.target.value)}
+                className={inputClass + " w-auto shrink-0"}
+              >
+                <option value="all">Todos</option>
+                <option value="active">Disponíveis</option>
+                <option value="inactive">Indisponíveis</option>
+              </select>
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value)}
+                className={inputClass + " w-auto shrink-0"}
+              >
+                {SORT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              {hasFilters && (
+                <button
+                  onClick={clearFilters}
+                  className="text-xs font-semibold text-text-secondary hover:text-primary shrink-0"
+                >
+                  Limpar
+                </button>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 pt-1">
+              <button onClick={expandAll} className="flex items-center gap-1 text-[11px] font-semibold text-text-muted hover:text-text-secondary">
+                <ChevronsUpDown size={12} /> Expandir tudo
+              </button>
+              <button onClick={collapseAll} className="flex items-center gap-1 text-[11px] font-semibold text-text-muted hover:text-text-secondary">
+                <ChevronsDownUp size={12} /> Recolher tudo
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {blocks.map((block) => {
+                const collapsed = collapsedCats.has(block.key);
+                return (
+                  <div key={block.key} className="border border-border rounded-xl overflow-hidden">
+                    <button
+                      onClick={() => toggleCatCollapse(block.key)}
+                      aria-expanded={!collapsed}
+                      className="w-full flex items-center gap-2 bg-surface px-3 py-2.5 text-left hover:bg-surface-overlay/60 transition-colors"
+                    >
+                      <ChevronDown size={15} className={`text-text-muted transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+                      <span className="flex-1 text-sm font-semibold truncate">{block.title}</span>
+                      {!block.active && (
+                        <span className="text-[10px] font-bold text-text-muted bg-surface-overlay/60 rounded-full px-1.5 py-0.5">inativa</span>
+                      )}
+                      <span className="text-xs text-text-muted shrink-0">{block.products.length}</span>
+                    </button>
+                    {!collapsed && (
+                      <div className="p-2 space-y-1.5 bg-background/40">
+                        {block.products.map((p) => (
+                          <ProductRow
+                            key={p.id}
+                            product={p}
+                            categoryName={p.categoryName ?? "Sem categoria"}
+                            ifoodIntegrationEnabled={storeSettings?.ifoodIntegrationEnabled ?? false}
+                            deliveryEnabled={storeSettings?.usesDelivery ?? false}
+                            kitchenEnabled={kitchenEnabled}
+                            onOpen={() => setEditingProduct(p)}
+                            onToggleActive={() => handleToggleProductActive(p)}
+                          />
+                        ))}
+                        {block.products.length === 0 && (
+                          <div className="text-text-muted text-center py-6 text-xs">Nenhum produto neste grupo.</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {blocks.length === 0 && (
+                <div className="text-text-muted text-center py-12 text-sm">
+                  {hasFilters ? "Nenhum produto encontrado para os filtros." : "Nenhum produto cadastrado."}
+                </div>
+              )}
+            </div>
+
+          </Section>
+        </div>
+      </div>
 
       {editingProduct && (
         <ProductModal
@@ -461,6 +478,6 @@ export default function CatalogTab({ showToast }) {
           onConfirm={() => handleDeleteKitchenGroup(deleteKitchenGroupTarget)}
         />
       )}
-    </div>
+    </TabbedWorkspace>
   );
 }

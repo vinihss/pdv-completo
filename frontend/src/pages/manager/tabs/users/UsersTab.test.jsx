@@ -77,6 +77,17 @@ describe("UsersTab", () => {
     }
   });
 
+  it("as subabas por perfil filtram a equipe sem alterar os dados carregados", async () => {
+    renderTab();
+    await screen.findByText("Ana Ribeiro");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Cozinha" }));
+
+    expect(screen.getByText("Carlos Lima")).toBeTruthy();
+    expect(screen.queryByText("Ana Ribeiro")).toBeNull();
+    expect(listUsers).toHaveBeenCalledTimes(1);
+  });
+
   it("usuário inativo continua com opacity-50 na linha", async () => {
     renderTab();
     await screen.findByText("Ana Ribeiro");

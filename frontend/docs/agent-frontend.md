@@ -24,6 +24,7 @@ app → pages → widgets → features → entities → shared
 - A cor principal da marca é configurável pela loja através de `src/shared/lib/theme.js`; não substitua os utilitários amber por outra paleta sem preservar essa personalização.
 - Reutilize `Button`, `PageHeader`, `ScreenHeader`, `Modal`, `ConfirmModal`, `Drawer`, `Section` e `EmptyState` em vez de copiar variantes locais.
 - `PageHeader` é o título do conteúdo; o cabeçalho global pertence à casca em `app/router.jsx`. `ScreenHeader` é para uma tela de fluxo com navegação de retorno.
+- Telas administrativas com várias áreas relacionadas devem usar `TabbedWorkspace` (`shared/components/TabbedWorkspace.jsx`): página fluida sem `max-w` estreito, ação principal no cabeçalho e subabas acessíveis para separar conteúdo. Mantenha o estado de formulário na tela-pai ao alternar seções.
 - Listas devem distinguir carregamento, erro, conteúdo e ausência de dados. Use mensagens úteis e uma ação seguinte quando existir.
 - Formulários e ações tocáveis precisam de estados hover, focus-visible e disabled discerníveis. Não remova foco de teclado sem uma alternativa acessível.
 - Respeite `prefers-reduced-motion`, layouts estreitos e tablets de operação. Mantenha alvos táteis confortáveis e evite depender somente da cor para comunicar estado.

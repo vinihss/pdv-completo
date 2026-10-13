@@ -16,3 +16,4 @@ export { default as PhotoUpload } from "./PhotoUpload.jsx";
 export { default as Spinner } from "./Spinner.jsx";
 export { default as NetworkStatusBanner } from "./NetworkStatusBanner.jsx";
 export { default as ThemeToggle } from "./ThemeToggle.jsx";
+export { default as TabbedWorkspace } from "./TabbedWorkspace.jsx";
