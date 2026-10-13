@@ -1,15 +1,18 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
-import { api, seedFixture, resetState, closeTestApp, cashier, manager, waiter, kitchen, FIXTURE, raw } from "./helpers.js";
-
-// Tipos de evento enfileirados (outbox) de um room. O filtro é por room, sem
-// `published`: o dispatcher marca `published = true` ao despachar, o que é detalhe
-// de entrega e não faz parte do contrato de emissão. Como `main()` não roda no
-// import (ver guard em src/http/server.ts), o outbox nos testes só cresce por
-// enqueueEvent — logo as linhas persistidas são exatamente as emitidas.
-async function outboxTypes(room: string): Promise<string[]> {
-  const rows = await raw.all(`SELECT event_type FROM outbox_event WHERE room = $1 ORDER BY seq`, [room]) as { event_type: string }[];
-  return rows.map((r) => r.event_type);
-}
+import {
+  api,
+  seedFixture,
+  resetState,
+  closeTestApp,
+  cashier,
+  manager,
+  waiter,
+  kitchen,
+  FIXTURE,
+  getOutboxEventTypes,
+  expectApiError,
+  expectApiSuccess,
+} from "./helpers.js";
 
 const openDrawer = (correlationId: string, openingAmount: number) =>
   api("post", "/cash-drawer/open", { token: cashier, body: { correlationId, openingAmount } });
@@ -19,11 +22,13 @@ async function openOrder(): Promise<{ orderId: string; itemId: string }> {
     token: waiter,
     body: { correlationId: crypto.randomUUID(), tableId: FIXTURE.table },
   });
+  expectApiSuccess(res, 201);
   const orderId = res.json.id;
   const items = await api("post", `/orders/${orderId}/items`, {
     token: waiter,
     body: { correlationId: crypto.randomUUID(), items: [{ productId: FIXTURE.product, quantity: 2 }] },
   });
+  expectApiSuccess(items, 201);
   return { orderId, itemId: items.json.data[0].id };
 }
 
@@ -59,8 +64,7 @@ describe("validação de mesa ao abrir comanda (1.6)", () => {
       token: waiter,
       body: { correlationId: crypto.randomUUID(), tableId: "mesa-que-nao-existe" },
     });
-    expect(res.status).toBe(404);
-    expect(res.json.error.code).toBe("table_not_found");
+    expectApiError(res, 404, "table_not_found");
   });
 
   it("mesa ocupada → 409 table_occupied (não 500/duplicidade)", async () => {
@@ -68,14 +72,13 @@ describe("validação de mesa ao abrir comanda (1.6)", () => {
       token: waiter,
       body: { correlationId: crypto.randomUUID(), tableId: FIXTURE.table },
     });
-    expect(first.status).toBe(201);
+    expectApiSuccess(first, 201);
 
     const second = await api("post", "/orders", {
       token: waiter,
       body: { correlationId: crypto.randomUUID(), tableId: FIXTURE.table },
     });
-    expect(second.status).toBe(409);
-    expect(second.json.error.code).toBe("table_occupied");
+    expectApiError(second, 409, "table_occupied");
   });
 });
 
@@ -88,7 +91,7 @@ describe("realtime de comandas (1.2 / 1.8)", () => {
     const { orderId, itemId } = await openOrder();
     const del = await api("delete", `/orders/${orderId}/items/${itemId}`, { token: waiter });
     expect(del.status).toBe(204);
-    expect(await outboxTypes("kitchen-display")).toContain("order.item.removed");
+    expect(await getOutboxEventTypes("kitchen-display")).toContain("order.item.removed");
   });
 
   it("registrar e confirmar pagamento emite order.payment_changed para kitchen-display", async () => {
@@ -98,15 +101,15 @@ describe("realtime de comandas (1.2 / 1.8)", () => {
       token: waiter,
       body: { payments: [{ method: "cash", amount: 19, received: 20, confirmed: true }] },
     });
-    expect(await outboxTypes("kitchen-display")).toContain("order.payment_changed");
-    expect(await outboxTypes("cash-drawer")).toContain("order.payment_changed");
+    expect(await getOutboxEventTypes("kitchen-display")).toContain("order.payment_changed");
+    expect(await getOutboxEventTypes("cash-drawer")).toContain("order.payment_changed");
   });
 
   it("fechar comanda emite order.closed para kitchen-display (1.2)", async () => {
     const { orderId, itemId } = await openOrder();
     const close = await closeOrder(orderId, itemId);
-    expect(close.status).toBe(200);
-    expect(await outboxTypes("kitchen-display")).toContain("order.closed");
+    expectApiSuccess(close, 200);
+    expect(await getOutboxEventTypes("kitchen-display")).toContain("order.closed");
   });
 
   it("cancelar comanda emite order.cancelled para kitchen-display (1.2)", async () => {
@@ -115,7 +118,7 @@ describe("realtime de comandas (1.2 / 1.8)", () => {
       token: manager,
       body: { correlationId: crypto.randomUUID(), reason: "teste" },
     });
-    expect(cancel.status).toBe(200);
-    expect(await outboxTypes("kitchen-display")).toContain("order.cancelled");
+    expectApiSuccess(cancel, 200);
+    expect(await getOutboxEventTypes("kitchen-display")).toContain("order.cancelled");
   });
 });

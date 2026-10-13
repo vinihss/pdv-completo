@@ -4,7 +4,7 @@
  * Endpoints:
  *   GET    /audit-log — listar logs de auditoria (manager)
  *
- * Use cases: `backend/src/application/audit-log.usecases.ts`
+ * Use cases: `backend/src/application/audit-log/` (módulo `AuditLogModule`)
  */
 import type { FastifyInstance } from "fastify";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";

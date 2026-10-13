@@ -7,8 +7,8 @@
 // ONDA 2: sem Drizzle/infra — a leitura do trio (comanda, itens, entrega) vem
 // dos ports do `TenantSession`, e o evento entra no `session.outbox` da MESMA
 // transação da escrita de domínio. O wrapper `emitCustomerStageChangedTx(tx, ...)`
-// para chamadores que ainda têm um `tx` cru mora em
-// `infra/composition/order-compat.ts`.
+// para chamadores que ainda tinham um `tx` cru saiu junto do último consumidor
+// (camada de pagamento, removida com o Pagar.me).
 import { deriveCustomerStage, CUSTOMER_STAGES, type CustomerStage } from "../../domain/customer-order-state.js";
 import type { TenantSession } from "../ports/unit-of-work.js";
 

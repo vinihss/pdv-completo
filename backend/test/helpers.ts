@@ -307,3 +307,7 @@ export const cashier = tokenOf(FIXTURE.cashier, "cashier");
 export const manager = tokenOf(FIXTURE.manager, "manager");
 export const waiter = tokenOf(FIXTURE.waiter, "waiter");
 export const kitchen = tokenOf(FIXTURE.kitchen, "kitchen");
+
+// Re-export factories and assertions (Phase 1 test improvements)
+export * from "./fixtures/index.js";
+export * from "./helpers/assertions.js";

@@ -1,6 +1,12 @@
 /**
  * Catálogo — produtos. Ponto de entrada de COMPATIBILIDADE.
  *
+ * A implementação foi decomposta em um Use Case por operação (Command
+ * Pattern / Single Use Case Class), todos em `usecases/*.usecase.ts`, com as
+ * dependências compartilhadas em `ports/product-dependencies.ts`, os helpers
+ * de serialização em `shared/product-helpers.ts` e o facade `ProductModule`
+ * em `product.module.ts`.
+ *
  * Este arquivo mantém a factory `createProductUsecases` com os NOMES LEGADOS
  * (`listProductsUsecase`, `createProductUsecase`, ...) para os consumidores
  * que ainda instanciam via factory (a composition root provisória

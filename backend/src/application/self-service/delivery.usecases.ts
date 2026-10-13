@@ -420,7 +420,7 @@ export function createSelfServiceDeliveryUsecases(deps: SelfServiceDeliveryUseca
         // localização é a mesma linha.
         const byCourier = new Map(rows.map((r) => [r.courierId, r]));
         // Basename no banco, URL pública na resposta — mesma regra de todo o
-        // resto da API (photoUrl em application/user.usecases.ts).
+        // resto da API (photoUrl em application/user/shared/user-helpers.ts).
         return [...byCourier.values()].map((r) => ({ ...r, photoPath: userPhotoUrl(r.photoPath) }));
       });
     },
