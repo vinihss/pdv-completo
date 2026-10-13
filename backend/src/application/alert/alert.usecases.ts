@@ -168,8 +168,8 @@ function serialize(row: AlertRecord, orderStatus?: string | null) {
  * quem está em qualquer um dos dois recebe. Os dois vazios = alerta público.
  *
  * ONDA 2: era `createAlertTx(tx, ...)`; a sessão carrega `alerts` + `outbox`
- * já ligados à transação corrente (o wrapper `createAlertTx` legado mora em
- * `infra/composition/order-compat.ts`).
+ * já ligados à transação corrente (o wrapper legado saiu junto do último
+ * consumidor — a camada de pagamento, removida com o Pagar.me).
  */
 export async function createAlert(
   session: TenantSession,

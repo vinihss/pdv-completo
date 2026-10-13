@@ -1,21 +1,15 @@
 /**
- * Total da comanda a partir do snapshot `unit_price` (nunca o preço atual do
- * produto), arredondado pra 2 casas. Itens "cancelled" não contam (mesma regra
- * do relatório de vendas).
+ * Total da comanda dentro da janela transacional do hub de pedidos.
  *
- * A versão para um `tx` Drizzle puro (consumida por application/payment) está
- * em `infra/composition/order-compat.ts` — é a MESMA fórmula, e a cobrança do
- * gateway continua batendo com o fechamento porque os dois leem o mesmo
- * snapshot de `order_item`.
+ * As LINHAS vêm dos ports do `TenantSession`; a FÓRMULA é
+ * `domain/order-total.ts` — uma só, partilhada com o seed de demonstração e
+ * qualquer outra ponta que calcule o total.
  */
-import { round2 } from "../../../domain/money.js";
+import { computeOrderTotal } from "../../../domain/order-total.js";
 import type { TenantSession } from "../../ports/unit-of-work.js";
 import type { OrderRow } from "../../ports/repositories.js";
 
 export async function computeOrderTotalInSession(session: TenantSession, order: OrderRow): Promise<number> {
   const rows = await session.orders.listItemRows(order.id);
-  const sum = rows
-    .filter((r) => r.status !== "cancelled")
-    .reduce((acc, r) => acc + r.unitPrice * r.quantity, 0);
-  return round2(sum + (order.deliveryFee ?? 0));
+  return computeOrderTotal(rows, order.deliveryFee);
 }

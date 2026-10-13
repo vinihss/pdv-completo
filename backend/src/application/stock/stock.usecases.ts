@@ -14,11 +14,12 @@
 // produto; futuro próximo só adiciona ingredient/product_ingredient e
 // passa a *calcular* esses deltas a partir da receita.
 //
-// ONDA 2: sem Drizzle/infra. Os helpers que precisam de `tx`/`db` puro
+// ONDA 2: sem Drizzle/infra. Os helpers que precisavam de `tx`/`db` puro
 // (`applyStockMovementTx`, `stockBalance`, `computeMovingAverageTx`, ...)
-// migraram VERBATIM para `infra/composition/order-compat.ts`; aqui ficam as
-// funções puras (round2, replay da média móvel, constants) e a factory
-// `createStockUsecases({ uow, tenant })`.
+// moravam no compat transacional de `infra/composition/` e saíram junto da
+// camada de pagamento — o último consumidor — na remoção do Pagar.me. Aqui
+// ficam as funções puras (round2, replay da média móvel, constants) e a
+// factory `createStockUsecases({ uow, tenant })`.
 import { Errors } from "../../domain/errors.js";
 import type { TenantSession, TenantUnitOfWork } from "../ports/unit-of-work.js";
 import type { TenantContext } from "../ports/tenant-context.js";
@@ -71,8 +72,8 @@ export function replayMovingAverage(
 // na mesma transação da escrita de domínio (o `TenantSession` compartilha a
 // transação com o repositório). Devolve o saldo PÓS-movimento.
 //
-// Era `applyStockMovementTx(tx, ...)`; a versão para um `tx` cru (helpers
-// legados de product/purchase/cancel) está em `infra/composition/order-compat.ts`.
+// Era `applyStockMovementTx(tx, ...)`; a versão para um `tx` cru saiu junto
+// do último consumidor (camada de pagamento, removida com o Pagar.me).
 export async function applyStockMovement(
   session: TenantSession,
   input: {
