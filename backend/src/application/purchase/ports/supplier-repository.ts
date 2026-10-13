@@ -5,7 +5,7 @@
  * (`src/infra/db/repositories/supplier.repository.ts`) traduz para
  * Drizzle/schema.
  */
-import type { Id, Page } from "./shared.js";
+import type { Id, Page } from "../../ports/repositories/shared.js";
 
 /**
  * ADIÇÃO (Onda financeiro — compras): fornecedor (`supplier`). O trim/merge dos

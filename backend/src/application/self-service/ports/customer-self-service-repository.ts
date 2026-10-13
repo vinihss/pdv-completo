@@ -5,7 +5,7 @@
  * Postgres (`src/infra/db/repositories/customer-self-service.repository.ts`)
  * traduz para Drizzle/schema.
  */
-import type { Id } from "./shared.js";
+import type { Id } from "../../ports/repositories/shared.js";
 
 /**
  * ADIÇÃO (Onda 3 — self-service): carrinho server-side do cliente

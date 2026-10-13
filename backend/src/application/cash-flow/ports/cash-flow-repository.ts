@@ -5,7 +5,7 @@
  * (`src/infra/db/repositories/cash-flow.repository.ts`) traduz para
  * Drizzle/schema.
  */
-import type { CashMovementKind, Id, PageQuery } from "./shared.js";
+import type { CashMovementKind, Id, PageQuery } from "../../ports/repositories/shared.js";
 
 // ---------- ADIÇÃO (Onda cash-flow): records de gaveta e movimento ----------
 

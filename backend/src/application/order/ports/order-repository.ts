@@ -13,8 +13,8 @@ import type {
   Page,
   PageQuery,
   PaymentMethodKind,
-} from "./shared.js";
-import type { CustomerOpenOrderRecord, CustomerOrderHistoryRecord } from "./customer.js";
+} from "../../ports/repositories/shared.js";
+import type { CustomerOpenOrderRecord, CustomerOrderHistoryRecord } from "../../customer/ports/customer-repository.js";
 
 export interface OrderRecord {
   id: Id;

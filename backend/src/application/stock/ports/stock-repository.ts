@@ -6,7 +6,7 @@
  * (`src/infra/db/repositories/stock.repository.ts`) traduz para
  * Drizzle/schema.
  */
-import type { Id, StockMovementKind } from "./shared.js";
+import type { Id, StockMovementKind } from "../../ports/repositories/shared.js";
 
 /** Linha de `stock_movement` (ledger). */
 export interface StockMovementRecord {

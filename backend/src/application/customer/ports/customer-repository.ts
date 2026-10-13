@@ -5,7 +5,7 @@
  * (`src/infra/db/repositories/customer.repository.ts`) traduz para
  * Drizzle/schema.
  */
-import type { Id, OrderStatus, Page, PageQuery } from "./shared.js";
+import type { Id, OrderStatus, Page, PageQuery } from "../../ports/repositories/shared.js";
 
 export interface CustomerRecord {
   id: Id;

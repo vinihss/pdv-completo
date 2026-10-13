@@ -6,7 +6,7 @@
  * Postgres (`src/infra/db/repositories/provisioning.repository.ts`) traduz
  * para Drizzle/schema.
  */
-import type { Id } from "./shared.js";
+import type { Id } from "../../ports/repositories/shared.js";
 
 /**
  * ADIÇÃO (device provisioning): chave de provisionamento (`provisioning_key`).

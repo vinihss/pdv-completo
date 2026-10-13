@@ -5,7 +5,7 @@
  * (`src/infra/db/repositories/purchase.repository.ts`) traduz para
  * Drizzle/schema.
  */
-import type { Id, Page } from "./shared.js";
+import type { Id, Page } from "../../ports/repositories/shared.js";
 
 export interface PurchaseRecord {
   id: Id;

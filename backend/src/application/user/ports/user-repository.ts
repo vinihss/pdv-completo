@@ -4,7 +4,7 @@
  * Contrato CONGELADO: os use cases falam com esta interface; o adapter Postgres
  * (`src/infra/db/repositories/user.repository.ts`) traduz para Drizzle/schema.
  */
-import type { Id, UserRole } from "./shared.js";
+import type { Id, UserRole } from "../../ports/repositories/shared.js";
 
 export interface UserRecord {
   id: Id;
