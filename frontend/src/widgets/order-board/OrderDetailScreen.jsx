@@ -121,8 +121,8 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
   }
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-50 pb-32 flex flex-col">
-      <div className="sticky top-0 bg-stone-950/95 backdrop-blur z-10">
+    <div className="min-h-screen bg-background text-foreground pb-32 flex flex-col">
+      <div className="sticky top-0 bg-background/95 backdrop-blur z-10">
         <ScreenHeader
           title={orderLabel(order)}
           subtitle={`${order.items.length} ${order.items.length === 1 ? "item" : "itens"} · ${formatBRL(orderTotal(order))}`}
@@ -131,7 +131,7 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
             printerEnabled ? (
               <button
                 onClick={() => setPrintOpen(true)}
-                className="flex items-center gap-1.5 text-stone-400 hover:text-amber-400 transition-colors focus:ring-2 focus:ring-amber-400 focus:outline-none rounded"
+                className="flex items-center gap-1.5 text-text-secondary hover:text-primary transition-colors focus:ring-2 focus:ring-ring focus:outline-none rounded"
                 aria-label="Imprimir pedido"
               >
                 <Printer size={18} />
@@ -142,11 +142,11 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
       </div>
 
       {order.delivery && (
-        <div className="mx-5 mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2.5">
-          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-400">
+        <div className="mx-5 mt-4 rounded-xl border border-ring/30 bg-primary/5 px-3 py-2.5">
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-primary">
             <MapPin size={12} /> Endereço de entrega
           </div>
-          <p className="text-sm text-stone-100 leading-snug mt-1">{order.delivery.address}</p>
+          <p className="text-sm text-foreground leading-snug mt-1">{order.delivery.address}</p>
         </div>
       )}
 
@@ -154,11 +154,11 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
           Fica logo abaixo do endereço e acima dos itens porque é assim que se
           lê: onde entregar, o que observar, e então o que produzir. */}
       {order.notes && (
-        <div className="mx-5 mt-3 rounded-xl border border-stone-700 bg-stone-900 px-3 py-2.5">
-          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-stone-400">
+        <div className="mx-5 mt-3 rounded-xl border border-border bg-surface px-3 py-2.5">
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-text-secondary">
             <MessageSquare size={12} /> Observação do cliente
           </div>
-          <p className="text-sm text-stone-100 leading-snug mt-1 whitespace-pre-line">{order.notes}</p>
+          <p className="text-sm text-foreground leading-snug mt-1 whitespace-pre-line">{order.notes}</p>
         </div>
       )}
 
@@ -169,13 +169,13 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
         <div className="px-5 pt-4">
           <div className="flex items-center gap-2 flex-wrap">
             {counts.ready > 0 && (
-              <span className="inline-flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold rounded-lg px-2.5 py-1.5">
+              <span className="inline-flex items-center gap-1.5 bg-success/10 border border-success/30 text-success text-xs font-semibold rounded-lg px-2.5 py-1.5">
                 <Check size={13} />
                 {counts.ready} {counts.ready === 1 ? "pronto para entregar" : "prontos para entregar"}
               </span>
             )}
             {counts.ordered > 0 && (
-              <span className="inline-flex items-center gap-1.5 bg-stone-900 border border-stone-800 text-stone-400 text-xs rounded-lg px-2.5 py-1.5">
+              <span className="inline-flex items-center gap-1.5 bg-surface border border-border text-text-secondary text-xs rounded-lg px-2.5 py-1.5">
                 <Clock size={13} />
                 {counts.ordered} em preparo
               </span>
@@ -186,8 +186,8 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
 
       {!kitchenEnabled && counts.ordered > 0 && (
         <div className="px-5 pt-4">
-          <div className="text-stone-500 text-xs bg-stone-900 border border-stone-800 rounded-xl px-3 py-2.5">
-            <span className="text-stone-300 font-semibold">{counts.ordered} aguardando entrega.</span>{" "}
+          <div className="text-text-muted text-xs bg-surface border border-border rounded-xl px-3 py-2.5">
+            <span className="text-text-secondary font-semibold">{counts.ordered} aguardando entrega.</span>{" "}
             Sem cozinha cadastrada — use o botão do item para marcar como entregue.
           </div>
         </div>
@@ -195,7 +195,7 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
 
       <div className="px-5 pt-4 divide-y divide-stone-900">
         {order.items.length === 0 && (
-          <div className="text-stone-600 text-center py-16">Nenhum item lançado ainda.</div>
+          <div className="text-text-muted text-center py-16">Nenhum item lançado ainda.</div>
         )}
         {order.items.map((it) => {
           const isDeliverable = kitchenEnabled ? it.status === "ready" : it.status === "ordered";
@@ -206,17 +206,17 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
             <div
               key={it.id}
               className={`py-3.5 flex items-center gap-3 ${
-                isDeliverable ? "ring-1 ring-emerald-500/40 -mx-3 px-3 rounded-xl" : ""
+                isDeliverable ? "ring-1 ring-success/40 -mx-3 px-3 rounded-xl" : ""
               } ${kitchenEnabled && it.status === "delivered" ? "opacity-50" : ""}`}
             >
               <div className="flex-1 min-w-0">
                 <div className="font-semibold text-sm">
                   {it.quantity}× {it.name}
                 </div>
-                {variations && <div className="text-stone-500 text-xs mt-0.5">{variations}</div>}
-                {it.notes && <div className="text-stone-600 text-xs italic mt-0.5">{it.notes}</div>}
+                {variations && <div className="text-text-muted text-xs mt-0.5">{variations}</div>}
+                {it.notes && <div className="text-text-muted text-xs italic mt-0.5">{it.notes}</div>}
               </div>
-              <div className="text-stone-400 text-sm shrink-0">{formatBRL(it.unitPrice * it.quantity)}</div>
+              <div className="text-text-secondary text-sm shrink-0">{formatBRL(it.unitPrice * it.quantity)}</div>
               <div className="flex items-center gap-2 shrink-0">
                 {kitchenEnabled && <StatusBadge status={it.status} />}
                 {isDeliverable && (
@@ -224,7 +224,7 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
                     onClick={() => handleItemTap(it)}
                     disabled={isBusy}
                     aria-label={`Marcar ${it.quantity}x ${it.name} como entregue`}
-                    className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-stone-950 text-xs font-semibold px-3 py-2 rounded-lg transition-colors focus:ring-2 focus:ring-emerald-400 focus:outline-none"
+                    className="flex items-center gap-1.5 bg-success hover:bg-success disabled:opacity-50 text-primary-foreground text-xs font-semibold px-3 py-2 rounded-lg transition-colors focus:ring-2 focus:ring-success focus:outline-none"
                   >
                     {isBusy ? (
                       <Clock size={14} className="animate-pulse" />
@@ -238,7 +238,7 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
                   <button
                     onClick={() => setConfirmDelete(it)}
                     aria-label={`Remover ${it.quantity}x ${it.name} da comanda`}
-                    className="text-stone-600 hover:text-red-400 p-1 focus:ring-2 focus:ring-red-400 focus:outline-none rounded"
+                    className="text-text-muted hover:text-destructive p-1 focus:ring-2 focus:ring-destructive focus:outline-none rounded"
                   >
                     <Trash2 size={15} />
                   </button>
@@ -251,7 +251,7 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
 
       {closeError && (
         <div className="px-5 pt-4">
-          <div className="flex items-start gap-2 text-amber-400 text-xs bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2.5">
+          <div className="flex items-start gap-2 text-primary text-xs bg-primary/10 border border-ring/30 rounded-xl px-3 py-2.5">
             <AlertTriangle size={14} className="shrink-0 mt-0.5" /> {closeError}
           </div>
         </div>
@@ -259,7 +259,7 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
 
       {!canClose && (
         <div className="px-5 pt-4">
-          <div className="text-amber-400 text-xs bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2.5">
+          <div className="text-primary text-xs bg-primary/10 border border-ring/30 rounded-xl px-3 py-2.5">
             Fechamento bloqueado — {pending.length} {pending.length === 1 ? "item aguardando entrega" : "itens aguardando entrega"}:{" "}
             {pending.map((i) => `${i.quantity}× ${i.name}`).join(", ")}.
           </div>
@@ -268,7 +268,7 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
 
       {hasPayments && (
         <div className="px-5 pt-4 space-y-1.5">
-          <div className="flex items-center gap-2 text-emerald-400 text-xs bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-3 py-2.5">
+          <div className="flex items-center gap-2 text-success text-xs bg-success/10 border border-success/30 rounded-xl px-3 py-2.5">
             <Check size={14} />
             <div className="flex-1">
               <div className="font-semibold">Pagamento registrado</div>
@@ -286,14 +286,14 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
           {payments.map((p) => {
             const label = { cash: "Dinheiro", card: "Cartão", pix: "Pix", other: "Outro" }[p.method] ?? p.method;
             return (
-              <div key={p.id} className="flex items-center justify-between text-xs bg-stone-900 border border-stone-800 rounded-xl px-3 py-2">
-                <span className="text-stone-400">
+              <div key={p.id} className="flex items-center justify-between text-xs bg-surface border border-border rounded-xl px-3 py-2">
+                <span className="text-text-secondary">
                   {label}
-                  {!p.confirmed && <span className="ml-1.5 text-amber-400">aguardando confirmação</span>}
+                  {!p.confirmed && <span className="ml-1.5 text-primary">aguardando confirmação</span>}
                 </span>
                 <div className="text-right">
-                  <div className="font-semibold text-stone-200">{formatBRL(p.amount)}</div>
-                  {p.change > 0 && <div className="text-emerald-400">troco {formatBRL(p.change)}</div>}
+                  <div className="font-semibold text-text-secondary">{formatBRL(p.amount)}</div>
+                  {p.change > 0 && <div className="text-success">troco {formatBRL(p.change)}</div>}
                 </div>
               </div>
             );
@@ -301,22 +301,22 @@ export default function OrderDetailScreen({ order, kitchenEnabled, onBack, onRel
         </div>
       )}
 
-      <div className="fixed bottom-0 left-0 right-0 p-4 border-t border-stone-800 bg-stone-900 z-30 space-y-2">
+      <div className="fixed bottom-0 left-0 right-0 p-4 border-t border-border bg-surface z-30 space-y-2">
         <button
           onClick={() => setAddItemOpen(true)}
-          className="w-full flex items-center justify-center gap-2 bg-stone-800 hover:bg-stone-750 border border-stone-700 text-stone-100 font-semibold py-3 rounded-xl transition-colors"
+          className="w-full flex items-center justify-center gap-2 bg-surface-overlay hover:bg-surface-overlay border border-border text-foreground font-semibold py-3 rounded-xl transition-colors"
         >
           <Plus size={18} /> Adicionar item
         </button>
         {!canClose ? (
-          <button disabled className="w-full bg-stone-800 text-stone-600 font-semibold py-3.5 rounded-xl cursor-not-allowed">
+          <button disabled className="w-full bg-surface-overlay text-text-muted font-semibold py-3.5 rounded-xl cursor-not-allowed">
             Fechar conta ({pending.length} pendente{pending.length > 1 ? "s" : ""})
           </button>
         ) : (
           <button
             onClick={handleClose}
             disabled={closing}
-            className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl transition-colors"
+            className="w-full bg-success hover:bg-success disabled:opacity-50 text-primary-foreground font-semibold py-3.5 rounded-xl transition-colors"
           >
             {closing
               ? "Fechando…"

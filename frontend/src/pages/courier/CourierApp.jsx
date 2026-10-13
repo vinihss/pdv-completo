@@ -192,7 +192,7 @@ export default function CourierApp() {
     // dela, e a repetição estourava a altura útil do celular — dois headers e
     // uma dobra de rolagem. O `100dvh - 3.5rem` desconta o header `h-14` da
     // casca para a coluna ter a altura da tela sem repetir o fundo.
-    <div className="flex min-h-[calc(100dvh-3.5rem)] flex-col bg-stone-950 text-stone-50">
+    <div className="flex min-h-[calc(100dvh-3.5rem)] flex-col bg-background text-foreground">
       <Toast toast={toast} />
 
       {/* Cabeçalho de tela ENXUTO, e não o `ScreenHeader`. Motivo, medido:
@@ -213,7 +213,7 @@ export default function CourierApp() {
           type="button"
           onClick={reloadList}
           aria-label="Atualizar entregas"
-          className="w-11 h-11 -mr-2 shrink-0 flex items-center justify-center rounded-full text-stone-400 hover:text-stone-100 transition-colors"
+          className="w-11 h-11 -mr-2 shrink-0 flex items-center justify-center rounded-full text-text-secondary hover:text-foreground transition-colors"
         >
           <RefreshCcw size={18} className={loading ? "animate-spin" : ""} />
         </button>
@@ -240,7 +240,7 @@ export default function CourierApp() {
               <section aria-labelledby="courier-secao-em-rota">
                 <h2
                   id="courier-secao-em-rota"
-                  className="text-stone-500 text-xs font-bold tracking-widest uppercase mb-3"
+                  className="text-text-muted text-xs font-bold tracking-widest uppercase mb-3"
                 >
                   Em rota · {active.length}
                 </h2>
@@ -281,7 +281,7 @@ export default function CourierApp() {
             <section aria-labelledby="courier-secao-fila">
               <h2
                 id="courier-secao-fila"
-                className="text-stone-500 text-xs font-bold tracking-widest uppercase mb-3"
+                className="text-text-muted text-xs font-bold tracking-widest uppercase mb-3"
               >
                 Fila · {queue.length}
               </h2>
@@ -300,7 +300,7 @@ export default function CourierApp() {
               <section aria-labelledby="courier-secao-problemas">
                 <h2
                   id="courier-secao-problemas"
-                  className="text-stone-500 text-xs font-bold tracking-widest uppercase mb-3"
+                  className="text-text-muted text-xs font-bold tracking-widest uppercase mb-3"
                 >
                   Problemas · {failed.length}
                 </h2>

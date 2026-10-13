@@ -23,7 +23,7 @@ export default function OpenCashDrawerModal({ onClose, onConfirm }) {
       title="Abrir caixa"
       onClose={onClose}
       footer={
-        <button onClick={handleSubmit} disabled={saving} className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl">
+        <button onClick={handleSubmit} disabled={saving} className="w-full bg-primary hover:bg-primary-strong disabled:opacity-50 text-primary-foreground font-semibold py-3.5 rounded-xl">
           {saving ? "Abrindo…" : "Abrir caixa"}
         </button>
       }

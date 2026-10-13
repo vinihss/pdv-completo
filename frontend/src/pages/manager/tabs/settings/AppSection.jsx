@@ -46,7 +46,7 @@ export default function AppSection({ showToast }) {
 
   return (
     <Section title="Aplicativo">
-      <div className="flex items-center gap-2 text-stone-500 text-xs mb-3">
+      <div className="flex items-center gap-2 text-text-muted text-xs mb-3">
         <Monitor size={14} />
         <span>
           Versão {version || "—"} · plano {config.mode === "cloud" ? "nuvem" : "local"}
@@ -59,7 +59,7 @@ export default function AppSection({ showToast }) {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="flex-1 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3 rounded-xl transition-colors"
+          className="flex-1 bg-primary hover:bg-primary-strong disabled:opacity-50 text-primary-foreground font-semibold py-3 rounded-xl transition-colors"
         >
           {saving ? "Salvando…" : "Salvar aplicativo"}
         </button>
@@ -67,13 +67,13 @@ export default function AppSection({ showToast }) {
           onClick={handleRestore}
           disabled={saving}
           title="Voltar ao endereço definido na instalação"
-          className="flex items-center gap-1.5 bg-stone-800 hover:bg-stone-750 border border-stone-700 rounded-xl px-3 text-xs font-semibold text-stone-300 disabled:opacity-50"
+          className="flex items-center gap-1.5 bg-surface-overlay hover:bg-surface-overlay border border-border rounded-xl px-3 text-xs font-semibold text-text-secondary disabled:opacity-50"
         >
           <RotateCcw size={13} /> Padrão
         </button>
       </div>
 
-      <p className="text-stone-600 text-xs mt-2">
+      <p className="text-text-muted text-xs mt-2">
         O endereço fica gravado por usuário ({`%APPDATA%`}\PDV\app.json). "Padrão" volta para o que o instalador definiu.
       </p>
     </Section>

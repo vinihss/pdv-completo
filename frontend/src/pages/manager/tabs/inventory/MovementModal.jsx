@@ -47,7 +47,7 @@ export default function MovementModal({ product, onClose, onSaved, showToast }) 
           type="submit"
           form="movement-form"
           disabled={saving}
-          className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl"
+          className="w-full bg-primary hover:bg-primary-strong disabled:opacity-50 text-primary-foreground font-semibold py-3.5 rounded-xl"
         >
           {saving ? "Registrando…" : type === "purchase" ? "Registrar entrada" : "Registrar ajuste"}
         </button>
@@ -60,7 +60,7 @@ export default function MovementModal({ product, onClose, onSaved, showToast }) 
             onClick={() => setType("purchase")}
             aria-pressed={type === "purchase"}
             className={`flex flex-col items-center gap-1 rounded-xl border py-3 text-sm font-semibold ${
-              type === "purchase" ? "bg-emerald-500/15 border-emerald-500/50 text-emerald-400" : "bg-stone-800 border-stone-700 text-stone-400"
+              type === "purchase" ? "bg-success/15 border-success/50 text-success" : "bg-surface-overlay border-border text-text-secondary"
             }`}
           >
             <PlusCircle size={18} /> Entrada (compra)
@@ -70,7 +70,7 @@ export default function MovementModal({ product, onClose, onSaved, showToast }) 
             onClick={() => setType("adjustment")}
             aria-pressed={type === "adjustment"}
             className={`flex flex-col items-center gap-1 rounded-xl border py-3 text-sm font-semibold ${
-              type === "adjustment" ? "bg-amber-500/15 border-amber-500/50 text-amber-400" : "bg-stone-800 border-stone-700 text-stone-400"
+              type === "adjustment" ? "bg-primary/15 border-ring/50 text-primary" : "bg-surface-overlay border-border text-text-secondary"
             }`}
           >
             <MinusCircle size={18} /> Ajuste (contagem)
@@ -96,9 +96,9 @@ export default function MovementModal({ product, onClose, onSaved, showToast }) 
               className={inputClass}
             />
           </Field>
-          <div className="flex items-center gap-2 text-stone-500 text-xs bg-stone-800/40 border border-stone-800 rounded-xl px-3 py-2.5">
+          <div className="flex items-center gap-2 text-text-muted text-xs bg-surface-overlay/40 border border-border rounded-xl px-3 py-2.5">
             <ArrowRightLeft size={14} className="shrink-0" />
-            Saldo atual: <b className="text-stone-200">{product.quantity}</b> · saldo após o movimento fica registrado no histórico.
+            Saldo atual: <b className="text-text-secondary">{product.quantity}</b> · saldo após o movimento fica registrado no histórico.
           </div>
         </div>
       </form>

@@ -94,23 +94,23 @@ export default function KitchenDisplay() {
   const ready = visible.filter((t) => t.status === "ready").sort((a, b) => a.updatedAt?.localeCompare(b.updatedAt ?? "") ?? 0);
 
   const chipClass = (isActive) =>
-    `shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold ${isActive ? "bg-amber-500 text-stone-950" : "bg-stone-800 border border-stone-700 text-stone-400 hover:bg-stone-750"}`;
+    `shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold ${isActive ? "bg-primary text-primary-foreground" : "bg-surface-overlay border border-border text-text-secondary hover:bg-surface-overlay"}`;
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-50 flex flex-col">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b-2 border-stone-800 px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b-2 border-border px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-amber-500 flex items-center justify-center">
-            <ChefHat size={24} className="text-stone-950" strokeWidth={2.5} />
+          <div className="w-11 h-11 rounded-2xl bg-primary flex items-center justify-center">
+            <ChefHat size={24} className="text-primary-foreground" strokeWidth={2.5} />
           </div>
           <div>
             <div className="font-display text-xl font-bold leading-tight">Estação Cozinha</div>
-            <div className="text-stone-500 text-sm">{settings.merchantName || "PDV"}</div>
+            <div className="text-text-muted text-sm">{settings.merchantName || "PDV"}</div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm font-medium text-stone-400 sm:gap-6">
-          <span className="flex items-center gap-1.5"><Flame size={16} className="text-amber-400" /> {preparing.length} em preparo</span>
-          <span className="flex items-center gap-1.5"><PackageCheck size={16} className="text-emerald-400" /> {ready.length} prontos</span>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm font-medium text-text-secondary sm:gap-6">
+          <span className="flex items-center gap-1.5"><Flame size={16} className="text-primary" /> {preparing.length} em preparo</span>
+          <span className="flex items-center gap-1.5"><PackageCheck size={16} className="text-success" /> {ready.length} prontos</span>
         </div>
       </div>
 
@@ -140,10 +140,10 @@ export default function KitchenDisplay() {
             const elapsed = minutesSince(t.createdAt, now);
             const urgency = elapsed >= settings.kitchenPrepUrgentMin ? "urgent" : elapsed >= settings.kitchenPrepWarnMin ? "warn" : "fresh";
             const ringClass =
-              urgency === "urgent" ? "border-red-500/70 bg-red-500/10" :
-              urgency === "warn" ? "border-amber-500/60 bg-amber-500/5" :
-              "border-stone-700 bg-stone-900";
-            const timeClass = urgency === "urgent" ? "text-red-400" : urgency === "warn" ? "text-amber-400" : "text-stone-500";
+              urgency === "urgent" ? "border-destructive/70 bg-destructive/10" :
+              urgency === "warn" ? "border-ring/60 bg-primary/5" :
+              "border-border bg-surface";
+            const timeClass = urgency === "urgent" ? "text-destructive" : urgency === "warn" ? "text-primary" : "text-text-muted";
             const variation = variationsText(t.selectedVariations);
             return (
               <button
@@ -161,10 +161,10 @@ export default function KitchenDisplay() {
                   <img src={assetUrl(t.imagePath)} alt={t.name} className="w-full h-20 object-cover rounded-xl mb-3" />
                 )}
                 <div className="font-display text-2xl font-bold leading-tight mb-1">{t.name}</div>
-                {variation && <div className="text-stone-400 text-base mb-2">{variation}</div>}
-                <div className="text-stone-500 text-sm font-medium mt-3">{t.label}</div>
+                {variation && <div className="text-text-secondary text-base mb-2">{variation}</div>}
+                <div className="text-text-muted text-sm font-medium mt-3">{t.label}</div>
                 {t.orderNotes && (
-                  <div className="text-amber-300 text-sm font-semibold mt-2 leading-snug border-t border-stone-700 pt-2">
+                  <div className="text-primary text-sm font-semibold mt-2 leading-snug border-t border-border pt-2">
                     OBS: {t.orderNotes}
                   </div>
                 )}
@@ -174,8 +174,8 @@ export default function KitchenDisplay() {
         </div>
       </div>
 
-      <div className="min-h-0 flex-[1.4] overflow-y-auto border-t-2 border-stone-800 bg-stone-900/40 p-4 sm:p-6">
-        <div className="ui-eyebrow mb-3 flex items-center gap-1.5 px-1 text-emerald-500">
+      <div className="min-h-0 flex-[1.4] overflow-y-auto border-t-2 border-border bg-surface/40 p-4 sm:p-6">
+        <div className="ui-eyebrow mb-3 flex items-center gap-1.5 px-1 text-success">
           <PackageCheck size={13} /> Prontos — aguardando retirada
         </div>
         {ready.length === 0 && (
@@ -195,12 +195,12 @@ export default function KitchenDisplay() {
               <div
                 key={t.id}
                 className={`shrink-0 w-56 rounded-2xl border-2 p-4 pop-anim ${
-                  isUrgent ? "border-red-500/70 bg-red-500/10 urgent-pulse" : "border-emerald-600/50 bg-emerald-500/10"
+                  isUrgent ? "border-destructive/70 bg-destructive/10 urgent-pulse" : "border-warning/50 bg-success/10"
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <Check size={18} className="text-emerald-400" strokeWidth={3} />
-                  <span className={`flex items-center gap-1 text-xs font-bold tabular-nums ${isUrgent ? "text-red-400" : "text-emerald-400"}`}>
+                  <Check size={18} className="text-success" strokeWidth={3} />
+                  <span className={`flex items-center gap-1 text-xs font-bold tabular-nums ${isUrgent ? "text-destructive" : "text-success"}`}>
                     <Clock size={12} /> {formatMinSec(waiting)}
                   </span>
                 </div>
@@ -208,10 +208,10 @@ export default function KitchenDisplay() {
                   <img src={assetUrl(t.imagePath)} alt={t.name} className="w-full h-16 object-cover rounded-lg mb-2" />
                 )}
                 <div className="font-display text-lg font-bold leading-tight">{t.quantity}× {t.name}</div>
-                {variation && <div className="text-stone-400 text-sm">{variation}</div>}
-                <div className="text-stone-500 text-xs font-medium mt-2">{t.label}</div>
+                {variation && <div className="text-text-secondary text-sm">{variation}</div>}
+                <div className="text-text-muted text-xs font-medium mt-2">{t.label}</div>
                 {t.orderNotes && (
-                  <div className="text-amber-300 text-xs font-semibold mt-2 leading-snug">OBS: {t.orderNotes}</div>
+                  <div className="text-primary text-xs font-semibold mt-2 leading-snug">OBS: {t.orderNotes}</div>
                 )}
               </div>
             );
@@ -220,7 +220,7 @@ export default function KitchenDisplay() {
       </div>
 
       {toast && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 bg-stone-800 border border-stone-700 px-5 py-3 rounded-xl shadow-2xl z-50 text-sm font-semibold toast-anim">
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 bg-surface-overlay border border-border px-5 py-3 rounded-xl shadow-2xl z-50 text-sm font-semibold toast-anim">
           {toast}
         </div>
       )}

@@ -44,9 +44,9 @@ export default function CashFlowReportTab({ showToast }) {
     setTo(r.to);
   }
 
-  if (loading) return <div className="p-10 text-center text-stone-600">Carregando…</div>;
+  if (loading) return <div className="p-10 text-center text-text-muted">Carregando…</div>;
 
-  if (!cash) return <div className="p-10 text-center text-stone-600">Nenhum caixa no período.</div>;
+  if (!cash) return <div className="p-10 text-center text-text-muted">Nenhum caixa no período.</div>;
 
   const view = buildCashReportView(cash);
 
@@ -57,7 +57,7 @@ export default function CashFlowReportTab({ showToast }) {
           <button
             key={p.id}
             onClick={() => pickPreset(p.id)}
-            className="px-3 h-8 rounded-lg text-[13px] font-medium bg-stone-900 border border-stone-800 text-stone-400 hover:text-stone-100 transition-colors"
+            className="px-3 h-8 rounded-lg text-[13px] font-medium bg-surface border border-border text-text-secondary hover:text-foreground transition-colors"
           >
             {p.label}
           </button>
@@ -84,8 +84,8 @@ export default function CashFlowReportTab({ showToast }) {
       </div>
 
       {view.openCount > 0 && (
-        <div className="text-stone-500 text-xs">
-          <b className="text-amber-400">{view.openCount} sessão(ões) em aberto</b> no período —{" "}
+        <div className="text-text-muted text-xs">
+          <b className="text-primary">{view.openCount} sessão(ões) em aberto</b> no período —{" "}
           {fmtMoney(view.openExpected)} ainda não contado.
         </div>
       )}
@@ -95,37 +95,37 @@ export default function CashFlowReportTab({ showToast }) {
           {view.sessions.map((s) => (
             <div
               key={s.id}
-              className="flex items-center justify-between text-sm bg-stone-900 border border-stone-800 rounded-xl px-3 py-2"
+              className="flex items-center justify-between text-sm bg-surface border border-border rounded-xl px-3 py-2"
             >
               <div>
                 <div className="font-medium">Aberto {toDate(s.openedAt)?.toLocaleString() ?? "—"}</div>
-                <div className="text-stone-500 text-xs">
+                <div className="text-text-muted text-xs">
                   {s.isOpen ? "ainda aberto" : `fechado ${toDate(s.closedAt)?.toLocaleString() ?? "—"}`}
                   {s.openedByName ? ` · ${s.openedByName}` : ""}
                 </div>
               </div>
               {s.isOpen ? (
                 <div className="text-right">
-                  <div className="font-semibold text-amber-400">em aberto</div>
-                  <div className="text-stone-500 text-xs">esperado {fmtMoney(s.expected)}</div>
+                  <div className="font-semibold text-primary">em aberto</div>
+                  <div className="text-text-muted text-xs">esperado {fmtMoney(s.expected)}</div>
                 </div>
               ) : (
                 <div className="text-right">
                   <div
                     className={`font-semibold ${
-                      s.diff > 0 ? "text-emerald-400" : s.diff < 0 ? "text-red-400" : "text-stone-200"
+                      s.diff > 0 ? "text-success" : s.diff < 0 ? "text-destructive" : "text-text-secondary"
                     }`}
                   >
                     {s.diff > 0 ? "+" : ""}
                     {fmtMoney(s.diff)}
                   </div>
-                  <div className="text-stone-500 text-xs">esperado {fmtMoney(s.expected ?? 0)}</div>
+                  <div className="text-text-muted text-xs">esperado {fmtMoney(s.expected ?? 0)}</div>
                 </div>
               )}
             </div>
           ))}
           {view.sessions.length === 0 && (
-            <div className="text-stone-600 text-center py-6 text-sm">Nenhum caixa no período.</div>
+            <div className="text-text-muted text-center py-6 text-sm">Nenhum caixa no período.</div>
           )}
         </div>
       </Section>
@@ -135,8 +135,8 @@ export default function CashFlowReportTab({ showToast }) {
 
 function StatCard({ label, value }) {
   return (
-    <div className="bg-stone-900 border border-stone-800 rounded-xl p-3 text-center">
-      <div className="text-stone-500 text-[11px] mb-1">{label}</div>
+    <div className="bg-surface border border-border rounded-xl p-3 text-center">
+      <div className="text-text-muted text-[11px] mb-1">{label}</div>
       <div className="font-display font-bold text-sm">{value}</div>
     </div>
   );

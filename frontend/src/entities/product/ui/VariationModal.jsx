@@ -96,7 +96,7 @@ export default function VariationModal({
       footer={
         <button
           onClick={handleConfirm}
-          className="w-full bg-amber-500 hover:bg-amber-400 text-stone-950 font-semibold py-3.5 rounded-xl"
+          className="w-full bg-primary hover:bg-primary-strong text-primary-foreground font-semibold py-3.5 rounded-xl"
         >
           <span>{confirmLabel}</span>
           {showQuantity && total !== null && <span> · {formatBRL(total)}</span>}
@@ -109,8 +109,8 @@ export default function VariationModal({
       <div className="p-5">
         {(typeof price === "number" || product.description) && (
           <div className="mb-4">
-            {typeof price === "number" && <p className="text-amber-400 font-semibold text-sm">{formatBRL(price)}</p>}
-            {product.description && <p className="text-stone-400 text-[13px] mt-1 leading-snug">{product.description}</p>}
+            {typeof price === "number" && <p className="text-primary font-semibold text-sm">{formatBRL(price)}</p>}
+            {product.description && <p className="text-text-secondary text-[13px] mt-1 leading-snug">{product.description}</p>}
           </div>
         )}
 
@@ -119,8 +119,8 @@ export default function VariationModal({
             <div key={g.name}>
               <div className="text-sm font-semibold mb-2 flex items-center gap-1">
                 {g.name}
-                {g.required && <span className="text-amber-400">*</span>}
-                {g.allowMultiple && !g.required && <span className="text-stone-500 text-xs font-normal">(vários)</span>}
+                {g.required && <span className="text-primary">*</span>}
+                {g.allowMultiple && !g.required && <span className="text-text-muted text-xs font-normal">(vários)</span>}
               </div>
               <div className="flex flex-wrap gap-2">
                 {g.options.map((opt) => {
@@ -132,9 +132,9 @@ export default function VariationModal({
                       aria-pressed={active}
                       className={`px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
                         active
-                          ? "bg-amber-500 border-amber-500 text-stone-950"
-                          : "bg-stone-800 border-stone-700 text-stone-200"
-                      } ${missing.includes(g.name) && !isSatisfied(g) ? "border-red-500/70" : ""}`}
+                          ? "bg-primary border-ring text-primary-foreground"
+                          : "bg-surface-overlay border-border text-text-secondary"
+                      } ${missing.includes(g.name) && !isSatisfied(g) ? "border-destructive/70" : ""}`}
                     >
                       {opt}
                     </button>
@@ -142,7 +142,7 @@ export default function VariationModal({
                 })}
               </div>
               {missing.includes(g.name) && !isSatisfied(g) && (
-                <div className="text-red-400 text-xs mt-1">Selecione uma opção obrigatória.</div>
+                <div className="text-destructive text-xs mt-1">Selecione uma opção obrigatória.</div>
               )}
             </div>
           ))}
@@ -150,11 +150,11 @@ export default function VariationModal({
           {showQuantity && (
             <div className="flex items-center justify-between gap-3 pt-1">
               <span className="text-sm font-semibold">Quantidade</span>
-              <div className="flex items-center gap-3 bg-stone-950 border border-stone-800 rounded-full px-1.5 py-1">
+              <div className="flex items-center gap-3 bg-background border border-border rounded-full px-1.5 py-1">
                 <button
                   onClick={() => setQty((q) => Math.max(1, q - 1))}
                   disabled={qty <= 1}
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-stone-200 disabled:opacity-30"
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-text-secondary disabled:opacity-30"
                   aria-label={`Diminuir quantidade de ${product.name}`}
                 >
                   <Minus size={15} />
@@ -162,7 +162,7 @@ export default function VariationModal({
                 <span className="w-5 text-center text-[14px] font-bold">{qty}</span>
                 <button
                   onClick={() => setQty((q) => q + 1)}
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-stone-200"
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-text-secondary"
                   aria-label={`Aumentar quantidade de ${product.name}`}
                 >
                   <Plus size={15} />
@@ -173,13 +173,13 @@ export default function VariationModal({
 
           {allowNotes && (
             <div>
-              <div className="text-sm font-semibold mb-2">Observação <span className="text-stone-500 text-xs font-normal">(opcional)</span></div>
+              <div className="text-sm font-semibold mb-2">Observação <span className="text-text-muted text-xs font-normal">(opcional)</span></div>
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={2}
                 placeholder="Ex.: sem cebola, capricha no molho..."
-                className="w-full bg-stone-950 border border-stone-800 rounded-lg px-3 py-2 text-[13.5px] text-stone-100 outline-none focus:border-amber-500 placeholder:text-stone-600"
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-[13.5px] text-foreground outline-none focus:border-ring placeholder:text-text-muted"
               />
             </div>
           )}

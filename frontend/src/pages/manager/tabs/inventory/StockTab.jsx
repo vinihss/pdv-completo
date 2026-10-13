@@ -10,9 +10,9 @@ import MovementsList from "./MovementsList.jsx";
 
 // Estoque baixo: saldo <= limite cadastrado no produto (definido no backend).
 function badgeFor(qty, low) {
-  if (low) return "bg-amber-500/15 text-amber-400 border-amber-500/40";
-  if (qty <= 0) return "bg-red-500/15 text-red-400 border-red-500/40";
-  return "bg-emerald-500/15 text-emerald-400 border-emerald-500/40";
+  if (low) return "bg-primary/15 text-primary border-ring/40";
+  if (qty <= 0) return "bg-destructive/15 text-destructive border-destructive/40";
+  return "bg-success/15 text-success border-success/40";
 }
 
 // A tab Estoque só existe com a feature ligada (storeSettings.inventoryEnabled);
@@ -72,7 +72,7 @@ export default function StockTab({ showToast, purchaseEnabled = false }) {
     <div className="p-5 max-w-2xl mx-auto space-y-4">
       <div className="flex gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[160px]">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -83,7 +83,7 @@ export default function StockTab({ showToast, purchaseEnabled = false }) {
         <button
           onClick={() => setLowOnly(!lowOnly)}
           className={`shrink-0 flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold border transition-colors ${
-            lowOnly ? "bg-amber-500 text-stone-950 border-amber-500" : "bg-stone-900 border-stone-800 text-stone-400"
+            lowOnly ? "bg-primary text-primary-foreground border-ring" : "bg-surface border-border text-text-secondary"
           }`}
         >
           <AlertTriangle size={14} />
@@ -92,24 +92,24 @@ export default function StockTab({ showToast, purchaseEnabled = false }) {
       </div>
 
       {purchaseEnabled && valuation != null && (
-        <div className="flex items-center justify-between bg-stone-900 border border-stone-800 rounded-xl px-3 py-2.5">
-          <div className="text-stone-400 text-sm">Valorização do estoque</div>
+        <div className="flex items-center justify-between bg-surface border border-border rounded-xl px-3 py-2.5">
+          <div className="text-text-secondary text-sm">Valorização do estoque</div>
           <div className="font-display font-bold text-lg">{formatBRL(valuation)}</div>
         </div>
       )}
 
       {lowCount > 0 && !lowOnly && (
-        <div className="flex items-center gap-2 text-amber-400 text-sm bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2.5">
+        <div className="flex items-center gap-2 text-primary text-sm bg-primary/10 border border-ring/30 rounded-xl px-3 py-2.5">
           <AlertTriangle size={14} /> {lowCount} produto(s) abaixo do limite de estoque.
         </div>
       )}
 
       {loading ? (
-        <div className="text-stone-600 text-center py-12 text-sm">Carregando…</div>
+        <div className="text-text-muted text-center py-12 text-sm">Carregando…</div>
       ) : (
         <div className="space-y-2">
           {rows.map((r) => (
-            <div key={r.productId} className="flex items-center justify-between gap-3 bg-stone-900 border border-stone-800 rounded-xl px-3 py-2.5">
+            <div key={r.productId} className="flex items-center justify-between gap-3 bg-surface border border-border rounded-xl px-3 py-2.5">
               <div className="min-w-0">
                 <div className="font-medium text-sm flex items-center gap-2">
                   {r.name}
@@ -117,7 +117,7 @@ export default function StockTab({ showToast, purchaseEnabled = false }) {
                     {r.low ? `Estoque baixo` : r.quantity <= 0 ? "Sem estoque" : "OK"}
                   </span>
                 </div>
-                <div className="text-stone-500 text-xs truncate">
+                <div className="text-text-muted text-xs truncate">
                   {r.categoryName ?? "Sem categoria"}
                   {r.unit ? ` · ${r.unit}` : ""}
                   {r.averageCost > 0 ? ` · custo médio ${formatBRL(r.averageCost)}` : ""}
@@ -125,22 +125,22 @@ export default function StockTab({ showToast, purchaseEnabled = false }) {
               </div>
               <div className="flex items-center gap-3 shrink-0">
                 <div className="text-right">
-                  <div className={`font-display font-bold ${r.low ? "text-amber-400" : r.quantity <= 0 ? "text-red-400" : "text-stone-100"}`}>
+                  <div className={`font-display font-bold ${r.low ? "text-primary" : r.quantity <= 0 ? "text-destructive" : "text-foreground"}`}>
                     {r.quantity}{r.unit ? ` ${r.unit}` : ""}
                   </div>
-                  <div className="text-stone-500 text-[11px]">limite {r.lowStockThreshold}</div>
+                  <div className="text-text-muted text-[11px]">limite {r.lowStockThreshold}</div>
                 </div>
                 <button
                   onClick={() => setHistoryTarget(r)}
                   title="Ver movimentos"
-                  className="p-2 rounded-lg bg-stone-800 hover:bg-stone-750 border border-stone-700 text-stone-300"
+                  className="p-2 rounded-lg bg-surface-overlay hover:bg-surface-overlay border border-border text-text-secondary"
                 >
                   <History size={15} />
                 </button>
                 <button
                   onClick={() => setMovementTarget(r)}
                   title="Entrada ou ajuste"
-                  className="p-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950"
+                  className="p-2 rounded-lg bg-primary hover:bg-primary-strong text-primary-foreground"
                 >
                   <ArrowRightLeft size={15} />
                 </button>
@@ -148,7 +148,7 @@ export default function StockTab({ showToast, purchaseEnabled = false }) {
             </div>
           ))}
           {rows.length === 0 && (
-            <div className="text-stone-600 text-center py-16">
+            <div className="text-text-muted text-center py-16">
               <PackageSearch size={32} className="mx-auto mb-2 opacity-50" />
               <div className="text-sm">Nenhum produto com estoque{lowOnly ? " baixo" : ""} encontrado.</div>
               {!lowOnly && total === 0 && (

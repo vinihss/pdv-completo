@@ -111,7 +111,7 @@ export default function RegisterSettlementModal({ onClose, onSuccess, showToast 
       <form id="register-settlement-form" onSubmit={handleSubmit} className="p-4 space-y-4">
         <Field label="Pedido" required>
           {loadingOrders ? (
-            <div className="text-stone-500 text-sm py-2">Carregando pedidos...</div>
+            <div className="text-text-muted text-sm py-2">Carregando pedidos...</div>
           ) : (
             <select
               value={orderId}
@@ -131,13 +131,13 @@ export default function RegisterSettlementModal({ onClose, onSuccess, showToast 
         </Field>
 
         {selectedOrder && (
-          <div className="bg-stone-900 border border-stone-800 rounded-xl p-3 text-sm space-y-1">
+          <div className="bg-surface border border-border rounded-xl p-3 text-sm space-y-1">
             <div className="flex justify-between">
-              <span className="text-stone-400">Total do pedido:</span>
+              <span className="text-text-secondary">Total do pedido:</span>
               <span className="font-medium">{formatBRL(selectedOrder.total)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-stone-400">Data fechamento:</span>
+              <span className="text-text-secondary">Data fechamento:</span>
               <span className="font-medium">
                 {new Date(selectedOrder.closedAt).toLocaleDateString("pt-BR")}
               </span>
@@ -213,16 +213,16 @@ export default function RegisterSettlementModal({ onClose, onSuccess, showToast 
           </Field>
         </div>
 
-        <div className="bg-stone-900 border border-stone-800 rounded-xl p-3 space-y-2">
+        <div className="bg-surface border border-border rounded-xl p-3 space-y-2">
           <div className="flex justify-between text-sm">
-            <span className="text-stone-400">Total de taxas:</span>
+            <span className="text-text-secondary">Total de taxas:</span>
             <span className="font-medium">
               {formatBRL(commission + marketplace + deliverySubsidy)}
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-stone-400">Payout líquido:</span>
-            <span className="font-semibold text-emerald-400 text-lg">{formatBRL(payoutAmount)}</span>
+            <span className="text-text-secondary">Payout líquido:</span>
+            <span className="font-semibold text-success text-lg">{formatBRL(payoutAmount)}</span>
           </div>
         </div>
 

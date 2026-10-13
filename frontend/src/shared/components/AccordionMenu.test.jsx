@@ -33,48 +33,26 @@ const SECTIONS = [
 
 function setup(props = {}) {
   const onSelect = vi.fn();
-  const onToggleSection = vi.fn();
   const { rerender } = render(
     <AccordionMenu
       sections={SECTIONS}
       activeId="orders"
       onSelect={onSelect}
-      expanded={new Set(["operacao"])}
-      onToggleSection={onToggleSection}
       {...props}
     />
   );
-  return { onSelect, onToggleSection, rerender };
+  return { onSelect, rerender };
 }
 
 describe("AccordionMenu", () => {
   afterEach(cleanup);
 
-  it("abre a seção do item ativo e esconde as outras", () => {
+  it("mostra todas as seções sempre expandidas", () => {
     setup();
-    expect(screen.getByRole("button", { name: /Operação/ }).getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByRole("button", { name: /Gestão/ }).getAttribute("aria-expanded")).toBe("false");
     expect(screen.getByText("Comandas")).toBeTruthy();
     expect(screen.getByText("Caixa")).toBeTruthy();
-  });
-
-  it("seção fechada não mostra os itens", () => {
-    setup({ expanded: new Set() });
-    expect(screen.queryByText("Comandas")).toBeNull();
-  });
-
-  it("o cabeçalho da seção alterna a expansão", () => {
-    const { onToggleSection } = setup();
-    fireEvent.click(screen.getByRole("button", { name: /Operação/ }));
-    expect(onToggleSection).toHaveBeenCalledWith("operacao");
-  });
-
-  it("selecionar um item avisa o id e marca o ativo com aria-current", () => {
-    const { onSelect } = setup();
-    fireEvent.click(screen.getByText("Caixa"));
-    expect(onSelect).toHaveBeenCalledWith("cash");
-    expect(screen.getByText("Comandas").closest("button").getAttribute("aria-current")).toBe("page");
-    expect(screen.getByText("Caixa").closest("button").getAttribute("aria-current")).toBeNull();
+    expect(screen.getByText("Equipe")).toBeTruthy();
+    expect(screen.getByText("Relatórios")).toBeTruthy();
   });
 
   it("seção de um item só: o cabeçalho é o item (sem aninhar)", () => {
@@ -85,9 +63,16 @@ describe("AccordionMenu", () => {
     expect(onSelect).toHaveBeenCalledWith("settings");
   });
 
+  it("selecionar um item avisa o id e marca o ativo com aria-current", () => {
+    const { onSelect } = setup();
+    fireEvent.click(screen.getByText("Caixa"));
+    expect(onSelect).toHaveBeenCalledWith("cash");
+    expect(screen.getByText("Comandas").closest("button").getAttribute("aria-current")).toBe("page");
+    expect(screen.getByText("Caixa").closest("button").getAttribute("aria-current")).toBeNull();
+  });
+
   it("mostra o badge do item e o soma no cabeçalho da seção", () => {
     setup({
-      expanded: new Set(),
       sections: [
         {
           id: "catalogo",
@@ -100,7 +85,7 @@ describe("AccordionMenu", () => {
         },
       ],
     });
-    // Seção recolhida: o total continua visível no cabeçalho.
+    // O total continua visível no cabeçalho.
     expect(screen.getByText("4")).toBeTruthy();
   });
 
@@ -117,5 +102,58 @@ describe("AccordionMenu", () => {
   it("aceita rodapé (identidade do usuário)", () => {
     setup({ footer: <p>Ana Ribeiro</p> });
     expect(screen.getByText("Ana Ribeiro")).toBeTruthy();
+  });
+
+  it("item com children: mostra os filhos sempre visíveis", () => {
+    setup({
+      sections: [
+        {
+          id: "gestao",
+          label: "Gestão",
+          icon: Users,
+          items: [
+            { id: "users", label: "Equipe", icon: Users },
+            {
+              id: "reports",
+              label: "Relatórios",
+              icon: BarChart3,
+              children: [
+                { id: "reports.overview", label: "Visão geral", icon: BarChart3 },
+                { id: "reports.orders", label: "Pedidos", icon: BarChart3 },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(screen.getByText("Visão geral")).toBeTruthy();
+    expect(screen.getByText("Pedidos")).toBeTruthy();
+  });
+
+  it("item com children: pai fica ativo quando um filho é a tela atual", () => {
+    setup({
+      activeId: "reports.orders",
+      sections: [
+        {
+          id: "gestao",
+          label: "Gestão",
+          icon: Users,
+          items: [
+            { id: "users", label: "Equipe", icon: Users },
+            {
+              id: "reports",
+              label: "Relatórios",
+              icon: BarChart3,
+              children: [
+                { id: "reports.overview", label: "Visão geral", icon: BarChart3 },
+                { id: "reports.orders", label: "Pedidos", icon: BarChart3 },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(screen.getByText("Relatórios").closest("div").getAttribute("aria-current")).toBe("true");
+    expect(screen.getByText("Pedidos").closest("button").getAttribute("aria-current")).toBe("page");
   });
 });

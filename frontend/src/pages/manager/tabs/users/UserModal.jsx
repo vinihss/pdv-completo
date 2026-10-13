@@ -13,7 +13,7 @@ function PhotoBlock({ name, photoPath, editable, busy, onPick }) {
   const inputRef = useRef(null);
   return (
     <div className="relative shrink-0 self-start">
-      <UserAvatar name={name} photoPath={photoPath} className="w-16 h-16 text-lg border border-stone-700" />
+      <UserAvatar name={name} photoPath={photoPath} className="w-16 h-16 text-lg border border-border" />
       {editable && (
         <>
           <button
@@ -22,7 +22,7 @@ function PhotoBlock({ name, photoPath, editable, busy, onPick }) {
             disabled={busy}
             aria-label="Enviar foto"
             title="Enviar foto"
-            className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-amber-500 text-stone-950 flex items-center justify-center hover:bg-amber-400 disabled:opacity-50"
+            className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary-strong disabled:opacity-50"
           >
             <Camera size={13} />
           </button>
@@ -164,7 +164,7 @@ export default function UserModal({ user, onClose, onSaved, showToast }) {
         <button
           onClick={handleSubmit}
           disabled={saving}
-          className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl"
+          className="w-full bg-primary hover:bg-primary-strong disabled:opacity-50 text-primary-foreground font-semibold py-3.5 rounded-xl"
         >
           {saving ? "Salvando…" : isEdit ? "Salvar alterações" : "Criar usuário"}
         </button>
@@ -179,17 +179,17 @@ export default function UserModal({ user, onClose, onSaved, showToast }) {
             busy={photoBusy}
             onPick={handlePickPhoto}
           />
-          <div className="text-xs text-stone-500 space-y-1">
+          <div className="text-xs text-text-muted space-y-1">
             <p>Foto do perfil — aparece no login.</p>
             {!isEdit && pendingPhoto && (
-              <p className="text-amber-400/90">Enviada junto com a criação — se falhar, você ajusta na edição.</p>
+              <p className="text-primary/90">Enviada junto com a criação — se falhar, você ajusta na edição.</p>
             )}
             {showRemove && (
               <button
                 type="button"
                 onClick={handleRemovePhoto}
                 disabled={photoBusy}
-                className="flex items-center gap-1 text-red-400 hover:text-red-300 disabled:opacity-50"
+                className="flex items-center gap-1 text-destructive hover:text-destructive disabled:opacity-50"
               >
                 <Trash2 size={12} /> {isEdit ? "Remover foto" : "Remover seleção"}
               </button>
@@ -201,7 +201,7 @@ export default function UserModal({ user, onClose, onSaved, showToast }) {
           <input
             value={name}
             onChange={(e) => { setName(e.target.value); if (e.target.value.trim()) setError(""); }}
-            className={inputClass + (error && !name.trim() ? " border-red-500/60" : "")}
+            className={inputClass + (error && !name.trim() ? " border-destructive/60" : "")}
             aria-invalid={Boolean(error && !name.trim())}
             aria-describedby={error && !name.trim() ? "user-modal-name-error" : undefined}
             autoFocus
@@ -247,10 +247,10 @@ export default function UserModal({ user, onClose, onSaved, showToast }) {
             />
           </Field>
         ) : (
-          <p className="text-xs text-stone-500">Um PIN será gerado automaticamente e exibido uma única vez após criar o usuário.</p>
+          <p className="text-xs text-text-muted">Um PIN será gerado automaticamente e exibido uma única vez após criar o usuário.</p>
         )}
 
-        {error && <p id={!name.trim() ? "user-modal-name-error" : undefined} className="text-red-400 text-xs" role="alert">{error}</p>}
+        {error && <p id={!name.trim() ? "user-modal-name-error" : undefined} className="text-destructive text-xs" role="alert">{error}</p>}
       </div>
     </Modal>
   );

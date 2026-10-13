@@ -177,7 +177,7 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
         <button
           onClick={handleSave}
           disabled={!canSave}
-          className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed text-stone-950 font-semibold py-3.5 rounded-xl"
+          className="w-full bg-success hover:bg-success disabled:opacity-40 disabled:cursor-not-allowed text-primary-foreground font-semibold py-3.5 rounded-xl"
         >
           {submitting ? "Registrando…" : lines.some((l) => l.method === "pix") ? "Registrar e gerar Pix" : "Registrar pagamento"}
         </button>
@@ -185,20 +185,20 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
     >
       <div className="p-5">
         {/* Resumo do pagamento */}
-        <div className="mb-4 bg-stone-900 border border-stone-700 rounded-xl p-4 space-y-2">
+        <div className="mb-4 bg-surface border border-border rounded-xl p-4 space-y-2">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-stone-400">Total da comanda</span>
-            <span className="font-semibold text-stone-100">{formatBRL(total)}</span>
+            <span className="text-text-secondary">Total da comanda</span>
+            <span className="font-semibold text-foreground">{formatBRL(total)}</span>
           </div>
           {sumAmount > 0 && (
             <>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-stone-400">Já registrado</span>
-                <span className="font-semibold text-emerald-400">{formatBRL(sumAmount)}</span>
+                <span className="text-text-secondary">Já registrado</span>
+                <span className="font-semibold text-success">{formatBRL(sumAmount)}</span>
               </div>
-              <div className="border-t border-stone-700 pt-2 flex items-center justify-between text-sm">
-                <span className="text-stone-400">Restante</span>
-                <span className={`font-bold ${balanced ? 'text-emerald-400' : 'text-amber-400'}`}>
+              <div className="border-t border-border pt-2 flex items-center justify-between text-sm">
+                <span className="text-text-secondary">Restante</span>
+                <span className={`font-bold ${balanced ? 'text-success' : 'text-primary'}`}>
                   {formatBRL(Math.max(0, remaining))}
                 </span>
               </div>
@@ -209,8 +209,8 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
         <div
           className={`mb-4 text-xs rounded-xl px-3 py-2.5 border ${
             balanced
-              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-              : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+              ? "bg-success/10 border-success/30 text-success"
+              : "bg-primary/10 border-ring/30 text-primary"
           }`}
         >
           {remainingLabel()}
@@ -225,20 +225,20 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
               const change = round2(received - amount);
               const cashShort = l.method === "cash" && change < -0.005;
               return (
-                <div key={l.id} className="bg-stone-800/60 border border-stone-700 rounded-xl p-3">
+                <div key={l.id} className="bg-surface-overlay/60 border border-border rounded-xl p-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className="flex items-center gap-2 text-sm font-semibold">
-                      <Icon size={16} className="text-amber-400" />
+                      <Icon size={16} className="text-primary" />
                       {PAYMENT_META[l.method].label}
-                      {l.confirmed && <Check size={14} className="text-emerald-400" />}
+                      {l.confirmed && <Check size={14} className="text-success" />}
                     </span>
-                    <button onClick={() => removeLine(l.id)} className="text-stone-600 hover:text-red-400 p-1">
+                    <button onClick={() => removeLine(l.id)} className="text-text-muted hover:text-destructive p-1">
                       <Trash2 size={15} />
                     </button>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <label className="block">
-                      <span className="text-stone-500 text-[11px]">Valor (R$)</span>
+                      <span className="text-text-muted text-[11px]">Valor (R$)</span>
                       <input
                         type="number"
                         min="0"
@@ -246,12 +246,12 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
                         inputMode="decimal"
                         value={l.amount}
                         onChange={(e) => updateLine(l.id, { amount: e.target.value })}
-                        className="w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2 text-sm"
+                        className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm"
                       />
                     </label>
                     {l.method === "cash" && (
                       <label className="block">
-                        <span className={`text-[11px] ${cashShort ? "text-red-400" : "text-stone-500"}`}>
+                        <span className={`text-[11px] ${cashShort ? "text-destructive" : "text-text-muted"}`}>
                           {cashShort ? "Faltam R$ " + formatBRL(-change) : "Recebido (R$)"}
                         </span>
                         <input
@@ -261,15 +261,15 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
                           inputMode="decimal"
                           value={l.received}
                           onChange={(e) => updateLine(l.id, { received: e.target.value })}
-                          className={`w-full bg-stone-900 border rounded-lg px-3 py-2 text-sm ${
-                            cashShort ? "border-red-500/50 text-red-300" : "border-stone-700"
+                          className={`w-full bg-surface border rounded-lg px-3 py-2 text-sm ${
+                            cashShort ? "border-destructive/50 text-destructive" : "border-border"
                           }`}
                         />
                       </label>
                     )}
                   </div>
                   {l.method === "cash" && !cashShort && change > 0.004 && (
-                    <div className="mt-2 text-xs text-emerald-400">Troco: {formatBRL(change)}</div>
+                    <div className="mt-2 text-xs text-success">Troco: {formatBRL(change)}</div>
                   )}
                 </div>
               );
@@ -278,7 +278,7 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
         )}
 
         <div className="mb-4">
-          <div className="text-stone-500 text-xs mb-2">Adicionar forma de pagamento</div>
+          <div className="text-text-muted text-xs mb-2">Adicionar forma de pagamento</div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {enabledMethods.map((m) => {
               const Icon = PAYMENT_META[m].icon;
@@ -288,39 +288,39 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
                   key={m}
                   onClick={() => addMethod(m)}
                   disabled={disabled}
-                  className={`flex flex-col items-center gap-1.5 bg-stone-800 border border-stone-700 rounded-xl py-3 ${
-                    disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-stone-750"
+                  className={`flex flex-col items-center gap-1.5 bg-surface-overlay border border-border rounded-xl py-3 ${
+                    disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-surface-overlay"
                   }`}
                 >
-                  <Icon size={18} className="text-amber-400" />
+                  <Icon size={18} className="text-primary" />
                   <span className="text-xs font-semibold">{PAYMENT_META[m].label}</span>
                 </button>
               );
             })}
           </div>
           {enabledMethods.includes("pix") && !pixAvailable && (
-            <p className="mt-2 text-xs text-stone-500 flex items-center gap-1.5">
-              <AlertTriangle size={13} className="shrink-0 text-amber-400" />
+            <p className="mt-2 text-xs text-text-muted flex items-center gap-1.5">
+              <AlertTriangle size={13} className="shrink-0 text-primary" />
               Pix indisponível — configure a chave, o nome e a cidade nas Configurações do gerente.
             </p>
           )}
         </div>
 
-        <div className="bg-stone-800/60 border border-stone-700 rounded-xl p-3 mb-5">
-          <div className="flex items-center gap-1.5 text-stone-300 text-xs font-semibold mb-2">
-            <Users size={14} className="text-amber-400" /> Dividir igualmente entre
+        <div className="bg-surface-overlay/60 border border-border rounded-xl p-3 mb-5">
+          <div className="flex items-center gap-1.5 text-text-secondary text-xs font-semibold mb-2">
+            <Users size={14} className="text-primary" /> Dividir igualmente entre
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setSplitN((n) => Math.max(1, n - 1))}
-              className="bg-stone-900 border border-stone-700 rounded-lg p-2 text-stone-300"
+              className="bg-surface border border-border rounded-lg p-2 text-text-secondary"
             >
               <Minus size={14} />
             </button>
             <span className="w-10 text-center font-display font-bold">{splitN}</span>
             <button
               onClick={() => setSplitN((n) => Math.min(20, n + 1))}
-              className="bg-stone-900 border border-stone-700 rounded-lg p-2 text-stone-300"
+              className="bg-surface border border-border rounded-lg p-2 text-text-secondary"
             >
               <Plus size={14} />
             </button>
@@ -332,8 +332,8 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
                   disabled={m === "pix" && !pixAvailable}
                   className={`flex-1 text-xs font-semibold py-1.5 rounded-lg border ${
                     splitMethod === m
-                      ? "bg-amber-500 text-stone-950 border-amber-500"
-                      : "bg-stone-900 text-stone-400 border-stone-700"
+                      ? "bg-primary text-primary-foreground border-ring"
+                      : "bg-surface text-text-secondary border-border"
                   } ${m === "pix" && !pixAvailable ? "opacity-40 cursor-not-allowed" : ""}`}
                 >
                   {PAYMENT_META[m].label}
@@ -344,14 +344,14 @@ export default function PaymentModal({ order, enabledMethods, storeSettings, onC
           <button
             onClick={applySplit}
             disabled={total <= 0}
-            className="w-full mt-2 bg-stone-700 hover:bg-stone-600 text-stone-100 text-xs font-semibold py-2 rounded-lg"
+            className="w-full mt-2 bg-surface-overlay hover:bg-surface-overlay text-foreground text-xs font-semibold py-2 rounded-lg"
           >
             Aplicar divisão
           </button>
         </div>
 
         {!balanced && (
-          <p className="text-xs text-stone-500 text-center">
+          <p className="text-xs text-text-muted text-center">
             Ajuste os valores até que a soma bata com o total ({formatBRL(total)}).
           </p>
         )}

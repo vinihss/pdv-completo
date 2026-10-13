@@ -43,7 +43,7 @@ function ConnectionLed({ online }) {
   return (
     <span
       aria-hidden="true"
-      className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-stone-900"
+      className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-border"
       style={{ backgroundColor: online ? "#22c55e" : "#ef4444", transition: "background-color 150ms ease" }}
       title={online ? "Conectado ao servidor" : "Sem conexao com o servidor"}
     />
@@ -90,13 +90,13 @@ export default function AlertBell() {
         aria-label={unreadCount > 0 ? `Alertas (${unreadCount} não lidos)` : "Alertas"}
         aria-expanded={open}
         aria-controls="alert-bell-painel"
-        className="relative w-10 h-10 -mr-1 flex items-center justify-center rounded-full text-stone-300 hover:text-amber-300 transition-colors shrink-0"
+        className="relative w-10 h-10 -mr-1 flex items-center justify-center rounded-full text-text-secondary hover:text-primary transition-colors shrink-0"
       >
         {unreadCount > 0 ? <BellRing size={20} /> : <Bell size={20} />}
         {unreadCount > 0 && (
           <span
             data-testid="alert-badge"
-            className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-stone-950 text-[11px] font-bold flex items-center justify-center"
+            className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[11px] font-bold flex items-center justify-center"
           >
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>

@@ -45,17 +45,17 @@ export default function MarkSettledModal({ settlement, onClose, onSuccess, showT
       }
     >
       <form id="mark-settled-form" onSubmit={handleSubmit} className="p-4 space-y-4">
-        <div className="bg-stone-900 border border-stone-800 rounded-xl p-3 space-y-2 text-sm">
+        <div className="bg-surface border border-border rounded-xl p-3 space-y-2 text-sm">
           <div className="flex justify-between">
-            <span className="text-stone-400">Pedido:</span>
+            <span className="text-text-secondary">Pedido:</span>
             <span className="font-medium">{settlement.orderLabel || settlement.orderId}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-stone-400">Payout:</span>
-            <span className="font-medium text-emerald-400">{formatBRL(settlement.payoutAmount)}</span>
+            <span className="text-text-secondary">Payout:</span>
+            <span className="font-medium text-success">{formatBRL(settlement.payoutAmount)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-stone-400">Data esperada:</span>
+            <span className="text-text-secondary">Data esperada:</span>
             <span className="font-medium">{formatDate(settlement.payoutExpectedAt)}</span>
           </div>
         </div>

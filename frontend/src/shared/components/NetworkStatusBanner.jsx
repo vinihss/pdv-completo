@@ -15,7 +15,7 @@ export default function NetworkStatusBanner() {
     <div
       role="alert"
       aria-live="assertive"
-      className="fixed top-0 left-0 right-0 z-50 bg-red-600 text-white px-4 py-2 shadow-lg flex items-center justify-center gap-2"
+      className="fixed top-0 left-0 right-0 z-50 bg-destructive text-destructive-foreground px-4 py-2 shadow-lg flex items-center justify-center gap-2"
     >
       <WifiOff size={18} aria-hidden="true" />
       <span className="text-sm font-semibold">Sem conexão com a internet</span>

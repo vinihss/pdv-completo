@@ -48,7 +48,7 @@ export default function DeliveriesReportTab({ showToast }) {
           <button
             key={p.id}
             onClick={() => pickPreset(p.id)}
-            className="px-3 h-8 rounded-lg text-[13px] font-medium bg-stone-900 border border-stone-800 text-stone-400 hover:text-stone-100 transition-colors"
+            className="px-3 h-8 rounded-lg text-[13px] font-medium bg-surface border border-border text-text-secondary hover:text-foreground transition-colors"
           >
             {p.label}
           </button>
@@ -64,7 +64,7 @@ export default function DeliveriesReportTab({ showToast }) {
         </Field>
       </div>
 
-      {loading && <div className="text-stone-600 text-center py-10">Carregando…</div>}
+      {loading && <div className="text-text-muted text-center py-10">Carregando…</div>}
 
       {report && !loading && (
         <>
@@ -80,12 +80,12 @@ export default function DeliveriesReportTab({ showToast }) {
 
           <Section title="Situação">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-              <CountBox label="Entregues" value={report.summary.delivered} tone="text-emerald-400" />
-              <CountBox label="Falhas" value={report.summary.failed} tone="text-red-400" />
-              <CountBox label="Canceladas" value={report.summary.cancelled} tone="text-stone-400" />
-              <CountBox label="Em aberto" value={report.summary.pending} tone="text-amber-400" />
+              <CountBox label="Entregues" value={report.summary.delivered} tone="text-success" />
+              <CountBox label="Falhas" value={report.summary.failed} tone="text-destructive" />
+              <CountBox label="Canceladas" value={report.summary.cancelled} tone="text-text-secondary" />
+              <CountBox label="Em aberto" value={report.summary.pending} tone="text-primary" />
             </div>
-            <p className="text-[12px] text-stone-500">
+            <p className="text-[12px] text-text-muted">
               Taxa de entrega: {formatBRL(report.summary.deliveryFee)} em taxas ·{" "}
               {report.summary.delivered} de {report.summary.deliveries} concluídas.
             </p>
@@ -96,24 +96,24 @@ export default function DeliveriesReportTab({ showToast }) {
               {report.byCourier.map((c) => (
                 <div
                   key={c.id || "none"}
-                  className="flex items-center justify-between text-sm bg-stone-900 border border-stone-800 rounded-xl px-3 py-2"
+                  className="flex items-center justify-between text-sm bg-surface border border-border rounded-xl px-3 py-2"
                 >
                   <div className="min-w-0">
                     <div className="font-medium truncate">{c.name}</div>
-                    <div className="text-stone-500 text-xs">
+                    <div className="text-text-muted text-xs">
                       {c.deliveries} entregas · {c.onTime} no prazo
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <div className="font-semibold text-stone-100">
+                    <div className="font-semibold text-foreground">
                       {c.avgMinutes > 0 ? `${Math.round(c.avgMinutes)} min` : "—"}
                     </div>
-                    <div className="text-stone-500 text-xs">tempo médio</div>
+                    <div className="text-text-muted text-xs">tempo médio</div>
                   </div>
                 </div>
               ))}
               {report.byCourier.length === 0 && (
-                <div className="text-stone-600 text-center py-6 text-sm">Nenhuma entrega no período.</div>
+                <div className="text-text-muted text-center py-6 text-sm">Nenhuma entrega no período.</div>
               )}
             </div>
           </Section>
@@ -125,8 +125,8 @@ export default function DeliveriesReportTab({ showToast }) {
 
 function StatCard({ label, value }) {
   return (
-    <div className="bg-stone-900 border border-stone-800 rounded-xl p-3 text-center">
-      <div className="text-stone-500 text-[11px] mb-1">{label}</div>
+    <div className="bg-surface border border-border rounded-xl p-3 text-center">
+      <div className="text-text-muted text-[11px] mb-1">{label}</div>
       <div className="font-display font-bold text-sm">{value}</div>
     </div>
   );
@@ -134,9 +134,9 @@ function StatCard({ label, value }) {
 
 function CountBox({ label, value, tone }) {
   return (
-    <div className="rounded-xl border border-stone-800 py-2">
+    <div className="rounded-xl border border-border py-2">
       <div className={`font-display font-bold text-lg ${tone}`}>{value}</div>
-      <div className="text-stone-500 text-[11px]">{label}</div>
+      <div className="text-text-muted text-[11px]">{label}</div>
     </div>
   );
 }

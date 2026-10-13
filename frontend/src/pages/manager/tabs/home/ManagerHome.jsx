@@ -103,28 +103,28 @@ export default function ManagerHome({ showToast }) {
       value: sales ? formatBRL(sales.totals.totalSales) : "—",
       hint: "Comandas fechadas",
       icon: Wallet,
-      tone: "text-emerald-400",
+      tone: "text-success",
     },
     {
       label: "Comandas fechadas",
       value: sales ? sales.totals.orderCount : "—",
       hint: "Hoje",
       icon: ClipboardList,
-      tone: "text-sky-400",
+      tone: "text-primary",
     },
     {
       label: "Ticket médio",
       value: sales ? formatBRL(sales.totals.avgTicket) : "—",
       hint: "Por comanda fechada",
       icon: CreditCard,
-      tone: "text-violet-400",
+      tone: "text-attention",
     },
     {
       label: "Comandas abertas",
       value: openOrders ?? "—",
       hint: "Em atendimento agora",
       icon: ClipboardList,
-      tone: "text-amber-400",
+      tone: "text-primary",
     },
   ];
 
@@ -144,30 +144,30 @@ export default function ManagerHome({ showToast }) {
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 id="home-indicators-title" className="font-display text-lg font-bold">Resumo de hoje</h2>
-            <p className="mt-0.5 text-xs text-stone-500">Indicadores atualizados ao abrir ou ao tocar em Atualizar.</p>
+            <p className="mt-0.5 text-xs text-text-muted">Indicadores atualizados ao abrir ou ao tocar em Atualizar.</p>
           </div>
-          {loading && <span className="text-xs text-stone-500" role="status">Atualizando…</span>}
+          {loading && <span className="text-xs text-text-muted" role="status">Atualizando…</span>}
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {indicators.map(({ label, value, hint, icon: Icon, tone }) => (
             <article key={label} className="ui-surface min-w-0 p-4 sm:p-5">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-xs font-medium text-stone-400">{label}</p>
-                  <p className="mt-2 truncate font-display text-2xl font-bold tabular-nums text-stone-100" aria-live="polite">
-                    {loading && value === "—" ? <span className="text-stone-600">···</span> : value}
+                  <p className="text-xs font-medium text-text-secondary">{label}</p>
+                  <p className="mt-2 truncate font-display text-2xl font-bold tabular-nums text-foreground" aria-live="polite">
+                    {loading && value === "—" ? <span className="text-text-muted">···</span> : value}
                   </p>
                 </div>
-                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-800 ${tone}`} aria-hidden="true">
+                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-overlay ${tone}`} aria-hidden="true">
                   <Icon size={19} />
                 </span>
               </div>
-              <p className="mt-3 text-xs text-stone-500">{hint}</p>
+              <p className="mt-3 text-xs text-text-muted">{hint}</p>
             </article>
           ))}
         </div>
         {loadError && (
-          <p className="text-xs text-amber-300" role="status">
+          <p className="text-xs text-primary" role="status">
             Alguns indicadores não foram carregados. Use “Atualizar” para tentar novamente.
           </p>
         )}
@@ -176,7 +176,7 @@ export default function ManagerHome({ showToast }) {
       <section aria-labelledby="home-shortcuts-title" className="space-y-3">
         <div>
           <h2 id="home-shortcuts-title" className="font-display text-lg font-bold">Atalhos</h2>
-          <p className="mt-0.5 text-xs text-stone-500">Acesse rapidamente as áreas mais usadas.</p>
+          <p className="mt-0.5 text-xs text-text-muted">Acesse rapidamente as áreas mais usadas.</p>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {shortcuts.map(({ id, label, description, icon: Icon }) => (
@@ -184,22 +184,22 @@ export default function ManagerHome({ showToast }) {
               key={id}
               type="button"
               onClick={() => setActiveId(id)}
-              className="group flex min-h-20 items-center gap-3 rounded-2xl border border-stone-800 bg-stone-900/70 p-4 text-left transition-colors hover:border-stone-700 hover:bg-stone-900"
+              className="group flex min-h-20 items-center gap-3 rounded-2xl border border-border bg-surface/70 p-4 text-left transition-colors hover:border-border hover:bg-surface"
             >
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-stone-800 text-amber-400 transition-colors group-hover:bg-amber-500/15" aria-hidden="true">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-surface-overlay text-primary transition-colors group-hover:bg-primary/15" aria-hidden="true">
                 <Icon size={20} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block font-semibold text-stone-100">{label}</span>
-                <span className="mt-0.5 block truncate text-xs text-stone-500">{description}</span>
+                <span className="block font-semibold text-foreground">{label}</span>
+                <span className="mt-0.5 block truncate text-xs text-text-muted">{description}</span>
               </span>
-              <ArrowRight size={16} className="shrink-0 text-stone-600 transition-transform group-hover:translate-x-0.5 group-hover:text-stone-300" aria-hidden="true" />
+              <ArrowRight size={16} className="shrink-0 text-text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-text-secondary" aria-hidden="true" />
             </button>
           ))}
         </div>
       </section>
 
-      <p className="flex items-center gap-2 text-xs text-stone-600">
+      <p className="flex items-center gap-2 text-xs text-text-muted">
         <House size={14} aria-hidden="true" /> Os indicadores usam os dados registrados pelo sistema; vendas consideram comandas fechadas.
       </p>
     </main>

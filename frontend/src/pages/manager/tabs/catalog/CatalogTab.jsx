@@ -232,18 +232,18 @@ export default function CatalogTab({ showToast }) {
       >
         <div className="space-y-2">
           {categories.map((cat) => (
-            <div key={cat.id} className="flex items-center gap-2 bg-stone-800/60 rounded-xl px-3 py-2">
+            <div key={cat.id} className="flex items-center gap-2 bg-surface-overlay/60 rounded-xl px-3 py-2">
               <input
                 defaultValue={cat.name}
                 onBlur={(e) => e.target.value !== cat.name && handleRenameCategory(cat, e.target.value)}
                 className="flex-1 bg-transparent text-sm font-medium outline-none"
               />
-              <button onClick={() => handleToggleCategoryActive(cat)} title={cat.active ? "Desativar" : "Ativar"} className="text-stone-500 hover:text-amber-400">
+              <button onClick={() => handleToggleCategoryActive(cat)} title={cat.active ? "Desativar" : "Ativar"} className="text-text-muted hover:text-primary">
                 {cat.active ? <Eye size={16} /> : <EyeOff size={16} />}
               </button>
-              <button onClick={() => handleReorder(cat, "up")} className="text-stone-500 hover:text-stone-300"><ChevronUp size={16} /></button>
-              <button onClick={() => handleReorder(cat, "down")} className="text-stone-500 hover:text-stone-300"><ChevronDown size={16} /></button>
-              <button onClick={() => setDeleteCategoryTarget(cat)} className="text-stone-500 hover:text-red-400"><Trash2 size={15} /></button>
+              <button onClick={() => handleReorder(cat, "up")} className="text-text-muted hover:text-text-secondary"><ChevronUp size={16} /></button>
+              <button onClick={() => handleReorder(cat, "down")} className="text-text-muted hover:text-text-secondary"><ChevronDown size={16} /></button>
+              <button onClick={() => setDeleteCategoryTarget(cat)} className="text-text-muted hover:text-destructive"><Trash2 size={15} /></button>
             </div>
           ))}
         </div>
@@ -254,12 +254,12 @@ export default function CatalogTab({ showToast }) {
             placeholder="Nova categoria..."
             className={inputClass}
           />
-          <button onClick={handleAddCategory} className="bg-amber-500 hover:bg-amber-400 text-stone-950 px-4 rounded-xl font-semibold shrink-0">
+          <button onClick={handleAddCategory} className="bg-primary hover:bg-primary-strong text-primary-foreground px-4 rounded-xl font-semibold shrink-0">
             <Plus size={16} />
           </button>
         </div>
         {categories.some((c) => !c.active) && (
-          <p className="text-stone-600 text-xs">Categorias desativadas não aparecem no cardápio público, mas continuam no app do garçom.</p>
+          <p className="text-text-muted text-xs">Categorias desativadas não aparecem no cardápio público, mas continuam no app do garçom.</p>
         )}
       </Section>
 
@@ -267,20 +267,20 @@ export default function CatalogTab({ showToast }) {
         <Section title="Grupos de produção" collapsed={!catsSectionOpen} onToggle={() => setCatsSectionOpen(!catsSectionOpen)}>
           <div className="space-y-2">
             {kitchenGroups.map((group) => (
-              <div key={group.id} className="flex items-center gap-2 bg-stone-800/60 rounded-xl px-3 py-2">
-                <ChefHat size={15} className="text-stone-600 shrink-0" />
+              <div key={group.id} className="flex items-center gap-2 bg-surface-overlay/60 rounded-xl px-3 py-2">
+                <ChefHat size={15} className="text-text-muted shrink-0" />
                 <input
                   defaultValue={group.name}
                   onBlur={(e) => e.target.value !== group.name && handleRenameKitchenGroup(group, e.target.value)}
                   className="flex-1 bg-transparent text-sm font-medium outline-none"
                 />
-                <button onClick={() => handleReorderKitchenGroup(group, "up")} className="text-stone-500 hover:text-stone-300"><ChevronUp size={16} /></button>
-                <button onClick={() => handleReorderKitchenGroup(group, "down")} className="text-stone-500 hover:text-stone-300"><ChevronDown size={16} /></button>
-                <button onClick={() => setDeleteKitchenGroupTarget(group)} className="text-stone-500 hover:text-red-400"><Trash2 size={15} /></button>
+                <button onClick={() => handleReorderKitchenGroup(group, "up")} className="text-text-muted hover:text-text-secondary"><ChevronUp size={16} /></button>
+                <button onClick={() => handleReorderKitchenGroup(group, "down")} className="text-text-muted hover:text-text-secondary"><ChevronDown size={16} /></button>
+                <button onClick={() => setDeleteKitchenGroupTarget(group)} className="text-text-muted hover:text-destructive"><Trash2 size={15} /></button>
               </div>
             ))}
             {kitchenGroups.length === 0 && (
-              <p className="text-stone-600 text-xs">Nenhum grupo cadastrado. Produtos sem grupo não entram no fluxo da cozinha.</p>
+              <p className="text-text-muted text-xs">Nenhum grupo cadastrado. Produtos sem grupo não entram no fluxo da cozinha.</p>
             )}
           </div>
           <div className="flex gap-2 pt-2">
@@ -290,7 +290,7 @@ export default function CatalogTab({ showToast }) {
               placeholder="Novo grupo (ex.: Cozinha, Grelha, Bar)..."
               className={inputClass}
             />
-            <button onClick={handleAddKitchenGroup} className="bg-amber-500 hover:bg-amber-400 text-stone-950 px-4 rounded-xl font-semibold shrink-0">
+            <button onClick={handleAddKitchenGroup} className="bg-primary hover:bg-primary-strong text-primary-foreground px-4 rounded-xl font-semibold shrink-0">
               <Plus size={16} />
             </button>
           </div>
@@ -300,7 +300,7 @@ export default function CatalogTab({ showToast }) {
       <Section title={`Produtos (${visibleCount})`}>
         <div className="flex gap-2 flex-wrap items-center">
           <div className="relative flex-1 min-w-[160px]">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -311,13 +311,13 @@ export default function CatalogTab({ showToast }) {
               <button
                 onClick={() => setSearch("")}
                 aria-label="Limpar busca"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-500 hover:text-stone-300"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
               >
                 <X size={14} />
               </button>
             )}
           </div>
-          <Filter size={15} className="text-stone-600 shrink-0" />
+          <Filter size={15} className="text-text-muted shrink-0" />
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
@@ -350,7 +350,7 @@ export default function CatalogTab({ showToast }) {
           {hasFilters && (
             <button
               onClick={clearFilters}
-              className="text-xs font-semibold text-stone-400 hover:text-amber-400 shrink-0"
+              className="text-xs font-semibold text-text-secondary hover:text-primary shrink-0"
             >
               Limpar
             </button>
@@ -358,10 +358,10 @@ export default function CatalogTab({ showToast }) {
         </div>
 
         <div className="flex justify-end gap-3 pt-1">
-          <button onClick={expandAll} className="flex items-center gap-1 text-[11px] font-semibold text-stone-500 hover:text-stone-300">
+          <button onClick={expandAll} className="flex items-center gap-1 text-[11px] font-semibold text-text-muted hover:text-text-secondary">
             <ChevronsUpDown size={12} /> Expandir tudo
           </button>
-          <button onClick={collapseAll} className="flex items-center gap-1 text-[11px] font-semibold text-stone-500 hover:text-stone-300">
+          <button onClick={collapseAll} className="flex items-center gap-1 text-[11px] font-semibold text-text-muted hover:text-text-secondary">
             <ChevronsDownUp size={12} /> Recolher tudo
           </button>
         </div>
@@ -370,21 +370,21 @@ export default function CatalogTab({ showToast }) {
           {blocks.map((block) => {
             const collapsed = collapsedCats.has(block.key);
             return (
-              <div key={block.key} className="border border-stone-800 rounded-xl overflow-hidden">
+              <div key={block.key} className="border border-border rounded-xl overflow-hidden">
                 <button
                   onClick={() => toggleCatCollapse(block.key)}
                   aria-expanded={!collapsed}
-                  className="w-full flex items-center gap-2 bg-stone-900 px-3 py-2.5 text-left hover:bg-stone-800/60 transition-colors"
+                  className="w-full flex items-center gap-2 bg-surface px-3 py-2.5 text-left hover:bg-surface-overlay/60 transition-colors"
                 >
-                  <ChevronDown size={15} className={`text-stone-500 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+                  <ChevronDown size={15} className={`text-text-muted transition-transform ${collapsed ? "-rotate-90" : ""}`} />
                   <span className="flex-1 text-sm font-semibold truncate">{block.title}</span>
                   {!block.active && (
-                    <span className="text-[10px] font-bold text-stone-500 bg-stone-700/60 rounded-full px-1.5 py-0.5">inativa</span>
+                    <span className="text-[10px] font-bold text-text-muted bg-surface-overlay/60 rounded-full px-1.5 py-0.5">inativa</span>
                   )}
-                  <span className="text-xs text-stone-500 shrink-0">{block.products.length}</span>
+                  <span className="text-xs text-text-muted shrink-0">{block.products.length}</span>
                 </button>
                 {!collapsed && (
-                  <div className="p-2 space-y-1.5 bg-stone-950/40">
+                  <div className="p-2 space-y-1.5 bg-background/40">
                     {block.products.map((p) => (
                       <ProductRow
                         key={p.id}
@@ -398,7 +398,7 @@ export default function CatalogTab({ showToast }) {
                       />
                     ))}
                     {block.products.length === 0 && (
-                      <div className="text-stone-600 text-center py-6 text-xs">Nenhum produto neste grupo.</div>
+                      <div className="text-text-muted text-center py-6 text-xs">Nenhum produto neste grupo.</div>
                     )}
                   </div>
                 )}
@@ -407,7 +407,7 @@ export default function CatalogTab({ showToast }) {
           })}
 
           {blocks.length === 0 && (
-            <div className="text-stone-600 text-center py-12 text-sm">
+            <div className="text-text-muted text-center py-12 text-sm">
               {hasFilters ? "Nenhum produto encontrado para os filtros." : "Nenhum produto cadastrado."}
             </div>
           )}
@@ -415,7 +415,7 @@ export default function CatalogTab({ showToast }) {
 
         <button
           onClick={() => setEditingProduct("new")}
-          className="w-full flex items-center justify-center gap-2 bg-stone-800 hover:bg-stone-750 border border-stone-700 text-sm font-semibold py-2.5 rounded-xl"
+          className="w-full flex items-center justify-center gap-2 bg-surface-overlay hover:bg-surface-overlay border border-border text-sm font-semibold py-2.5 rounded-xl"
         >
           <Plus size={16} /> Novo produto
         </button>

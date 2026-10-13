@@ -49,8 +49,8 @@ export default function DeliveryCard({
       data-testid={`delivery-card-${variant}`}
       className={`rounded-2xl border transition-colors ${
         hero
-          ? "bg-stone-900 border-sky-500/40 p-4 shadow-lg shadow-black/20"
-          : "bg-stone-900 border-stone-800 p-3.5"
+          ? "bg-surface border-channel-sky/40 p-4 shadow-lg shadow-black/20"
+          : "bg-surface border-border p-3.5"
       }`}
     >
       <header className="flex items-start justify-between gap-3">
@@ -61,7 +61,7 @@ export default function DeliveryCard({
           {/* Só o que existe: sem `orderId` a linha some, sem canal não sobra
               um separador órfão. */}
           {(orderRef || delivery.channel) && (
-            <p className="mt-0.5 flex items-center gap-2 text-xs text-stone-500 min-w-0">
+            <p className="mt-0.5 flex items-center gap-2 text-xs text-text-muted min-w-0">
               {orderRef && <span className="truncate">{orderRef}</span>}
               <ChannelBadge channel={delivery.channel} />
             </p>
@@ -71,9 +71,9 @@ export default function DeliveryCard({
       </header>
 
       <div className="mt-2 flex items-start gap-1.5">
-        <MapPin size={hero ? 16 : 14} className="mt-0.5 shrink-0 text-amber-500" />
+        <MapPin size={hero ? 16 : 14} className="mt-0.5 shrink-0 text-primary" />
         <p className={`font-semibold leading-snug ${hero ? "text-base" : "text-sm"}`}>
-          {address || <span className="text-stone-500 font-normal">Endereço não informado</span>}
+          {address || <span className="text-text-muted font-normal">Endereço não informado</span>}
         </p>
       </div>
 
@@ -83,8 +83,8 @@ export default function DeliveryCard({
             data-testid="delivery-elapsed"
             className={
               elapsed.urgent
-                ? "inline-flex items-center gap-1 rounded-full border border-red-500/40 px-1.5 py-0.5 font-bold text-red-400 urgent-pulse"
-                : "inline-flex items-center gap-1 text-stone-500"
+                ? "inline-flex items-center gap-1 rounded-full border border-destructive/40 px-1.5 py-0.5 font-bold text-destructive urgent-pulse"
+                : "inline-flex items-center gap-1 text-text-muted"
             }
           >
             <Clock size={elapsed.urgent ? 12 : 11} />
@@ -92,7 +92,7 @@ export default function DeliveryCard({
           </span>
         )}
         {estimate && (
-          <span className="inline-flex items-center gap-1 text-stone-500">
+          <span className="inline-flex items-center gap-1 text-text-muted">
             <Timer size={11} />
             {estimate}
           </span>
@@ -101,7 +101,7 @@ export default function DeliveryCard({
           <a
             href={`tel:${phone}`}
             aria-label={`Ligar para ${name}`}
-            className="inline-flex items-center gap-1 text-stone-400 hover:text-amber-400"
+            className="inline-flex items-center gap-1 text-text-secondary hover:text-primary"
           >
             <Phone size={11} />
             {maskPhone(delivery.customerPhone)}
@@ -112,9 +112,9 @@ export default function DeliveryCard({
       {/* Itens e observações do pedido: "sem cebola" em amarelo é o que evita
           o pedido voltar. Só aparece quando o payload trouxer. */}
       {lines.length > 0 && (
-        <ul className="mt-2.5 pt-2.5 border-t border-stone-800 space-y-0.5">
+        <ul className="mt-2.5 pt-2.5 border-t border-border space-y-0.5">
           {lines.map((line) => (
-            <li key={line} className="text-xs font-semibold text-amber-300/90 leading-snug">
+            <li key={line} className="text-xs font-semibold text-primary/90 leading-snug">
               {line}
             </li>
           ))}
@@ -128,7 +128,7 @@ export default function DeliveryCard({
             target="_blank"
             rel="noreferrer"
             aria-label={`Abrir rota para ${name} no mapa`}
-            className={`${actionHeight} shrink-0 px-4 rounded-xl border border-stone-700 text-stone-300 hover:text-stone-100 flex items-center gap-2 text-sm font-semibold`}
+            className={`${actionHeight} shrink-0 px-4 rounded-xl border border-border text-text-secondary hover:text-foreground flex items-center gap-2 text-sm font-semibold`}
           >
             <MapPinned size={18} />
             Rota
@@ -141,7 +141,7 @@ export default function DeliveryCard({
             onClick={() => onDispatch(delivery.id)}
             disabled={busy}
             aria-busy={busy}
-            className={`${actionHeight} flex-1 rounded-xl bg-amber-500 text-stone-950 font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.99]`}
+            className={`${actionHeight} flex-1 rounded-xl bg-primary text-primary-foreground font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.99]`}
           >
             <Navigation size={18} />
             Saí para entrega
@@ -152,7 +152,7 @@ export default function DeliveryCard({
             onClick={() => onDeliver(delivery.id)}
             disabled={busy}
             aria-busy={busy}
-            className={`${actionHeight} flex-1 rounded-xl bg-amber-500 text-stone-950 font-bold flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.99] ${
+            className={`${actionHeight} flex-1 rounded-xl bg-primary text-primary-foreground font-bold flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.99] ${
               hero ? "text-base" : "text-sm"
             }`}
           >
@@ -172,7 +172,7 @@ export default function DeliveryCard({
           type="button"
           onClick={() => onFail(delivery)}
           disabled={busy}
-          className="mt-2 w-full h-11 rounded-xl border border-stone-800 text-stone-400 hover:text-stone-200 flex items-center justify-center gap-2 text-sm font-semibold disabled:opacity-50"
+          className="mt-2 w-full h-11 rounded-xl border border-border text-text-secondary hover:text-text-secondary flex items-center justify-center gap-2 text-sm font-semibold disabled:opacity-50"
         >
           <AlertTriangle size={15} />
           Problema na entrega

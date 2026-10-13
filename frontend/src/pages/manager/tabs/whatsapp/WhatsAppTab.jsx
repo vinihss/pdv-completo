@@ -33,10 +33,10 @@ const STATUS_LABEL = {
 };
 
 const STATUS_CLASS = {
-  sent: "bg-stone-800 text-stone-400",
-  delivered: "bg-emerald-500/15 text-emerald-400",
-  read: "bg-sky-500/15 text-sky-400",
-  failed: "bg-red-500/15 text-red-400",
+  sent: "bg-surface-overlay text-text-secondary",
+  delivered: "bg-success/15 text-success",
+  read: "bg-channel-sky/15 text-channel-sky",
+  failed: "bg-destructive/15 text-destructive",
 };
 
 const KIND_LABEL = { notification: "Notificação", bot_reply: "Resposta do bot" };
@@ -116,7 +116,7 @@ export default function WhatsAppTab({ showToast, embedded = false }) {
 
   if (loading) {
     return (
-      <div className={`${embedded ? "" : "p-5 max-w-2xl mx-auto"} py-12 text-center text-stone-500`}>
+      <div className={`${embedded ? "" : "p-5 max-w-2xl mx-auto"} py-12 text-center text-text-muted`}>
         Carregando…
       </div>
     );
@@ -130,12 +130,12 @@ export default function WhatsAppTab({ showToast, embedded = false }) {
     <div className={`${embedded ? "" : "p-5 max-w-2xl mx-auto"} space-y-4`}>
       {/* Falta de configuração do servidor: não adianta tentar conectar. */}
       {status && !status.canConnect && (
-        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-300 space-y-2">
+        <div className="rounded-2xl border border-ring/30 bg-primary/10 p-4 text-sm text-primary space-y-2">
           <div className="flex items-center gap-2 font-semibold">
             <AlertTriangle size={16} />
             WhatsApp não configurado neste servidor
           </div>
-          <p className="text-amber-200/80">
+          <p className="text-primary/80">
             Faltam estas variáveis no backend:
           </p>
           <ul className="list-disc pl-5 font-mono text-xs">
@@ -146,19 +146,19 @@ export default function WhatsAppTab({ showToast, embedded = false }) {
         </div>
       )}
 
-      <div className="bg-stone-900 border border-stone-800 rounded-2xl p-5 space-y-3">
+      <div className="bg-surface border border-border rounded-2xl p-5 space-y-3">
         <div className="flex items-center justify-between">
           <span className="font-semibold text-sm flex items-center gap-2">
-            <MessageCircle size={16} className="text-emerald-400" />
+            <MessageCircle size={16} className="text-success" />
             WhatsApp Business
           </span>
           <span
             className={`text-xs font-bold px-2.5 py-1 rounded-full ${
               connected
-                ? "bg-emerald-500 text-emerald-950"
+                ? "bg-success text-primary-foreground"
                 : expired
-                  ? "bg-amber-500/15 text-amber-400"
-                  : "bg-stone-800 text-stone-400"
+                  ? "bg-primary/15 text-primary"
+                  : "bg-surface-overlay text-text-secondary"
             }`}
           >
             {connected ? "Conectado" : expired ? "Token expirado" : "Não conectado"}
@@ -168,34 +168,34 @@ export default function WhatsAppTab({ showToast, embedded = false }) {
         {conn && (
           <dl className="text-sm space-y-1.5">
             <div className="flex justify-between gap-4">
-              <dt className="text-stone-500">Número</dt>
+              <dt className="text-text-muted">Número</dt>
               <dd className="text-right">{conn.displayPhoneNumber ?? conn.phoneNumberId}</dd>
             </div>
             <div className="flex justify-between gap-4">
-              <dt className="text-stone-500">Nome na Meta</dt>
+              <dt className="text-text-muted">Nome na Meta</dt>
               <dd className="text-right">{conn.displayName ?? "—"}</dd>
             </div>
             {conn.businessName && (
               <div className="flex justify-between gap-4">
-                <dt className="text-stone-500">Empresa</dt>
+                <dt className="text-text-muted">Empresa</dt>
                 <dd className="text-right">{conn.businessName}</dd>
               </div>
             )}
             <div className="flex justify-between gap-4">
-              <dt className="text-stone-500">Conectado em</dt>
+              <dt className="text-text-muted">Conectado em</dt>
               <dd className="text-right">{new Date(conn.connectedAt).toLocaleString("pt-BR")}</dd>
             </div>
           </dl>
         )}
 
         {conn?.lastError && (
-          <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-2.5 py-1.5">
+          <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-2.5 py-1.5">
             {conn.lastError}
           </div>
         )}
 
         {expired && (
-          <p className="text-xs text-amber-400">
+          <p className="text-xs text-primary">
             O token da WABA expirou. Reconecte para voltar a enviar e receber.
           </p>
         )}
@@ -206,7 +206,7 @@ export default function WhatsAppTab({ showToast, embedded = false }) {
               <button
                 onClick={onConnect}
                 disabled={connecting}
-                className="flex-1 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-stone-950 font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2"
+                className="flex-1 bg-success hover:bg-success disabled:opacity-50 text-primary-foreground font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2"
               >
                 {connecting ? <Loader2 size={16} className="animate-spin" /> : <Plug size={16} />}
                 {connecting ? "Conectando…" : expired ? "Reconectar" : "Trocar conta"}
@@ -214,7 +214,7 @@ export default function WhatsAppTab({ showToast, embedded = false }) {
               <button
                 onClick={() => setConfirmDisconnect(true)}
                 disabled={disconnecting}
-                className="px-3 py-2.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 text-sm font-semibold"
+                className="px-3 py-2.5 rounded-xl bg-surface-overlay hover:bg-surface-overlay text-text-secondary text-sm font-semibold"
               >
                 Desconectar
               </button>
@@ -223,7 +223,7 @@ export default function WhatsAppTab({ showToast, embedded = false }) {
             <button
               onClick={onConnect}
               disabled={connecting || !status?.canConnect}
-              className="flex-1 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-stone-950 font-semibold py-3 rounded-xl flex items-center justify-center gap-2"
+              className="flex-1 bg-success hover:bg-success disabled:opacity-50 text-primary-foreground font-semibold py-3 rounded-xl flex items-center justify-center gap-2"
             >
               {connecting ? <Loader2 size={16} className="animate-spin" /> : <Plug size={16} />}
               {connecting ? "Conectando…" : "Conectar WhatsApp"}
@@ -234,19 +234,19 @@ export default function WhatsAppTab({ showToast, embedded = false }) {
 
       {/* Histórico: existe para o gerente descobrir por que o cliente não
           recebeu, então o motivo da falha aparece junto do status. */}
-      <div className="bg-stone-900 border border-stone-800 rounded-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-stone-800">
+      <div className="bg-surface border border-border rounded-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <span className="font-semibold text-sm">Mensagens enviadas</span>
           <button
             onClick={load}
-            className="text-stone-500 hover:text-stone-300"
+            className="text-text-muted hover:text-text-secondary"
             aria-label="Atualizar mensagens"
           >
             <RefreshCcw size={15} />
           </button>
         </div>
         {messages.length === 0 ? (
-          <p className="px-5 py-8 text-sm text-stone-500 text-center">
+          <p className="px-5 py-8 text-sm text-text-muted text-center">
             Nenhuma mensagem enviada ainda.
           </p>
         ) : (
@@ -254,13 +254,13 @@ export default function WhatsAppTab({ showToast, embedded = false }) {
             {messages.map((m) => (
               <li key={m.id} className="px-5 py-3 flex items-center gap-3 text-sm">
                 <div className="flex-1 min-w-0">
-                  <div className="font-mono text-xs text-stone-400 truncate">{m.toPhone}</div>
-                  <div className="text-xs text-stone-500">
+                  <div className="font-mono text-xs text-text-secondary truncate">{m.toPhone}</div>
+                  <div className="text-xs text-text-muted">
                     {KIND_LABEL[m.kind] ?? m.kind} ·{" "}
                     {new Date(m.createdAt).toLocaleString("pt-BR")}
                   </div>
                   {m.status === "failed" && m.errorMessage && (
-                    <div className="text-xs text-red-400 mt-0.5">{m.errorMessage}</div>
+                    <div className="text-xs text-destructive mt-0.5">{m.errorMessage}</div>
                   )}
                 </div>
                 <span

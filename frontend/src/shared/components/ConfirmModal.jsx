@@ -27,14 +27,14 @@ export default function ConfirmModal({
       role="alertdialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/70 p-6"
     >
-      <div className="fade-up w-full max-w-xs rounded-2xl border border-stone-800 bg-stone-900 p-5">
-        <div className={`flex items-center gap-2 mb-3 ${destructive ? "text-red-400" : "text-amber-400"}`}>
+      <div className="fade-up w-full max-w-xs rounded-2xl border border-border bg-surface p-5">
+        <div className={`flex items-center gap-2 mb-3 ${destructive ? "text-destructive" : "text-primary"}`}>
           <AlertTriangle size={18} aria-hidden="true" />
           <span className="font-semibold text-sm">{title}</span>
         </div>
-        <p className="text-stone-400 text-sm mb-5">{message}</p>
+        <p className="text-text-secondary text-sm mb-5">{message}</p>
         <div className="flex gap-2">
           <Button variant="secondary" className="flex-1" onClick={onCancel}>
             Cancelar

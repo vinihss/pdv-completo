@@ -19,11 +19,11 @@ import DeliveryStatusBadge, {
 // matriz do próprio módulo passaria mesmo com a matriz errada.
 
 const STATUS = [
-  ["awaiting_courier", "Aguardando", "bg-amber-500/15 text-amber-400"],
-  ["out_for_delivery", "A caminho", "bg-sky-500/15 text-sky-400"],
-  ["delivered", "Entregue", "bg-emerald-500 text-emerald-950"],
-  ["failed", "Falhou", "bg-red-500/15 text-red-400"],
-  ["cancelled", "Cancelada", "bg-stone-700/50 text-stone-400"],
+  ["awaiting_courier", "Aguardando", "bg-primary/15 text-primary"],
+  ["out_for_delivery", "A caminho", "bg-channel-sky/15 text-channel-sky"],
+  ["delivered", "Entregue", "bg-success text-primary-foreground"],
+  ["failed", "Falhou", "bg-destructive/15 text-destructive"],
+  ["cancelled", "Cancelada", "bg-surface-overlay/50 text-text-secondary"],
 ];
 
 describe("DeliveryStatusBadge — rótulo e cor de cada status", () => {
@@ -38,7 +38,7 @@ describe("DeliveryStatusBadge — rótulo e cor de cada status", () => {
   it("status desconhecido não some: mostra o cru e cai na cor de 'aguardando'", () => {
     render(<DeliveryStatusBadge status="saiu_pra_entregar" />);
     const badge = screen.getByText("saiu_pra_entregar");
-    expect(badge.className).toContain("bg-amber-500/15 text-amber-400");
+    expect(badge.className).toContain("bg-primary/15 text-primary");
   });
 
   it("className do chamador entra junto das do status", () => {

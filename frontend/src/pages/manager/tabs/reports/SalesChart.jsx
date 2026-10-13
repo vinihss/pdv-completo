@@ -20,7 +20,7 @@ import { formatBRL } from "@/shared/lib";
 export default function SalesChart({ series = [], height = 220 }) {
   if (series.length === 0) {
     return (
-      <div className="flex items-center justify-center text-stone-600 text-sm" style={{ height }}>
+      <div className="flex items-center justify-center text-text-muted text-sm" style={{ height }}>
         Sem vendas no período.
       </div>
     );
@@ -79,10 +79,10 @@ function SalesTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
   return (
-    <div className="bg-stone-900 border border-stone-700 rounded-lg px-2.5 py-1.5 text-xs shadow-lg">
-      <div className="text-stone-500 mb-0.5">{point.label}</div>
-      <div className="text-amber-400 font-bold">{formatBRL(point.total)}</div>
-      <div className="text-stone-400 mt-0.5">
+    <div className="bg-surface border border-border rounded-lg px-2.5 py-1.5 text-xs shadow-lg">
+      <div className="text-text-muted mb-0.5">{point.label}</div>
+      <div className="text-primary font-bold">{formatBRL(point.total)}</div>
+      <div className="text-text-secondary mt-0.5">
         {point.orderCount} {point.orderCount === 1 ? "comanda" : "comandas"}
       </div>
     </div>

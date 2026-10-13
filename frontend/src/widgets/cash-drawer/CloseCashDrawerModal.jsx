@@ -113,7 +113,7 @@ export default function CloseCashDrawerModal({ expected, onClose, onConfirm }) {
         <button
           onClick={handleSubmit}
           disabled={saving || !hasInput}
-          className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl"
+          className="w-full bg-primary hover:bg-primary-strong disabled:opacity-50 text-primary-foreground font-semibold py-3.5 rounded-xl"
         >
           {saving ? "Fechando…" : "Fechar caixa"}
         </button>
@@ -127,8 +127,8 @@ export default function CloseCashDrawerModal({ expected, onClose, onConfirm }) {
             onClick={() => setMode("denominations")}
             className={`flex-1 py-2 rounded-xl font-medium transition-colors ${
               mode === "denominations"
-                ? "bg-amber-500 text-stone-950"
-                : "bg-stone-800 text-stone-400 hover:bg-stone-700"
+                ? "bg-primary text-primary-foreground"
+                : "bg-surface-overlay text-text-secondary hover:bg-surface-overlay"
             }`}
           >
             Contar por cédula
@@ -138,8 +138,8 @@ export default function CloseCashDrawerModal({ expected, onClose, onConfirm }) {
             onClick={() => setMode("manual")}
             className={`flex-1 py-2 rounded-xl font-medium transition-colors ${
               mode === "manual"
-                ? "bg-amber-500 text-stone-950"
-                : "bg-stone-800 text-stone-400 hover:bg-stone-700"
+                ? "bg-primary text-primary-foreground"
+                : "bg-surface-overlay text-text-secondary hover:bg-surface-overlay"
             }`}
           >
             Informar total manualmente
@@ -148,8 +148,8 @@ export default function CloseCashDrawerModal({ expected, onClose, onConfirm }) {
 
         {/* Modo denominações */}
         {mode === "denominations" && (
-          <div className="bg-stone-900 border border-stone-800 rounded-xl p-3 space-y-2">
-            <div className="text-stone-400 text-xs font-bold uppercase tracking-wide mb-2">
+          <div className="bg-surface border border-border rounded-xl p-3 space-y-2">
+            <div className="text-text-secondary text-xs font-bold uppercase tracking-wide mb-2">
               Contagem por denominação
             </div>
             {DENOMINATIONS.map((denom) => {
@@ -157,7 +157,7 @@ export default function CloseCashDrawerModal({ expected, onClose, onConfirm }) {
               const subtotal = Math.round(qty * denom.value * 100) / 100;
               return (
                 <div key={denom.value} className="flex items-center gap-2 text-sm">
-                  <span className="flex-1 text-stone-300 font-medium">{denom.label}</span>
+                  <span className="flex-1 text-text-secondary font-medium">{denom.label}</span>
                   <input
                     type="number"
                     inputMode="numeric"
@@ -168,15 +168,15 @@ export default function CloseCashDrawerModal({ expected, onClose, onConfirm }) {
                     placeholder="0"
                     className={`${inputClass} w-20 text-right`}
                   />
-                  <span className="w-24 text-right text-stone-400 text-xs">
+                  <span className="w-24 text-right text-text-secondary text-xs">
                     {qty > 0 ? formatBRL(subtotal) : "—"}
                   </span>
                 </div>
               );
             })}
-            <div className="border-t border-stone-700 pt-2 mt-3 flex items-center justify-between">
-              <span className="text-stone-400 text-sm font-semibold">Total contado</span>
-              <span className="text-emerald-400 font-bold text-base">
+            <div className="border-t border-border pt-2 mt-3 flex items-center justify-between">
+              <span className="text-text-secondary text-sm font-semibold">Total contado</span>
+              <span className="text-success font-bold text-base">
                 {formatBRL(denominationsTotal)}
               </span>
             </div>
@@ -202,24 +202,24 @@ export default function CloseCashDrawerModal({ expected, onClose, onConfirm }) {
 
         {/* Quadro esperado / contado / diferença — só aparece depois de preencher */}
         {hasInput && difference !== null && (
-          <div className="bg-stone-900 border border-stone-800 rounded-xl p-3 space-y-2 text-sm">
+          <div className="bg-surface border border-border rounded-xl p-3 space-y-2 text-sm">
             <div className="flex items-center justify-between">
-              <span className="text-stone-400">Esperado</span>
-              <span className="font-semibold text-stone-200">{formatBRL(expected)}</span>
+              <span className="text-text-secondary">Esperado</span>
+              <span className="font-semibold text-text-secondary">{formatBRL(expected)}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-stone-400">Contado</span>
-              <span className="font-semibold text-stone-200">{formatBRL(countedValue)}</span>
+              <span className="text-text-secondary">Contado</span>
+              <span className="font-semibold text-text-secondary">{formatBRL(countedValue)}</span>
             </div>
-            <div className="flex items-center justify-between border-t border-stone-700 pt-2">
-              <span className="text-stone-400">Diferença</span>
+            <div className="flex items-center justify-between border-t border-border pt-2">
+              <span className="text-text-secondary">Diferença</span>
               <span
                 className={`font-bold ${
                   difference > 0
-                    ? "text-emerald-400"
+                    ? "text-success"
                     : difference < 0
-                    ? "text-red-400"
-                    : "text-stone-400"
+                    ? "text-destructive"
+                    : "text-text-secondary"
                 }`}
               >
                 {difference > 0 ? "+" : ""}
@@ -270,7 +270,7 @@ export default function CloseCashDrawerModal({ expected, onClose, onConfirm }) {
 
         {/* Erro */}
         {error && (
-          <div className="bg-red-950/50 border border-red-800 rounded-xl px-3 py-2.5 text-sm text-red-400">
+          <div className="bg-warning/10 border border-destructive rounded-xl px-3 py-2.5 text-sm text-destructive">
             {error}
           </div>
         )}

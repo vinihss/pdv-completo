@@ -80,7 +80,7 @@ export default function CashMovementModal({ type, expected, onClose, onConfirm }
       subtitle={meta.desc}
       onClose={onClose}
       footer={
-        <button onClick={handleSubmit} disabled={saving || !canSubmit} className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl">
+        <button onClick={handleSubmit} disabled={saving || !canSubmit} className="w-full bg-primary hover:bg-primary-strong disabled:opacity-50 text-primary-foreground font-semibold py-3.5 rounded-xl">
           {saving ? "Registrando…" : zeroes && !confirmZero ? "Confirme acima para continuar" : meta.button}
         </button>
       }
@@ -119,14 +119,14 @@ export default function CashMovementModal({ type, expected, onClose, onConfirm }
                 </option>
               ))}
             </select>
-            <p className="text-xs text-stone-500 mt-1">
+            <p className="text-xs text-text-muted mt-1">
               Movimento acima de {formatBRL(threshold)} exige aprovação.
             </p>
           </Field>
         )}
 
         {zeroes && (
-          <label className="flex items-start gap-2 mt-2 text-xs bg-amber-950/50 border border-amber-800 rounded-xl px-3 py-2.5 cursor-pointer">
+          <label className="flex items-start gap-2 mt-2 text-xs bg-warning/10 border border-warning rounded-xl px-3 py-2.5 cursor-pointer">
             <input
               type="checkbox"
               checked={confirmZero}
@@ -134,8 +134,8 @@ export default function CashMovementModal({ type, expected, onClose, onConfirm }
               className="mt-0.5"
             />
             <span>
-              <b className="text-amber-400">Zera o caixa.</b>
-              <span className="text-stone-300"> O disponível fica R$ 0,00{remaining < 0 ? ` ( −${formatBRL(Math.abs(remaining))})` : ""} — marque para confirmar.</span>
+              <b className="text-primary">Zera o caixa.</b>
+              <span className="text-text-secondary"> O disponível fica R$ 0,00{remaining < 0 ? ` ( −${formatBRL(Math.abs(remaining))})` : ""} — marque para confirmar.</span>
             </span>
           </label>
         )}
@@ -145,7 +145,7 @@ export default function CashMovementModal({ type, expected, onClose, onConfirm }
         </Field>
 
         {error && (
-          <div className="bg-red-950/50 border border-red-800 rounded-xl px-3 py-2.5 text-sm text-red-400">
+          <div className="bg-warning/10 border border-destructive rounded-xl px-3 py-2.5 text-sm text-destructive">
             {error}
           </div>
         )}

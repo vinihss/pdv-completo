@@ -27,33 +27,33 @@ export default function FailedDeliveryCard({ delivery }) {
   return (
     <article
       data-testid="delivery-card-failed"
-      className="rounded-2xl border border-stone-700/60 bg-stone-900/40 p-3.5"
+      className="rounded-2xl border border-border/60 bg-surface/40 p-3.5"
     >
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="font-display text-base font-bold leading-tight truncate">
             {delivery.customerName ?? "Cliente sem nome"}
           </p>
-          {orderRef && <p className="text-xs text-stone-500 mt-0.5">{orderRef}</p>}
+          {orderRef && <p className="text-xs text-text-muted mt-0.5">{orderRef}</p>}
         </div>
         <DeliveryStatusBadge status={delivery.status} className="shrink-0 whitespace-nowrap" />
       </header>
 
       {address && (
         <div className="mt-2 flex items-start gap-1.5">
-          <MapPin size={14} className="mt-0.5 shrink-0 text-stone-600" />
-          <p className="text-sm text-stone-500 leading-snug">{address}</p>
+          <MapPin size={14} className="mt-0.5 shrink-0 text-text-muted" />
+          <p className="text-sm text-text-muted leading-snug">{address}</p>
         </div>
       )}
 
       {reason && (
-        <p className="mt-2 text-sm text-stone-300">
-          <span className="text-stone-500">Motivo: </span>
+        <p className="mt-2 text-sm text-text-secondary">
+          <span className="text-text-muted">Motivo: </span>
           {reason}
         </p>
       )}
 
-      <p className="mt-2.5 pt-2.5 border-t border-stone-800/70 text-xs text-stone-400">
+      <p className="mt-2.5 pt-2.5 border-t border-border/70 text-xs text-text-secondary">
         Problema na entrega — o gerente vai resolver
       </p>
     </article>

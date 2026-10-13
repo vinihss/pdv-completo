@@ -65,7 +65,7 @@ export default function SettlementTab({ showToast }) {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Conciliação de Settlements</h1>
-          <p className="text-stone-500 text-sm">Gerencie recebimentos de marketplaces</p>
+          <p className="text-text-muted text-sm">Gerencie recebimentos de marketplaces</p>
         </div>
         <Button onClick={() => setShowRegisterModal(true)}>
           <Plus size={18} />
@@ -85,7 +85,7 @@ export default function SettlementTab({ showToast }) {
           <button
             key={p.id}
             onClick={() => pickPreset(p.id)}
-            className="px-3 h-8 rounded-lg text-[13px] font-medium bg-stone-900 border border-stone-800 text-stone-400 hover:text-stone-100 transition-colors"
+            className="px-3 h-8 rounded-lg text-[13px] font-medium bg-surface border border-border text-text-secondary hover:text-foreground transition-colors"
           >
             {p.label}
           </button>
@@ -170,14 +170,14 @@ export default function SettlementTab({ showToast }) {
 
 function StatCard({ label, value, tone = "stone" }) {
   const toneClass = {
-    stone: "text-stone-100",
-    amber: "text-amber-400",
-    emerald: "text-emerald-400",
+    stone: "text-foreground",
+    amber: "text-primary",
+    emerald: "text-success",
   }[tone];
 
   return (
-    <div className="bg-stone-900 border border-stone-800 rounded-xl p-3">
-      <div className="text-stone-500 text-xs font-medium mb-1">{label}</div>
+    <div className="bg-surface border border-border rounded-xl p-3">
+      <div className="text-text-muted text-xs font-medium mb-1">{label}</div>
       <div className={`text-lg font-bold ${toneClass}`}>{value}</div>
     </div>
   );
@@ -187,9 +187,9 @@ function SettlementCard({ settlement, onMarkSettled }) {
   const statusLabel = payoutStatusLabel(settlement.payoutStatus);
   const statusTone = payoutStatusTone(settlement.payoutStatus);
   const toneClass = {
-    pending: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-    paid: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-    failed: "bg-red-500/15 text-red-400 border-red-500/30",
+    pending: "bg-primary/15 text-primary border-ring/30",
+    paid: "bg-success/15 text-success border-success/30",
+    failed: "bg-destructive/15 text-destructive border-destructive/30",
   }[statusTone];
 
   const statusIcon = {
@@ -201,7 +201,7 @@ function SettlementCard({ settlement, onMarkSettled }) {
   const Icon = statusIcon;
 
   return (
-    <div className="bg-stone-900 border border-stone-800 rounded-xl p-4 space-y-3">
+    <div className="bg-surface border border-border rounded-xl p-4 space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
@@ -213,7 +213,7 @@ function SettlementCard({ settlement, onMarkSettled }) {
               {statusLabel}
             </span>
           </div>
-          <div className="text-stone-500 text-xs">
+          <div className="text-text-muted text-xs">
             {channelLabel(settlement.channel)} · Criado em {formatDateTime(settlement.createdAt)}
           </div>
         </div>
@@ -226,27 +226,27 @@ function SettlementCard({ settlement, onMarkSettled }) {
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
         <div>
-          <div className="text-stone-500 text-xs mb-0.5">Valor bruto</div>
+          <div className="text-text-muted text-xs mb-0.5">Valor bruto</div>
           <div className="font-medium">{formatBRL(settlement.grossAmount)}</div>
         </div>
         <div>
-          <div className="text-stone-500 text-xs mb-0.5">Comissão</div>
+          <div className="text-text-muted text-xs mb-0.5">Comissão</div>
           <div className="font-medium">{formatBRL(settlement.commissionAmount)}</div>
         </div>
         <div>
-          <div className="text-stone-500 text-xs mb-0.5">Taxas</div>
+          <div className="text-text-muted text-xs mb-0.5">Taxas</div>
           <div className="font-medium">
             {formatBRL((settlement.marketplaceFee || 0) + (settlement.deliveryFeeSubsidy || 0))}
           </div>
         </div>
         <div>
-          <div className="text-stone-500 text-xs mb-0.5">Payout</div>
-          <div className="font-bold text-emerald-400">{formatBRL(settlement.payoutAmount)}</div>
+          <div className="text-text-muted text-xs mb-0.5">Payout</div>
+          <div className="font-bold text-success">{formatBRL(settlement.payoutAmount)}</div>
         </div>
       </div>
 
       {(settlement.payoutExpectedAt || settlement.payoutSettledAt) && (
-        <div className="border-t border-stone-800 pt-2 text-xs text-stone-500 flex gap-4">
+        <div className="border-t border-border pt-2 text-xs text-text-muted flex gap-4">
           {settlement.payoutExpectedAt && (
             <div>
               <span className="font-medium">Esperado:</span> {formatDate(settlement.payoutExpectedAt)}
@@ -261,7 +261,7 @@ function SettlementCard({ settlement, onMarkSettled }) {
       )}
 
       {settlement.externalRef && (
-        <div className="text-xs text-stone-600">
+        <div className="text-xs text-text-muted">
           Ref: {settlement.externalRef}
         </div>
       )}

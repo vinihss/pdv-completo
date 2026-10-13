@@ -145,7 +145,7 @@ describe("NewOrderModal", () => {
     await vi.waitFor(() => {
       const mesa1 = screen.getByText("1");
       const button = mesa1.closest("button");
-      expect(button.classList.contains("bg-blue-800/50")).toBe(true);
+      expect(button.classList.contains("bg-surface-overlay/50")).toBe(true);
     });
   });
 });

@@ -43,14 +43,36 @@ describe("AppFrame", () => {
       </MemoryRouter>
     );
     expect(screen.getByText("Unami")).toBeTruthy();
-    // O "Sair" saiu do header: agora é a foto do usuário que abre o menu.
-    expect(screen.getByLabelText("Menu do usuário")).toBeTruthy();
+    // O header não tem mais a foto do usuário nem o menu flutuante:
+    // o perfil e o logout agora ficam no rodapé do menu lateral.
+    expect(screen.queryByLabelText("Menu do usuário")).toBeNull();
     expect(screen.getByText("tela: garçom")).toBeTruthy();
     // Garçom tem 1 item de menu: o AppMenu (e o `aside`) não é desenhado —
     // só o `main` ocupa a largura (regra de menu único, veja AppMenu/router).
     expect(container.querySelector("aside")).toBeNull();
     expect(container.querySelector("main")).toBeTruthy();
     expect(container.querySelector("main").className).toContain("flex-1");
+  });
+
+  it("perfil de tela única (waiter): logout fica no header, sem menu lateral", () => {
+    session("waiter");
+    render(<MemoryRouter><Root /></MemoryRouter>);
+    // Waiter tem 1 item de menu: não há rodapé de menu, então o logout
+    // permanece no header (ícone de sair à direita).
+    expect(screen.getByLabelText("Sair")).toBeTruthy();
+    expect(screen.getByTitle("Sair")).toBeTruthy();
+  });
+
+  it("perfil com menu lateral (manager): logout fica no rodapé do menu, não no header", () => {
+    session("manager");
+    const { container } = render(<MemoryRouter><Root /></MemoryRouter>);
+    // Manager tem menu lateral: o logout está no rodapé, não no header.
+    const header = container.querySelector("header, .sticky");
+    expect(within(header).queryByLabelText("Sair")).toBeNull();
+    expect(within(header).queryByTitle("Sair")).toBeNull();
+    // Mas o rodapé do menu lateral tem o logout.
+    const aside = container.querySelector("aside");
+    expect(within(aside).getByLabelText("Sair")).toBeTruthy();
   });
 
   it("o header é h-14 e a coluna do menu começa logo abaixo dele", () => {

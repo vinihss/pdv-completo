@@ -121,12 +121,12 @@ export default function Modal({
   }
 
   return (
-    <div ref={layerRef} className="fixed inset-0 z-50 bg-stone-950">
+    <div ref={layerRef} className="fixed inset-0 z-50 bg-background">
       <div
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel ?? title}
-        className={`h-full flex flex-col bg-stone-950 fade-up ${
+        className={`h-full flex flex-col bg-background fade-up ${
           dragY === null ? "transition-transform duration-200" : ""
         }`}
         style={dragY === null ? undefined : { transform: `translateY(${dragY}px)` }}
@@ -135,17 +135,17 @@ export default function Modal({
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchEnd}
       >
-        <header className="shrink-0 flex items-center gap-3 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 border-b border-stone-800 bg-stone-950/95 backdrop-blur">
+        <header className="shrink-0 flex items-center gap-3 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 border-b border-border bg-background/95 backdrop-blur">
           <div className="flex-1 min-w-0">
             {title && <h2 className="font-display text-lg font-bold leading-tight truncate">{title}</h2>}
-            {subtitle && <p className="text-stone-500 text-xs truncate">{subtitle}</p>}
+            {subtitle && <p className="text-text-muted text-xs truncate">{subtitle}</p>}
           </div>
           {headerRight}
           <button
             type="button"
             onClick={onClose}
             aria-label="Fechar"
-            className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full text-stone-500 hover:text-stone-200 transition-colors shrink-0"
+            className="w-10 h-10 -mr-2 flex items-center justify-center rounded-full text-text-muted hover:text-text-secondary transition-colors shrink-0"
           >
             <X size={20} />
           </button>
@@ -156,7 +156,7 @@ export default function Modal({
         </div>
 
         {footer && (
-          <div className="shrink-0 border-t border-stone-800 bg-stone-950/95 backdrop-blur px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="shrink-0 border-t border-border bg-background/95 backdrop-blur px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
             {footer}
           </div>
         )}

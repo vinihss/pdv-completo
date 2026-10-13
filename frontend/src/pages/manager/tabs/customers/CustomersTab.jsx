@@ -78,7 +78,7 @@ export default function CustomersTab({ showToast }) {
       <Section title={`Clientes (${filtered.length})`}>
         <div className="flex gap-2 flex-wrap">
           <div className="relative flex-1 min-w-[160px]">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -89,13 +89,13 @@ export default function CustomersTab({ showToast }) {
               <button
                 onClick={() => setSearch("")}
                 aria-label="Limpar busca"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-500 hover:text-stone-300"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
               >
                 <X size={14} />
               </button>
             )}
           </div>
-          <label className="flex items-center gap-2 text-xs text-stone-400 shrink-0 cursor-pointer select-none">
+          <label className="flex items-center gap-2 text-xs text-text-secondary shrink-0 cursor-pointer select-none">
             <input
               type="checkbox"
               checked={showInactive}
@@ -116,7 +116,7 @@ export default function CustomersTab({ showToast }) {
             />
           ))}
           {!loading && filtered.length === 0 && (
-            <div className="text-stone-600 text-center py-12 text-sm">
+            <div className="text-text-muted text-center py-12 text-sm">
               {search ? "Nenhum cliente encontrado para a busca." : "Nenhum cliente cadastrado ainda."}
             </div>
           )}
@@ -124,7 +124,7 @@ export default function CustomersTab({ showToast }) {
 
         <button
           onClick={() => { setEditingCustomer(null); setModalOpen(true); }}
-          className="w-full flex items-center justify-center gap-2 bg-stone-800 hover:bg-stone-750 border border-stone-700 text-sm font-semibold py-2.5 rounded-xl"
+          className="w-full flex items-center justify-center gap-2 bg-surface-overlay hover:bg-surface-overlay border border-border text-sm font-semibold py-2.5 rounded-xl"
         >
           <Plus size={16} /> Novo cliente
         </button>
@@ -166,9 +166,9 @@ function CustomerCard({ customer: c, onOpen, onToggleActive }) {
         onOpen();
       }}
       aria-label={`Ver ficha de ${c.name}`}
-      className={`w-full text-left flex items-center gap-3 bg-stone-900 border border-stone-800 rounded-xl px-4 py-3 cursor-pointer transition-colors hover:border-amber-500/50 hover:bg-stone-800/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/60 ${!c.active ? "opacity-50" : ""}`}
+      className={`w-full text-left flex items-center gap-3 bg-surface border border-border rounded-xl px-4 py-3 cursor-pointer transition-colors hover:border-ring/50 hover:bg-surface-overlay/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ${!c.active ? "opacity-50" : ""}`}
     >
-      <div className="w-11 h-11 rounded-full bg-stone-800 border border-stone-700 flex items-center justify-center text-stone-400 font-bold shrink-0 overflow-hidden">
+      <div className="w-11 h-11 rounded-full bg-surface-overlay border border-border flex items-center justify-center text-text-secondary font-bold shrink-0 overflow-hidden">
         {c.photoPath ? (
           <img src={assetUrl(c.photoPath)} alt="" className="w-full h-full object-cover" />
         ) : (
@@ -178,16 +178,16 @@ function CustomerCard({ customer: c, onOpen, onToggleActive }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-semibold truncate">{c.name}</span>
-          {c.addressCount > 0 && <Star size={11} className="text-amber-400 shrink-0" />}
+          {c.addressCount > 0 && <Star size={11} className="text-primary shrink-0" />}
         </div>
-        <div className="text-stone-500 text-xs truncate">
+        <div className="text-text-muted text-xs truncate">
           {[c.phone ? maskPhone(c.phone) : null, c.email].filter(Boolean).join(" · ") || "Sem contato"}
         </div>
       </div>
       <button
         onClick={(e) => { e.stopPropagation(); onToggleActive(); }}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") e.stopPropagation(); }}
-        className="text-xs font-semibold text-stone-400 hover:text-stone-200 px-2 py-1 shrink-0"
+        className="text-xs font-semibold text-text-secondary hover:text-text-secondary px-2 py-1 shrink-0"
       >
         {c.active ? "Desativar" : "Ativar"}
       </button>

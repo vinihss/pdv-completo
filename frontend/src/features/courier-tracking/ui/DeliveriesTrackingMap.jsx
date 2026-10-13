@@ -25,7 +25,7 @@ export default function DeliveriesTrackingMap({ locations, loaded }) {
     return (
       <div
         data-testid="deliveries-map-empty"
-        className="flex items-center gap-2 rounded-xl border border-stone-800 bg-stone-900 px-3 py-2.5 text-xs text-stone-500"
+        className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2.5 text-xs text-text-muted"
       >
         <MapPinOff size={14} className="shrink-0" />
         {loaded ? "Sem localização do entregador ainda." : "Carregando localizações…"}
@@ -39,7 +39,7 @@ export default function DeliveriesTrackingMap({ locations, loaded }) {
   return (
     <div
       data-testid="deliveries-tracking-map"
-      className="overflow-hidden rounded-xl border border-stone-800"
+      className="overflow-hidden rounded-xl border border-border"
     >
       <MapContainer
         center={center}

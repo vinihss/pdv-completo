@@ -1,22 +1,73 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700;800&family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
+/* Design tokens semânticos: vinculam o tema (variáveis CSS) aos utilitários
+   do Tailwind (`bg-background`, `text-foreground`, `bg-surface`, …).
+   O resto do código pode (e deve) usar esses nomes estáveis, em vez de
+   classes literais de paleta (`bg-stone-900`, `text-stone-400`). Isso faz com
+   que trocar o tema/cor/typografia seja uma mudança em UM lugar, não em ~90
+   arquivos. Ver docs/design-tokens.md (próximos passos de migração). */
+@theme inline {
+  --color-background: var(--app-bg);
+  --color-foreground: var(--text-primary);
+  --color-surface: var(--surface-raised);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-primary: var(--brand-accent);
+  --color-primary-foreground: var(--brand-accent-foreground);
+  --color-primary-strong: var(--brand-accent-strong);
+  --color-border: var(--border-subtle);
+  --color-destructive: var(--status-danger);
+  --color-destructive-foreground: var(--text-primary);
+  --color-success: var(--status-success);
+  --color-warning: var(--status-warning);
+  --color-attention: oklch(0.55 0.2 275); /* roxo de atenção para destaques */
+  --color-overlay: oklch(0.1 0.01 0); /* overlay escuro proposital (modais, drawers) */
+  --color-ring: var(--brand-accent);
+  --color-channel-sky: var(--channel-sky);
+  --color-whatsapp: var(--whatsapp);
+  --color-sidebar: var(--sidebar-bg);
+  --color-sidebar-foreground: var(--sidebar-fg);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-fg);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-fg);
+  --color-sidebar-border: var(--sidebar-border);
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-display: 'Fredoka', 'Inter', system-ui, sans-serif;
+  --radius-lg: calc(var(--radius) * 1);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+}
+
 :root {
-  color-scheme: dark;
-  /* Tokens semânticos do shell: mantenha as telas na mesma escala visual. */
-  --app-bg: #0c0a09;
-  --surface-raised: #1c1917;
-  --surface-overlay: #292524;
-  --border-subtle: #292524;
-  --text-primary: #fafaf9;
-  --text-secondary: #a8a29e;
-  --text-muted: #78716c;
-  --status-success: #34d399;
-  --status-warning: #fbbf24;
-  --status-danger: #f87171;
-  --brand-accent: #e8a33d; /* cor de destaque da página externa (padrão atual) */
-  --brand-accent-strong: #b97c1f;
-  --brand-accent-foreground: #211b19;
+  color-scheme: light;
+  /* Paleta Cheempa: creme/marrom/dourado. Troque aqui para re-skin global. */
+  --app-bg: oklch(0.99 0.006 90);            /* fundo creme */
+  --surface-raised: oklch(1 0 0);             /* cards: branco */
+  --surface-overlay: oklch(0.96 0.012 85);    /* overlays/hover: cinza-quente */
+  --border-subtle: oklch(0.91 0.015 80);      /* bordas */
+  --text-primary: oklch(0.18 0.01 50);        /* texto: marrom-escuro */
+  --text-secondary: oklch(0.48 0.02 55);      /* texto secundário */
+  --text-muted: oklch(0.55 0.03 55);          /* texto fraco */
+  --status-success: oklch(0.42 0.12 145);     /* verde sucesso (tema claro) */
+  --status-warning: oklch(0.65 0.15 80);      /* amarelo aviso */
+  --status-danger: oklch(0.50 0.20 27);       /* vermelho erro */
+  --brand-accent: oklch(0.86 0.17 92);        /* dourado primário */
+  --brand-accent-strong: oklch(0.78 0.16 85); /* dourado hover */
+  --brand-accent-foreground: oklch(0.18 0.01 50);
+  --channel-sky: oklch(0.5 0.09 220);         /* identificador de canal: Site / WhatsApp */
+  --whatsapp: oklch(0.72 0.18 145);           /* verde oficial do WhatsApp */
+  /* Sidebar marrom do Cheempa */
+  --sidebar-bg: oklch(0.27 0.04 48);
+  --sidebar-fg: oklch(0.95 0.02 85);
+  --sidebar-primary: oklch(0.86 0.17 92);
+  --sidebar-primary-fg: oklch(0.18 0.01 50);
+  --sidebar-accent: oklch(0.33 0.045 48);
+  --sidebar-accent-fg: oklch(0.98 0.01 90);
+  --sidebar-border: oklch(0.36 0.04 48);
+  --radius: 0.625rem;
 }
 
 html, body, #root {
@@ -40,7 +91,7 @@ button:not(:disabled) {
   cursor: pointer;
 }
 :focus-visible {
-  outline: 2px solid var(--color-amber-400, #fbbf24);
+  outline: 2px solid var(--brand-accent);
   outline-offset: 2px;
 }
 ::selection {
@@ -62,7 +113,7 @@ button:not(:disabled) {
 }
 
 .font-display {
-  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-family: 'Fredoka', 'Inter', system-ui, sans-serif;
 }
 
 @keyframes shakeX { 

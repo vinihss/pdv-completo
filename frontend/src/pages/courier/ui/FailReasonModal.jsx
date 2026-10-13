@@ -28,7 +28,7 @@ export default function FailReasonModal({ delivery, reason, onChange, onClose, o
           <button
             type="button"
             onClick={onClose}
-            className="h-12 px-4 rounded-xl border border-stone-700 text-stone-300 text-sm font-semibold shrink-0"
+            className="h-12 px-4 rounded-xl border border-border text-text-secondary text-sm font-semibold shrink-0"
           >
             Cancelar
           </button>
@@ -36,7 +36,7 @@ export default function FailReasonModal({ delivery, reason, onChange, onClose, o
             type="button"
             onClick={onConfirm}
             disabled={!canConfirm}
-            className="h-12 flex-1 rounded-xl bg-red-600 text-white text-sm font-bold disabled:opacity-40 active:scale-[0.99]"
+            className="h-12 flex-1 rounded-xl bg-destructive text-white text-sm font-bold disabled:opacity-40 active:scale-[0.99]"
           >
             Confirmar falha
           </button>
@@ -45,7 +45,7 @@ export default function FailReasonModal({ delivery, reason, onChange, onClose, o
     >
       <div className="p-4 space-y-4">
         <div>
-          <p className="text-stone-400 text-sm font-semibold mb-2.5">O que aconteceu?</p>
+          <p className="text-text-secondary text-sm font-semibold mb-2.5">O que aconteceu?</p>
           <div className="flex flex-wrap gap-2">
             {FAIL_PRESETS.map((preset) => {
               const selected = reason === preset;
@@ -57,8 +57,8 @@ export default function FailReasonModal({ delivery, reason, onChange, onClose, o
                   aria-pressed={selected}
                   className={`h-11 px-3.5 rounded-xl border text-sm font-semibold ${
                     selected
-                      ? "border-amber-500 bg-amber-500/15 text-amber-300"
-                      : "border-stone-700 bg-stone-900 text-stone-300 hover:border-stone-600"
+                      ? "border-ring bg-primary/15 text-primary"
+                      : "border-border bg-surface text-text-secondary hover:border-border"
                   }`}
                 >
                   {preset}
@@ -69,7 +69,7 @@ export default function FailReasonModal({ delivery, reason, onChange, onClose, o
         </div>
 
         <div>
-          <label htmlFor="courier-fail-reason" className="text-stone-400 text-xs font-medium mb-1.5 block">
+          <label htmlFor="courier-fail-reason" className="text-text-secondary text-xs font-medium mb-1.5 block">
             Detalhe (opcional, substitui o motivo escolhido)
           </label>
           <input
@@ -81,7 +81,7 @@ export default function FailReasonModal({ delivery, reason, onChange, onClose, o
           />
         </div>
 
-        <p className="text-xs text-stone-500 leading-snug">
+        <p className="text-xs text-text-muted leading-snug">
           O motivo vai para o cliente e para o gerente. Depois disso o gerente assume a entrega.
         </p>
       </div>

@@ -29,7 +29,7 @@ import { formatBRL } from "@/shared/lib";
 export default function CustomerSpentChart({ series = [], loading, selectedDay, onSelectDay, height }) {
   if (loading) {
     return (
-      <div className="text-stone-600 text-center py-10" data-testid="customer-chart-loading">
+      <div className="text-text-muted text-center py-10" data-testid="customer-chart-loading">
         Carregando…
       </div>
     );
@@ -38,7 +38,7 @@ export default function CustomerSpentChart({ series = [], loading, selectedDay, 
   const temVenda = series.some((p) => Number(p.total) > 0);
   if (series.length === 0 || !temVenda) {
     return (
-      <div className="text-stone-600 text-center py-8 text-sm" data-testid="customer-chart-empty">
+      <div className="text-text-muted text-center py-8 text-sm" data-testid="customer-chart-empty">
         Sem compras no período.
       </div>
     );
@@ -89,7 +89,7 @@ export default function CustomerSpentChart({ series = [], loading, selectedDay, 
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <p className="text-stone-600 text-[11px] text-center">
+      <p className="text-text-muted text-[11px] text-center">
         Toque em um dia do gráfico para ver os pedidos dele.
       </p>
     </div>
@@ -100,10 +100,10 @@ function DayTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
   return (
-    <div className="bg-stone-900 border border-stone-700 rounded-lg px-2.5 py-1.5 text-xs shadow-lg">
-      <div className="text-stone-500 mb-0.5">{point.label}</div>
-      <div className="text-amber-400 font-bold">{formatBRL(point.total)}</div>
-      <div className="text-stone-400 mt-0.5">
+    <div className="bg-surface border border-border rounded-lg px-2.5 py-1.5 text-xs shadow-lg">
+      <div className="text-text-muted mb-0.5">{point.label}</div>
+      <div className="text-primary font-bold">{formatBRL(point.total)}</div>
+      <div className="text-text-secondary mt-0.5">
         {point.orderCount} {point.orderCount === 1 ? "comanda" : "comandas"}
       </div>
     </div>

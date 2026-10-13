@@ -188,10 +188,10 @@ export default function DeliveriesTab({ showToast }) {
 
   return (
     <div className="p-4 max-w-2xl mx-auto space-y-4">
-      <div className="flex items-center gap-4 text-sm text-stone-400">
+      <div className="flex items-center gap-4 text-sm text-text-secondary">
         <span>{awaitingCount} aguardando</span>
         <span>{outCount} a caminho</span>
-        <button onClick={reload} aria-label="Atualizar entregas" className="ml-auto flex items-center gap-1.5 text-stone-500 hover:text-stone-300">
+        <button onClick={reload} aria-label="Atualizar entregas" className="ml-auto flex items-center gap-1.5 text-text-muted hover:text-text-secondary">
           <RefreshCcw size={13} />
         </button>
       </div>
@@ -210,7 +210,7 @@ export default function DeliveriesTab({ showToast }) {
             aria-label={`${label}: ${count} ${count === 1 ? "entrega" : "entregas"} nas últimas 24 horas`}
             aria-pressed={filterKey === key}
             onClick={() => setFilterKey((current) => current === key ? null : key)}
-            className={`rounded-lg border px-2.5 py-1 transition-colors ${filterKey === key ? "border-amber-500 bg-amber-500 text-stone-950" : "border-stone-700 bg-stone-900 text-stone-300 hover:border-stone-500"}`}
+            className={`rounded-lg border px-2.5 py-1 transition-colors ${filterKey === key ? "border-ring bg-primary text-primary-foreground" : "border-border bg-surface text-text-secondary hover:border-border"}`}
           >
             <span className="font-bold tabular-nums">{count}</span> {label} (24h)
           </button>
@@ -220,7 +220,7 @@ export default function DeliveriesTab({ showToast }) {
             type="button"
             data-testid="clear-delivery-filter"
             onClick={() => setFilterKey(null)}
-            className="px-2 py-1 text-stone-500 underline decoration-stone-700 underline-offset-2 hover:text-stone-300"
+            className="px-2 py-1 text-text-muted underline decoration-stone-700 underline-offset-2 hover:text-text-secondary"
           >
             Limpar filtro
           </button>
@@ -230,14 +230,14 @@ export default function DeliveriesTab({ showToast }) {
       {/* O mapa geral continua disponível, mas recolhido por padrão para
           priorizar a fila operacional e evitar scroll desnecessário. */}
       {(outCount > 0 || locations.length > 0) && (
-        <div className="overflow-hidden rounded-xl border border-stone-800">
+        <div className="overflow-hidden rounded-xl border border-border">
           <button
             type="button"
             data-testid="deliveries-map-toggle"
             aria-expanded={expandedMap}
             aria-controls="deliveries-tracking-map-panel"
             onClick={() => setExpandedMap((current) => !current)}
-            className="flex w-full items-center justify-between gap-2 bg-stone-900 px-3 py-2 text-left text-xs text-stone-400 hover:text-stone-200"
+            className="flex w-full items-center justify-between gap-2 bg-surface px-3 py-2 text-left text-xs text-text-secondary hover:text-text-secondary"
           >
             <span className="flex items-center gap-2"><MapPin size={13} aria-hidden="true" /> Mapa de entregadores em rota</span>
             <ChevronDown size={14} className={`transition-transform ${expandedMap ? "rotate-180" : ""}`} aria-hidden="true" />
@@ -251,7 +251,7 @@ export default function DeliveriesTab({ showToast }) {
       {/* O toggle só aparece quando há o que revelar — com nada resolvido no
           histórico ele seria um controle morto na tela. */}
       {!filterKey && (resolvedCount > 0 || showResolved) && (
-        <label className="flex items-center gap-2 text-xs text-stone-500 cursor-pointer select-none">
+        <label className="flex items-center gap-2 text-xs text-text-muted cursor-pointer select-none">
           <input
             type="checkbox"
             checked={showResolved}
@@ -262,9 +262,9 @@ export default function DeliveriesTab({ showToast }) {
         </label>
       )}
 
-      {loading && visible.length === 0 && <div className="text-stone-600 text-sm py-8 text-center">Carregando…</div>}
+      {loading && visible.length === 0 && <div className="text-text-muted text-sm py-8 text-center">Carregando…</div>}
       {!loading && visible.length === 0 && (
-        <div className="text-stone-600 text-sm py-8 text-center">
+        <div className="text-text-muted text-sm py-8 text-center">
           {filterKey
             ? "Nenhuma entrega corresponde ao filtro selecionado nas últimas 24 horas."
             : resolvedCount > 0
@@ -295,32 +295,32 @@ export default function DeliveriesTab({ showToast }) {
                 focusOrder(d.orderId);
               }
             }}
-            // `hover:bg-stone-800`, e não 850: a escala `stone` do Tailwind 4 é
+            // `hover:bg-surface-overlay`, e não 850: a escala `stone` do Tailwind 4 é
             // numérica e para no 950 — não existe 850, e sem a classe no
             // `index.css` o hover do card simplesmente não acontecia.
-            className="bg-stone-900 border border-stone-800 rounded-2xl p-4 cursor-pointer transition-colors hover:bg-stone-800 hover:border-stone-700 active:scale-[0.99]"
+            className="bg-surface border border-border rounded-2xl p-4 cursor-pointer transition-colors hover:bg-surface-overlay hover:border-border active:scale-[0.99]"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-xs text-stone-500">{pedidoLabel(d.orderId)}</p>
+                <p className="text-xs text-text-muted">{pedidoLabel(d.orderId)}</p>
                 <p className="text-sm font-semibold mt-0.5 truncate">{d.customerName ?? "— sem nome —"}</p>
                 <div className="flex items-start gap-1.5 mt-1">
-                  <MapPin size={12} className="mt-0.5 shrink-0 text-stone-500" />
-                  <p className="text-xs text-stone-400 leading-snug">{d.address}</p>
+                  <MapPin size={12} className="mt-0.5 shrink-0 text-text-muted" />
+                  <p className="text-xs text-text-secondary leading-snug">{d.address}</p>
                 </div>
-                <p className="text-xs text-stone-500 mt-1.5" data-testid="delivery-datetime">
+                <p className="text-xs text-text-muted mt-1.5" data-testid="delivery-datetime">
                   {formatDateTime(d.createdAt)}
                   {/* "Parada há X" só faz sentido enquanto a entrega espera
                       ação — entregue e cancelado não estão parados, estão
                       encerrados (os dois saem da fila com `isOpenDelivery`). */}
                   {isOpenDelivery(d) && (
-                    <span className="text-stone-400" data-testid="delivery-elapsed">
+                    <span className="text-text-secondary" data-testid="delivery-elapsed">
                       {" · "}
                       {tempoParado(d.createdAt)}
                     </span>
                   )}
                   {d.deliveredAt && (
-                    <span className="text-emerald-400"> · Entregue {formatDateTime(d.deliveredAt)}</span>
+                    <span className="text-success"> · Entregue {formatDateTime(d.deliveredAt)}</span>
                   )}
                 </p>
               </div>
@@ -343,10 +343,10 @@ export default function DeliveriesTab({ showToast }) {
                   ))}
                 </select>
               ) : (
-                <span className="text-sm text-stone-400">{d.courier?.name ?? "— não atribuído —"}</span>
+                <span className="text-sm text-text-secondary">{d.courier?.name ?? "— não atribuído —"}</span>
               )}
 
-              <span className="text-xs text-stone-500 shrink-0">
+              <span className="text-xs text-text-muted shrink-0">
                 {d.status === "awaiting_courier" && d.courier && "Aguardando saída"}
                 {d.status === "out_for_delivery" &&
                   d.dispatchedAt &&
@@ -362,7 +362,7 @@ export default function DeliveriesTab({ showToast }) {
                 não renderizam controle nenhum. */}
             {allowedTransitions(d.status).length > 0 && (
               <div
-                className="mt-2.5 pt-2.5 border-t border-stone-800"
+                className="mt-2.5 pt-2.5 border-t border-border"
                 onClick={(e) => e.stopPropagation()}
               >
                 {reasonFor?.id === d.id ? (
@@ -377,13 +377,13 @@ export default function DeliveriesTab({ showToast }) {
                     <button
                       onClick={() => handleStatus(d.id, reasonFor.status, cancelReason.trim())}
                       disabled={!cancelReason.trim() || changingStatus === d.id}
-                      className="bg-amber-500 text-stone-950 px-3 rounded-lg text-xs font-semibold disabled:opacity-40"
+                      className="bg-primary text-primary-foreground px-3 rounded-lg text-xs font-semibold disabled:opacity-40"
                     >
                       Confirmar
                     </button>
                     <button
                       onClick={() => { setReasonFor(null); setCancelReason(""); }}
-                      className="px-2 rounded-lg border border-stone-700 text-xs"
+                      className="px-2 rounded-lg border border-border text-xs"
                       aria-label="Cancelar edição de status"
                     >
                       <X size={13} />
@@ -391,7 +391,7 @@ export default function DeliveriesTab({ showToast }) {
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    <label className="text-[11px] text-stone-500 shrink-0">Status</label>
+                    <label className="text-[11px] text-text-muted shrink-0">Status</label>
                     <div className="relative flex-1">
                       <select
                         disabled={changingStatus === d.id}
@@ -420,7 +420,7 @@ export default function DeliveriesTab({ showToast }) {
                       </select>
                       <ChevronDown
                         size={13}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 pointer-events-none"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
                       />
                     </div>
                   </div>
@@ -429,10 +429,10 @@ export default function DeliveriesTab({ showToast }) {
             )}
 
             {d.status === "failed" && (
-              <div className="mt-2 pt-2 border-t border-stone-800" onClick={(e) => e.stopPropagation()}>
-                <p className="text-xs text-red-400 mb-2">Motivo da falha: {d.notes}</p>
+              <div className="mt-2 pt-2 border-t border-border" onClick={(e) => e.stopPropagation()}>
+                <p className="text-xs text-destructive mb-2">Motivo da falha: {d.notes}</p>
                 {justCancelled.has(d.id) ? (
-                  <p className="text-xs text-stone-500">Pedido cancelado.</p>
+                  <p className="text-xs text-text-muted">Pedido cancelado.</p>
                 ) : openReasonFor === d.id ? (
                   <div className="flex gap-2">
                     <input
@@ -449,13 +449,13 @@ export default function DeliveriesTab({ showToast }) {
                       // motivo já digitado, era um clique de distância do erro.
                       onClick={() => setConfirmCancelFor(d)}
                       disabled={!cancelReason.trim() || submitting}
-                      className="bg-red-600 text-white px-3 rounded-lg text-xs font-semibold disabled:opacity-40"
+                      className="bg-destructive text-destructive-foreground px-3 rounded-lg text-xs font-semibold disabled:opacity-40"
                     >
                       Revisar cancelamento
                     </button>
                     <button
                       onClick={() => { setOpenReasonFor(null); setCancelReason(""); }}
-                      className="px-2 rounded-lg border border-stone-700 text-xs"
+                      className="px-2 rounded-lg border border-border text-xs"
                     >
                       <X size={13} />
                     </button>
@@ -463,7 +463,7 @@ export default function DeliveriesTab({ showToast }) {
                 ) : (
                   <button
                     onClick={() => { setOpenReasonFor(d.id); setCancelReason(d.notes ?? ""); }}
-                    className="text-xs font-semibold text-red-400 border border-red-900 rounded-lg px-2.5 py-1.5"
+                    className="text-xs font-semibold text-destructive border border-destructive rounded-lg px-2.5 py-1.5"
                   >
                     Cancelar pedido
                   </button>
@@ -475,7 +475,7 @@ export default function DeliveriesTab({ showToast }) {
       </div>
 
       {couriers.length === 0 && !loading && (
-        <div className="flex items-center gap-2 text-amber-400 text-sm bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2.5">
+        <div className="flex items-center gap-2 text-primary text-sm bg-primary/10 border border-ring/30 rounded-xl px-3 py-2.5">
           <AlertTriangle size={14} /> Nenhum entregador cadastrado — crie um usuário com papel "courier" em Equipe.
         </div>
       )}

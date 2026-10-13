@@ -25,13 +25,13 @@ export default function Drawer({ open, onClose, side = "left", panelId, panelCla
 
   return (
     <div ref={layerRef} className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-black/70" onClick={onClose} aria-hidden="true" />
+      <div className="absolute inset-0 bg-overlay/70" onClick={onClose} aria-hidden="true" />
       <div
         id={panelId}
         role="dialog"
         aria-modal="true"
         aria-label={label}
-        className={`absolute inset-y-0 flex flex-col bg-stone-950 border-stone-800 shadow-2xl ${SIDE_CLASS[side] ?? SIDE_CLASS.left} ${panelClassName}`}
+        className={`absolute inset-y-0 flex flex-col bg-background border-border shadow-2xl ${SIDE_CLASS[side] ?? SIDE_CLASS.left} ${panelClassName}`}
       >
         {children}
       </div>

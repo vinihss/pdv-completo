@@ -1,13 +1,13 @@
 import React, { useId } from "react";
 
 export const inputClass =
-  "w-full bg-stone-800 border border-stone-700 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-amber-500/50";
+  "w-full bg-surface border border-border rounded-xl px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary/50";
 
 export function Section({ title, children }) {
   return (
     <div>
-      <div className="text-stone-500 text-xs font-bold tracking-widest uppercase mb-3">{title}</div>
-      <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 space-y-4">{children}</div>
+      <div className="text-text-muted text-xs font-bold tracking-widest uppercase mb-3">{title}</div>
+      <div className="bg-surface border border-border rounded-2xl p-4 space-y-4">{children}</div>
     </div>
   );
 }
@@ -16,9 +16,9 @@ export function Field({ label, required, children }) {
   const id = useId();
   return (
     <div>
-      <label htmlFor={id} className="text-stone-400 text-xs font-medium mb-1.5 block">
+      <label htmlFor={id} className="text-text-secondary text-xs font-medium mb-1.5 block">
         {label}
-        {required && <span className="text-red-400 ml-0.5" aria-hidden="true">*</span>}
+        {required && <span className="text-destructive ml-0.5" aria-hidden="true">*</span>}
       </label>
       {React.isValidElement(children) ? React.cloneElement(children, { id, required }) : children}
     </div>
@@ -35,9 +35,9 @@ export function ToggleRow({ label, checked, onChange }) {
         role="switch"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
-        className={`w-11 h-6 rounded-full transition-colors relative ${checked ? "bg-amber-500" : "bg-stone-700"}`}
+        className={`w-11 h-6 rounded-full transition-colors relative ${checked ? "bg-primary" : "bg-surface-overlay"}`}
       >
-        <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${checked ? "translate-x-5" : "translate-x-0.5"}`} />
+        <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-foreground transition-transform ${checked ? "translate-x-5" : "translate-x-0.5"}`} />
       </button>
     </div>
   );

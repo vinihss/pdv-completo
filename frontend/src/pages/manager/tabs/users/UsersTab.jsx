@@ -56,12 +56,12 @@ export default function UsersTab({ showToast }) {
   return (
     <div className="p-5 max-w-lg mx-auto space-y-4">
       <div className="flex items-center gap-2">
-        <label htmlFor="user-filter" className="text-xs text-stone-500 font-medium">Perfil:</label>
+        <label htmlFor="user-filter" className="text-xs text-text-muted font-medium">Perfil:</label>
         <select
           id="user-filter"
           value={filterRole}
           onChange={(e) => setFilterRole(e.target.value)}
-          className="text-xs bg-stone-800 border border-stone-700 rounded-lg px-2 py-1 text-stone-300 focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+          className="text-xs bg-surface-overlay border border-border rounded-lg px-2 py-1 text-text-secondary focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
         >
           <option value="all">Todos</option>
           <option value="waiter">Garçom</option>
@@ -73,22 +73,22 @@ export default function UsersTab({ showToast }) {
       </div>
       <div className="space-y-2">
         {filteredUsers.map((u) => (
-          <div key={u.id} className={`flex items-center justify-between gap-3 bg-stone-900 border border-stone-800 rounded-xl px-4 py-3 ${!u.active ? "opacity-50" : ""}`}>
+          <div key={u.id} className={`flex items-center justify-between gap-3 bg-surface border border-border rounded-xl px-4 py-3 ${!u.active ? "opacity-50" : ""}`}>
             <div className="flex items-center gap-3 min-w-0">
               <UserAvatar name={u.name} photoPath={u.photoPath} className="w-9 h-9 text-xs" />
               <div className="min-w-0">
                 <div className="text-sm font-semibold truncate">{u.name}</div>
-                <div className="text-stone-500 text-xs">{ROLE_LABEL[u.role]}</div>
+                <div className="text-text-muted text-xs">{ROLE_LABEL[u.role]}</div>
               </div>
             </div>
             <div className="flex items-center gap-3 shrink-0">
-              <button onClick={() => setEditing(u)} title="Editar usuário" aria-label={`Editar ${u.name}`} className="text-stone-500 hover:text-amber-400 cursor-pointer">
+              <button onClick={() => setEditing(u)} title="Editar usuário" aria-label={`Editar ${u.name}`} className="text-text-muted hover:text-primary cursor-pointer">
                 <Pencil size={15} />
               </button>
-              <button onClick={() => handleResetPin(u)} className="text-stone-500 hover:text-amber-400 cursor-pointer" title="Redefinir PIN" aria-label={`Redefinir PIN de ${u.name}`}>
+              <button onClick={() => handleResetPin(u)} className="text-text-muted hover:text-primary cursor-pointer" title="Redefinir PIN" aria-label={`Redefinir PIN de ${u.name}`}>
                 <RefreshCcw size={15} />
               </button>
-              <button onClick={() => handleToggleActive(u)} className="text-stone-500 hover:text-amber-400 cursor-pointer" title={u.active ? "Desativar usuário" : "Ativar usuário"} aria-label={u.active ? `Desativar ${u.name}` : `Ativar ${u.name}`}>
+              <button onClick={() => handleToggleActive(u)} className="text-text-muted hover:text-primary cursor-pointer" title={u.active ? "Desativar usuário" : "Ativar usuário"} aria-label={u.active ? `Desativar ${u.name}` : `Ativar ${u.name}`}>
                 {u.active ? <UserX size={15} /> : <UserCheck size={15} />}
               </button>
             </div>
@@ -97,7 +97,7 @@ export default function UsersTab({ showToast }) {
       </div>
       <button
         onClick={() => setNewUserOpen(true)}
-        className="w-full flex items-center justify-center gap-2 bg-stone-800 hover:bg-stone-750 border border-stone-700 text-sm font-semibold py-2.5 rounded-xl"
+        className="w-full flex items-center justify-center gap-2 bg-surface-overlay hover:bg-surface-overlay border border-border text-sm font-semibold py-2.5 rounded-xl"
       >
         <Plus size={16} /> Novo usuário
       </button>
