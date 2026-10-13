@@ -40,7 +40,7 @@ import { createOrderIntakeUsecases } from "../../application/self-service/order-
 import { createAuditLogUsecases } from "../../application/audit-log/audit-log.usecases.js";
 import { createDeliveryUsecases } from "../../application/delivery/calcular-entrega.usecase.js";
 import { createStoreSettingsUsecases } from "../../application/store-settings/store-settings.usecases.js";
-import { createCustomerUsecases } from "../../application/customer.usecases.js";
+import { createCustomerUsecases } from "../../application/customer/customer.usecases.js";
 import { createCashFlowUsecases } from "../../application/cash-flow/cash-flow.usecases.js";
 import { createReportUsecases } from "../../application/report.usecases.js";
 import { createOverviewReportUsecases } from "../../application/report-overview.usecases.js";
