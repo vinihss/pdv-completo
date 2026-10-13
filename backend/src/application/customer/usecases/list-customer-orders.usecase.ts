@@ -13,7 +13,7 @@
  */
 import { Errors } from "../../../domain/errors.js";
 import { round2 } from "../../../domain/money.js";
-import { isValidReportDate } from "../../report-overview.usecases.js";
+import { isValidReportDate } from "../../report/shared/report-buckets.js";
 import { dayEnd, dayStart, isValidTz } from "../../cash-flow/day-bounds.js";
 import type { CustomerDependencies } from "../ports/customer-dependencies.js";
 
