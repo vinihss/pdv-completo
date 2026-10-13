@@ -9,9 +9,9 @@ import { idempotencyKeys } from "../db/schema.js";
 /**
  * Implementação Postgres do port `IdempotencyStore` (ports/effects.ts) — FASE 0.
  *
- * É a extração da lógica do middleware
- * `http/middlewares/idempotency.middleware.ts#withIdempotency` (fluxo da §10),
- * com a MESMA semântica, linha por linha:
+ * Era a cópia da lógica do
+ * `http/middlewares/idempotency.middleware.ts#withIdempotency` (fluxo da §10)
+ * e virou a única morada dela quando o middleware passou a delegar. Semântica:
  * - não existe → grava "processing", executa o handler, marca "completed";
  * - "completed" válido → devolve a resposta cacheada, sem reprocessar;
  * - "processing" válido → 409 (requisição concorrente idêntica em voo);
@@ -21,14 +21,12 @@ import { idempotencyKeys } from "../db/schema.js";
  * - corrida check-then-insert → a perdedora detecta a colisão de PK (23505),
  *   relê e devolve a resposta da vencedora (nunca 500).
  *
- * ## Relação com o middleware (por enquanto duplicada, de propósito)
+ * ## Relação com o middleware
  *
- * A onda desta tarefa foi instruída a NÃO alterar `http/` — o middleware
- * continua com a sua própria cópia da lógica e o comportamento externo não
- * muda. A próxima onda (injetar o port nos handlers) deve trocar o corpo do
- * `withIdempotency` por `new PgIdempotencyStore().execute({...})` e apagar a
- * cópia do middleware — até lá, as duas versões precisam permanecer iguais
- * (alterou uma, altere a outra).
+ * O `withIdempotency` do middleware só resolve o port e chama `execute` — a
+ * lógica é SÓ aqui. A `FASE 0` deixou o middleware com uma cópia temporária
+ * para não tocar `http/`; a troca apagou a cópia e a delegação é transparente
+ * para as rotas. Alterou a semântica, altere aqui.
  *
  * Roteamento de tenant: o default é o proxy `db` (ALS corrente), idêntico ao
  * do middleware — `idempotencyKeys` é tabela POR SCHEMA de tenant. Para uso

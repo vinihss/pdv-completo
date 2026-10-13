@@ -48,20 +48,14 @@ const EXEMPT: Record<string, readonly string[]> = {
 // ---------------------------------------------------------------------
 const KNOWN_VIOLATIONS: readonly string[] = [
   // ------------------------------------------------------------------
-  // application: nenhuma violação pendente. Os use cases migraram para
-  // ports + UoW (ondas 1-3, financeiro e auth) e `payment.usecases.ts` saiu
-  // junto com a camada de pagamento online. A lista de application fica vazia:
-  // qualquer import de infra/integrations/config/drizzle volta a ser violação
-  // NOVA e quebra o teste.
+  // application e http estão LIMPOS: os use cases falam ports + UoW e o
+  // middleware de idempotência (único acesso a dado que sobrava em http)
+  // delegou ao `PgIdempotencyStore`. Sem entradas — qualquer import de
+  // infra/integrations/config/drizzle/db/schema em application ou http passa
+  // a ser violação NOVA e quebra o teste.
   // ------------------------------------------------------------------
   // ------------------------------------------------------------------
-  // http: rotas/middleware que ainda tocam em Drizzle/schema/client (3).
-  // Quando o acesso a dado sair das rotas, apague estas linhas.
-  // `server.ts` NÃO aparece: é o EXEMPT documentado acima.
-  // ------------------------------------------------------------------
-  "src/http/middlewares/idempotency.middleware.ts :: http :: file:src/infra/db/client",
-  "src/http/middlewares/idempotency.middleware.ts :: http :: file:src/infra/db/schema",
-  "src/http/middlewares/idempotency.middleware.ts :: http :: pkg:drizzle-orm",
+  // (sem violações — o middleware migrou nesta onda)
 ];
 
 // ---------------------------------------------------------------------
