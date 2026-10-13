@@ -24,7 +24,7 @@ import { RoutingPortAdapter } from "../../integrations/maps/routing-port-adapter
 import { createOrderUsecases } from "../../application/order/order.usecases.js";
 import { createAlertUsecases } from "../../application/alert/alert.usecases.js";
 import { createStockUsecases } from "../../application/stock/stock.usecases.js";
-import { createProductUsecases } from "../../application/product.usecases.js";
+import { createProductUsecases } from "../../application/product/product.usecases.js";
 import { createCategoryUsecases } from "../../application/category.usecases.js";
 import { createKitchenGroupUsecases } from "../../application/kitchen-group.usecases.js";
 import { createMenuUsecases } from "../../application/self-service/menu.usecases.js";
