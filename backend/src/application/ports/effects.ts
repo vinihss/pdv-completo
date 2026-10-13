@@ -70,37 +70,6 @@ export interface StoreSettingsReader {
   get(): Promise<StoreSettingsRecord>;
 }
 
-// ---------- gateway de pagamento (espelha `domain/payment.ts` → PaymentGateway) ----------
-
-export interface PaymentChargeRequest {
-  orderId: Id;
-  amount: number;
-  method: "pix" | "credit_card";
-  customerName?: string;
-  customerEmail?: string;
-  customerDocument?: string;
-  metadata?: Json;
-}
-
-export interface PaymentChargeResult {
-  providerOrderId: string;
-  providerChargeId?: string | null;
-  providerPaymentId?: string | null;
-  status: string;
-  qrCode?: string | null;
-  qrCodeBase64?: string | null;
-  qrCodeUrl?: string | null;
-  pixTxid?: string | null;
-  pixExpiresAt?: string | null;
-  raw?: Json;
-}
-
-export interface PaymentGateway {
-  createCharge(request: PaymentChargeRequest): Promise<PaymentChargeResult>;
-  /** `amount` ausente = estorno integral. Confirmação de estado é do webhook (spec §20). */
-  refund(input: { providerOrderId: string; amount?: number }): Promise<{ providerRefundId?: string }>;
-}
-
 // ---------- mapas (espelha `integrations/maps/types.ts`) ----------
 
 export interface Coordinates {

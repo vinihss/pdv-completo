@@ -104,9 +104,6 @@ export interface ProductRecord {
   trackStock: boolean;
   /** Unidade de medida (baseline 0001), ex.: "un", "kg". */
   unit: string;
-  /** Integração iFood (docs/18): habilitado e SKU externo. */
-  ifoodEnabled: boolean;
-  ifoodSku: string | null;
   active: boolean;
   imagePath: string | null;
   createdAt: string;
@@ -193,7 +190,7 @@ export interface OrderRecord {
 // continuam válidos como histórico (relatórios, reimpressão, retomada).
 // Entra no union porque a retomada do self-service (`getActiveSelfServiceOrder
 // ByPhone`) lê `channel IN ('whatsapp', 'web')` para não esconder pedido antigo.
-export type OrderChannel = "balcao" | "web" | "ifood" | "whatsapp";
+export type OrderChannel = "balcao" | "web" | "whatsapp";
 export type OrderItemStatus = "ordered" | "ready" | "delivered" | "cancelled";
 
 /** Linha completa de `order` (todas as colunas), fiel ao schema. */
@@ -214,7 +211,6 @@ export interface OrderRow {
   deliveryFee: number | null;
   cancelReason: string | null;
   notes: string | null;
-  ifoodPayments: string | null;
 }
 
 /** Linha completa de `order_item` (`selectedVariations` = string JSON, como no banco). */
@@ -317,34 +313,6 @@ export interface StockMovementViewRecord {
   note: string | null;
   userName: string | null;
   createdAt: string;
-}
-
-export interface PaymentRecord {
-  id: Id;
-  orderId: Id;
-  /** Tentativa 1, 2, 3... (índice `uq_payment_order_attempt`). */
-  attempt: number;
-  provider: string;
-  providerOrderId: string | null;
-  providerChargeId: string | null;
-  providerPaymentId: string | null;
-  method: string;
-  amount: number;
-  currency: string;
-  status: string;
-  refundedAmount: number;
-  failureReason: string | null;
-  qrCode: string | null;
-  qrCodeBase64: string | null;
-  qrCodeUrl: string | null;
-  pixTxid: string | null;
-  pixExpiresAt: string | null;
-  paidAt: string | null;
-  canceledAt: string | null;
-  /** JSON serializado (coluna `text`), mesmo formato do banco. */
-  metadata: Json;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface DeliveryRecord {
@@ -1017,61 +985,6 @@ export interface RefundRepository {
   listByOrder(orderId: Id): Promise<RefundRecord[]>;
 }
 
-/**
- * ADIÇÃO (Onda financeiro — liquidações iFood, Bloco 5). Separa receita bruta
- * de repasse líquido; o settlement é opcional fora do iFood (fallback usa o
- * total da comanda). A régua de valores/status é do use case; o adapter só
- * lê/grava `order_settlement` (UNIQUE em `order_id`).
- */
-export interface SettlementRecord {
-  id: Id;
-  orderId: Id;
-  channel: string;
-  grossAmount: number;
-  commissionAmount: number;
-  marketplaceFee: number;
-  deliveryFeeSubsidy: number;
-  payoutAmount: number;
-  payoutStatus: string;
-  payoutExpectedAt: string | null;
-  payoutSettledAt: string | null;
-  externalRef: string | null;
-  notes: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface SettlementRepository {
-  findById(id: Id): Promise<SettlementRecord | null>;
-  findByOrderId(orderId: Id): Promise<SettlementRecord | null>;
-  create(input: {
-    id: Id;
-    orderId: Id;
-    channel: string;
-    grossAmount: number;
-    commissionAmount: number;
-    marketplaceFee: number;
-    deliveryFeeSubsidy: number;
-    payoutAmount: number;
-    payoutExpectedAt: string | null;
-    externalRef: string | null;
-    notes: string | null;
-    createdAt: string;
-    updatedAt: string;
-  }): Promise<SettlementRecord>;
-  /** UPDATE de `payout_status='paid'` + `payout_settled_at`/`updated_at`. */
-  markSettled(id: Id, input: { payoutSettledAt: string; updatedAt: string }): Promise<SettlementRecord>;
-  /** Filtros opcionais (`channel`/`payoutStatus`, janela `createdAt`), `createdAt ASC`. */
-  list(query: { channel?: string; payoutStatus?: string; from?: string; to?: string }): Promise<SettlementRecord[]>;
-}
-
-export interface PaymentRepository {
-  findById(id: Id): Promise<PaymentRecord | null>;
-  findByOrder(orderId: Id): Promise<PaymentRecord[]>;
-  create(input: Omit<PaymentRecord, "id">): Promise<PaymentRecord>;
-  transition(id: Id, status: string, providerData?: Json): Promise<PaymentRecord>;
-}
-
 export interface DeliveryRepository {
   findById(id: Id): Promise<DeliveryRecord | null>;
   findByOrder(orderId: Id): Promise<DeliveryRecord | null>;
@@ -1277,8 +1190,6 @@ export interface StoreSettingsRow {
   usesTables: boolean;
   kitchenEnabled: boolean;
   usesDelivery: boolean;
-  ifoodIntegrationEnabled: boolean;
-  pagarmeEnabled: boolean;
   inventoryEnabled: boolean;
   purchaseEnabled: boolean;
   printerEnabled: boolean;
@@ -1315,7 +1226,6 @@ export interface StoreSettingsUpdateInput {
   usesTables: boolean;
   kitchenEnabled: boolean;
   usesDelivery: boolean;
-  ifoodIntegrationEnabled: boolean;
   inventoryEnabled: boolean;
   purchaseEnabled: boolean;
   printerEnabled: boolean;
@@ -1564,14 +1474,6 @@ export interface ReportRefundRow {
   amount: number;
 }
 
-/** ADIÇÃO (Onda 3D): settlement iFood por comanda (payout líquido do Bloco 5 — `faturamento` usa `payout_amount` quando há settlement). */
-export interface ReportSettlementRow {
-  orderId: Id;
-  payoutAmount: number;
-  channel: string;
-  status: string;
-}
-
 /** ADIÇÃO (Onda 3D): linha de `order_payment` do relatório de vendas (fracionamento por forma). */
 export interface ReportPaymentRow {
   orderId: Id;
@@ -1621,8 +1523,6 @@ export interface ReportRepository {
   listOrderItems(orderIds: Id[]): Promise<ReportItemRow[]>;
   /** Estornos `settled` das comandas — `orderIds` vazio devolve `[]`. */
   listSettledRefunds(orderIds: Id[]): Promise<ReportRefundRow[]>;
-  /** Settlements iFood das comandas — `orderIds` vazio devolve `[]`. */
-  listSettlements(orderIds: Id[]): Promise<ReportSettlementRow[]>;
   /** Nomes dos produtos (hidratação do `byProduct`) — `productIds` vazio devolve `[]`. */
   listProductNames(productIds: Id[]): Promise<Array<{ id: Id; name: string }>>;
   /** Linhas de `order_payment` das comandas (fracionamento por forma) — `orderIds` vazio devolve `[]`. */

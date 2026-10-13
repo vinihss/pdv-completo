@@ -47,7 +47,6 @@ import { createOverviewReportUsecases } from "../../application/report-overview.
 import { createDeliveriesReportUsecases } from "../../application/report-deliveries.usecases.js";
 import { createPurchaseUsecases } from "../../application/purchase/purchase.usecases.js";
 import { createRefundUsecases } from "../../application/refund/refund.usecases.js";
-import { createSettlementUsecases } from "../../application/settlement/settlement.usecases.js";
 import { createProvisioningUsecases } from "../../application/provisioning/provisioning.usecases.js";
 import { createProvisioningEmailUsecases } from "../../application/provisioning/provisioning-email.usecase.js";
 import { createTenantUsecases } from "../../application/tenant/resolve-tenant.usecase.js";
@@ -100,8 +99,14 @@ const cache = alsTenantCache;
 // Armazenamento fixa o schema explicitamente (o port FileStorage resolve
 // tenant() por operação, mas o schemaName precisa ser conhecido). O
 // resolveTenantSchema padrão (ALS) pode não estar ativo em jobs/webhooks,
-// então usamos o explicit com fallback env:
-const storageRoot = process.env.UPLOADS_DIR ?? "/tmp/uploads";
+// então usamos o explicit com fallback env.
+//
+// A raiz TEM que ser a mesma que a rota de serving usa (`getStorage()` →
+// `createStorage(config.uploadsDir)`): com dois defaults distintos
+// (`/tmp/uploads` aqui e `"uploads"` em `config`), o use case gravava num
+// diretório e o `GET /uploads/*` lia de outro — 404 em todo arquivo recém
+// enviado. `config.uploadsDir` é a fonte única.
+const storageRoot = config.uploadsDir;
 const storage = new StoragePortAdapter({ schemaName: "public" }, storageRoot);
 
 // ---------------------------------------------------------------------------
@@ -257,11 +262,10 @@ const reportInstances = createReportUsecases({ uow, tenant, cache });
 const overviewReportInstances = createOverviewReportUsecases({ uow, tenant, cache });
 const deliveriesReportInstances = createDeliveriesReportUsecases({ uow, tenant, cache });
 
-// Financeiro (Onda financeiro) — compras/fornecedores, estornos do balcão
-// (Bloco 4) e liquidações iFood (Bloco 5). Factories puras (uow + tenant).
+// Financeiro (Onda financeiro) — compras/fornecedores e estornos do balcão
+// (Bloco 4). Factories puras (uow + tenant).
 const purchaseInstances = createPurchaseUsecases({ uow, tenant });
 const refundInstances = createRefundUsecases({ uow, tenant });
-const settlementInstances = createSettlementUsecases({ uow, tenant });
 
 // Fluxo de caixa / gaveta (Onda cash-flow) — factory pura (uow + tenant): toda
 // a persistência (gaveta, movimentos, resumo) passa pelos ports de sessão e
@@ -443,12 +447,6 @@ export const averageCostOf = purchaseInstances.averageCostOf;
 // estornos do balcão (Bloco 4 — Onda financeiro)
 export const refundOrderPaymentUsecase = refundInstances.refundOrderPaymentUsecase;
 export const listOrderRefundsUsecase = refundInstances.listOrderRefundsUsecase;
-
-// liquidações iFood (Bloco 5 — Onda financeiro)
-export const registerSettlementUsecase = settlementInstances.registerSettlementUsecase;
-export const markSettledUsecase = settlementInstances.markSettledUsecase;
-export const listSettlementsUsecase = settlementInstances.listSettlementsUsecase;
-export const getSettlementByOrderIdUsecase = settlementInstances.getSettlementByOrderIdUsecase;
 
 // fluxo de caixa / gaveta (Onda cash-flow)
 export const getCurrentDrawerUsecase = cashFlowInstances.getCurrentDrawerUsecase;

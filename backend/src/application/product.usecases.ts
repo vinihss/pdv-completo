@@ -103,8 +103,6 @@ function serialize(p: ProductRecord, refs: ProductRefs, quantity = 0) {
     price: p.price,
     variations: normalizeVariations(JSON.parse(p.variations)),
     imagePath: imageUrl(p.imagePath),
-    ifoodEnabled: p.ifoodEnabled,
-    ifoodSku: p.ifoodSku,
     featured: p.featured,
     costPrice: p.costPrice,
     lowStockThreshold: p.lowStockThreshold,
@@ -175,8 +173,6 @@ export function createProductUsecases(deps: ProductUsecasesDeps) {
         description?: string;
         price: number;
         variations?: unknown[];
-        ifoodEnabled?: boolean;
-        ifoodSku?: string | null;
         featured?: boolean;
         active?: boolean;
         costPrice?: number;
@@ -210,8 +206,6 @@ export function createProductUsecases(deps: ProductUsecasesDeps) {
           description: input.description,
           price: input.price,
           variations: JSON.stringify(input.variations ?? []),
-          ifoodEnabled: input.ifoodEnabled,
-          ifoodSku: input.ifoodSku,
           featured: input.featured,
           costPrice: input.costPrice,
           lowStockThreshold: input.lowStockThreshold,
@@ -254,8 +248,6 @@ export function createProductUsecases(deps: ProductUsecasesDeps) {
         description?: string;
         price?: number;
         variations?: unknown[];
-        ifoodEnabled?: boolean;
-        ifoodSku?: string | null;
         featured?: boolean;
         active?: boolean;
         costPrice?: number;
@@ -292,8 +284,6 @@ export function createProductUsecases(deps: ProductUsecasesDeps) {
           description: input.description,
           price: input.price,
           variations: input.variations === undefined ? undefined : JSON.stringify(input.variations ?? []),
-          ifoodEnabled: input.ifoodEnabled,
-          ifoodSku: input.ifoodSku,
           featured: input.featured,
           costPrice: input.costPrice,
           lowStockThreshold: input.lowStockThreshold,

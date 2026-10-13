@@ -427,10 +427,8 @@ export function createCustomerUsecases(deps: CustomerUsecasesDeps) {
      * e um cliente cujo consumo some do gráfico enquanto aparece no relatório é
      * exatamente esse caso.
      *
-     * `order_payment` NÃO entra: o iFood grava o pagamento em
-     * `order.ifood_payments` (JSON), então uma comanda iFood somada por
-     * `order_payment` apareceria como zero no gráfico. A regra do pedido fechado
-     * funciona para todos os canais porque não depende de como o dinheiro entrou.
+     * `order_payment` NÃO entra: a regra do pedido fechado funciona para todos
+     * os canais porque não depende de como o dinheiro entrou.
      *
      * Dia LOCAL da loja (`tz`, como na visão geral): às 22h de São Paulo a venda é
      * do dia de hoje, não do dia seguinte em UTC. `bucketKeyFor`/`fillBuckets` já

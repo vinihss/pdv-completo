@@ -3,7 +3,7 @@
 // ============================================================================
 //
 // Estorno rastreável: a venda estornada vira linha negativa no relatório, nunca
-// desaparece. Distinto do `payment_refund` do gateway Pagar.me.
+// desaparece.
 //
 // Regras (todas na MESMA transação):
 //   - pagamento precisa existir e ser do pedido informado;
@@ -68,8 +68,7 @@ export function createRefundUsecases(deps: RefundUsecasesDeps) {
         }
 
         // 5. Dinheiro: gaveta aberta + sangria automática (mesma trava de linha
-        // de `findOpenDrawerTxForUpdate`); os demais métodos ficam 'requested'
-        // (futuro: integração com Pagar.me).
+        // de `findOpenDrawerTxForUpdate`); os demais métodos ficam 'requested'.
         let drawer: { id: string; openedAt: string } | null = null;
         let status = "requested";
         let settledAt: string | null = null;

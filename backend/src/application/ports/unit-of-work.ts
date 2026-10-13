@@ -13,8 +13,6 @@ import type {
   PurchaseRepository,
   SupplierRepository,
   RefundRepository,
-  SettlementRepository,
-  PaymentRepository,
   DeliveryRepository,
   CourierLocationRepository,
   StoreSettingsRepository,
@@ -38,9 +36,6 @@ export interface TenantSession {
   suppliers: SupplierRepository;
   /** ADIÇÃO (Onda financeiro — estornos do balcão, Bloco 4): `order_refund`. */
   refunds: RefundRepository;
-  /** ADIÇÃO (Onda financeiro — liquidações iFood, Bloco 5): `order_settlement`. */
-  settlements: SettlementRepository;
-  payments: PaymentRepository;
   deliveries: DeliveryRepository;
   /** ADIÇÃO (Onda 3 — self-service): última posição do entregador (`courier_location`). */
   courierLocations: CourierLocationRepository;

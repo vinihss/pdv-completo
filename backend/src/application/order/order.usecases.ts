@@ -172,9 +172,9 @@ export async function openOrderUsecase(
     tableId?: string;
     customerId?: string;
     tabLabel?: string;
-    channel?: "balcao" | "web" | "ifood"; // default "balcao" — self-service (§04) e iFood usam
+    channel?: "balcao" | "web"; // default "balcao" — self-service (§04) usa "web"
     deliveryFee?: number; // snapshot da taxa no momento do pedido, só para channel != "balcao"
-    externalRef?: string; // order id do iFood quando channel === "ifood" (único — índice em 0009)
+    externalRef?: string; // referência externa opcional (id do pedido na origem)
     notes?: string;
   },
 ): Promise<Awaited<ReturnType<typeof serializeOrder>>> {
@@ -185,7 +185,7 @@ export async function openOrderUsecase(
   return deps.uow.run(deps.tenant(), async (session) => {
     // 1.6 — valida a mesa antes de abrir: inexistente → 404; ocupada → 409.
     // Só vale para abertura física de comanda (channel default "balcao");
-    // self-service e iFood não parametrizam mesa.
+    // self-service não parametriza mesa.
     //
     // No Postgres o "ler status e depois gravar" NÃO é atômico. Por isso a
     // ocupação é um UPDATE condicional: o `status = 'free'` é reavaliado sob o
@@ -235,9 +235,9 @@ export async function openOrderUsecase(
       },
     });
 
-    // Alerta do sino (baseline 0001). Fica AQUI, e não em cada canal, porque todos os
-    // quatro passam por esta função: balcão (`POST /orders`), self-service
-    // (order-intake), iFood (ingest) e qualquer canal novo. Se ficasse em cada
+    // Alerta do sino (baseline 0001). Fica AQUI, e não em cada canal, porque os
+    // canais passam por esta função: balcão (`POST /orders`), self-service
+    // (order-intake) e qualquer canal novo. Se ficasse em cada
     // chamador, um canal novo nasceria mudo.
     //
     // O texto precisa do número da mesa / nome do cliente, que a linha do
@@ -1175,7 +1175,7 @@ export async function cancelOrderUsecase(
     // Propagação do cancelamento pra entrega: comanda cancelada não pode
     // deixar a entrega órfã (awaiting/out_for_delivery pra sempre no painel
     // do entregador, cliente em "Pedido recebido" eterno — inconsistência
-    // que o caminho iFood já resolvia, ver status-pushback.ts). Mesma
+    // que o fechamento já fazia. Mesma
     // transação da escrita de domínio (AGENTS.md). "delivered" não muda —
     // comanda com entrega concluída está fechada e nunca chega aqui
     // (orderNotOpen).

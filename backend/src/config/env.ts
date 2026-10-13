@@ -51,49 +51,11 @@ export const config = {
   // que o PDV entrega ao cliente. Ver
   // 04-delivery-self-service-integration.md.
   externalMenuUrl: process.env.EXTERNAL_MENU_URL ?? "https://pedido.seudominio.com.br",
-  // Integração iFood (Order + Catalog API) — módulo in-process, ver
-  // docs/06-ifood-integration.md. Só ativa com IFOOD_SYNC_ENABLED=true E
-  // credenciais presentes (ou IFOOD_MOCK=true para desenvolvimento).
-  ifoodSyncEnabled: process.env.IFOOD_SYNC_ENABLED === "true",
-  ifoodClientId: process.env.IFOOD_CLIENT_ID,
-  ifoodClientSecret: process.env.IFOOD_CLIENT_SECRET,
-  ifoodMerchantId: process.env.IFOOD_MERCHANT_ID, // opcional — auto-listado via /merchants
-  ifoodPollingIntervalMs: Number(process.env.IFOOD_POLLING_INTERVAL_MS ?? 30000),
-  ifoodMock: process.env.IFOOD_MOCK === "true",
-  ifoodMockPort: Number(process.env.IFOOD_MOCK_PORT ?? 3999),
-  ifoodBaseUrl: process.env.IFOOD_BASE_URL ?? "https://merchant-api.ifood.com.br",
   // Impressão térmica — daemon local (printer/). O daemon escuta em
   // 127.0.0.1:8080 e recebe JSON estruturado (não ESC/POS); ele renderiza e
   // envia TCP pra impressora. O backend só chama a API local. Em Docker, o
   // container do backend alcança o daemon via host_gateway ou sidecar.
   printerDaemonUrl: process.env.PRINTER_DAEMON_URL ?? "http://127.0.0.1:8080",
-  // ---------- Pagar.me V5 (gateway de cobrança) ----------
-  // Mesma política do iFood: NADA aqui derruba o boot. A cobrança no
-  // gateway só é inicializável quando o gerente liga o toggle
-  // (store_settings.pagarme_enabled) E a credencial existe — instalação que
-  // não usa Pagar.me continua subindo sem PAGARME_SECRET_KEY.
-  //
-  // A secret key é SEGREDO DO BACKEND e nunca vai para o frontend: no V5 a
-  // autenticação é HTTP Basic (Authorization: Basic base64(secretKey + ":")),
-  // então quem a tem pode criar cobranças, consultar e estornar. O browser só
-  // recebe `pagarme_public_key`, quando a fase B precisar montar o token de
-  // cartão no client (PCI: PAN/CVV nunca passam pelo backend — ver
-  // mapper.ts/buildCreateOrderBody). Ela NÃO está nesta lista de propósito.
-  pagarmeEnabled: process.env.PAGARME_ENABLED === "true",
-  pagarmeBaseUrl: process.env.PAGARME_BASE_URL ?? "https://api.pagar.me/core/v5",
-  pagarmeSecretKey: process.env.PAGARME_SECRET_KEY,
-  // Cadência da reconciliação (worker da fase B): relê as cobranças não
-  // confirmadas por webhook, porque webhook perdido é dinheiro que o PDV
-  // acha que não recebeu. 10min é o padrão documentado — perto o bastante
-  // para o gerente ver o "pendente" virar "pago", longe o bastante para não
-  // martelar a API.
-  pagarmeReconciliationIntervalMs: Number(process.env.PAGARME_RECONCILIATION_INTERVAL_MS ?? 600_000),
-  // Token opaco do endpoint interno `/internal/pagarme/*`, compartilhado com o
-  // serviço Go `pagarme-webhook/`. Ausente = o endpoint RECUSA todo chamado
-  // (401) e o log diz o nome da env: um serviço que sobe sem token e recusa é
-  // diferente de um que sobe e aceita qualquer um. Comparado em tempo constante
-  // e nunca aceito em branco.
-  pagarmeInternalToken: process.env.PAGARME_INTERNAL_TOKEN,
   // ---------- Email (SMTP) ----------
   // Nada aqui derruba o boot: sem SMTP_HOST o envio apenas reporta
   // {sent:false, reason:"not_configured"}. O seam `setMailerForTests`

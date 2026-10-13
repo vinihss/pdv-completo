@@ -27,7 +27,7 @@
 //   * boolean: INTEGER 0/1 do SQLite -> true/false;
 //   * enum: os valores TEXT já são os mesmos do enum do Postgres
 //     (order.status, user.role, cash_drawer.status, etc.);
-//   * JSON-in-TEXT (variations, selected_variations, ifood_payments,
+//   * JSON-in-TEXT (variations, selected_variations,
 //     delivery_fee_tiers, enabled_payment_methods, cart_items, items, raw)
 //     já é TEXT nos dois lados — copiado como está.
 // ============================================================
@@ -81,10 +81,6 @@ const TABLES_IN_FK_ORDER = [
   "customer_cart",
   "geocoding_cache",
   "delivery",
-  // iFood: não existiam nas migrations SQLite — só aparecem se o
-  // cliente tiver usado a integração (tabelas criadas pelo código).
-  "ifood_event",
-  "ifood_state",
 ];
 
 // Tabelas cuja ordem de inserção é carregada (seq BIGSERIAL no PG =

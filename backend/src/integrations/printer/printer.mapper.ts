@@ -49,8 +49,6 @@ function channelToType(channel: string): string {
     case "whatsapp":
     case "web":
       return "DELIVERY";
-    case "ifood":
-      return "IFOOD";
     default:
       return channel.toUpperCase();
   }

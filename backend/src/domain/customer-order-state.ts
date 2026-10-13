@@ -55,7 +55,7 @@ export function deriveCustomerStage(order: StageOrder, items: StageItem[], deliv
     if (delivery.status === "out_for_delivery") return "out_for_delivery";
   }
 
-  // 3. Pedido resolvido sem delivery ativa (iFood concluded, fechamento manual).
+  // 3. Pedido resolvido sem delivery ativa (fechamento manual).
   if (order.status === "closed") return "delivered";
 
   // 4. Eixo de itens — order_item.status é ["ordered","ready","delivered",
@@ -89,8 +89,8 @@ export function stageTimeline(stage: CustomerStage): StageTimelineEntry[] {
 export type DeliveryStatus = "awaiting_courier" | "out_for_delivery" | "delivered" | "failed" | "cancelled";
 
 // Transições válidas — regra única usada por dispatch/deliver/fail
-// (delivery.usecases.ts), conclusão/cancelamento iFood (status-pushback.ts)
-// e propagação de cancelamento (cancelOrderUsecase / cancel-order.usecase).
+// (delivery.usecases.ts) e propagação de cancelamento (cancelOrderUsecase /
+// cancel-order.usecase).
 // "out_for_delivery → cancelled" existe só pra cancelamento manager-driven
 // (comanda cancelada com entregador em rota); o cliente NÃO cancela nesse
 // estágio (CUSTOMER_CANCELLABLE_STAGES restringe o endpoint público).

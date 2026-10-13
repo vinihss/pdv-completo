@@ -48,42 +48,20 @@ const EXEMPT: Record<string, readonly string[]> = {
 // ---------------------------------------------------------------------
 const KNOWN_VIOLATIONS: readonly string[] = [
   // ------------------------------------------------------------------
-  // application: use cases ainda acoplados a infra/integrations/config e
-  // ao Drizzle (8 entradas). Migram use case a use case; ao migrar um, apague
-  // as linhas dele — a lista só DIMINUI.
-  //
-  // Auditoria da Onda 3A (delivery/manager-delivery-status/order-intake):
-  // restauradas entradas que o commit da Onda 3A removeu por engano — login e
-  // payment (pkg:drizzle-orm) seguem acoplados e eram "novas violações" desde
-  // então; e removida a entrada obsoleta de menu.usecases (já migrado, sem
-  // drizzle).
-  //
-  // Onda 3D: removidas as 6 entradas de report.usecases, report-overview.usecases
-  // e report-deliveries.usecases (migrados para ports + UoW, sem infra/Drizzle).
-  // Onda cash-flow: removidas as 2 entradas de cash-flow.usecases (migrado para
-  // ports + UoW, sem infra/Drizzle).
-  // Onda provisioning/tenant: removidas as 8 entradas de device-state,
-  // provisioning-email, provisioning.usecases e resolve-tenant (migrados para
-  // ports + UoW).
-  // Onda auth: removidas as 5 entradas de login.usecase e user.usecases
-  // (migrados para ports + UoW; a ponte `infra/db/provisioning-tx` foi removida
-  // por ficar órfã) e as 3 de `auth.routes` (acesso a dados saiu para o use case
-  // `listActiveUsersUsecase`, consumido via composition root).
+  // application: nenhuma violação pendente. Os use cases migraram para
+  // ports + UoW (ondas 1-3, financeiro e auth) e `payment.usecases.ts` saiu
+  // junto com a camada de pagamento online. A lista de application fica vazia:
+  // qualquer import de infra/integrations/config/drizzle volta a ser violação
+  // NOVA e quebra o teste.
   // ------------------------------------------------------------------
-  "src/application/payment/payment.usecases.ts :: application :: dir:infra",
-  "src/application/payment/payment.usecases.ts :: application :: dir:integrations",
-  "src/application/payment/payment.usecases.ts :: application :: pkg:drizzle-orm",
   // ------------------------------------------------------------------
-  // http: rotas/middleware que ainda tocam em Drizzle/schema/client (6).
+  // http: rotas/middleware que ainda tocam em Drizzle/schema/client (3).
   // Quando o acesso a dado sair das rotas, apague estas linhas.
   // `server.ts` NÃO aparece: é o EXEMPT documentado acima.
   // ------------------------------------------------------------------
   "src/http/middlewares/idempotency.middleware.ts :: http :: file:src/infra/db/client",
   "src/http/middlewares/idempotency.middleware.ts :: http :: file:src/infra/db/schema",
   "src/http/middlewares/idempotency.middleware.ts :: http :: pkg:drizzle-orm",
-  "src/http/routes/ifood.routes.ts :: http :: file:src/infra/db/client",
-  "src/http/routes/ifood.routes.ts :: http :: file:src/infra/db/schema",
-  "src/http/routes/ifood.routes.ts :: http :: pkg:drizzle-orm",
 ];
 
 // ---------------------------------------------------------------------

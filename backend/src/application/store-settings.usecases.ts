@@ -76,7 +76,6 @@ function serialize(s: StoreSettingsRow) {
     usesTables: s.usesTables,
     kitchenEnabled: s.kitchenEnabled,
     usesDelivery: s.usesDelivery,
-    ifoodIntegrationEnabled: s.ifoodIntegrationEnabled,
     inventoryEnabled: s.inventoryEnabled,
     purchaseEnabled: s.purchaseEnabled,
     printerEnabled: s.printerEnabled,
@@ -132,7 +131,6 @@ export function createStoreSettingsUsecases(deps: StoreSettingsUsecasesDeps) {
       usesTables: boolean;
       kitchenEnabled: boolean;
       usesDelivery: boolean;
-      ifoodIntegrationEnabled: boolean;
       inventoryEnabled: boolean;
       purchaseEnabled: boolean;
       printerEnabled: boolean;

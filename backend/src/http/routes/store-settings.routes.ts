@@ -29,9 +29,8 @@ const storeSettingsSchema = z.object({
   usesTables: z.boolean(),
   kitchenEnabled: z.boolean(),
   usesDelivery: z.boolean(),
-  ifoodIntegrationEnabled: z.boolean(),
   // Opcional (expand/contract): um frontend antigo não envia o campo e não
-  // pode ligar/desligar a integração por acidente — o usecase mantém o valor.
+  // pode ligar/desligar o controle por acidente — o usecase mantém o valor.
   inventoryEnabled: z.boolean(),
   purchaseEnabled: z.boolean(),
   printerEnabled: z.boolean(),

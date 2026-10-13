@@ -85,31 +85,26 @@ export const ORDER_ALERT_AUDIENCE = ["manager", "cashier", "kitchen"] as const;
 const CHANNEL_LABEL: Record<string, string> = {
   balcao: "Balcão",
   web: "página",
-  ifood: "iFood",
 };
 
 /**
  * Texto do alerta de comanda. Função pura de propósito: quem chama (a
- * self-service, o iFood e o balcão passam pelo mesmo `openOrderUsecase`) monta
+ * self-service e o balcão passam pelo mesmo `openOrderUsecase`) monta
  * o `label` e o `customerName`, e aqui a frase é decidida uma vez só - é o que
  * a suíte testa sem precisar de banco.
  *
  *   balcão  -> "Nova comanda · Mesa 3"   / corpo "Balcão"
  *   web     -> "Novo pedido de Ana"      / corpo "Entrega · página"
- *   ifood   -> "Novo pedido do iFood"    / corpo "iFood 1234"
  */
 export function describeOrderAlert(input: {
-  channel: "balcao" | "web" | "ifood";
-  /** "Mesa 3" (mesa) ou o tabLabel da comanda ("Delivery - Ana", "iFood 99"). */
+  channel: "balcao" | "web";
+  /** "Mesa 3" (mesa) ou o tabLabel da comanda ("Delivery - Ana"). */
   label?: string | null;
   customerName?: string | null;
 }): { title: string; body: string } {
   const label = input.label?.trim() || null;
   const channel = CHANNEL_LABEL[input.channel] ?? input.channel;
 
-  if (input.channel === "ifood") {
-    return { title: `Novo pedido do ${channel}`, body: label ?? "" };
-  }
   if (input.channel === "web") {
     const who = input.customerName?.trim() || label;
     return {

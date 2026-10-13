@@ -59,10 +59,8 @@ async function warmupStoreSettingsByTenant(): Promise<void> {
         ],
         deliveryPrepMinutes: 20,
         minutesPerKm: 2,
-        enabledPaymentMethods: ["dinheiro", "cartao", "pix", "ifood"],
-        ifoodIntegrationEnabled: false,
+        enabledPaymentMethods: ["dinheiro", "cartao", "pix"],
         pixEnabled: true,
-        pagarmeEnabled: true,
       }
 
       await redis.set(

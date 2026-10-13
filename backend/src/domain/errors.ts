@@ -118,62 +118,6 @@ export const Errors = {
       group,
       option,
     }),
-  // ---------- Pagar.me V5 (cobrança no gateway) ----------
-  // Mesma lógica do iFood: 409 e não 400/500 porque não é payload
-  // inválido — é a instalação que ainda não está pronta. `missing` diz o que
-  // falta (toggle, secret key) para o gerente não ficar adivinhando.
-  pagarmeNotConfigured: (missing: string[]) =>
-    new AppError(
-      "pagarme_not_configured",
-      409,
-      "A cobrança no Pagar.me ainda não está configurada neste servidor.",
-      { missing },
-    ),
-  // A cobrança existe do lado do gateway mas não aqui (ou nunca foi criada).
-  // 404 e não "não encontrada" genérico: quem chama é o caixa, e a resposta
-  // honesta é que o pagamento não existe, não que o pedido sumiu.
-  paymentNotFound: (ref?: string) =>
-    new AppError("payment_not_found", 404, "Cobrança não encontrada.", ref ? { ref } : undefined),
-  // O gateway recusou a operação financeira (recusou o cartão, estorno não
-  // elegível, valor acima do estornado...). 502: o pedido estava bem, quem
-  // respondeu não foi. A mensagem vai pro log com o detalhe do provedor, não
-  // pro cliente final.
-  pagarmeProviderError: (message: string, details?: unknown) =>
-    new AppError("pagarme_provider_error", 502, `O Pagar.me recusou a operação: ${message}`, details),
-  // Estorno maior do que o que sobrou de estornável. 422 (e não 409): os
-  // números são válidos, a combinação não é — mesma régua do variation_required.
-  invalidRefundAmount: (requested: number, refundable: number) =>
-    new AppError(
-      "invalid_refund_amount",
-      422,
-      `Estorno de R$ ${requested.toFixed(2)} maior que o valor estornável (R$ ${refundable.toFixed(2)}).`,
-      { requested, refundable },
-    ),
-  // Assinatura do webhook ausente ou não confere. 401: quem chamou não se
-  // provou ser o Pagar.me.
-  invalidSignature: () =>
-    new AppError("invalid_signature", 401, "Assinatura do webhook inválida."),
-  // ---------- Canal interno com o serviço Go (`pagarme-webhook/`) ----------
-  //
-  // O status destes três NÃO é livre: é a tabela que o drainer Go usa para
-  // decidir entre reenviar com backoff, marcar `ignored` ou jogar na DLQ.
-  // Ver `pagarme-webhook/internal/queue/queue.go:tratarErro`.
-  //
-  // Token do canal interno. 401 (e não 403) para AusENTE e para ERRADO com a
-  // mesma resposta, para não revelar qual dos dois foi. O serviço Go trata
-  // 401/403 como DLQ imediata: repetir com o mesmo token nunca funciona, e o
-  // log dele cita `PAGARME_INTERNAL_TOKEN` — que é a única pista que o
-  // operador tem.
-  invalidInternalToken: () =>
-    new AppError("invalid_internal_token", 401, "Token do canal interno inválido."),
-  // A carga não é aplicável: `charge.status` fora do vocabulário, `charge`
-  // ausente, id do gateway faltando. 422 e NÃO 400/401 de propósito — o Go
-  // distingue 422 (conteúdo inválido, DLQ imediata) de 401 (token, DLQ
-  // imediata) por motivo de diagnóstico, e responder 401 aqui transformaria
-  // um erro de conteúdo em perda permanente de evento com a pista errada no
-  // log. 409 também não serve: aqui não há conflito de estado, é conteúdo.
-  invalidInternalCharge: (reason: string, details?: unknown) =>
-    new AppError("invalid_internal_charge", 422, `Cobrança recusada: ${reason}`, details),
   // ---------- Multi-tenant (registry `public.tenant`) ----------
   //
   // Códigos e status do §3.1 do `docs/15-multi-tenant-schema.md`, já que o
@@ -281,11 +225,4 @@ export const Errors = {
       `Estorno de R$ ${requested.toFixed(2)} excede o valor disponível (R$ ${available.toFixed(2)}).`,
       { requested, available },
     ),
-  // ---------- Settlement iFood (Bloco 5 ROADMAP-CAIXA.md) ----------
-  // Validações do settlement: pedido precisa estar fechado e não pode ter
-  // settlement duplicado (UNIQUE constraint em order_id).
-  settlementOrderNotClosed: () =>
-    new AppError("settlement_order_not_closed", 422, "Pedido deve estar fechado para registrar settlement."),
-  settlementAlreadyExists: () =>
-    new AppError("settlement_already_exists", 409, "Já existe settlement para este pedido."),
 };

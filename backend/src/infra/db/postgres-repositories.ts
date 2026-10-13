@@ -34,10 +34,8 @@ import {
   orderItems,
   orderPayments,
   orderRefunds,
-  orderSettlements,
   orders,
   outboxEvents,
-  payments,
   products,
   purchaseItems,
   purchases,
@@ -51,7 +49,6 @@ import {
 } from "./schema.js";
 import { isUniqueViolationOn } from "./errors.js";
 import type { OrderRefundStatus } from "../../domain/refund.js";
-import type { SettlementPayoutStatus } from "../../domain/settlement.js";
 import type {
   AlertRecord,
   AlertRepository,
@@ -91,8 +88,6 @@ import type {
   OrderingProductRecord,
   Page,
   PageQuery,
-  PaymentRecord,
-  PaymentRepository,
   ProductRecord,
   ProvisioningKeyRecord,
   ProvisioningKeyRepository,
@@ -103,8 +98,6 @@ import type {
   PurchaseListItemRecord,
   RefundRecord,
   RefundRepository,
-  SettlementRecord,
-  SettlementRepository,
   SupplierRecord,
   SupplierRepository,
   PixKeyType,
@@ -116,7 +109,6 @@ import type {
   ReportPaymentRow,
   ReportRefundRow,
   ReportRepository,
-  ReportSettlementRow,
   StockMovementViewRecord,
   StockRepository,
   StoreSettingsRepository,
@@ -175,8 +167,6 @@ function toProductRecord(p: typeof products.$inferSelect): ProductRecord {
     lowStockThreshold: p.lowStockThreshold,
     trackStock: p.trackStock,
     unit: p.unit,
-    ifoodEnabled: p.ifoodEnabled,
-    ifoodSku: p.ifoodSku,
     active: p.active,
     imagePath: p.imagePath,
     createdAt: p.createdAt,
@@ -230,7 +220,7 @@ export class PostgresCatalogRepository implements CatalogRepository {
   /**
    * Create/update num método só. Os defaults de criação são os mesmos de
    * `createProductUsecase` (description "", active true, imagePath null; o
-   * resto — variations/ifood/custo/estoque — cai nos defaults do schema, que o
+   * resto — variations/custo/estoque — cai nos defaults do schema, que o
    * use case antigo replicava literalmente). O estoque inicial
    * (`initialStock` → ledger) NÃO entra aqui: `ProductRecord` não tem o campo e
    * o ledger é `session.stock.recordMovement` chamado pelo use case.
@@ -248,8 +238,6 @@ export class PostgresCatalogRepository implements CatalogRepository {
           ...(input.description !== undefined ? { description: input.description } : {}),
           ...(input.price !== undefined ? { price: input.price } : {}),
           ...(input.variations !== undefined ? { variations: input.variations } : {}),
-          ...(input.ifoodEnabled !== undefined ? { ifoodEnabled: input.ifoodEnabled } : {}),
-          ...(input.ifoodSku !== undefined ? { ifoodSku: input.ifoodSku } : {}),
           ...(input.featured !== undefined ? { featured: input.featured } : {}),
           ...(input.costPrice !== undefined ? { costPrice: input.costPrice } : {}),
           ...(input.lowStockThreshold !== undefined ? { lowStockThreshold: input.lowStockThreshold } : {}),
@@ -278,8 +266,6 @@ export class PostgresCatalogRepository implements CatalogRepository {
         description: input.description ?? "",
         price: input.price,
         variations: input.variations ?? "[]",
-        ifoodEnabled: input.ifoodEnabled ?? false,
-        ifoodSku: input.ifoodSku ?? null,
         featured: input.featured ?? false,
         costPrice: input.costPrice ?? 0,
         lowStockThreshold: input.lowStockThreshold ?? 0,
@@ -911,7 +897,6 @@ function toOrderRow(r: typeof orders.$inferSelect): OrderRow {
     deliveryFee: r.deliveryFee,
     cancelReason: r.cancelReason,
     notes: r.notes,
-    ifoodPayments: r.ifoodPayments,
   };
 }
 
@@ -1053,7 +1038,7 @@ export class PostgresOrderRepository implements OrderRepository {
     tableId?: Id | null;
     customerId?: Id | null;
     tabLabel?: Id | null;
-    channel?: "balcao" | "web" | "ifood";
+    channel?: OrderChannel;
     deliveryFee?: number | null;
     externalRef?: string | null;
     notes?: string | null;
@@ -2321,211 +2306,6 @@ export class PostgresRefundRepository implements RefundRepository {
 }
 
 // =====================================================================
-// Liquidações (order_settlement — Bloco 5)
-// =====================================================================
-
-function toSettlementRecord(s: typeof orderSettlements.$inferSelect): SettlementRecord {
-  return {
-    id: s.id,
-    orderId: s.orderId,
-    channel: s.channel,
-    grossAmount: s.grossAmount,
-    commissionAmount: s.commissionAmount,
-    marketplaceFee: s.marketplaceFee,
-    deliveryFeeSubsidy: s.deliveryFeeSubsidy,
-    payoutAmount: s.payoutAmount,
-    payoutStatus: s.payoutStatus,
-    payoutExpectedAt: s.payoutExpectedAt,
-    payoutSettledAt: s.payoutSettledAt,
-    externalRef: s.externalRef,
-    notes: s.notes,
-    createdAt: s.createdAt,
-    updatedAt: s.updatedAt,
-  };
-}
-
-export class PostgresSettlementRepository implements SettlementRepository {
-  constructor(private readonly tx: Tx) {}
-
-  async findById(id: Id): Promise<SettlementRecord | null> {
-    const row = await this.tx.query.orderSettlements.findFirst({ where: eq(orderSettlements.id, id) });
-    return row ? toSettlementRecord(row) : null;
-  }
-
-  async findByOrderId(orderId: Id): Promise<SettlementRecord | null> {
-    const row = await this.tx.query.orderSettlements.findFirst({ where: eq(orderSettlements.orderId, orderId) });
-    return row ? toSettlementRecord(row) : null;
-  }
-
-  /** INSERT com `payout_status = 'pending'` (default do schema). */
-  async create(input: {
-    id: Id;
-    orderId: Id;
-    channel: string;
-    grossAmount: number;
-    commissionAmount: number;
-    marketplaceFee: number;
-    deliveryFeeSubsidy: number;
-    payoutAmount: number;
-    payoutExpectedAt: string | null;
-    externalRef: string | null;
-    notes: string | null;
-    createdAt: string;
-    updatedAt: string;
-  }): Promise<SettlementRecord> {
-    const [row] = await this.tx
-      .insert(orderSettlements)
-      .values({
-        id: input.id,
-        orderId: input.orderId,
-        channel: input.channel,
-        grossAmount: input.grossAmount,
-        commissionAmount: input.commissionAmount,
-        marketplaceFee: input.marketplaceFee,
-        deliveryFeeSubsidy: input.deliveryFeeSubsidy,
-        payoutAmount: input.payoutAmount,
-        payoutStatus: "pending",
-        payoutExpectedAt: input.payoutExpectedAt,
-        externalRef: input.externalRef,
-        notes: input.notes,
-        createdAt: input.createdAt,
-        updatedAt: input.updatedAt,
-      })
-      .returning();
-    if (!row) throw Errors.validationFailed({ field: "orderId" });
-    return toSettlementRecord(row);
-  }
-
-  /** `PATCH /settlements/:id/settle` — marca `paid` + carimba `payout_settled_at`. */
-  async markSettled(id: Id, input: { payoutSettledAt: string; updatedAt: string }): Promise<SettlementRecord> {
-    const [row] = await this.tx
-      .update(orderSettlements)
-      .set({ payoutStatus: "paid", payoutSettledAt: input.payoutSettledAt, updatedAt: input.updatedAt })
-      .where(eq(orderSettlements.id, id))
-      .returning();
-    if (!row) throw Errors.notFound("Settlement");
-    return toSettlementRecord(row);
-  }
-
-  /** `GET /settlements` — filtros opcionais (`channel`/`payoutStatus`, janela `createdAt`), `createdAt ASC`. */
-  async list(query: { channel?: string; payoutStatus?: string; from?: string; to?: string }): Promise<SettlementRecord[]> {
-    const conditions: SQL<unknown>[] = [];
-    if (query.channel) {
-      conditions.push(eq(orderSettlements.channel, query.channel));
-    }
-    if (query.payoutStatus) {
-      conditions.push(eq(orderSettlements.payoutStatus, query.payoutStatus as SettlementPayoutStatus));
-    }
-    if (query.from) {
-      conditions.push(sql`${orderSettlements.createdAt} >= ${query.from}`);
-    }
-    if (query.to) {
-      conditions.push(sql`${orderSettlements.createdAt} <= ${query.to}T23:59:59.999Z`);
-    }
-    const rows = await this.tx
-      .select()
-      .from(orderSettlements)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(asc(orderSettlements.createdAt));
-    return rows.map(toSettlementRecord);
-  }
-}
-
-// =====================================================================
-// Pagamentos (gateway Pagar.me V5)
-// =====================================================================
-
-function toPaymentRecord(p: typeof payments.$inferSelect): PaymentRecord {
-  return {
-    id: p.id,
-    orderId: p.orderId,
-    attempt: p.attempt,
-    provider: p.provider,
-    providerOrderId: p.providerOrderId,
-    providerChargeId: p.providerChargeId,
-    providerPaymentId: p.providerPaymentId,
-    method: p.method,
-    amount: p.amount,
-    currency: p.currency,
-    status: p.status,
-    refundedAmount: p.refundedAmount,
-    failureReason: p.failureReason,
-    qrCode: p.qrCode,
-    qrCodeBase64: p.qrCodeBase64,
-    qrCodeUrl: p.qrCodeUrl,
-    pixTxid: p.pixTxid,
-    pixExpiresAt: p.pixExpiresAt,
-    paidAt: p.paidAt,
-    canceledAt: p.canceledAt,
-    metadata: JSON.parse(p.metadata || "{}"),
-    createdAt: p.createdAt,
-    updatedAt: p.updatedAt,
-  };
-}
-
-export class PostgresPaymentRepository implements PaymentRepository {
-  constructor(private readonly tx: Tx) {}
-
-  async findById(id: Id): Promise<PaymentRecord | null> {
-    const row = await this.tx.query.payments.findFirst({ where: eq(payments.id, id) });
-    return row ? toPaymentRecord(row) : null;
-  }
-
-  /** Tentativas da comanda, na ordem em que foram criadas. */
-  async findByOrder(orderId: Id): Promise<PaymentRecord[]> {
-    const rows = await this.tx.query.payments.findMany({
-      where: eq(payments.orderId, orderId),
-      orderBy: asc(payments.attempt),
-    });
-    return rows.map(toPaymentRecord);
-  }
-
-  /**
-   * INSERT puro: o cálculo de `attempt` (max+1 por comanda), a chamada ao
-   * gateway e a checagem de valor ficam no use case (`createPaymentUsecase`),
-   * como hoje. `uq_payment_order_attempt` é a última linha de defesa.
-   */
-  async create(input: Omit<PaymentRecord, "id">): Promise<PaymentRecord> {
-    const [row] = await this.tx
-      .insert(payments)
-      .values({
-        orderId: input.orderId,
-        attempt: input.attempt,
-        provider: input.provider,
-        providerOrderId: input.providerOrderId ?? null,
-        providerChargeId: input.providerChargeId ?? null,
-        providerPaymentId: input.providerPaymentId ?? null,
-        method: input.method,
-        amount: input.amount,
-        currency: input.currency ?? "BRL",
-        status: input.status,
-        refundedAmount: input.refundedAmount ?? 0,
-        failureReason: input.failureReason ?? null,
-        qrCode: input.qrCode ?? null,
-        qrCodeBase64: input.qrCodeBase64 ?? null,
-        qrCodeUrl: input.qrCodeUrl ?? null,
-        pixTxid: input.pixTxid ?? null,
-        pixExpiresAt: input.pixExpiresAt ?? null,
-        paidAt: input.paidAt ?? null,
-        canceledAt: input.canceledAt ?? null,
-        metadata: toJsonText(input.metadata),
-      })
-      .returning();
-    if (!row) throw Errors.validationFailed({ field: "orderId" });
-    return toPaymentRecord(row);
-  }
-
-  // TODO(onda de payment): a transição real vem do webhook/reconciliação e
-  // faz muito mais que UPDATE de status — paidAt/canceledAt, merge de
-  // metadata (providerData), payment_event, efeito na comanda (fecho/QR).
-  // Replicar `processPaymentEventUsecase` de uma vez; UPDATE parcial aqui
-  // deixaria o estado local mentindo sobre o gateway.
-  async transition(_id: Id, _status: string, _providerData?: unknown): Promise<PaymentRecord> {
-    return notImplemented("PaymentRepository.transition — semântica de webhook/reconciliação (ver TODO no código)");
-  }
-}
-
-// =====================================================================
 // Entregas
 // =====================================================================
 
@@ -3000,8 +2780,6 @@ function toStoreSettingsRow(s: typeof storeSettings.$inferSelect): StoreSettings
     usesTables: s.usesTables,
     kitchenEnabled: s.kitchenEnabled,
     usesDelivery: s.usesDelivery,
-    ifoodIntegrationEnabled: s.ifoodIntegrationEnabled,
-    pagarmeEnabled: s.pagarmeEnabled,
     inventoryEnabled: s.inventoryEnabled,
     purchaseEnabled: s.purchaseEnabled,
     printerEnabled: s.printerEnabled,
@@ -3064,7 +2842,6 @@ export class PostgresStoreSettingsRepository implements StoreSettingsRepository 
         usesTables: input.usesTables,
         kitchenEnabled: input.kitchenEnabled,
         usesDelivery: input.usesDelivery,
-        ifoodIntegrationEnabled: input.ifoodIntegrationEnabled,
         inventoryEnabled: input.inventoryEnabled,
         purchaseEnabled: input.purchaseEnabled,
         printerEnabled: input.printerEnabled,
@@ -3348,20 +3125,6 @@ export class PostgresReportRepository implements ReportRepository {
       })
       .from(orderRefunds)
       .where(and(inArray(orderRefunds.orderId, orderIds), eq(orderRefunds.status, "settled")));
-  }
-
-  /** Settlements iFood por comanda (Bloco 5 — `payout_amount` como líquido). */
-  async listSettlements(orderIds: Id[]): Promise<ReportSettlementRow[]> {
-    if (orderIds.length === 0) return [];
-    return this.tx
-      .select({
-        orderId: orderSettlements.orderId,
-        payoutAmount: orderSettlements.payoutAmount,
-        channel: orderSettlements.channel,
-        status: orderSettlements.payoutStatus,
-      })
-      .from(orderSettlements)
-      .where(inArray(orderSettlements.orderId, orderIds));
   }
 
   /** Nomes dos produtos do `byProduct` (mesma hidratação do `db.query.products.findMany` original). */

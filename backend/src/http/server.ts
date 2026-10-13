@@ -21,6 +21,7 @@ import { initCache, getCache } from "../infra/cache/index.js";
 import { authRoutes } from "./routes/auth.routes.js";
 import { orderRoutes } from "./routes/order.routes.js";
 import { cashFlowRoutes } from "./routes/cash-flow.routes.js";
+import { catalogRoutes } from "./routes/catalog.routes.js";
 import { storeSettingsRoutes } from "./routes/store-settings.routes.js";
 import { userRoutes } from "./routes/user.routes.js";
 import { customerRoutes } from "./routes/customer.routes.js";
@@ -34,18 +35,11 @@ import { publicRoutes } from "./routes/public.routes.js";
 import { tenantRoutes } from "./routes/tenant.routes.js";
 import { courierRoutes } from "./routes/courier.routes.js";
 import { deliveryManagerRoutes } from "./routes/delivery-manager.routes.js";
-import { ifoodRoutes } from "./routes/ifood.routes.js";
-import { paymentRoutes } from "./routes/payment.routes.js";
-import { pagarmeWebhookRoutes } from "./routes/pagarme-webhook.routes.js";
-import { pagarmeInternalRoutes } from "./routes/pagarme-internal.routes.js";
 import { printRoutes } from "./routes/print.routes.js";
 import { alertRoutes } from "./routes/alert.routes.js";
 import { provisioningRoutes } from "./routes/provisioning.routes.js";
 import { uploadsRoutes } from "./routes/uploads.routes.js";
 import { refundRoutes } from "./routes/refund.routes.js";
-import { settlementRoutes } from "./routes/settlement.routes.js";
-import { startIfoodSync } from "../integrations/ifood/worker.js";
-import { startPagarmeWorkers } from "../integrations/pagarme/worker.js";
 import { getStoreSettingsUsecase } from "../infra/composition/default-usecases.js";
 import { listActiveTenants } from "../infra/tenant/registry.js";
 import { tenantMiddleware } from "./middlewares/tenant.middleware.js";
@@ -156,18 +150,6 @@ export async function buildApp(): Promise<FastifyInstance> {
       : true,
   });
 
-  // Preserva o corpo bruto da requisição em req.rawBody, além do JSON já
-  // parseado — necessário pra verificar a assinatura X-Hub-Signature-256 do
-  // webhook do Pagar.me, sem mudar o parsing normal do resto da API.
-  app.addContentTypeParser("application/json", { parseAs: "string" }, (req, body, done) => {
-    (req as any).rawBody = body as string;
-    try {
-      done(null, body ? JSON.parse(body as string) : {});
-    } catch (err) {
-      done(err as Error, undefined);
-    }
-  });
-
   await app.register(websocketPlugin);
 
   // ---------- Fotos (produto, logo, cliente, equipe) ----------
@@ -259,6 +241,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(authRoutes);
   await app.register(orderRoutes);
   await app.register(cashFlowRoutes);
+  await app.register(catalogRoutes);
   // Módulos que antes eram um `misc.routes.ts` único — um plugin por feature,
   // mesmas URLs (sem prefixo), mesmos hooks/validações por encapsulamento.
   await app.register(storeSettingsRoutes);
@@ -280,15 +263,6 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(tenantRoutes);
   await app.register(courierRoutes);
   await app.register(deliveryManagerRoutes);
-  await app.register(ifoodRoutes);
-  await app.register(paymentRoutes);
-  // Webhook do Pagar.me: SEM autenticação (quem se prova é a assinatura), então
-  // fica registrado à parte do paymentRoutes, que exige sessão.
-  await app.register(pagarmeWebhookRoutes);
-  // Canal interno com o serviço Go `pagarme-webhook/`: o Go pergunta, o Node
-  // faz a transação. Auth é token de serviço (não JWT), e o Caddy não roteia
-  // `/internal/*` — o Go chega pela rede interna. Ver o doc comment do arquivo.
-  await app.register(pagarmeInternalRoutes);
   await app.register(printRoutes);
   await app.register(alertRoutes);
   // Provisionamento de aparelho por usuário (docs/21) — mistura rotas de
@@ -298,9 +272,6 @@ export async function buildApp(): Promise<FastifyInstance> {
   // idempotência. Venda estornada vira linha negativa no relatório, não
   // desaparece.
   await app.register(refundRoutes);
-  // Settlement iFood (Bloco 5 ROADMAP-CAIXA.md) — separa receita bruta de
-  // repasse líquido; manager-only para criar e liquidar, waiter pode consultar.
-  await app.register(settlementRoutes);
 
   // ---------- Store info pública (§10) — nome exibido no login, sem pix key ----------
   // também expõe flags de operação que a página externa e o próprio login usam
@@ -316,7 +287,6 @@ export async function buildApp(): Promise<FastifyInstance> {
           logoUrl: s.logoUrl,
           brandColor: s.brandColor,
           usesDelivery: s.usesDelivery,
-          ifoodIntegrationEnabled: s.ifoodIntegrationEnabled,
           deliveryFee: s.deliveryFee,
           // A tabela de frete e os tempos de preparo: o checkout público usa as
           // mesmas faixas que o balcão para montar o seletor de distância e a
@@ -377,10 +347,6 @@ async function main() {
 
   const stopDispatcher = startOutboxDispatcher();
   const stopMaintenance = startMaintenanceJobs();
-  const ifoodSync = startIfoodSync(); // no-op quando sem IFOOD_SYNC_ENABLED/credenciais
-  // Inbox do webhook do Pagar.me + reconciliação. no-op sem PAGARME_ENABLED /
-  // PAGARME_SECRET_KEY.
-  const pagarmeWorkers = startPagarmeWorkers();
 
   await app.listen({ port: config.port, host: "0.0.0.0" });
   app.log.info(`PDV backend rodando em modo ${config.deploymentMode} na porta ${config.port}`);
@@ -388,8 +354,6 @@ async function main() {
   const shutdown = async () => {
     stopDispatcher();
     stopMaintenance();
-    ifoodSync.stop();
-    pagarmeWorkers.stop();
     await app.close();
     process.exit(0);
   };

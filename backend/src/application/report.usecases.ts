@@ -19,8 +19,7 @@
  *   - filtro `productId` via order_ids que contêm o produto (SELECT DISTINCT);
  *   - totais por comanda e por produto agregados em JS sobre o snapshot
  *     (`unit_price × quantity`, sem cancelados); margem = revenue - cost;
- *   - estornos `settled` (Bloco 4) e settlements iFood (Bloco 5: `payoutAmount`
- *     como líquido quando há settlement) — bruto/líquido expostos no summary;
+ *   - estornos `settled` (Bloco 4) — bruto/líquido expostos no summary;
  *   - pagamento fracionado por `order_payment` com fallback no denormalizado
  *     `orders.payment_method` para histórico pré-feature;
  *   - summary agregado sobre TODO o conjunto filtrado (não a página), página
@@ -115,22 +114,6 @@ export function createReportUsecases(deps: ReportUsecasesDeps) {
           }
         }
 
-        // Settlements por pedido (Bloco 5): pedidos iFood com settlement usam payoutAmount
-        // como valor líquido (em vez de grossTotal - refundsTotal). Pedidos sem settlement
-        // mantêm o cálculo padrão (grossTotal - refundsTotal).
-        const settlementsByOrder = new Map<string, { payoutAmount: number; channel: string; status: string }>();
-        if (orderIds.length > 0) {
-          const settlementRows = await session.reports.listSettlements(orderIds);
-
-          for (const s of settlementRows) {
-            settlementsByOrder.set(s.orderId, {
-              payoutAmount: s.payoutAmount,
-              channel: s.channel,
-              status: s.status,
-            });
-          }
-        }
-
         const productIds = [...prodTotals.keys()];
         const productRows = await session.reports.listProductNames(productIds);
         const nameMap = new Map(productRows.map((p) => [p.id, p.name]));
@@ -191,13 +174,7 @@ export function createReportUsecases(deps: ReportUsecasesDeps) {
         const enriched = orderRows.map((o) => {
           const grossTotal = (totalsByOrder.get(o.id) ?? 0) + (o.deliveryFee ?? 0);
           const refundsTotal = round2(refundsByOrder.get(o.id) ?? 0);
-          const settlement = settlementsByOrder.get(o.id);
-
-          // Se há settlement, usa payoutAmount como netTotal (valor líquido a receber)
-          // Se não há settlement, usa grossTotal - refundsTotal (cálculo padrão)
-          const netTotal = settlement
-            ? round2(settlement.payoutAmount)
-            : round2(grossTotal - refundsTotal);
+          const netTotal = round2(grossTotal - refundsTotal);
 
           return {
             orderId: o.id,
@@ -207,20 +184,11 @@ export function createReportUsecases(deps: ReportUsecasesDeps) {
             grossTotal,
             refundsTotal,
             netTotal,
-            // Informações do settlement (Bloco 5)
-            settlement: settlement
-              ? {
-                  channel: settlement.channel,
-                  payoutAmount: settlement.payoutAmount,
-                  payoutStatus: settlement.status,
-                }
-              : null,
           };
         });
 
         // summary é agregado sobre TODO o conjunto filtrado, não sobre a página (§7.9)
         // Bloco 4: expõe bruto, estornos e líquido para transparência
-        // Bloco 5: separa grossTotal (soma dos brutos) e netTotal (soma dos líquidos)
         const totalRevenue = round2(enriched.reduce((sum, o) => sum + o.grossTotal, 0));
         const totalRefunds = round2(enriched.reduce((sum, o) => sum + o.refundsTotal, 0));
         const totalNet = round2(enriched.reduce((sum, o) => sum + o.netTotal, 0));
@@ -237,8 +205,7 @@ export function createReportUsecases(deps: ReportUsecasesDeps) {
           summary: {
             grossRevenue: totalRevenue,
             totalRefunds,
-            // Bloco 5: totalNet é a soma dos netTotal (que considera settlements iFood)
-            // Mantém netRevenue como alias para compatibilidade
+            // totalNet é a soma dos netTotal; netRevenue é alias para compatibilidade
             netRevenue: totalNet,
             totalNet,
             orderCount,

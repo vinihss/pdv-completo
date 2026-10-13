@@ -10,7 +10,7 @@
 -- (`kg-unami-*` / `cat-unami-*` / `p-unami-NNN`) e o ON CONFLICT só
 -- reescreve os campos de catálogo (name, description, price,
 -- category_id, kitchen_group_id). Ele NÃO toca em active, featured,
--- cost_price, track_stock, unit, variations, ifood_enabled nem
+-- cost_price, track_stock, unit, variations nem
 -- image_path — ou seja, reaplicar a migration não sobrescreve o que o
 -- gerente cadastrou depois no app.
 --

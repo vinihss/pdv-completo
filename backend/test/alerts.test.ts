@@ -102,13 +102,6 @@ describe("texto do alerta de comanda (puro)", () => {
     });
   });
 
-  it("iFood: o tabLabel (iFood <displayId>) é o corpo", () => {
-    expect(describeOrderAlert({ channel: "ifood", label: "iFood 1234" })).toEqual({
-      title: "Novo pedido do iFood",
-      body: "iFood 1234",
-    });
-  });
-
   it("a audiência da comanda é gerente, caixa e cozinha — o garçom não entra", () => {
     expect(ORDER_ALERT_AUDIENCE).toEqual(["manager", "cashier", "kitchen"]);
     expect([...ORDER_ALERT_AUDIENCE]).not.toContain("waiter");
