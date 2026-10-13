@@ -23,17 +23,21 @@
  *    gráfico nenhum: o frontend receberia apenas os dias que tiveram venda e
  *    desenharia uma reta que suggests movimento num dia que não teve. Por isso
  *    `fillBuckets` monta a sequência completa de `from` a `to`.
+ *
+ * Migração (ONDA 3D): factory pura (`createOverviewReportUsecases`) — nada de
+ * infra/Drizzle. As leituras (comandas fechadas no intervalo + itens agregados
+ * por comanda) rodam na janela `uow.run` via `session.reports`; o cache
+ * `reports:overview:*` é efeito via port `TenantCache` (set pós-commit). Os
+ * helpers puros (`isValidReportDate`, `bucketKeyFor`, `bucketLabel`,
+ * `fillBuckets`) continuam exportados — `customer.usecases` e o relatório de
+ * entregas os consomem.
  */
-import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
-import { db } from "../infra/db/client.js";
-import { orders, orderItems } from "../infra/db/schema.js";
 import { round2 } from "../domain/money.js";
 import { Errors } from "../domain/errors.js";
-import { tenantCache } from "../infra/cache/index.js";
 import { dayEnd, dayStart, isValidTz, parseTzOffset } from "./cash-flow/day-bounds.js";
-
-// Cache particionado por schema: relatórios são sempre do tenant corrente.
-const cache = tenantCache;
+import type { TenantUnitOfWork } from "./ports/unit-of-work.js";
+import type { TenantContext } from "./ports/tenant-context.js";
+import type { TenantCache } from "./ports/effects.js";
 
 const MONTH_SHORT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 
@@ -163,106 +167,96 @@ export function fillBuckets(
   return out;
 }
 
-export async function overviewReportUsecase(input: {
-  from?: string;
-  to?: string;
-  groupBy?: "hour" | "day" | "week" | "month";
-  tz?: string;
-}) {
-  const groupBy = input.groupBy ?? "day";
-  const tz = input.tz;
+export interface OverviewReportUsecasesDeps {
+  uow: TenantUnitOfWork;
+  tenant: () => TenantContext;
+  cache: TenantCache;
+}
 
-  // Sem período explícito, 30 dias — o mesmo default do relatório de vendas,
-  // para os dois abertos sem filtro mostrarem a mesma janela.
-  const now = new Date();
-  const to = input.to ?? now.toISOString().slice(0, 10);
-  const from =
-    input.from ?? new Date(now.getTime() - 30 * 86_400_000).toISOString().slice(0, 10);
+export function createOverviewReportUsecases(deps: OverviewReportUsecasesDeps) {
+  return {
+    async overviewReportUsecase(input: {
+      from?: string;
+      to?: string;
+      groupBy?: "hour" | "day" | "week" | "month";
+      tz?: string;
+    }) {
+      const groupBy = input.groupBy ?? "day";
+      const tz = input.tz;
 
-  if (!isValidReportDate(from) || !isValidReportDate(to)) throw Errors.validationFailed("from/to devem ser YYYY-MM-DD");
-  if (from > to) throw Errors.validationFailed("`from` não pode ser depois de `to`.");
-  if (!isValidTz(tz)) throw Errors.validationFailed("tz deve ser um offset como -03:00.");
+      // Sem período explícito, 30 dias — o mesmo default do relatório de vendas,
+      // para os dois abertos sem filtro mostrarem a mesma janela.
+      const now = new Date();
+      const to = input.to ?? now.toISOString().slice(0, 10);
+      const from =
+        input.from ?? new Date(now.getTime() - 30 * 86_400_000).toISOString().slice(0, 10);
 
-  const key = `reports:overview:${JSON.stringify({ from, to, groupBy, tz: tz ?? null })}`;
-  const cached = await cache.get<OverviewResult>(key);
-  if (cached) return cached;
+      if (!isValidReportDate(from) || !isValidReportDate(to)) throw Errors.validationFailed("from/to devem ser YYYY-MM-DD");
+      if (from > to) throw Errors.validationFailed("`from` não pode ser depois de `to`.");
+      if (!isValidTz(tz)) throw Errors.validationFailed("tz deve ser um offset como -03:00.");
 
-  // `dayStart`/`dayEnd` convertem "YYYY-MM-DD" no intervalo UTC do dia LOCAL da
-  // loja: é o que impede a venda das 22h de cair no dia anterior no gráfico.
-  const conditions = [
-    eq(orders.status, "closed"),
-    gte(orders.closedAt!, dayStart(from, tz)),
-    lte(orders.closedAt!, dayEnd(to, tz)),
-  ];
+      const key = `reports:overview:${JSON.stringify({ from, to, groupBy, tz: tz ?? null })}`;
+      const cached = await deps.cache.get<OverviewResult>(key);
+      if (cached) return cached;
 
-  const orderRows = await db
-    .select({
-      id: orders.id,
-      closedAt: orders.closedAt,
-      deliveryFee: orders.deliveryFee,
-    })
-    .from(orders)
-    .where(and(...conditions));
+      const result = await deps.uow.run(deps.tenant(), async (session) => {
+        // `dayStart`/`dayEnd` convertem "YYYY-MM-DD" no intervalo UTC do dia LOCAL da
+        // loja: é o que impede a venda das 22h de cair no dia anterior no gráfico.
+        // As bordas resolvidas vão ao adapter (`listClosedOrdersBetween`).
+        const orderRows = await session.reports.listClosedOrdersBetween(dayStart(from, tz), dayEnd(to, tz));
 
-  // Itens agregados por comanda no próprio SQL: uma linha por comanda em vez
-  // de uma por item (o detalhe do item não é usado aqui).
-  const itemsByOrder = new Map<string, number>();
-  if (orderRows.length > 0) {
-    const itemRows = await db
-      .select({
-        orderId: orderItems.orderId,
-        total: sql<number>`coalesce(sum(${orderItems.unitPrice} * ${orderItems.quantity}), 0)`,
-      })
-      .from(orderItems)
-      .where(
-        and(
-          inArray(orderItems.orderId, orderRows.map((o) => o.id)),
-          // Cancelados não entram no total — mesma regra do relatório de vendas
-          // e de `computeOrderTotal`.
-          sql`${orderItems.status} <> 'cancelled'`,
-        ),
-      )
-      .groupBy(orderItems.orderId);
-    for (const r of itemRows) itemsByOrder.set(r.orderId, r.total);
-  }
+        // Itens agregados por comanda no próprio SQL: uma linha por comanda em vez
+        // de uma por item (o detalhe do item não é usado aqui).
+        const itemsByOrder = new Map<string, number>();
+        if (orderRows.length > 0) {
+          const itemRows = await session.reports.listItemsTotalByOrder(orderRows.map((o) => o.id));
+          for (const r of itemRows) itemsByOrder.set(r.orderId, r.total);
+        }
 
-  const offsetMinutes = parseTzOffset(tz);
-  const totals = new Map<string, { total: number; orderCount: number }>();
-  for (const o of orderRows) {
-    const at = Date.parse(o.closedAt ?? "");
-    if (Number.isNaN(at)) continue;
-    const bucket = bucketKeyFor(at, groupBy, offsetMinutes);
-    const cur = totals.get(bucket) ?? { total: 0, orderCount: 0 };
-    cur.total += (itemsByOrder.get(o.id) ?? 0) + (o.deliveryFee ?? 0);
-    cur.orderCount += 1;
-    totals.set(bucket, cur);
-  }
+        const offsetMinutes = parseTzOffset(tz);
+        const totals = new Map<string, { total: number; orderCount: number }>();
+        for (const o of orderRows) {
+          const at = Date.parse(o.closedAt ?? "");
+          if (Number.isNaN(at)) continue;
+          const bucket = bucketKeyFor(at, groupBy, offsetMinutes);
+          const cur = totals.get(bucket) ?? { total: 0, orderCount: 0 };
+          cur.total += (itemsByOrder.get(o.id) ?? 0) + (o.deliveryFee ?? 0);
+          cur.orderCount += 1;
+          totals.set(bucket, cur);
+        }
 
-  const series = fillBuckets(from, to, groupBy, tz).map((bucket) => {
-    const t = totals.get(bucket) ?? { total: 0, orderCount: 0 };
-    return { bucket, label: bucketLabel(bucket, groupBy), total: round2(t.total), orderCount: t.orderCount };
-  });
+        const series = fillBuckets(from, to, groupBy, tz).map((bucket) => {
+          const t = totals.get(bucket) ?? { total: 0, orderCount: 0 };
+          return { bucket, label: bucketLabel(bucket, groupBy), total: round2(t.total), orderCount: t.orderCount };
+        });
 
-  // Somado pela série, não pelos pedidos: assim o total bate com o que o
-  // frontend soma dos pontos desenhados, mesmo que um bucket do intervalo
-  // caia em fuso diferente (virada de horário de verão).
-  const totalSales = round2(series.reduce((s, p) => s + p.total, 0));
-  const orderCount = series.reduce((s, p) => s + p.orderCount, 0);
+        // Somado pela série, não pelos pedidos: assim o total bate com o que o
+        // frontend soma dos pontos desenhados, mesmo que um bucket do intervalo
+        // caia em fuso diferente (virada de horário de verão).
+        const totalSales = round2(series.reduce((s, p) => s + p.total, 0));
+        const orderCount = series.reduce((s, p) => s + p.orderCount, 0);
 
-  const result: OverviewResult = {
-    from,
-    to,
-    groupBy,
-    series,
-    totals: {
-      totalSales,
-      orderCount,
-      avgTicket: orderCount > 0 ? round2(totalSales / orderCount) : 0,
+        const result: OverviewResult = {
+          from,
+          to,
+          groupBy,
+          series,
+          totals: {
+            totalSales,
+            orderCount,
+            avgTicket: orderCount > 0 ? round2(totalSales / orderCount) : 0,
+          },
+        };
+        return result;
+      });
+
+      await deps.cache.set(key, result, { ttl: 300 });
+      return result;
     },
   };
-  await cache.set(key, result, { ttl: 300 });
-  return result;
 }
+
+export type OverviewReportUsecases = ReturnType<typeof createOverviewReportUsecases>;
 
 export type OverviewResult = {
   from: string;

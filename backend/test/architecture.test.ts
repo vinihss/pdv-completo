@@ -49,7 +49,7 @@ const EXEMPT: Record<string, readonly string[]> = {
 const KNOWN_VIOLATIONS: readonly string[] = [
   // ------------------------------------------------------------------
   // application: use cases ainda acoplados a infra/integrations/config e
-  // ao Drizzle (35 entradas). Migram use case a use case; ao migrar um, apague
+  // ao Drizzle (24 entradas). Migram use case a use case; ao migrar um, apague
   // as linhas dele — a lista só DIMINUI.
   //
   // Auditoria desta onda (delivery/manager-delivery-status/order-intake):
@@ -57,6 +57,9 @@ const KNOWN_VIOLATIONS: readonly string[] = [
   // payment (pkg:drizzle-orm) e cash-flow (dir:infra + pkg:drizzle-orm) seguem
   // acoplados e eram "novas violações" desde então; e removida a entrada
   // obsoleta de menu.usecases (já migrado, sem drizzle).
+  //
+  // Onda 3D: removidas as 6 entradas de report.usecases, report-overview.usecases
+  // e report-deliveries.usecases (migrados para ports + UoW, sem infra/Drizzle).
   // ------------------------------------------------------------------
   "src/application/auth/login.usecase.ts :: application :: dir:config",
   "src/application/auth/login.usecase.ts :: application :: dir:infra",
@@ -77,12 +80,6 @@ const KNOWN_VIOLATIONS: readonly string[] = [
   "src/application/purchase/purchase.usecases.ts :: application :: pkg:drizzle-orm",
   "src/application/refund/refund.usecases.ts :: application :: dir:infra",
   "src/application/refund/refund.usecases.ts :: application :: pkg:drizzle-orm",
-  "src/application/report-deliveries.usecases.ts :: application :: dir:infra",
-  "src/application/report-deliveries.usecases.ts :: application :: pkg:drizzle-orm",
-  "src/application/report-overview.usecases.ts :: application :: dir:infra",
-  "src/application/report-overview.usecases.ts :: application :: pkg:drizzle-orm",
-  "src/application/report.usecases.ts :: application :: dir:infra",
-  "src/application/report.usecases.ts :: application :: pkg:drizzle-orm",
   "src/application/settlement/settlement.usecases.ts :: application :: dir:infra",
   "src/application/settlement/settlement.usecases.ts :: application :: pkg:drizzle-orm",
   "src/application/tenant/resolve-tenant.usecase.ts :: application :: dir:infra",

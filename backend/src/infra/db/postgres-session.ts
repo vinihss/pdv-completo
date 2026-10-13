@@ -16,6 +16,7 @@ import {
   PostgresOutboxWriter,
   PostgresPaymentRepository,
   PostgresPurchaseRepository,
+  PostgresReportRepository,
   PostgresStockRepository,
   PostgresStoreSettingsRepository,
   PostgresUserRepository,
@@ -50,6 +51,7 @@ export function createPostgresTenantSession(tx: Tx): TenantSession {
     customerAddresses: new PostgresCustomerAddressRepository(tx),
     alerts: new PostgresAlertRepository(tx),
     auditLog: new PostgresAuditRepository(tx),
+    reports: new PostgresReportRepository(tx),
     audit: new PostgresAuditWriter(tx),
     outbox: new PostgresOutboxWriter(tx),
   };

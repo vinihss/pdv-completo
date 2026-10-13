@@ -18,6 +18,7 @@ import type {
   GeocodingCacheRepository,
   CustomerCartRepository,
   CustomerAddressRepository,
+  ReportRepository,
 } from "./repositories.js";
 
 export interface TenantSession {
@@ -44,6 +45,8 @@ export interface TenantSession {
   alerts: AlertRepository;
   /** ADIÇÃO (Onda 3B): leitura da trilha de auditoria (`GET /audit-log`). */
   auditLog: AuditRepository;
+  /** ADIÇÃO (Onda 3D): relatórios gerenciais (`/reports/sales|overview|deliveries`). */
+  reports: ReportRepository;
   audit: AuditWriter;
   outbox: OutboxWriter;
 }
