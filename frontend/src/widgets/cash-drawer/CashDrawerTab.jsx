@@ -115,7 +115,7 @@ export default function CashDrawerTab({ showToast }) {
   }
 
   if (loading) {
-    return <div className="text-stone-600 text-center py-10">Carregando…</div>;
+    return <div className="text-text-muted text-center py-10">Carregando…</div>;
   }
 
   const open = current !== null;
@@ -125,21 +125,21 @@ export default function CashDrawerTab({ showToast }) {
       <PageHeader title="Caixa" description="Acompanhe a sessão ativa e o histórico de fechamentos." />
       {/* Status do caixa */}
       <div className="ui-surface p-5">
-        <div className="flex items-center gap-2 text-stone-400 text-xs font-bold uppercase tracking-wide mb-1">
+        <div className="flex items-center gap-2 text-text-secondary text-xs font-bold uppercase tracking-wide mb-1">
           <Wallet size={14} />
           {open ? "Caixa aberto" : "Caixa fechado"}
         </div>
         {open ? (
           <>
-            <div className="text-stone-500 text-xs mb-3">
+            <div className="text-text-muted text-xs mb-3">
               Aberto por {current.openedByName ?? "—"} às {toDate(current.openedAt)?.toLocaleTimeString() ?? "—"}
-              <span className="text-stone-600"> · aberto há {fmtElapsed(current.openedAt, now)}</span>
+              <span className="text-text-muted"> · aberto há {fmtElapsed(current.openedAt, now)}</span>
             </div>
-            <div className="text-3xl font-display font-bold text-emerald-400">{formatBRL(current.expectedCash)}</div>
-            <div className="text-stone-500 text-xs mt-1">esperado na gaveta</div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs text-stone-400">
-              <span>Fundo: <b className="text-stone-200">{formatBRL(current.openingAmount)}</b></span>
-              <span>Vendas em dinheiro: <b className="text-stone-200">{formatBRL(current.cashSalesTotal)}</b> ({current.cashSalesCount})</span>
+            <div className="text-3xl font-display font-bold text-success">{formatBRL(current.expectedCash)}</div>
+            <div className="text-text-muted text-xs mt-1">esperado na gaveta</div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs text-text-secondary">
+              <span>Fundo: <b className="text-text-secondary">{formatBRL(current.openingAmount)}</b></span>
+              <span>Vendas em dinheiro: <b className="text-text-secondary">{formatBRL(current.cashSalesTotal)}</b> ({current.cashSalesCount})</span>
             </div>
             <div className="flex gap-2 mt-5">
               <ActionButton onClick={() => setMovementType("sangria")} icon={ArrowDownCircle} label="Sangria" />
@@ -149,10 +149,10 @@ export default function CashDrawerTab({ showToast }) {
           </>
         ) : (
           <>
-            <div className="text-stone-400 text-sm mb-4">Nenhum caixa aberto no momento.</div>
+            <div className="text-text-secondary text-sm mb-4">Nenhum caixa aberto no momento.</div>
             <button
               onClick={() => setOpenModal(true)}
-              className="w-full bg-amber-500 hover:bg-amber-400 text-stone-950 font-semibold py-3 rounded-xl"
+              className="w-full bg-primary hover:bg-primary-strong text-primary-foreground font-semibold py-3 rounded-xl"
             >
               Abrir caixa
             </button>
@@ -164,31 +164,31 @@ export default function CashDrawerTab({ showToast }) {
       {open && (
         <Section title="Movimentações">
           {current.movements.length === 0 && (
-            <div className="text-stone-600 text-sm py-4 text-center">Nenhuma sangria ou suprimento.</div>
+            <div className="text-text-muted text-sm py-4 text-center">Nenhuma sangria ou suprimento.</div>
           )}
           <div className="space-y-1.5">
             {current.movements.map((m) => (
-              <div key={m.id} className="flex items-center justify-between text-sm bg-stone-900 border border-stone-800 rounded-xl px-3 py-2">
+              <div key={m.id} className="flex items-center justify-between text-sm bg-surface border border-border rounded-xl px-3 py-2">
                 <div>
-                  <span className={`font-semibold ${m.type === "sangria" ? "text-red-400" : "text-emerald-400"}`}>
+                  <span className={`font-semibold ${m.type === "sangria" ? "text-destructive" : "text-success"}`}>
                     {m.type === "sangria" ? "Sangria" : "Suprimento"}
                   </span>
                   {m.category && (
-                    <span className="inline-block text-[10px] font-medium bg-stone-800 text-stone-300 rounded-full px-1.5 py-0.5 ml-1.5">
+                    <span className="inline-block text-[10px] font-medium bg-surface-overlay text-text-secondary rounded-full px-1.5 py-0.5 ml-1.5">
                       {CATEGORY_LABELS[m.category] || m.category}
                     </span>
                   )}
                   {m.refOrderLabel && (
-                    <span className="inline-block text-[10px] font-semibold bg-stone-800 text-amber-400 rounded-full px-1.5 py-0.5 ml-1.5">
+                    <span className="inline-block text-[10px] font-semibold bg-surface-overlay text-primary rounded-full px-1.5 py-0.5 ml-1.5">
                       Estorno · {m.refOrderLabel}
                     </span>
                   )}
-                  {m.note && <span className="text-stone-500 text-xs ml-2">{m.note}</span>}
-                  <div className="text-stone-600 text-xs">
+                  {m.note && <span className="text-text-muted text-xs ml-2">{m.note}</span>}
+                  <div className="text-text-muted text-xs">
                     {toDate(m.createdAt)?.toLocaleTimeString() ?? "—"} · {m.createdByName ?? m.createdBy}
                   </div>
                 </div>
-                <span className={`font-semibold ${m.type === "sangria" ? "text-red-400" : "text-emerald-400"}`}>
+                <span className={`font-semibold ${m.type === "sangria" ? "text-destructive" : "text-success"}`}>
                   {m.type === "sangria" ? "−" : "+"} {formatBRL(m.amount)}
                 </span>
               </div>
@@ -204,28 +204,28 @@ export default function CashDrawerTab({ showToast }) {
             <button
               key={d.id}
               onClick={() => setDetail(d)}
-              className="w-full flex items-center justify-between text-sm bg-stone-900 border border-stone-800 rounded-xl px-3 py-2 hover:border-stone-700 text-left"
+              className="w-full flex items-center justify-between text-sm bg-surface border border-border rounded-xl px-3 py-2 hover:border-border text-left"
             >
               <div>
                 <div className="flex items-center gap-1.5 font-medium">
-                  <History size={13} className="text-stone-500" />
+                  <History size={13} className="text-text-muted" />
                   {toDate(d.openedAt)?.toLocaleString() ?? "—"}
                 </div>
-                <div className="text-stone-500 text-xs">
+                <div className="text-text-muted text-xs">
                   fechado {toDate(d.closedAt)?.toLocaleString() ?? "—"}
                 </div>
               </div>
               <div className="text-right">
                 <div className="font-semibold">
                   {d.closingDifference === 0 ? (
-                    <span className="text-emerald-400">OK</span>
+                    <span className="text-success">OK</span>
                   ) : (
-                    <span className={d.closingDifference > 0 ? "text-emerald-400" : "text-red-400"}>
+                    <span className={d.closingDifference > 0 ? "text-success" : "text-destructive"}>
                       {d.closingDifference > 0 ? "+" : ""}{formatBRL(d.closingDifference)}
                     </span>
                   )}
                 </div>
-                <div className="text-stone-500 text-xs">esperado {formatBRL(d.closingExpected)}</div>
+                <div className="text-text-muted text-xs">esperado {formatBRL(d.closingExpected)}</div>
               </div>
             </button>
           ))}
@@ -239,7 +239,7 @@ export default function CashDrawerTab({ showToast }) {
           )}
         </div>
         {hasMore && (
-          <button onClick={loadMore} className="w-full text-sm text-amber-400 hover:text-amber-300 font-medium py-2 mt-1">
+          <button onClick={loadMore} className="w-full text-sm text-primary hover:text-primary font-medium py-2 mt-1">
             Carregar mais
           </button>
         )}
@@ -289,8 +289,8 @@ function ActionButton({ onClick, icon: Icon, label, accent }) {
       onClick={onClick}
       className={`flex-1 flex items-center justify-center gap-1.5 text-sm font-semibold py-2.5 rounded-xl border ${
         accent
-          ? "bg-stone-800 hover:bg-stone-750 border-stone-700 text-emerald-400"
-          : "bg-stone-800 hover:bg-stone-750 border-stone-700 text-red-400"
+          ? "bg-surface-overlay hover:bg-surface-overlay border-border text-success"
+          : "bg-surface-overlay hover:bg-surface-overlay border-border text-destructive"
       }`}
     >
       <Icon size={15} /> {label}

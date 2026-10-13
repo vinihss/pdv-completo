@@ -72,10 +72,10 @@ export default function NewPurchaseModal({ suppliers, products, onClose, onSaved
       footer={
         <div>
           <div className="flex items-center justify-between mb-3">
-            <span className="text-stone-400 text-sm">Total da compra</span>
+            <span className="text-text-secondary text-sm">Total da compra</span>
             <span className="font-display font-bold text-lg">{formatBRL(total)}</span>
           </div>
-          <button onClick={handleSave} disabled={saving} className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl flex items-center justify-center gap-2">
+          <button onClick={handleSave} disabled={saving} className="w-full bg-primary hover:bg-primary-strong disabled:opacity-50 text-primary-foreground font-semibold py-3.5 rounded-xl flex items-center justify-center gap-2">
             <PackagePlus size={16} /> {saving ? "Registrando…" : "Registrar compra"}
           </button>
         </div>
@@ -97,19 +97,19 @@ export default function NewPurchaseModal({ suppliers, products, onClose, onSaved
           <input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} placeholder="Ex.: NF-1234" className={inputClass} />
         </Field>
 
-        <div className="text-stone-400 text-xs font-medium pt-1">Itens</div>
+        <div className="text-text-secondary text-xs font-medium pt-1">Itens</div>
         {lines.map((l) => (
-          <div key={l.key} className="bg-stone-800/60 rounded-xl p-3 space-y-2">
+          <div key={l.key} className="bg-surface-overlay/60 rounded-xl p-3 space-y-2">
             <div className="flex items-center gap-2">
               <select
                 value={l.productId}
                 onChange={(e) => updateLine(l.key, { productId: e.target.value })}
-                className="flex-1 bg-stone-900 border border-stone-700 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-amber-500/50"
+                className="flex-1 bg-surface border border-border rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-ring/50"
               >
                 <option value="">Selecione o produto…</option>
                 {products.map((p) => <option key={p.productId} value={p.productId}>{p.name}</option>)}
               </select>
-              <button type="button" onClick={() => removeLine(l.key)} aria-label="Remover item" className="text-stone-500 hover:text-red-400 shrink-0"><Trash2 size={15} /></button>
+              <button type="button" onClick={() => removeLine(l.key)} aria-label="Remover item" className="text-text-muted hover:text-destructive shrink-0"><Trash2 size={15} /></button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <Field label="Quantidade">
@@ -143,7 +143,7 @@ export default function NewPurchaseModal({ suppliers, products, onClose, onSaved
             </div>
           </div>
         ))}
-        <button type="button" onClick={() => setLines((prev) => [...prev, emptyLine()])} className="flex items-center gap-1.5 text-amber-500 text-sm font-semibold">
+        <button type="button" onClick={() => setLines((prev) => [...prev, emptyLine()])} className="flex items-center gap-1.5 text-primary text-sm font-semibold">
           <Plus size={14} /> Adicionar item
         </button>
 

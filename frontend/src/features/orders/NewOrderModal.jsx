@@ -76,7 +76,7 @@ export default function NewOrderModal({ usesTables, ordersByTable = {}, onClose,
         <button
           onClick={handleConfirm}
           disabled={submitting}
-          className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl transition-colors"
+          className="w-full bg-primary hover:bg-primary-strong disabled:opacity-50 text-primary-foreground font-semibold py-3.5 rounded-xl transition-colors"
         >
           {submitting 
             ? "Abrindo…" 
@@ -93,7 +93,7 @@ export default function NewOrderModal({ usesTables, ordersByTable = {}, onClose,
               type="button"
               onClick={() => setMode("table")}
               aria-pressed={mode === "table"}
-              className={`flex-1 py-2 rounded-xl text-sm font-semibold ${mode === "table" ? "bg-amber-500 text-stone-950" : "bg-stone-800 text-stone-400"}`}
+              className={`flex-1 py-2 rounded-xl text-sm font-semibold ${mode === "table" ? "bg-primary text-primary-foreground" : "bg-surface-overlay text-text-secondary"}`}
             >
               Mesa
             </button>
@@ -102,7 +102,7 @@ export default function NewOrderModal({ usesTables, ordersByTable = {}, onClose,
             type="button"
             onClick={() => setMode("customer")}
             aria-pressed={mode === "customer"}
-            className={`flex-1 py-2 rounded-xl text-sm font-semibold ${mode === "customer" ? "bg-amber-500 text-stone-950" : "bg-stone-800 text-stone-400"}`}
+            className={`flex-1 py-2 rounded-xl text-sm font-semibold ${mode === "customer" ? "bg-primary text-primary-foreground" : "bg-surface-overlay text-text-secondary"}`}
           >
             Cliente
           </button>
@@ -110,7 +110,7 @@ export default function NewOrderModal({ usesTables, ordersByTable = {}, onClose,
             type="button"
             onClick={() => setMode("tab")}
             aria-pressed={mode === "tab"}
-            className={`flex-1 py-2 rounded-xl text-sm font-semibold ${mode === "tab" ? "bg-amber-500 text-stone-950" : "bg-stone-800 text-stone-400"}`}
+            className={`flex-1 py-2 rounded-xl text-sm font-semibold ${mode === "tab" ? "bg-primary text-primary-foreground" : "bg-surface-overlay text-text-secondary"}`}
           >
             Rótulo
           </button>
@@ -132,33 +132,33 @@ export default function NewOrderModal({ usesTables, ordersByTable = {}, onClose,
                     aria-pressed={tableId === t.id}
                     className={`py-3 rounded-xl font-display font-bold text-sm relative ${
                       tableId === t.id
-                        ? "bg-amber-500 text-stone-950"
+                        ? "bg-primary text-primary-foreground"
                         : hasOrder
-                        ? "bg-blue-800/50 text-blue-300 hover:bg-blue-800/70"
+                        ? "bg-surface-overlay/50 text-text-secondary hover:bg-surface-overlay/70"
                         : occupied
-                        ? "bg-stone-800/50 text-stone-700 cursor-not-allowed"
-                        : "bg-stone-800 text-stone-200"
+                        ? "bg-surface-overlay/50 text-text-secondary cursor-not-allowed"
+                        : "bg-surface-overlay text-text-secondary"
                     }`}
                   >
                     {t.number}
                     {hasOrder && (
-                      <span className="absolute -top-1 -right-1 w-3 h-3 bg-blue-400 rounded-full border-2 border-stone-900" />
+                      <span className="absolute -top-1 -right-1 w-3 h-3 bg-surface rounded-full border-2 border-border" />
                     )}
                   </button>
                 );
               })}
             </div>
-            <div className="flex items-center gap-4 mb-4 text-xs text-stone-400">
+            <div className="flex items-center gap-4 mb-4 text-xs text-text-secondary">
               <span className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded bg-stone-800 border border-stone-700" aria-hidden="true" />
+                <span className="w-3 h-3 rounded bg-surface-overlay border border-border" aria-hidden="true" />
                 Disponível
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded bg-blue-800/50 border border-blue-700/50" aria-hidden="true" />
+                <span className="w-3 h-3 rounded bg-surface-overlay/50 border border-surface/50" aria-hidden="true" />
                 Com comanda
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded bg-stone-800/50 border border-stone-700/50" aria-hidden="true" />
+                <span className="w-3 h-3 rounded bg-surface-overlay/50 border border-border/50" aria-hidden="true" />
                 Ocupada
               </span>
             </div>
@@ -175,12 +175,12 @@ export default function NewOrderModal({ usesTables, ordersByTable = {}, onClose,
               }}
               autoFocus
               placeholder="Nome do cliente..."
-              className="w-full bg-stone-800 border border-stone-700 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-amber-500/50 mb-2"
+              className="w-full bg-surface-overlay border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-ring/50 mb-2"
             />
             {selectedCustomer ? (
-              <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/40 rounded-xl px-3 py-2 text-sm">
+              <div className="flex items-center justify-between bg-success/10 border border-success/40 rounded-xl px-3 py-2 text-sm">
                 <span>{selectedCustomer.name}</span>
-                <button onClick={() => setSelectedCustomer(null)} className="text-stone-400">
+                <button onClick={() => setSelectedCustomer(null)} className="text-text-secondary">
                   <X size={14} />
                 </button>
               </div>
@@ -190,13 +190,13 @@ export default function NewOrderModal({ usesTables, ordersByTable = {}, onClose,
                   <button
                     key={c.id}
                     onClick={() => setSelectedCustomer(c)}
-                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-800 text-sm"
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-surface-overlay text-sm"
                   >
-                    {c.name} {c.phone ? <span className="text-stone-500">· {c.phone}</span> : null}
+                    {c.name} {c.phone ? <span className="text-text-muted">· {c.phone}</span> : null}
                   </button>
                 ))}
                 {customerQuery && customerResults.length === 0 && (
-                  <button onClick={handleQuickCreateCustomer} className="w-full text-left px-3 py-2 rounded-lg hover:bg-stone-800 text-sm text-amber-400">
+                  <button onClick={handleQuickCreateCustomer} className="w-full text-left px-3 py-2 rounded-lg hover:bg-surface-overlay text-sm text-primary">
                     + Cadastrar "{customerQuery}"
                   </button>
                 )}
@@ -211,11 +211,11 @@ export default function NewOrderModal({ usesTables, ordersByTable = {}, onClose,
             onChange={(e) => setTabLabel(e.target.value)}
             autoFocus
             placeholder="Ex: Comanda 12"
-            className="w-full bg-stone-800 border border-stone-700 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-amber-500/50 mb-4"
+            className="w-full bg-surface-overlay border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-ring/50 mb-4"
           />
         )}
 
-        {error && <div className="text-red-400 text-xs font-medium">{error}</div>}
+        {error && <div className="text-destructive text-xs font-medium">{error}</div>}
       </div>
     </Modal>
   );

@@ -137,7 +137,7 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
       title={product ? "Editar produto" : "Novo produto"}
       onClose={onClose}
       footer={
-        <button type="submit" form="product-form" disabled={saving} className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl">
+        <button type="submit" form="product-form" disabled={saving} className="w-full bg-primary hover:bg-primary-strong disabled:opacity-50 text-primary-foreground font-semibold py-3.5 rounded-xl">
           {saving ? "Salvando…" : "Salvar"}
         </button>
       }
@@ -148,17 +148,17 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
             {image.preview ? (
               <img src={image.preview} alt="Prévia do produto" className="w-16 h-16 rounded-xl object-cover shrink-0" />
             ) : (
-              <div className="w-16 h-16 rounded-xl bg-stone-800 border border-stone-700 flex items-center justify-center text-stone-600 shrink-0">
+              <div className="w-16 h-16 rounded-xl bg-surface-overlay border border-border flex items-center justify-center text-text-muted shrink-0">
                 <Package size={24} />
               </div>
             )}
             <div className="flex-1 space-y-2">
-              <label className="flex items-center justify-center gap-1.5 bg-stone-800 hover:bg-stone-750 border border-stone-700 rounded-xl px-3 py-2 text-sm font-medium cursor-pointer">
+              <label className="flex items-center justify-center gap-1.5 bg-surface-overlay hover:bg-surface-overlay border border-border rounded-xl px-3 py-2 text-sm font-medium cursor-pointer">
                 <Upload size={14} /> {image.file || product?.imagePath ? "Trocar foto" : "Enviar foto"}
                 <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleFileChange} />
               </label>
               {(image.file || product?.imagePath) && (
-                <button onClick={handleRemoveImage} className="flex items-center gap-1.5 text-red-400 text-xs font-medium">
+                <button onClick={handleRemoveImage} className="flex items-center gap-1.5 text-destructive text-xs font-medium">
                   <ImageOff size={13} /> Remover foto
                 </button>
               )}
@@ -181,10 +181,10 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
                 <option value="">Nenhum — não vai para a cozinha</option>
                 {kitchenGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
               </select>
-              <div className="text-stone-600 text-xs mt-1">Itens deste produto só aparecem na tela da cozinha se um grupo for escolhido.</div>
+              <div className="text-text-muted text-xs mt-1">Itens deste produto só aparecem na tela da cozinha se um grupo for escolhido.</div>
             </>
           ) : (
-            <div className="text-stone-600 text-xs bg-stone-800/50 border border-stone-800 rounded-xl px-3 py-2.5">
+            <div className="text-text-muted text-xs bg-surface-overlay/50 border border-border rounded-xl px-3 py-2.5">
               Configuração atual: restaurante sem cozinha — este produto entra na comanda pronto, sem passagem por estação.
             </div>
           )}
@@ -192,21 +192,21 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
         <Field label="Variações (opcional)">
           <div className="space-y-2">
             {variationGroups.map((g, gi) => (
-              <div key={g.id} className="bg-stone-800/60 rounded-xl p-3 space-y-2">
+              <div key={g.id} className="bg-surface-overlay/60 rounded-xl p-3 space-y-2">
                 <div className="flex items-center gap-2">
                   <input
                     value={g.name}
                     onChange={(e) => updateVariationGroup(g.id, { name: e.target.value })}
                     placeholder="Nome do grupo (ex.: Ponto da carne)"
-                    className="flex-1 bg-stone-900 border border-stone-700 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-amber-500/50"
+                    className="flex-1 bg-surface border border-border rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-ring/50"
                   />
-                  <button type="button" onClick={() => removeVariationGroup(g.id)} aria-label={`Remover grupo ${g.name || "sem nome"}`} className="text-stone-500 hover:text-red-400"><Trash2 size={15} /></button>
+                  <button type="button" onClick={() => removeVariationGroup(g.id)} aria-label={`Remover grupo ${g.name || "sem nome"}`} className="text-text-muted hover:text-destructive"><Trash2 size={15} /></button>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {g.options.map((opt, oi) => (
-                    <span key={oi} className="flex items-center gap-1 bg-stone-900 border border-stone-700 rounded-full pl-2.5 pr-1 py-1 text-xs">
+                    <span key={oi} className="flex items-center gap-1 bg-surface border border-border rounded-full pl-2.5 pr-1 py-1 text-xs">
                       {opt}
-                      <button type="button" onClick={() => removeOption(gi, oi)} aria-label={`Remover opção ${opt}`} className="text-stone-500 hover:text-red-400"><X size={12} /></button>
+                      <button type="button" onClick={() => removeOption(gi, oi)} aria-label={`Remover opção ${opt}`} className="text-text-muted hover:text-destructive"><X size={12} /></button>
                     </span>
                   ))}
                 </div>
@@ -216,24 +216,24 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
                     onChange={(e) => setNewOption((prev) => ({ ...prev, [gi]: e.target.value }))}
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addOption(gi); } }}
                     placeholder="Nova opção (Enter para adicionar)..."
-                    className="flex-1 bg-stone-900 border border-stone-700 rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-amber-500/50"
+                    className="flex-1 bg-surface border border-border rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-ring/50"
                   />
-                  <button type="button" onClick={() => addOption(gi)} aria-label="Adicionar opção" className="bg-stone-900 border border-stone-700 rounded-lg px-2.5 text-stone-300 hover:text-amber-400"><Plus size={14} /></button>
+                  <button type="button" onClick={() => addOption(gi)} aria-label="Adicionar opção" className="bg-surface border border-border rounded-lg px-2.5 text-text-secondary hover:text-primary"><Plus size={14} /></button>
                 </div>
-                <div className="flex gap-4 text-xs text-stone-400">
+                <div className="flex gap-4 text-xs text-text-secondary">
                   <label className="flex items-center gap-1.5"><input type="checkbox" checked={g.required} onChange={(e) => updateVariationGroup(g.id, { required: e.target.checked })} /> Obrigatória</label>
                   <label className="flex items-center gap-1.5"><input type="checkbox" checked={g.allowMultiple} onChange={(e) => updateVariationGroup(g.id, { allowMultiple: e.target.checked })} /> Permitir múltiplas</label>
                 </div>
               </div>
             ))}
-            <button type="button" onClick={addVariationGroup} className="flex items-center gap-1.5 text-amber-500 text-sm font-semibold">
+            <button type="button" onClick={addVariationGroup} className="flex items-center gap-1.5 text-primary text-sm font-semibold">
               <Plus size={14} /> Adicionar variação
             </button>
           </div>
         </Field>
         <Field label="Estoque">
           {inventoryEnabled ? (
-            <div className="space-y-3 bg-stone-800/40 border border-stone-800 rounded-xl p-3">
+            <div className="space-y-3 bg-surface-overlay/40 border border-border rounded-xl p-3">
               <ToggleRow label="Rastreia estoque deste produto" checked={trackStock} onChange={setTrackStock} />
               {trackStock && (
                 <>
@@ -266,11 +266,11 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
                       placeholder="0"
                       className={inputClass}
                     />
-                    <div className="text-stone-600 text-xs mt-1">Saldo igual ou abaixo deste valor marca o produto como estoque baixo.</div>
+                    <div className="text-text-muted text-xs mt-1">Saldo igual ou abaixo deste valor marca o produto como estoque baixo.</div>
                   </Field>
                   {product ? (
-                    <div className="flex items-center gap-2 text-xs text-stone-500 bg-stone-900/60 border border-stone-800 rounded-xl px-3 py-2.5">
-                      Saldo atual: <b className="text-stone-200">{product.quantity ?? 0}</b> — ajuste na aba Estoque do gerente.
+                    <div className="flex items-center gap-2 text-xs text-text-muted bg-surface/60 border border-border rounded-xl px-3 py-2.5">
+                      Saldo atual: <b className="text-text-secondary">{product.quantity ?? 0}</b> — ajuste na aba Estoque do gerente.
                     </div>
                   ) : (
                     <Field label="Estoque inicial (qtd.)">
@@ -288,45 +288,45 @@ export default function ProductModal({ product, categories, kitchenGroups, kitch
               )}
             </div>
           ) : (
-            <div className="text-stone-600 text-xs bg-stone-800/40 border border-stone-800 rounded-xl px-3 py-2.5">
+            <div className="text-text-muted text-xs bg-surface-overlay/40 border border-border rounded-xl px-3 py-2.5">
               Controle de estoque desabilitado nas configurações — habilite para rastrear saldo e bloqueio de venda.
             </div>
           )}
         </Field>
-        <div className="space-y-3 bg-stone-800/40 border border-stone-800 rounded-xl p-3">
+        <div className="space-y-3 bg-surface-overlay/40 border border-border rounded-xl p-3">
           <div>
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-sm font-medium">Habilitado para venda</div>
-                <div className="text-stone-600 text-xs">Desligado, o produto some das telas de venda (garçom, cardápio público e cozinha).</div>
+                <div className="text-text-muted text-xs">Desligado, o produto some das telas de venda (garçom, cardápio público e cozinha).</div>
               </div>
               <button
                 onClick={() => setActive(!active)}
-                className={`shrink-0 w-11 h-6 rounded-full transition-colors relative ${active ? "bg-amber-500" : "bg-stone-700"}`}
+                className={`shrink-0 w-11 h-6 rounded-full transition-colors relative ${active ? "bg-primary" : "bg-surface-overlay"}`}
               >
-                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${active ? "translate-x-5" : "translate-x-0.5"}`} />
+                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-foreground transition-transform ${active ? "translate-x-5" : "translate-x-0.5"}`} />
               </button>
             </div>
           </div>
-          <div className="border-t border-stone-800 pt-3">
+          <div className="border-t border-border pt-3">
             {ifoodIntegrationEnabled ? (
               <ToggleRow label="Disponível no iFood" checked={ifoodEnabled} onChange={setIfoodEnabled} />
             ) : (
-              <div className="text-stone-600 text-xs">
+              <div className="text-text-muted text-xs">
                 Integração com iFood desabilitada nas configurações — a flag não se aplica a este produto.
               </div>
             )}
           </div>
-          <div className="border-t border-stone-800 pt-3">
+          <div className="border-t border-border pt-3">
             {deliveryEnabled ? (
               <ToggleRow label="Em destaque na página de pedidos" checked={featured} onChange={setFeatured} />
             ) : (
-              <div className="text-stone-600 text-xs">
+              <div className="text-text-muted text-xs">
                 Delivery desabilitado nas configurações — a página de pedidos externos não está no ar, então o destaque não aparece.
               </div>
             )}
             {deliveryEnabled && (
-              <p className="text-stone-600 text-xs mt-1.5">
+              <p className="text-text-muted text-xs mt-1.5">
                 Destaques ficam na vitrine do /pedido. O produto continua aparecendo normalmente na categoria dele.
               </p>
             )}

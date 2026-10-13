@@ -38,14 +38,14 @@ export default function UserAvatar({ name, photoPath, className = "" }) {
         src={assetUrl(photoPath)}
         alt={name}
         onError={() => setFailedSrc(photoPath)}
-        className={`block rounded-full object-cover shrink-0 bg-stone-800 ${className}`}
+        className={`block rounded-full object-cover shrink-0 bg-surface-overlay ${className}`}
       />
     );
   }
 
   return (
     <div
-      className={`rounded-full bg-stone-800 shrink-0 flex items-center justify-center font-display font-bold text-amber-400 ${className}`}
+      className={`rounded-full bg-surface-overlay shrink-0 flex items-center justify-center font-display font-bold text-primary ${className}`}
     >
       {initialsOf(name)}
     </div>

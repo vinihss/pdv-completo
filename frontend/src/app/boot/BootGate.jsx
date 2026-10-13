@@ -103,7 +103,7 @@ export function BootGate({ children }) {
         action={
           <button
             onClick={() => relaunch()}
-            className="w-full flex items-center justify-center gap-2 bg-stone-800 hover:bg-stone-750 border border-stone-700 text-stone-200 font-semibold py-3 rounded-xl transition-colors"
+            className="w-full flex items-center justify-center gap-2 bg-surface-overlay hover:bg-surface-overlay border border-border text-text-secondary font-semibold py-3 rounded-xl transition-colors"
           >
             <RefreshCcw size={15} /> Abrir novamente
           </button>

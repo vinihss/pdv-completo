@@ -17,13 +17,13 @@ function PixKeyPreview({ pixKey, pixKeyType }) {
   if (!key) return null;
 
   return (
-    <div className="text-xs text-stone-400">
+    <div className="text-xs text-text-secondary">
       <p>
-        Será usada no QR como <span className="text-stone-200 font-medium">{PIX_KEY_TYPE_LABELS[type] ?? "—"}</span>:{" "}
-        <span className="font-mono text-stone-200">{key}</span>
+        Será usada no QR como <span className="text-text-secondary font-medium">{PIX_KEY_TYPE_LABELS[type] ?? "—"}</span>:{" "}
+        <span className="font-mono text-text-secondary">{key}</span>
       </p>
       {warnings.map((w) => (
-        <p key={w} className="flex items-start gap-1.5 mt-1.5 text-amber-300">
+        <p key={w} className="flex items-start gap-1.5 mt-1.5 text-primary">
           <AlertTriangle size={12} className="shrink-0 mt-0.5" />
           {w}
         </p>
@@ -45,7 +45,7 @@ export default function SettingsTab({ showToast }) {
     if (storeSettings) setForm(storeSettings);
   }, [storeSettings]);
 
-  if (!form) return <div className="p-6 text-stone-600">Carregando…</div>;
+  if (!form) return <div className="p-6 text-text-muted">Carregando…</div>;
 
   function set(patch) {
     setForm((f) => ({ ...f, ...patch }));
@@ -101,18 +101,18 @@ export default function SettingsTab({ showToast }) {
         <Field label="Logo do restaurante">
           <div className="flex items-center gap-3">
             {displayLogo ? (
-              <button type="button" onClick={() => document.getElementById("logo-file-input")?.click()} className="w-16 h-16 rounded-xl object-cover shrink-0 cursor-pointer hover:ring-2 hover:ring-amber-500 transition-all" aria-label="Trocar logo">
+              <button type="button" onClick={() => document.getElementById("logo-file-input")?.click()} className="w-16 h-16 rounded-xl object-cover shrink-0 cursor-pointer hover:ring-2 hover:ring-ring transition-all" aria-label="Trocar logo">
                 <img src={displayLogo} alt="Logo do restaurante" className="w-16 h-16 rounded-xl object-cover" />
               </button>
             ) : (
-              <button type="button" onClick={() => document.getElementById("logo-file-input")?.click()} className="w-16 h-16 rounded-xl bg-stone-800 border-2 border-dashed border-stone-700 flex items-center justify-center text-stone-600 hover:border-amber-500 hover:text-amber-500 transition-colors cursor-pointer shrink-0" aria-label="Enviar logo">
+              <button type="button" onClick={() => document.getElementById("logo-file-input")?.click()} className="w-16 h-16 rounded-xl bg-surface-overlay border-2 border-dashed border-border flex items-center justify-center text-text-muted hover:border-ring hover:text-primary transition-colors cursor-pointer shrink-0" aria-label="Enviar logo">
                 <Store size={24} />
               </button>
             )}
             <input id="logo-file-input" type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleLogoFile} />
             <div className="flex-1 space-y-2">
               {displayLogo && (
-                <button onClick={handleRemoveLogo} className="text-red-400 hover:text-red-300 text-xs font-medium cursor-pointer">
+                <button onClick={handleRemoveLogo} className="text-destructive hover:text-destructive text-xs font-medium cursor-pointer">
                   <ImageOff size={13} /> Remover logo
                 </button>
               )}
@@ -128,20 +128,20 @@ export default function SettingsTab({ showToast }) {
                 set({ brandColor: e.target.value });
                 applyBrandPrimary(e.target.value);
               }}
-              className="h-11 w-14 rounded-lg bg-stone-800 border border-stone-700 cursor-pointer shrink-0"
+              className="h-11 w-14 rounded-lg bg-surface-overlay border border-border cursor-pointer shrink-0"
             />
-            <span className="text-sm font-mono text-stone-400">{form.brandColor}</span>
+            <span className="text-sm font-mono text-text-secondary">{form.brandColor}</span>
             <button
               onClick={() => {
                 set({ brandColor: DEFAULT_PRIMARY_COLOR });
                 applyBrandPrimary();
               }}
-              className="ml-auto flex items-center gap-1.5 bg-stone-800 hover:bg-stone-750 border border-stone-700 rounded-xl px-3 py-2 text-xs font-semibold text-stone-300 transition-colors"
+              className="ml-auto flex items-center gap-1.5 bg-surface-overlay hover:bg-surface-overlay border border-border rounded-xl px-3 py-2 text-xs font-semibold text-text-secondary transition-colors"
             >
               <RefreshCcw size={13} /> Restaurar padrão
             </button>
           </div>
-          <p className="text-stone-600 text-xs mt-1.5">Aplica nos botões principais, destaques e na página externa de pedidos.</p>
+          <p className="text-text-muted text-xs mt-1.5">Aplica nos botões principais, destaques e na página externa de pedidos.</p>
         </Field>
         <Field label="Nome do estabelecimento (máx. 25)">
           <input maxLength={25} value={form.merchantName} onChange={(e) => set({ merchantName: e.target.value })} className={inputClass} />
@@ -160,7 +160,7 @@ export default function SettingsTab({ showToast }) {
           checked={form.whatsappIntegrationEnabled ?? false}
           onChange={(v) => set({ whatsappIntegrationEnabled: v })}
         />
-        <p className="text-stone-600 text-xs">
+        <p className="text-text-muted text-xs">
           Com a integração ligada, o painel de conexão do WhatsApp Business e o histórico de mensagens aparecem logo abaixo, nesta tela.
           Desligar esconde o painel sem desconectar a conta.
         </p>
@@ -174,7 +174,7 @@ export default function SettingsTab({ showToast }) {
           checked={form.purchaseEnabled}
           onChange={(v) => set({ purchaseEnabled: v })}
         />
-        <p className="text-stone-600 text-xs">
+        <p className="text-text-muted text-xs">
           Em produtos com "Rastreia estoque" ativo, o lançamento de item debita o saldo e bloqueia quando insuficiente; a aba
           Estoque do gerente permite compras e ajustes. Desligar não apaga o histórico de movimentos.
         </p>
@@ -185,7 +185,7 @@ export default function SettingsTab({ showToast }) {
           padding de tela cheia que ele usa quando era aba do gerente. */}
       {form.whatsappIntegrationEnabled && (
         <div className="space-y-4">
-          <div className="text-stone-500 text-xs font-bold tracking-widest uppercase">Integração WhatsApp</div>
+          <div className="text-text-muted text-xs font-bold tracking-widest uppercase">Integração WhatsApp</div>
           <WhatsAppTab showToast={showToast} embedded />
         </div>
       )}
@@ -203,7 +203,7 @@ export default function SettingsTab({ showToast }) {
               checked={form.printerAutoPrint ?? false}
               onChange={(v) => set({ printerAutoPrint: v })}
             />
-            <p className="text-stone-600 text-xs">
+            <p className="text-text-muted text-xs">
               Com a impressão automática ligada, o ticket da cozinha é impresso a cada lançamento de item e o ticket de entrega
               a cada saída para entrega. O ícone de impressão no pedido permite imprimir manualmente a qualquer momento.
             </p>
@@ -218,11 +218,11 @@ export default function SettingsTab({ showToast }) {
             <Field label="Coordenadas do restaurante">
               {form.restaurantLat != null && form.restaurantLong != null ? (
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-mono text-stone-400">{form.restaurantLat.toFixed(5)}, {form.restaurantLong.toFixed(5)}</span>
-                  <span className="text-[11px] text-stone-500">(calculada automaticamente)</span>
+                  <span className="text-sm font-mono text-text-secondary">{form.restaurantLat.toFixed(5)}, {form.restaurantLong.toFixed(5)}</span>
+                  <span className="text-[11px] text-text-muted">(calculada automaticamente)</span>
                 </div>
               ) : (
-                <p className="text-stone-500 text-xs">Será calculada automaticamente ao salvar nome e cidade.</p>
+                <p className="text-text-muted text-xs">Será calculada automaticamente ao salvar nome e cidade.</p>
               )}
             </Field>
             <Field label="Frete grátis acima de (R$) — 0 desativa">
@@ -239,7 +239,7 @@ export default function SettingsTab({ showToast }) {
               <div className="space-y-2">
                 {(form.deliveryFeeTiers ?? []).map((tier, idx) => (
                   <div key={idx} className="flex items-center gap-2">
-                    <span className="text-xs text-stone-500 w-16">Até {tier.maxKm}km</span>
+                    <span className="text-xs text-text-muted w-16">Até {tier.maxKm}km</span>
                     <input
                       type="number"
                       step="0.01"
@@ -258,7 +258,7 @@ export default function SettingsTab({ showToast }) {
                         const newTiers = (form.deliveryFeeTiers ?? []).filter((_, i) => i !== idx);
                         set({ deliveryFeeTiers: newTiers });
                       }}
-                      className="text-red-400 hover:text-red-300 text-xs font-medium"
+                      className="text-destructive hover:text-destructive text-xs font-medium"
                     >
                       Remover
                     </button>
@@ -269,12 +269,12 @@ export default function SettingsTab({ showToast }) {
                     const newTiers = [...(form.deliveryFeeTiers ?? []), { maxKm: 15, fee: 20 }];
                     set({ deliveryFeeTiers: newTiers });
                   }}
-                  className="text-xs text-amber-400 hover:text-amber-300 font-medium"
+                  className="text-xs text-primary hover:text-primary font-medium"
                 >
                   + Adicionar faixa
                 </button>
               </div>
-              <p className="text-stone-600 text-xs mt-1.5">
+              <p className="text-text-muted text-xs mt-1.5">
                 A última faixa define o limite máximo de entrega. Acima dela, o endereço é considerado fora da área.
               </p>
             </Field>
@@ -297,7 +297,7 @@ export default function SettingsTab({ showToast }) {
                 onChange={(e) => set({ deliveryPrepMinutes: Number(e.target.value) })}
                 className={inputClass}
               />
-              <p className="text-stone-600 text-xs mt-1.5">
+              <p className="text-text-muted text-xs mt-1.5">
                 Base da previsão de entrega que o cliente vê na página de pedido. Some-se o tempo de viagem da faixa
                 escolhida.
               </p>
@@ -311,7 +311,7 @@ export default function SettingsTab({ showToast }) {
                 onChange={(e) => set({ minutesPerKm: Number(e.target.value) })}
                 className={inputClass}
               />
-              <p className="text-stone-600 text-xs mt-1.5">
+              <p className="text-text-muted text-xs mt-1.5">
                 Multiplicado pelo km máximo da faixa. Na prática 2 é razoável em cidade; ajuste conforme sua região.
               </p>
             </Field>
@@ -340,7 +340,7 @@ export default function SettingsTab({ showToast }) {
               key={m}
               onClick={() => toggleMethod(m)}
               className={`py-2.5 rounded-xl text-sm font-semibold border ${
-                form.enabledPaymentMethods.includes(m) ? "bg-amber-500 text-stone-950 border-amber-500" : "bg-stone-900 border-stone-800 text-stone-400"
+                form.enabledPaymentMethods.includes(m) ? "bg-primary text-primary-foreground border-ring" : "bg-surface border-border text-text-secondary"
               }`}
             >
               {{ cash: "Dinheiro", card: "Cartão", pix: "Pix", other: "Outro" }[m]}
@@ -368,7 +368,7 @@ export default function SettingsTab({ showToast }) {
       {isDesktop() && <AppSection showToast={showToast} />}
 
       {error && (
-        <div className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2.5">
+        <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 border border-destructive/30 rounded-xl px-3 py-2.5">
           <AlertTriangle size={14} /> {error}
         </div>
       )}
@@ -376,7 +376,7 @@ export default function SettingsTab({ showToast }) {
       <button
         onClick={handleSave}
         disabled={saving}
-        className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl transition-colors"
+        className="w-full bg-primary hover:bg-primary-strong disabled:opacity-50 text-primary-foreground font-semibold py-3.5 rounded-xl transition-colors"
       >
         {saving ? "Salvando…" : "Salvar configurações"}
       </button>

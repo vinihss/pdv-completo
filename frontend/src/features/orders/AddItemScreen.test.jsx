@@ -104,7 +104,7 @@ describe("AddItemScreen — estados do catálogo", () => {
       const buttons = screen.getAllByRole("button", { name: /Cerveja/i });
       const hasHighlight = buttons.some(btn => 
         btn.className.includes("ring-2") && 
-        btn.className.includes("ring-emerald-400") && 
+        btn.className.includes("ring-success") && 
         btn.className.includes("scale-105")
       );
       expect(hasHighlight).toBe(true);

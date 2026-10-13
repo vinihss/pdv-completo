@@ -51,14 +51,14 @@ function AddressRow({ customerId, address, onChange, showToast }) {
   }
 
   return (
-    <div className="bg-stone-800/40 border border-stone-700/60 rounded-xl px-3 py-2.5">
+    <div className="bg-surface-overlay/40 border border-border/60 rounded-xl px-3 py-2.5">
       <div className="flex items-start justify-between gap-2">
         <div className="text-sm min-w-0">
           <div className="font-medium flex items-center gap-1.5">
-            {address.isDefault && <Star size={11} className="text-amber-400 shrink-0" />}
+            {address.isDefault && <Star size={11} className="text-primary shrink-0" />}
             {address.label?.trim() || "Endereço"}
           </div>
-          <div className="text-stone-400 text-xs mt-0.5">
+          <div className="text-text-secondary text-xs mt-0.5">
             {formatAddress(address)}
             {address.reference ? ` (${address.reference})` : ""}
           </div>
@@ -68,12 +68,12 @@ function AddressRow({ customerId, address, onChange, showToast }) {
             <button
               onClick={handleSetDefault}
               title="Marcar como padrão"
-              className="text-stone-500 hover:text-amber-400 p-1"
+              className="text-text-muted hover:text-primary p-1"
             >
               <Star size={14} />
             </button>
           )}
-          <button onClick={handleDelete} title="Excluir endereço" className="text-stone-500 hover:text-red-400 p-1">
+          <button onClick={handleDelete} title="Excluir endereço" className="text-text-muted hover:text-destructive p-1">
             <Trash2 size={14} />
           </button>
         </div>
@@ -91,10 +91,10 @@ function PhotoPicker({ customer, busy, onPick, onRemove }) {
           <img
             src={assetUrl(customer.photoPath)}
             alt={customer.name}
-            className="w-16 h-16 rounded-full object-cover border border-stone-700"
+            className="w-16 h-16 rounded-full object-cover border border-border"
           />
         ) : (
-          <div className="w-16 h-16 rounded-full bg-stone-800 border border-stone-700 flex items-center justify-center text-stone-400 font-bold">
+          <div className="w-16 h-16 rounded-full bg-surface-overlay border border-border flex items-center justify-center text-text-secondary font-bold">
             {initials(customer?.name ?? "?")}
           </div>
         )}
@@ -103,7 +103,7 @@ function PhotoPicker({ customer, busy, onPick, onRemove }) {
           onClick={() => inputRef.current?.click()}
           disabled={busy}
           aria-label="Enviar foto"
-          className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-amber-500 text-stone-950 flex items-center justify-center hover:bg-amber-400 disabled:opacity-50"
+          className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary-strong disabled:opacity-50"
         >
           <Camera size={13} />
         </button>
@@ -117,10 +117,10 @@ function PhotoPicker({ customer, busy, onPick, onRemove }) {
           onChange={(e) => onPick(e.target.files?.[0])}
         />
       </div>
-      <div className="text-xs text-stone-500 space-y-1">
+      <div className="text-xs text-text-muted space-y-1">
         <p>Foto do cliente — identifica na comanda e no delivery.</p>
         {customer?.photoPath && (
-          <button type="button" onClick={onRemove} disabled={busy} className="flex items-center gap-1 text-red-400 hover:text-red-300 disabled:opacity-50">
+          <button type="button" onClick={onRemove} disabled={busy} className="flex items-center gap-1 text-destructive hover:text-destructive disabled:opacity-50">
             <Trash2 size={12} /> Remover foto
           </button>
         )}
@@ -258,7 +258,7 @@ export default function CustomerModal({ customer, onClose, onSaved, showToast })
         <button
           onClick={handleSubmit}
           disabled={saving}
-          className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl"
+          className="w-full bg-primary hover:bg-primary-strong disabled:opacity-50 text-primary-foreground font-semibold py-3.5 rounded-xl"
         >
           {saving ? "Salvando…" : isEdit ? "Salvar alterações" : "Criar cliente"}
         </button>
@@ -274,7 +274,7 @@ export default function CustomerModal({ customer, onClose, onSaved, showToast })
           <input
             value={name}
             onChange={(e) => { setName(e.target.value); if (e.target.value.trim()) setError(""); }}
-            className={inputClass + (error && !name.trim() ? " border-red-500/60" : "")}
+            className={inputClass + (error && !name.trim() ? " border-destructive/60" : "")}
             autoFocus
           />
         </Field>
@@ -307,10 +307,10 @@ export default function CustomerModal({ customer, onClose, onSaved, showToast })
               placeholder="000.000.000-00"
               inputMode="numeric"
               autoComplete="off"
-              className={inputClass + (cpfError ? " border-red-500/60" : "")}
+              className={inputClass + (cpfError ? " border-destructive/60" : "")}
             />
           </Field>
-          {cpfError && <p className="text-red-400 text-xs mt-1.5">{cpfError}</p>}
+          {cpfError && <p className="text-destructive text-xs mt-1.5">{cpfError}</p>}
         </div>
 
         <Field label="Observações">
@@ -323,11 +323,11 @@ export default function CustomerModal({ customer, onClose, onSaved, showToast })
           />
         </Field>
 
-        {error && <p className="text-red-400 text-xs">{error}</p>}
+        {error && <p className="text-destructive text-xs">{error}</p>}
 
         {isEdit && (
           <div className="space-y-2 pt-1">
-            <div className="text-xs font-bold uppercase tracking-widest text-stone-500">
+            <div className="text-xs font-bold uppercase tracking-widest text-text-muted">
               Endereços ({addresses.length}/3)
             </div>
             <div className="space-y-2">
@@ -335,11 +335,11 @@ export default function CustomerModal({ customer, onClose, onSaved, showToast })
                 <AddressRow key={a.id} customerId={customer.id} address={a} onChange={reloadAddresses} showToast={showToast} />
               ))}
               {addresses.length === 0 && !addingAddress && (
-                <p className="text-stone-600 text-xs">Nenhum endereço cadastrado.</p>
+                <p className="text-text-muted text-xs">Nenhum endereço cadastrado.</p>
               )}
             </div>
             {addingAddress ? (
-              <div className="bg-stone-900 border border-stone-700 rounded-xl p-3 space-y-2">
+              <div className="bg-surface border border-border rounded-xl p-3 space-y-2">
                 <Field label="Rótulo (opcional)">
                   <input
                     value={newAddress.label}
@@ -422,13 +422,13 @@ export default function CustomerModal({ customer, onClose, onSaved, showToast })
                 <div className="flex gap-2 pt-1">
                   <button
                     onClick={handleAddAddress}
-                    className="flex-1 bg-amber-500 hover:bg-amber-400 text-stone-950 text-sm font-semibold py-2.5 rounded-xl"
+                    className="flex-1 bg-primary hover:bg-primary-strong text-primary-foreground text-sm font-semibold py-2.5 rounded-xl"
                   >
                     Salvar endereço
                   </button>
                   <button
                     onClick={() => { setAddingAddress(false); setNewAddress(EMPTY_ADDRESS); }}
-                    className="px-4 text-sm font-semibold text-stone-400 hover:text-stone-200"
+                    className="px-4 text-sm font-semibold text-text-secondary hover:text-text-secondary"
                   >
                     Cancelar
                   </button>
@@ -438,7 +438,7 @@ export default function CustomerModal({ customer, onClose, onSaved, showToast })
               addresses.length < 3 && (
                 <button
                   onClick={() => setAddingAddress(true)}
-                  className="w-full flex items-center justify-center gap-2 border border-dashed border-stone-700 text-stone-400 hover:text-amber-400 hover:border-amber-500/40 text-sm font-semibold py-2.5 rounded-xl"
+                  className="w-full flex items-center justify-center gap-2 border border-dashed border-border text-text-secondary hover:text-primary hover:border-ring/40 text-sm font-semibold py-2.5 rounded-xl"
                 >
                   <Plus size={15} /> Adicionar endereço
                 </button>

@@ -62,8 +62,8 @@ export default function MenuScreen({
   const pill = (active) =>
     `shrink-0 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
       active
-        ? "bg-amber-500 text-[var(--brand-accent-foreground)]"
-        : "bg-stone-900 text-stone-300 border-b-2 border-stone-600"
+        ? "bg-primary text-[var(--brand-accent-foreground)]"
+        : "bg-surface text-text-secondary border-b-2 border-border"
     }`;
 
   return (
@@ -75,52 +75,52 @@ export default function MenuScreen({
           {logoUrl ? (
             <img src={assetUrl(logoUrl)} alt="Logo do restaurante" className="h-14 w-14 rounded-full object-contain" />
           ) : (
-            <div className="h-14 w-14 rounded-full bg-stone-800 flex items-center justify-center">
-              <span className="font-display text-xl font-bold text-amber-400">{(merchantName?.[0] ?? "B").toUpperCase()}</span>
+            <div className="h-14 w-14 rounded-full bg-surface-overlay flex items-center justify-center">
+              <span className="font-display text-xl font-bold text-primary">{(merchantName?.[0] ?? "B").toUpperCase()}</span>
             </div>
           )}
           <div className="flex justify-end">
-            {viaWhatsApp && <span className="text-[10.5px] font-semibold bg-[#25D366]/15 text-[#25D366] px-2 py-0.5 rounded-full">WhatsApp</span>}
+            {viaWhatsApp && <span className="text-[10.5px] font-semibold bg-whatsapp/15 text-whatsapp px-2 py-0.5 rounded-full">WhatsApp</span>}
           </div>
         </div>
         <div className="text-center mt-3">
           <h1 className="text-[17px] font-extrabold tracking-tight truncate">{merchantName || "Cardápio"}</h1>
-          <p className="text-[11px] tracking-[0.18em] uppercase text-amber-400/80 font-semibold mt-0.5">Pedido para entrega</p>
+          <p className="text-[11px] tracking-[0.18em] uppercase text-primary/80 font-semibold mt-0.5">Pedido para entrega</p>
         </div>
 
         {activeOrder && (
-          <button onClick={onOpenActiveOrder} className="mt-4 w-full rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex items-center justify-between gap-3 text-left">
+          <button onClick={onOpenActiveOrder} className="mt-4 w-full rounded-xl border border-ring/40 bg-primary/10 px-4 py-3 flex items-center justify-between gap-3 text-left">
             <span className="min-w-0">
-              <span className="block text-[13.5px] font-semibold text-stone-50">Você tem um pedido em andamento</span>
-              <span className="block text-[12px] text-stone-400 mt-0.5 truncate">
+              <span className="block text-[13.5px] font-semibold text-foreground">Você tem um pedido em andamento</span>
+              <span className="block text-[12px] text-text-secondary mt-0.5 truncate">
                 {activeOrder.customerStage?.label} · {formatBRL(activeOrder.total)}
               </span>
             </span>
-            <span className="text-[12.5px] font-semibold text-amber-400 shrink-0">Ver status</span>
+            <span className="text-[12.5px] font-semibold text-primary shrink-0">Ver status</span>
           </button>
         )}
       </div>
 
       {/* ---- barra sticky: só aparece quando rola (ou quando busca) ---- */}
       <div
-        className={`sticky top-0 z-30 bg-stone-950/95 backdrop-blur border-b border-stone-800 px-5 transition-all duration-200 ${
+        className={`sticky top-0 z-30 bg-background/95 backdrop-blur border-b border-border px-5 transition-all duration-200 ${
           showBar ? "max-h-40 opacity-100" : "max-h-0 opacity-0 pointer-events-none border-b-0 overflow-hidden"
         }`}
       >
         <div className="py-3 space-y-2.5">
           <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-500 pointer-events-none" />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
             <input
               value={searchTerm}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder="Buscar produto"
               aria-label="Buscar produto"
-              className="w-full bg-stone-900 border border-stone-800 rounded-lg pl-9 pr-8 h-10 text-[14px] text-stone-100 outline-none focus:border-amber-500 placeholder:text-stone-500"
+              className="w-full bg-surface border border-border rounded-lg pl-9 pr-8 h-10 text-[14px] text-foreground outline-none focus:border-ring placeholder:text-text-muted"
             />
             {searchTerm && (
               <button
                 onClick={() => onSearchChange("")}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-500 hover:text-stone-300"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary"
                 aria-label="Limpar busca"
               >
                 <X size={15} />
@@ -144,10 +144,10 @@ export default function MenuScreen({
       <div className="px-5 pb-28">
         {searching ? (
           results.length === 0 ? (
-            <p className="text-stone-500 text-sm text-center mt-10">Nenhum produto encontrado.</p>
+            <p className="text-text-muted text-sm text-center mt-10">Nenhum produto encontrado.</p>
           ) : (
             <div className="pt-2">
-              <h2 className="text-[13px] font-bold uppercase tracking-wide text-stone-500">Resultados</h2>
+              <h2 className="text-[13px] font-bold uppercase tracking-wide text-text-muted">Resultados</h2>
               {results.map((p) => (
                 <ProductCard
                   key={p.id}
@@ -164,9 +164,9 @@ export default function MenuScreen({
         ) : (
           sections.map((s) => (
             <section key={s.id} id={`sec-${s.id}`} data-section={s.id} className="scroll-mt-28 pt-4">
-              <h2 className="text-[15px] font-extrabold uppercase tracking-wider text-stone-200 mb-3 mt-2 flex items-center gap-3">
+              <h2 className="text-[15px] font-extrabold uppercase tracking-wider text-text-secondary mb-3 mt-2 flex items-center gap-3">
                 {s.name}
-                <span className="flex-1 h-px bg-stone-800" />
+                <span className="flex-1 h-px bg-surface-overlay" />
               </h2>
               {s.id === "destaques" ? (
                 <div className="grid grid-cols-3 xl:grid-cols-4 gap-3 pt-1">
@@ -205,7 +205,7 @@ export default function MenuScreen({
       {itemCount > 0 && (
         <button
           onClick={onOpenCart}
-          className="fixed bottom-4 inset-x-4 z-30 lg:inset-x-auto lg:right-8 lg:w-80 bg-amber-500 text-[var(--brand-accent-foreground)] rounded-xl py-3.5 px-4 flex items-center justify-between gap-3 font-semibold shadow-lg shadow-black/30"
+          className="fixed bottom-4 inset-x-4 z-30 lg:inset-x-auto lg:right-8 lg:w-80 bg-primary text-[var(--brand-accent-foreground)] rounded-xl py-3.5 px-4 flex items-center justify-between gap-3 font-semibold shadow-lg shadow-black/30"
         >
           <span className="flex items-center gap-2 text-[14px]">
             <ShoppingBag size={17} />

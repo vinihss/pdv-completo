@@ -55,7 +55,7 @@ export function AppFrame({ children }) {
 
   return (
     <div className="relative min-h-screen">
-      <div className="sticky top-0 z-40 h-14 flex items-center gap-2 px-3 sm:px-4 bg-stone-900/95 backdrop-blur border-b border-stone-800">
+      <div className="sticky top-0 z-40 h-14 flex items-center gap-2 px-3 sm:px-4 bg-surface/95 backdrop-blur border-b border-border">
         {/* Só no celular: a partir de lg o menu é a coluna da esquerda. */}
         {!singleItem && (
           <button
@@ -64,22 +64,22 @@ export function AppFrame({ children }) {
             aria-label="Abrir menu"
             aria-expanded={drawerOpen}
             aria-controls="app-menu-painel"
-            className="lg:hidden w-10 h-10 -ml-1 flex items-center justify-center rounded-full text-stone-300 hover:text-stone-100 transition-colors shrink-0"
+            className="lg:hidden w-10 h-10 -ml-1 flex items-center justify-center rounded-full text-text-secondary hover:text-foreground transition-colors shrink-0"
           >
             <Menu size={20} />
           </button>
         )}
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           {storeSettings?.logoUrl ? (
-            <div className="h-9 w-9 rounded-full bg-stone-800 border border-stone-700 flex items-center justify-center overflow-hidden shrink-0">
+            <div className="h-9 w-9 rounded-full bg-surface-overlay border border-border flex items-center justify-center overflow-hidden shrink-0">
               <img src={storeSettings.logoUrl} alt="Logo do restaurante" className="w-full h-full object-contain" />
             </div>
           ) : (
-            <div className="h-9 w-9 rounded-full bg-stone-800 border border-stone-700 flex items-center justify-center text-stone-500 shrink-0">
+            <div className="h-9 w-9 rounded-full bg-surface-overlay border border-border flex items-center justify-center text-text-muted shrink-0">
               <span className="text-xs font-bold">{storeSettings?.merchantName?.[0] ?? "B"}</span>
             </div>
           )}
-          <span className="text-sm font-semibold text-stone-400 truncate">{storeSettings?.merchantName ?? "PDV"}</span>
+          <span className="text-sm font-semibold text-text-secondary truncate">{storeSettings?.merchantName ?? "PDV"}</span>
         </div>
         {/* Sino de alertas + LED de conexão */}
         <AlertBell />
@@ -91,7 +91,7 @@ export function AppFrame({ children }) {
             onClick={logout}
             aria-label="Sair"
             title="Sair"
-            className="w-10 h-10 -mr-1 flex items-center justify-center rounded-full text-stone-300 hover:text-stone-100 hover:bg-stone-800/60 transition-colors shrink-0"
+            className="w-10 h-10 -mr-1 flex items-center justify-center rounded-full text-text-secondary hover:text-foreground hover:bg-surface-overlay/60 transition-colors shrink-0"
           >
             <LogOut size={20} />
           </button>
@@ -119,7 +119,7 @@ export function Root() {
   const location = useLocation();
 
   if (booting) {
-    return <div className="min-h-screen bg-stone-950" />;
+    return <div className="min-h-screen bg-background" />;
   }
 
   if (!session) {

@@ -18,21 +18,21 @@ export default function ProductCard({ product, cart, onOpen, onInc, onDec, onEdi
   const groups = product.variations ?? [];
 
   return (
-    <div className="flex items-start gap-3 py-3 border-b border-stone-800/60 last:border-0 rounded-lg cursor-pointer transition-colors hover:bg-stone-900/40">
+    <div className="flex items-start gap-3 py-3 border-b border-border/60 last:border-0 rounded-lg cursor-pointer transition-colors hover:bg-surface/40">
       <div className="min-w-0 flex-1">
         <button onClick={() => onOpen(product)} className="block w-full text-left" aria-label={`Ver ${product.name}`}>
-          <p className="text-[14.5px] font-semibold leading-tight text-stone-50">{product.name}</p>
+          <p className="text-[14.5px] font-semibold leading-tight text-foreground">{product.name}</p>
           {product.description && (
-            <p className="text-[11.5px] text-stone-500 leading-snug mt-0.5 line-clamp-2">{product.description}</p>
+            <p className="text-[11.5px] text-text-muted leading-snug mt-0.5 line-clamp-2">{product.description}</p>
           )}
           {groups.length > 0 && (
-            <p className="text-[11px] text-amber-400/90 mt-1">
+            <p className="text-[11px] text-primary/90 mt-1">
               {groups.length === 1 ? "Opções disponíveis" : `${groups.length} grupos de opções`}
             </p>
           )}
           <div className="mt-1.5 flex items-center gap-2">
-            <span className="text-[13.5px] text-amber-400 font-semibold">{formatBRL(product.price)}</span>
-            {qty > 0 && <span className="text-[11px] text-stone-500">{qty} no carrinho</span>}
+            <span className="text-[13.5px] text-primary font-semibold">{formatBRL(product.price)}</span>
+            {qty > 0 && <span className="text-[11px] text-text-muted">{qty} no carrinho</span>}
           </div>
         </button>
 
@@ -41,8 +41,8 @@ export default function ProductCard({ product, cart, onOpen, onInc, onDec, onEdi
             {shown.map((l) => {
               const rotuloLinha = variationsText(l.selectedVariations) || "Padrão";
               return (
-                <li key={l.key} className="flex items-center justify-between gap-2 bg-stone-950/60 rounded-lg px-2 py-1.5">
-                  <button onClick={() => onEditLine?.(l)} className="text-[11.5px] text-stone-400 truncate text-left hover:text-stone-300">
+                <li key={l.key} className="flex items-center justify-between gap-2 bg-background/60 rounded-lg px-2 py-1.5">
+                  <button onClick={() => onEditLine?.(l)} className="text-[11.5px] text-text-secondary truncate text-left hover:text-text-secondary">
                     {rotuloLinha}
                   </button>
                   <span className="flex items-center gap-1.5 shrink-0">
@@ -50,7 +50,7 @@ export default function ProductCard({ product, cart, onOpen, onInc, onDec, onEdi
                         variações escolhidas geraria 3 botões "Aumentar" iguais. */}
                     <button
                       onClick={() => onDec(l.key)}
-                      className="w-5 h-5 flex items-center justify-center text-stone-400"
+                      className="w-5 h-5 flex items-center justify-center text-text-secondary"
                       aria-label={`Diminuir ${product.name} — ${rotuloLinha}`}
                     >
                       <Minus size={12} />
@@ -58,7 +58,7 @@ export default function ProductCard({ product, cart, onOpen, onInc, onDec, onEdi
                     <span className="text-[11.5px] font-semibold w-3 text-center">{l.quantity}</span>
                     <button
                       onClick={() => onInc(l.key)}
-                      className="w-5 h-5 flex items-center justify-center text-stone-400"
+                      className="w-5 h-5 flex items-center justify-center text-text-secondary"
                       aria-label={`Aumentar ${product.name} — ${rotuloLinha}`}
                     >
                       <Plus size={12} />
@@ -69,7 +69,7 @@ export default function ProductCard({ product, cart, onOpen, onInc, onDec, onEdi
             })}
             {extraLines.length > shown.length && (
               <li>
-                <button onClick={() => setExpanded(true)} className="text-[11.5px] text-amber-400 font-medium pl-1">
+                <button onClick={() => setExpanded(true)} className="text-[11.5px] text-primary font-medium pl-1">
                   +{extraLines.length - shown.length} outra{extraLines.length - shown.length > 1 ? "s" : ""}
                 </button>
               </li>
@@ -82,7 +82,7 @@ export default function ProductCard({ product, cart, onOpen, onInc, onDec, onEdi
         {product.imagePath ? (
           <img src={assetUrl(product.imagePath)} alt={product.name} className="w-20 h-20 rounded-lg object-cover" loading="lazy" />
         ) : (
-          <div className="w-20 h-20 rounded-lg bg-stone-800 flex items-center justify-center text-stone-600 font-display text-lg font-bold">
+          <div className="w-20 h-20 rounded-lg bg-surface-overlay flex items-center justify-center text-text-muted font-display text-lg font-bold">
             {(product.name?.[0] ?? "?").toUpperCase()}
           </div>
         )}

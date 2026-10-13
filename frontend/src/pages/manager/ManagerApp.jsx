@@ -62,7 +62,7 @@ export default function ManagerApp() {
   // `activeId` inválido (item guardado de uma versão antiga, toggle desligado)
   // cai na Home — nunca numa tela vazia.
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-50">
+    <div className="min-h-screen bg-background text-foreground">
       {SCREENS[activeId] ?? SCREENS.home}
       <Toast toast={toast} />
     </div>

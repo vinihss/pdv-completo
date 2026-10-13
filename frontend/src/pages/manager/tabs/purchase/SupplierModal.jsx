@@ -31,7 +31,7 @@ export default function SupplierModal({ onClose, onSaved, showToast }) {
       title="Novo fornecedor"
       onClose={onClose}
       footer={
-        <button type="submit" form="supplier-form" disabled={saving} className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl">
+        <button type="submit" form="supplier-form" disabled={saving} className="w-full bg-primary hover:bg-primary-strong disabled:opacity-50 text-primary-foreground font-semibold py-3.5 rounded-xl">
           {saving ? "Salvando…" : "Salvar"}
         </button>
       }

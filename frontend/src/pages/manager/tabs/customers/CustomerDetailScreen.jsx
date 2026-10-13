@@ -48,9 +48,9 @@ function dayKeyOf(order) {
 function Row({ label, children }) {
   return (
     <div className="flex items-start justify-between gap-3 text-sm">
-      <dt className="text-stone-500 shrink-0">{label}</dt>
-      <dd className="text-stone-100 text-right min-w-0 break-words">
-        {children || <span className="text-stone-600">—</span>}
+      <dt className="text-text-muted shrink-0">{label}</dt>
+      <dd className="text-foreground text-right min-w-0 break-words">
+        {children || <span className="text-text-muted">—</span>}
       </dd>
     </div>
   );
@@ -59,17 +59,17 @@ function Row({ label, children }) {
 function OrderRow({ order }) {
   const quando = order.closedAt ?? order.openedAt;
   return (
-    <li className="flex items-center justify-between gap-3 bg-stone-900 border border-stone-800 rounded-xl px-3.5 py-2.5">
+    <li className="flex items-center justify-between gap-3 bg-surface border border-border rounded-xl px-3.5 py-2.5">
       <div className="min-w-0">
         <div className="text-sm font-medium truncate">{orderLabel(order)}</div>
-        <div className="text-stone-500 text-xs truncate">
+        <div className="text-text-muted text-xs truncate">
           {formatDateTime(quando)} · {order.itemCount ?? 0} {order.itemCount === 1 ? "item" : "itens"}
           {order.paymentMethod ? ` · ${PAYMENT_LABEL[order.paymentMethod] ?? order.paymentMethod}` : ""}
         </div>
       </div>
       <div className="text-right shrink-0">
         <div className="text-sm font-semibold">{formatBRL(order.total)}</div>
-        <div className="text-[11px] text-stone-500">{ORDER_STATUS_LABEL[order.status] ?? order.status}</div>
+        <div className="text-[11px] text-text-muted">{ORDER_STATUS_LABEL[order.status] ?? order.status}</div>
       </div>
     </li>
   );
@@ -237,8 +237,8 @@ export default function CustomerDetailScreen({ customerId, seed, onBack, showToa
   const nome = customer?.name ?? seed?.name ?? "Cliente";
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-50 flex flex-col">
-      <div className="sticky top-0 bg-stone-950/95 backdrop-blur z-10">
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
+      <div className="sticky top-0 bg-background/95 backdrop-blur z-10">
         <ScreenHeader
           title={nome}
           subtitle={loading ? "Carregando…" : customer?.phone ? maskPhone(customer.phone) : undefined}
@@ -247,7 +247,7 @@ export default function CustomerDetailScreen({ customerId, seed, onBack, showToa
             <button
               type="button"
               onClick={() => setEditOpen(true)}
-              className="h-9 px-3 shrink-0 flex items-center gap-1.5 rounded-xl border border-stone-700 text-sm font-semibold text-stone-300 hover:text-amber-400 hover:border-amber-500/40 transition-colors"
+              className="h-9 px-3 shrink-0 flex items-center gap-1.5 rounded-xl border border-border text-sm font-semibold text-text-secondary hover:text-primary hover:border-ring/40 transition-colors"
             >
               <Pencil size={15} /> Editar
             </button>
@@ -257,22 +257,22 @@ export default function CustomerDetailScreen({ customerId, seed, onBack, showToa
 
       <div className="flex-1">
         <div className="p-5 max-w-2xl mx-auto space-y-4 pb-24">
-          {loading && <div className="text-stone-600 text-center py-10">Carregando…</div>}
+          {loading && <div className="text-text-muted text-center py-10">Carregando…</div>}
 
           {/* O aviso fica ACIMA de tudo e não some: quem abre a ficha de um
               cliente com conta em aberto precisa ver isso antes de qualquer
               número da tela. */}
           {openOrders.length > 0 && (
-            <div role="alert" className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-3 flex items-start gap-3">
-              <AlertTriangle size={18} className="text-amber-400 shrink-0 mt-0.5" />
+            <div role="alert" className="rounded-xl border border-ring/40 bg-primary/10 px-3.5 py-3 flex items-start gap-3">
+              <AlertTriangle size={18} className="text-primary shrink-0 mt-0.5" />
               <div className="text-sm min-w-0">
-                <p className="font-semibold text-amber-200">
+                <p className="font-semibold text-primary">
                   {openOrders.length === 1
                     ? "Este cliente tem 1 comanda em aberto"
                     : `Este cliente tem ${openOrders.length} comandas em aberto`}
                 </p>
                 {maisAntiga && (
-                  <p className="text-amber-100/70 text-xs mt-0.5">
+                  <p className="text-text-secondary/70 text-xs mt-0.5">
                     A mais antiga: {orderLabel(maisAntiga)} · aberta {formatDateTime(maisAntiga.openedAt)} ·{" "}
                     {formatBRL(maisAntiga.total)}
                   </p>
@@ -292,23 +292,23 @@ export default function CustomerDetailScreen({ customerId, seed, onBack, showToa
                   className="relative w-20 h-20 shrink-0 rounded-full disabled:opacity-50"
                 >
                   {foto ? (
-                    <img src={assetUrl(foto)} alt={nome} className="w-20 h-20 rounded-full object-cover border border-stone-700" />
+                    <img src={assetUrl(foto)} alt={nome} className="w-20 h-20 rounded-full object-cover border border-border" />
                   ) : (
-                    <span className="w-20 h-20 rounded-full bg-stone-800 border border-stone-700 flex items-center justify-center text-stone-400 font-bold text-xl">
+                    <span className="w-20 h-20 rounded-full bg-surface-overlay border border-border flex items-center justify-center text-text-secondary font-bold text-xl">
                       {initials(nome)}
                     </span>
                   )}
-                  <span className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-amber-500 text-stone-950 flex items-center justify-center">
+                  <span className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
                     <Camera size={15} />
                   </span>
                 </button>
-                <div className="text-xs text-stone-500 space-y-1.5">
+                <div className="text-xs text-text-muted space-y-1.5">
                   {foto && (
                     <button
                       type="button"
                       onClick={handleRemovePhoto}
                       disabled={photoBusy}
-                      className="flex items-center gap-1 text-red-400 hover:text-red-300 disabled:opacity-50"
+                      className="flex items-center gap-1 text-destructive hover:text-destructive disabled:opacity-50"
                     >
                       <Trash2 size={12} /> Remover foto
                     </button>
@@ -337,7 +337,7 @@ export default function CustomerDetailScreen({ customerId, seed, onBack, showToa
                 <Row label="Email">{customer.email}</Row>
                 <Row label="CPF">{customer.cpf ? maskCnpjCpf(customer.cpf) : null}</Row>
                 <Row label="Situação">
-                  <span className={customer.active ? "text-emerald-400" : "text-stone-500"}>
+                  <span className={customer.active ? "text-success" : "text-text-muted"}>
                     {customer.active ? "Ativo" : "Inativo"}
                   </span>
                 </Row>
@@ -345,8 +345,8 @@ export default function CustomerDetailScreen({ customerId, seed, onBack, showToa
               </dl>
               {customer.notes && (
                 <div className="pt-1">
-                  <div className="text-xs font-bold uppercase tracking-widest text-stone-500 mb-1.5">Observações</div>
-                  <p className="text-sm text-stone-200 whitespace-pre-line">{customer.notes}</p>
+                  <div className="text-xs font-bold uppercase tracking-widest text-text-muted mb-1.5">Observações</div>
+                  <p className="text-sm text-text-secondary whitespace-pre-line">{customer.notes}</p>
                 </div>
               )}
             </Section>
@@ -356,12 +356,12 @@ export default function CustomerDetailScreen({ customerId, seed, onBack, showToa
             <Section title={`Endereços (${customer.addresses.length})`}>
               <ul className="space-y-2">
                 {customer.addresses.map((a) => (
-                  <li key={a.id} className="bg-stone-800/40 border border-stone-700/60 rounded-xl px-3 py-2.5 text-sm">
+                  <li key={a.id} className="bg-surface-overlay/40 border border-border/60 rounded-xl px-3 py-2.5 text-sm">
                     <div className="font-medium flex items-center gap-1.5">
-                      {a.isDefault && <Star size={11} className="text-amber-400 shrink-0" />}
+                      {a.isDefault && <Star size={11} className="text-primary shrink-0" />}
                       {a.label?.trim() || "Endereço"}
                     </div>
-                    <div className="text-stone-400 text-xs mt-0.5">
+                    <div className="text-text-secondary text-xs mt-0.5">
                       {a.cep ? `${a.cep} · ` : ""}
                       {a.street}, {a.number}
                       {a.complement ? ` - ${a.complement}` : ""} · {a.neighborhood}, {a.city}
@@ -382,8 +382,8 @@ export default function CustomerDetailScreen({ customerId, seed, onBack, showToa
               onSelectDay={handleSelectDay}
             />
             {summary?.totals?.total > 0 && (
-              <div className="flex items-center justify-between text-sm border-t border-stone-800 pt-3">
-                <span className="text-stone-500">Total no período</span>
+              <div className="flex items-center justify-between text-sm border-t border-border pt-3">
+                <span className="text-text-muted">Total no período</span>
                 <span className="font-semibold">
                   {formatBRL(summary.totals.total)} · {summary.totals.orderCount}{" "}
                   {summary.totals.orderCount === 1 ? "comanda" : "comandas"}
@@ -395,7 +395,7 @@ export default function CustomerDetailScreen({ customerId, seed, onBack, showToa
                 que o dedo escolheu no gráfico. */}
             {(summary?.series ?? []).length > 0 && (
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-widest text-stone-500 mb-2">
+                <div className="text-[11px] font-bold uppercase tracking-widest text-text-muted mb-2">
                   Escolher dia
                 </div>
                 <div className="flex flex-wrap gap-1.5">
@@ -407,8 +407,8 @@ export default function CustomerDetailScreen({ customerId, seed, onBack, showToa
                       aria-pressed={p.day === selectedDay}
                       className={`px-2.5 h-8 rounded-lg text-[12px] font-semibold border transition-colors ${
                         p.day === selectedDay
-                          ? "border-amber-500 bg-amber-500/15 text-amber-200"
-                          : "border-stone-800 bg-stone-900 text-stone-400 hover:text-amber-400 hover:border-amber-500/40"
+                          ? "border-ring bg-primary/15 text-primary"
+                          : "border-border bg-surface text-text-secondary hover:text-primary hover:border-ring/40"
                       }`}
                     >
                       {p.label}
@@ -424,7 +424,7 @@ export default function CustomerDetailScreen({ customerId, seed, onBack, showToa
               <button
                 type="button"
                 onClick={clearDay}
-                className="w-full flex items-center justify-center gap-1.5 border border-stone-700 text-stone-300 hover:text-amber-400 hover:border-amber-500/40 text-sm font-semibold py-2.5 rounded-xl"
+                className="w-full flex items-center justify-center gap-1.5 border border-border text-text-secondary hover:text-primary hover:border-ring/40 text-sm font-semibold py-2.5 rounded-xl"
               >
                 Ver todos os pedidos
               </button>
@@ -432,9 +432,9 @@ export default function CustomerDetailScreen({ customerId, seed, onBack, showToa
 
             {dayOrders !== null ? (
               <>
-                {dayLoading && <div className="text-stone-600 text-center py-6">Carregando…</div>}
+                {dayLoading && <div className="text-text-muted text-center py-6">Carregando…</div>}
                 {!dayLoading && dayOrders.length === 0 && (
-                  <p className="text-stone-600 text-sm text-center py-6">
+                  <p className="text-text-muted text-sm text-center py-6">
                     Nenhum pedido em {dayLabel}.
                   </p>
                 )}
@@ -446,9 +446,9 @@ export default function CustomerDetailScreen({ customerId, seed, onBack, showToa
               </>
             ) : (
               <>
-                {historyLoading && <div className="text-stone-600 text-center py-6">Carregando…</div>}
+                {historyLoading && <div className="text-text-muted text-center py-6">Carregando…</div>}
                 {!historyLoading && history.data.length === 0 && (
-                  <p className="text-stone-600 text-sm text-center py-6">Nenhum pedido registrado.</p>
+                  <p className="text-text-muted text-sm text-center py-6">Nenhum pedido registrado.</p>
                 )}
                 <ul className="space-y-2">
                   {history.data.map((o) => (
@@ -460,7 +460,7 @@ export default function CustomerDetailScreen({ customerId, seed, onBack, showToa
                     type="button"
                     onClick={() => fetchHistory(history.data.length, true)}
                     disabled={loadingMore}
-                    className="w-full border border-stone-700 text-stone-300 hover:text-amber-400 hover:border-amber-500/40 text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50"
+                    className="w-full border border-border text-text-secondary hover:text-primary hover:border-ring/40 text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50"
                   >
                     {loadingMore ? "Carregando…" : `Carregar mais (${history.total - history.data.length})`}
                   </button>

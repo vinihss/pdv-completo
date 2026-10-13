@@ -8,11 +8,11 @@ const DELIVERY_STATUS_LABEL = {
   cancelled: "Cancelada",
 };
 const DELIVERY_STATUS_CLASS = {
-  awaiting_courier: "bg-amber-500/15 text-amber-400",
-  out_for_delivery: "bg-sky-500/15 text-sky-400",
-  delivered: "bg-emerald-500 text-emerald-950",
-  failed: "bg-red-500/15 text-red-400",
-  cancelled: "bg-stone-700/50 text-stone-400",
+  awaiting_courier: "bg-primary/15 text-primary",
+  out_for_delivery: "bg-channel-sky/15 text-channel-sky",
+  delivered: "bg-success text-primary-foreground",
+  failed: "bg-destructive/15 text-destructive",
+  cancelled: "bg-surface-overlay/50 text-text-secondary",
 };
 
 // "cancelled" entrou no badge junto com a distinção de 0018: é o

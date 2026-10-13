@@ -75,22 +75,22 @@ export default function AppMenu() {
   return (
     <>
       <aside
-        className={`hidden lg:flex shrink-0 flex-col sticky top-14 h-[calc(100vh-3.5rem)] border-r border-stone-800 bg-stone-900/40 ${
+        className={`hidden lg:flex shrink-0 flex-col sticky top-14 h-[calc(100vh-3.5rem)] border-r border-sidebar-border bg-sidebar text-sidebar-foreground ${
           variant === "rail" ? "w-16" : "w-72"
         }`}
       >
         <div className="flex-1 overflow-y-auto">{menu()}</div>
         {variant === "full" && (
-          <div className="shrink-0 border-t border-stone-800 p-3">{identity}</div>
+          <div className="shrink-0 border-t border-sidebar-border p-3">{identity}</div>
         )}
       </aside>
 
-      <Drawer open={drawerOpen} onClose={closeDrawer} panelId="app-menu-painel" label="Menu principal" panelClassName="w-full border-r">
+      <Drawer open={drawerOpen} onClose={closeDrawer} panelId="app-menu-painel" label="Menu principal" panelClassName="w-full border-r bg-sidebar text-sidebar-foreground">
         <div className="flex-1 overflow-y-auto">{menu()}</div>
         {/* Identidade + logout: o scrim do painel é `fixed inset-0 z-50` e cobre
             o header (`z-40`), então no celular o "Sair" do rodapé é alcançado
             com o painel aberto. */}
-        <div className="shrink-0 border-t border-stone-800 p-3">{identity}</div>
+        <div className="shrink-0 border-t border-sidebar-border p-3">{identity}</div>
       </Drawer>
     </>
   );
@@ -105,20 +105,20 @@ function Identity({ name, role, photoPath }) {
       <button
         type="button"
         onClick={() => navigate("/manager/profile")}
-        className="shrink-0 rounded-full hover:ring-2 hover:ring-stone-600 transition-shadow"
+        className="shrink-0 rounded-full hover:ring-2 hover:ring-sidebar-primary transition-shadow"
         title="Meu perfil"
         aria-label="Meu perfil"
       >
         <UserAvatar name={name} photoPath={photoPath} className="w-8 h-8 text-[11px]" />
       </button>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-stone-200 truncate">{name ?? "—"}</p>
-        <p className="text-[11px] text-stone-500 truncate">{ROLE_LABEL[role] ?? role}</p>
+        <p className="text-sm font-semibold text-sidebar-foreground truncate">{name ?? "—"}</p>
+        <p className="text-[11px] text-sidebar-foreground/60 truncate">{ROLE_LABEL[role] ?? role}</p>
       </div>
       <button
         type="button"
         onClick={logout}
-        className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-stone-400 hover:text-stone-100 hover:bg-stone-800 transition-colors"
+        className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-sidebar-foreground/70 hover:text-sidebar-accent-foreground hover:bg-sidebar-accent transition-colors"
         title="Sair"
         aria-label="Sair"
       >

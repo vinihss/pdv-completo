@@ -2,7 +2,7 @@ import React from "react";
 
 function Badge({ value }) {
   return (
-    <span className="ml-auto bg-red-500 text-white rounded-full min-w-[1.1rem] h-[1.1rem] px-1 flex items-center justify-center text-[10px] font-bold">
+    <span className="ml-auto bg-destructive text-destructive-foreground rounded-full min-w-[1.1rem] h-[1.1rem] px-1 flex items-center justify-center text-[10px] font-bold">
       {value}
     </span>
   );
@@ -17,7 +17,7 @@ function MenuItem({ item, active, onSelect, nested = false }) {
       aria-current={active ? "page" : undefined}
       className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors relative ${
         nested ? "pl-7" : ""
-      } ${active ? "bg-amber-500/10 text-amber-400 font-semibold border-l-2 border-amber-500 pl-2.5" : "text-stone-400 hover:text-stone-100 hover:bg-stone-800/60"}`}
+      } ${active ? "bg-sidebar-primary text-sidebar-primary-foreground font-semibold" : "text-sidebar-foreground/85 hover:text-sidebar-accent-foreground hover:bg-sidebar-accent"}`}
     >
       <item.icon size={nested ? 14 : 15} className="shrink-0" />
       <span className="truncate text-left">{item.label}</span>
@@ -35,7 +35,7 @@ function RailItem({ item, active, onSelect }) {
       aria-current={active ? "page" : undefined}
       title={item.label}
       className={`w-full flex flex-col items-center gap-1 rounded-xl py-2 px-1 transition-colors ${
-        active ? "bg-amber-500 text-stone-950" : "text-stone-500 hover:text-stone-100 hover:bg-stone-800/60"
+        active ? "bg-sidebar-primary text-sidebar-primary-foreground" : "text-sidebar-foreground/70 hover:text-sidebar-accent-foreground hover:bg-sidebar-accent"
       }`}
     >
       <item.icon size={19} className="shrink-0" />
@@ -94,12 +94,12 @@ export default function AccordionMenu({ sections, activeId, onSelect, variant = 
         return (
           <div key={section.id}>
             <div
-              className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-stone-500"
+              className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-sidebar-foreground/50"
             >
               <section.icon size={12} className="shrink-0 opacity-50" />
               <span className="text-[10px] font-bold uppercase tracking-widest truncate text-left opacity-60">{section.label}</span>
               {sectionBadge > 0 && (
-                <span className="bg-red-500/20 text-red-400 rounded-full min-w-[1.1rem] h-[1.1rem] px-1 flex items-center justify-center text-[10px] font-bold">
+                <span className="bg-destructive/20 text-destructive rounded-full min-w-[1.1rem] h-[1.1rem] px-1 flex items-center justify-center text-[10px] font-bold">
                   {sectionBadge}
                 </span>
               )}
@@ -137,7 +137,7 @@ function ItemWithSubmenu({ item, activeId, onSelect }) {
       <div
         aria-current={activeChild ? "true" : undefined}
         className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm ${
-          activeChild ? "bg-stone-800/60 text-stone-100 font-semibold" : "text-stone-400"
+          activeChild ? "bg-sidebar-accent text-sidebar-foreground font-semibold" : "text-sidebar-foreground/85"
         }`}
       >
         <item.icon size={15} className="shrink-0" />

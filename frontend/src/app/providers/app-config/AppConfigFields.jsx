@@ -27,8 +27,8 @@ export default function AppConfigFields({ value, onChange, showDaemon = true }) 
               onClick={() => set({ mode: opt.id })}
               className={`py-2.5 rounded-xl text-sm font-semibold border ${
                 config.mode === opt.id
-                  ? "bg-amber-500 text-stone-950 border-amber-500"
-                  : "bg-stone-900 border-stone-800 text-stone-400"
+                  ? "bg-primary text-primary-foreground border-ring"
+                  : "bg-surface border-border text-text-secondary"
               }`}
             >
               {opt.label}
@@ -48,7 +48,7 @@ export default function AppConfigFields({ value, onChange, showDaemon = true }) 
           spellCheck={false}
           className={inputClass}
         />
-        <p className="text-stone-600 text-xs mt-1.5">
+        <p className="text-text-muted text-xs mt-1.5">
           {isLocal
             ? "Plano local: o sistema roda nesta mesma máquina (127.0.0.1:3000) e o app funciona sem internet."
             : "Plano nuvem: o sistema está em outro servidor. Sem internet, o app avisa que não conseguiu abrir."}
@@ -67,7 +67,7 @@ export default function AppConfigFields({ value, onChange, showDaemon = true }) 
             spellCheck={false}
             className={inputClass}
           />
-          <p className="text-stone-600 text-xs mt-1.5">
+          <p className="text-text-muted text-xs mt-1.5">
             Serviço de impressão que roda nesta máquina. Só muda se o estabelecimento usa porta diferente.
           </p>
         </Field>

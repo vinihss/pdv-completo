@@ -1,5 +1,5 @@
 // Tema da marca — a cor principal configurada em Configurações → Identidade.
-// O front usa Tailwind 4 (CSS-first): as utilities de cor (ex.: bg-amber-500)
+// O front usa Tailwind 4 (CSS-first): as utilities de cor (ex.: bg-primary)
 // viram `var(--color-amber-500)` no CSS gerado. Então, pra refletir a cor da
 // marca, basta sobrescrever a rampa de variáveis `--color-amber-*` em runtime.
 // A página externa (/pedido) usa --brand-accent como cor de destaque.

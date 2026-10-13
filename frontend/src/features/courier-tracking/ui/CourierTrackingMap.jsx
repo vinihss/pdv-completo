@@ -24,7 +24,7 @@ export default function CourierTrackingMap({ position, destination, permissionDe
     return (
       <div
         data-testid="courier-map-gps-off"
-        className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-300"
+        className="flex items-center gap-2 rounded-xl border border-ring/30 bg-primary/10 px-3 py-2.5 text-xs text-primary"
       >
         <MapPinOff size={14} className="shrink-0" />
         Ative a localização para compartilhar sua posição.
@@ -39,7 +39,7 @@ export default function CourierTrackingMap({ position, destination, permissionDe
       : null;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-stone-800" data-testid="courier-tracking-map">
+    <div className="overflow-hidden rounded-xl border border-border" data-testid="courier-tracking-map">
       <MapContainer
         center={center}
         zoom={position ? STREET_ZOOM : FALLBACK_ZOOM}
@@ -60,7 +60,7 @@ export default function CourierTrackingMap({ position, destination, permissionDe
         )}
       </MapContainer>
       {!position && (
-        <p className="px-3 py-2 text-xs text-stone-500">Aguardando sinal de GPS…</p>
+        <p className="px-3 py-2 text-xs text-text-muted">Aguardando sinal de GPS…</p>
       )}
     </div>
   );

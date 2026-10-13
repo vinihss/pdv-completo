@@ -125,7 +125,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="bg-stone-950 min-h-screen">
+    <div className="bg-background min-h-screen">
       <ScreenHeader title="Meu perfil" subtitle="Nome, telefone e e-mail" onBack={() => navigate(-1)} />
       <div className="p-6 max-w-md mx-auto">
         <div className="text-center mb-6">
@@ -139,7 +139,7 @@ export default function ProfilePage() {
             showRemove={Boolean(photoPath || session.user.photoPath)}
             className="w-24 h-24 mx-auto text-3xl"
           />
-          <p className="text-stone-500 text-sm mt-2">
+          <p className="text-text-muted text-sm mt-2">
             Papel e PIN são definidos pelo gerente na tela de Equipe.
           </p>
         </div>
@@ -181,7 +181,7 @@ export default function ProfilePage() {
           {feedback && (
             <p
               role={feedback.kind === "error" ? "alert" : "status"}
-              className={`text-sm ${feedback.kind === "error" ? "text-red-400" : "text-emerald-400"}`}
+              className={`text-sm ${feedback.kind === "error" ? "text-destructive" : "text-success"}`}
             >
               {feedback.text}
             </p>
@@ -192,7 +192,7 @@ export default function ProfilePage() {
           type="submit"
           form="profile-form"
           disabled={loading || saving}
-          className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-stone-950 font-semibold py-3.5 rounded-xl transition-colors mt-2"
+          className="w-full bg-success hover:bg-success disabled:opacity-60 text-primary-foreground font-semibold py-3.5 rounded-xl transition-colors mt-2"
         >
           {saving ? "Salvando…" : "Salvar alterações"}
         </button>

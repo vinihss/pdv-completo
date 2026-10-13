@@ -12,20 +12,20 @@ export default function CartLine({ it, addToCartLine, removeFromCartLine, onNote
   // no checkout com 422, então avisamos aqui e oferecemos a correção.
   const missing = hasVariations ? missingRequiredGroups(variationGroups(it), it.selectedVariations) : [];
   return (
-    <div className="py-3 border-b border-stone-800 last:border-b-0">
+    <div className="py-3 border-b border-border last:border-b-0">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[14.5px] font-semibold text-stone-50">{it.name}</p>
-          <p className="text-[13px] text-stone-500 mt-0.5">{formatBRL(it.price)} cada</p>
+          <p className="text-[14.5px] font-semibold text-foreground">{it.name}</p>
+          <p className="text-[13px] text-text-muted mt-0.5">{formatBRL(it.price)} cada</p>
           {variationsText(it.selectedVariations) && (
-            <p className="text-[12.5px] text-stone-400 mt-0.5">{variationsText(it.selectedVariations)}</p>
+            <p className="text-[12.5px] text-text-secondary mt-0.5">{variationsText(it.selectedVariations)}</p>
           )}
         </div>
-        <div className="shrink-0 flex items-center gap-2.5 bg-stone-900 border border-stone-800 rounded-full px-1 py-1">
+        <div className="shrink-0 flex items-center gap-2.5 bg-surface border border-border rounded-full px-1 py-1">
           <button onClick={() => removeFromCartLine(it.key)} className="w-7 h-7 flex items-center justify-center" aria-label="Diminuir quantidade">
             <Minus size={14} />
           </button>
-          <span className="text-[13.5px] font-semibold w-4 text-center text-stone-50">{it.quantity}</span>
+          <span className="text-[13.5px] font-semibold w-4 text-center text-foreground">{it.quantity}</span>
           <button onClick={() => addToCartLine(it.key)} className="w-7 h-7 flex items-center justify-center" aria-label="Aumentar quantidade">
             <Plus size={14} />
           </button>
@@ -33,16 +33,16 @@ export default function CartLine({ it, addToCartLine, removeFromCartLine, onNote
       </div>
       <div className="mt-2 flex items-center gap-3 flex-wrap">
         {hasVariations && (
-          <button onClick={() => onEditLine(it)} className="text-[12px] font-medium text-amber-400">
+          <button onClick={() => onEditLine(it)} className="text-[12px] font-medium text-primary">
             {variationsText(it.selectedVariations) ? "Alterar opções" : "Escolher opções"}
           </button>
         )}
         {missing.length > 0 && (
-          <span className="text-[12px] font-medium text-red-400">Falta escolher: {missing.join(", ")}</span>
+          <span className="text-[12px] font-medium text-destructive">Falta escolher: {missing.join(", ")}</span>
         )}
         <button
           onClick={() => setOpenNote(openNote === it.key ? null : it.key)}
-          className="text-[12px] font-medium text-amber-400"
+          className="text-[12px] font-medium text-primary"
         >
           {it.notes?.trim() ? "Editar observação" : "+ Adicionar observação"}
         </button>
@@ -53,7 +53,7 @@ export default function CartLine({ it, addToCartLine, removeFromCartLine, onNote
           onChange={(e) => onNotesChange(it.key, e.target.value)}
           placeholder="Ex.: sem cebola, capricha no queijo..."
           rows={2}
-          className="mt-2 w-full bg-stone-900 border border-stone-800 rounded-lg px-3 py-2 text-[13.5px] text-stone-100 outline-none focus:border-amber-500"
+          className="mt-2 w-full bg-surface border border-border rounded-lg px-3 py-2 text-[13.5px] text-foreground outline-none focus:border-ring"
         />
       )}
     </div>

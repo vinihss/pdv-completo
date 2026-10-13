@@ -180,8 +180,8 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
   }, [hasMore, visibleCount]);
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-50 pb-40">
-      <div className="px-5 pt-6 pb-4 sticky top-14 bg-stone-950/95 backdrop-blur z-10 border-b border-stone-900">
+    <div className="min-h-screen bg-background text-foreground pb-40">
+      <div className="px-5 pt-6 pb-4 sticky top-14 bg-background/95 backdrop-blur z-10 border-b border-border">
         <div className="flex items-center justify-between mb-4">
           <h1 className="font-display text-xl font-bold">Comandas</h1>
           <div className="flex items-center gap-3">
@@ -191,7 +191,7 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
                 aria-label={`Modo de visualização: ${VIEW_MODES.find((m) => m.id === viewMode)?.label ?? "Lista"}`}
                 aria-expanded={viewMenuOpen}
                 aria-haspopup="menu"
-                className="p-1.5 rounded-lg transition-colors text-stone-500 hover:text-stone-300"
+                className="p-1.5 rounded-lg transition-colors text-text-muted hover:text-text-secondary"
               >
                 {(() => {
                   const current = VIEW_MODES.find((m) => m.id === viewMode) ?? VIEW_MODES[0];
@@ -207,7 +207,7 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
                   />
                   <div
                     role="menu"
-                    className="absolute right-0 top-full mt-1 z-30 bg-stone-900 border border-stone-700 rounded-lg shadow-lg py-1 min-w-[160px]"
+                    className="absolute right-0 top-full mt-1 z-30 bg-surface border border-border rounded-lg shadow-lg py-1 min-w-[160px]"
                   >
                     {VIEW_MODES.map((mode) => {
                       const Icon = mode.icon;
@@ -222,8 +222,8 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
                           }}
                           className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
                             viewMode === mode.id
-                              ? "bg-amber-500/10 text-amber-400"
-                              : "text-stone-300 hover:bg-stone-800"
+                              ? "bg-primary/10 text-primary"
+                              : "text-text-secondary hover:bg-surface-overlay"
                           }`}
                         >
                           <Icon size={16} />
@@ -239,19 +239,19 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
               onClick={onReloadAll}
               aria-label="Atualizar"
               title="Atualizar"
-              className="p-1.5 rounded-lg text-stone-500 hover:text-stone-300 transition-colors"
+              className="p-1.5 rounded-lg text-text-muted hover:text-text-secondary transition-colors"
             >
               <RefreshCw size={16} />
             </button>
           </div>
         </div>
         <div className="relative mb-3">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar por mesa, cliente..."
-            className="w-full bg-stone-900 border border-stone-800 rounded-xl pl-9 pr-3 py-2.5 text-sm outline-none focus:border-amber-500/50"
+            className="w-full bg-surface border border-border rounded-xl pl-9 pr-3 py-2.5 text-sm outline-none focus:border-ring/50"
           />
         </div>
         <div className="flex items-center gap-2">
@@ -261,7 +261,7 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
                 key={c.id}
                 onClick={() => setFilter(c.id)}
                 className={`shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-                  filter === c.id ? "bg-amber-500 text-stone-950" : "bg-stone-900 border border-stone-800 text-stone-400"
+                  filter === c.id ? "bg-primary text-primary-foreground" : "bg-surface border border-border text-text-secondary"
                 }`}
               >
                 {c.icon && <c.icon size={12} />}
@@ -269,7 +269,7 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
                 {c.count != null && (
                   <span
                     className={`ml-0.5 min-w-4 px-1 rounded-full text-[10px] leading-4 font-bold ${
-                      filter === c.id ? "bg-stone-950/20 text-stone-900" : "bg-stone-800 text-stone-300"
+                      filter === c.id ? "bg-primary-foreground/20 text-primary-foreground" : "bg-surface-overlay text-text-secondary"
                     }`}
                   >
                     {c.count}
@@ -282,9 +282,9 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
       </div>
 
       <div className="px-5 pt-4">
-        {loading && orders.length === 0 && <div className="text-stone-600 text-center py-16">Carregando comandas…</div>}
+        {loading && orders.length === 0 && <div className="text-text-muted text-center py-16">Carregando comandas…</div>}
         {!loading && filtered.length === 0 && (
-          <div className="text-stone-600 text-center py-16">
+          <div className="text-text-muted text-center py-16">
             {filter === "closed"
               ? "Nenhuma comanda fechada encontrada."
               : filter === "all"
@@ -304,30 +304,30 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
                 onClick={() => !closed && onOpenOrder(o.id)}
                 className={`text-left rounded-2xl border p-4 transition-colors ${
                   hasReady
-                    ? "border-emerald-500/50 bg-emerald-500/5"
+                    ? "border-success/50 bg-success/5"
                     : closed
-                      ? "border-stone-800 bg-stone-900/40 cursor-default"
-                      : "border-stone-800 bg-stone-900 hover:bg-stone-850 active:scale-95"
+                      ? "border-border bg-surface/40 cursor-default"
+                      : "border-border bg-surface hover:bg-surface-overlay active:scale-95"
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-display text-lg font-bold flex items-center gap-1.5">
                     {orderLabel(o)}
                   </span>
-                  <span className="text-stone-500 text-xs">{o.items.length} {o.items.length === 1 ? "item" : "itens"}</span>
+                  <span className="text-text-muted text-xs">{o.items.length} {o.items.length === 1 ? "item" : "itens"}</span>
                 </div>
                 {(o.channel === "whatsapp" || o.channel === "web") && (
-                  <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 mb-1.5">
+                  <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/15 text-primary mb-1.5">
                     Delivery{o.channel === "whatsapp" ? " · WhatsApp" : ""}
                   </span>
                 )}
-                <div className="text-emerald-400 font-semibold text-sm mb-1">{formatBRL(orderTotal(o))}</div>
-                <div className="text-stone-500 text-xs">
+                <div className="text-success font-semibold text-sm mb-1">{formatBRL(orderTotal(o))}</div>
+                <div className="text-text-muted text-xs">
                   {formatTimeSince(o.openedAt)} · {formatDateTime(o.openedAt)}
-                  {closed && <span className="text-stone-600"> · Fechada em {formatDateTime(o.closedAt)}</span>}
+                  {closed && <span className="text-text-muted"> · Fechada em {formatDateTime(o.closedAt)}</span>}
                 </div>
                 {stale && (
-                  <div className="mt-2 flex items-center gap-1 text-amber-400 text-xs font-semibold">
+                  <div className="mt-2 flex items-center gap-1 text-primary text-xs font-semibold">
                     <AlertTriangle size={12} aria-hidden="true" /> Aberta há mais de 24h
                   </div>
                 )}
@@ -335,10 +335,10 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
                   <div
                     className={`mt-2 flex items-center gap-1 text-xs ${
                       summary.tone === "ready"
-                        ? "text-emerald-400 font-semibold"
+                        ? "text-success font-semibold"
                         : summary.tone === "done"
-                          ? "text-stone-500"
-                          : "text-stone-400"
+                          ? "text-text-muted"
+                          : "text-text-secondary"
                     }`}
                   >
                     {summary.tone === "ready" && <Zap size={12} aria-hidden="true" />}
@@ -357,7 +357,7 @@ export default function OrderListScreen({ orders, loading, kitchenEnabled, usesT
         onClick={onNewOrder}
         aria-label="Nova comanda"
         title="Nova comanda"
-        className="fixed bottom-20 right-5 z-30 bg-amber-500 hover:bg-amber-400 text-stone-950 rounded-full p-4 shadow-xl shadow-black/40 active:scale-95 transition-transform"
+        className="fixed bottom-20 right-5 z-30 bg-primary hover:bg-primary-strong text-primary-foreground rounded-full p-4 shadow-xl shadow-black/40 active:scale-95 transition-transform"
       >
         <Plus size={22} strokeWidth={2.5} />
       </button>

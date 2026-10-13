@@ -1,33 +1,37 @@
 import React from "react";
+import { cva } from "class-variance-authority";
+import { cn } from "@/shared/lib";
 
-const VARIANTS = {
-  primary: "bg-amber-500 text-stone-950 hover:bg-amber-400",
-  secondary: "border border-stone-700 bg-stone-800 text-stone-200 hover:bg-stone-700",
-  danger: "bg-red-500 text-white hover:bg-red-400",
-  ghost: "text-stone-300 hover:bg-stone-800 hover:text-stone-100",
-};
-const SIZES = {
-  sm: "min-h-10 px-3 py-2 text-sm",
-  md: "min-h-11 px-4 py-2.5 text-sm",
-  lg: "min-h-12 px-5 py-3 text-base",
-};
+// Variantes centrais do Button. Fonte única para botões: altere aqui, não
+// espalhe classes de botão por pages/features. Os valores iniciais são idênticos
+// ao comportamento anterior (tailwind-merge deduplica sobrescritas por className).
+const buttonVariants = cva(
+  "inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition-colors active:scale-[.98] disabled:pointer-events-none disabled:opacity-50",
+  {
+    variants: {
+      variant: {
+        primary: "bg-primary text-primary-foreground hover:bg-primary-strong",
+        secondary: "border border-border bg-surface-overlay text-text-secondary hover:bg-surface-overlay",
+        danger: "bg-destructive text-destructive-foreground hover:bg-destructive",
+        ghost: "text-text-secondary hover:bg-surface-overlay hover:text-foreground",
+      },
+      size: {
+        sm: "min-h-10 px-3 py-2 text-sm",
+        md: "min-h-11 px-4 py-2.5 text-sm",
+        lg: "min-h-12 px-5 py-3 text-base",
+      },
+    },
+    defaultVariants: { variant: "primary", size: "md" },
+  }
+);
 
 /** Botão compartilhado: mantém altura tátil e estados coerentes entre telas. */
-export default function Button({
-  variant = "primary",
-  size = "md",
-  type = "button",
-  className = "",
-  children,
-  ...props
-}) {
+export default function Button({ variant, size, type = "button", className, children, ...props }) {
   return (
-    <button
-      type={type}
-      className={`inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition-colors active:scale-[.98] disabled:pointer-events-none disabled:opacity-50 ${VARIANTS[variant] ?? VARIANTS.primary} ${SIZES[size] ?? SIZES.md} ${className}`}
-      {...props}
-    >
+    <button type={type} className={cn(buttonVariants({ variant, size }), className)} {...props}>
       {children}
     </button>
   );
 }
+
+export { buttonVariants };

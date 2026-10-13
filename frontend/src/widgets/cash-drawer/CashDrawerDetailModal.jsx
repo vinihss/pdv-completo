@@ -24,32 +24,32 @@ export default function CashDrawerDetailModal({ drawerId, onClose, showToast, on
           onClick={() => onPrint?.()}
           title="Imprimir cupom"
           aria-label="Imprimir cupom"
-          className="w-10 h-10 flex items-center justify-center rounded-full text-stone-500 hover:text-stone-200 transition-colors shrink-0"
+          className="w-10 h-10 flex items-center justify-center rounded-full text-text-muted hover:text-text-secondary transition-colors shrink-0"
         >
           <Printer size={18} />
         </button>
       }
     >
       <div className="p-5">
-        {!detail && <div className="text-stone-600 text-center py-8">Carregando…</div>}
+        {!detail && <div className="text-text-muted text-center py-8">Carregando…</div>}
 
         {detail && (
           <>
             <div className="grid grid-cols-3 gap-2 mb-4">
-              <MiniStat label="Esperado" value={formatBRL(detail.closingExpected ?? detail.expectedCash)} className="text-stone-200" />
-              <MiniStat label="Contado" value={formatBRL(detail.closingCounted)} className="text-stone-200" />
+              <MiniStat label="Esperado" value={formatBRL(detail.closingExpected ?? detail.expectedCash)} className="text-text-secondary" />
+              <MiniStat label="Contado" value={formatBRL(detail.closingCounted)} className="text-text-secondary" />
               <MiniStat
                 label="Diferença"
                 value={`${detail.closingDifference > 0 ? "+" : ""}${formatBRL(detail.closingDifference)}`}
-                className={detail.closingDifference === 0 ? "text-emerald-400" : detail.closingDifference > 0 ? "text-emerald-400" : "text-red-400"}
+                className={detail.closingDifference === 0 ? "text-success" : detail.closingDifference > 0 ? "text-success" : "text-destructive"}
               />
             </div>
 
-            <div className="text-xs text-stone-500 mb-4">
+            <div className="text-xs text-text-muted mb-4">
               Aberto por {detail.openedByName ?? "—"} em {toDate(detail.openedAt)?.toLocaleString() ?? "—"} ·{" "}
               fechado por {detail.closedByName ?? "—"} em {toDate(detail.closedAt)?.toLocaleString() ?? "—"}
               {detail.closingNote && (
-                <div className="mt-2 text-stone-400 bg-stone-950 border border-stone-800 rounded-xl px-3 py-2">
+                <div className="mt-2 text-text-secondary bg-background border border-border rounded-xl px-3 py-2">
                   <b>Observação:</b> {detail.closingNote}
                 </div>
               )}
@@ -59,7 +59,7 @@ export default function CashDrawerDetailModal({ drawerId, onClose, showToast, on
               {detail.cashSales.length === 0 && <Empty text="Nenhuma venda em dinheiro no período." />}
               {detail.cashSales.map((s) => (
                 <Row key={s.orderId} title={s.label} sub={s.received != null ? `Recebido ${formatBRL(s.received)} · Troco ${formatBRL(s.change ?? 0)}` : undefined}>
-                  <span className="text-emerald-400 font-semibold">{formatBRL(s.amount)}</span>
+                  <span className="text-success font-semibold">{formatBRL(s.amount)}</span>
                 </Row>
               ))}
             </DetailList>
@@ -72,7 +72,7 @@ export default function CashDrawerDetailModal({ drawerId, onClose, showToast, on
                   title={m.type === "sangria" ? (m.refOrderLabel ? `Sangria (estorno ${m.refOrderLabel})` : "Sangria") : "Suprimento"}
                   sub={[m.note, m.createdByName && `${m.createdByName}`].filter(Boolean).join(" · ") || undefined}
                 >
-                  <span className={`font-semibold ${m.type === "sangria" ? "text-red-400" : "text-emerald-400"}`}>
+                  <span className={`font-semibold ${m.type === "sangria" ? "text-destructive" : "text-success"}`}>
                     {m.type === "sangria" ? "−" : "+"} {formatBRL(m.amount)}
                   </span>
                 </Row>
@@ -87,8 +87,8 @@ export default function CashDrawerDetailModal({ drawerId, onClose, showToast, on
 
 function MiniStat({ label, value, className }) {
   return (
-    <div className="bg-stone-950 border border-stone-800 rounded-xl p-3 text-center">
-      <div className="text-stone-500 text-[11px] mb-1">{label}</div>
+    <div className="bg-background border border-border rounded-xl p-3 text-center">
+      <div className="text-text-muted text-[11px] mb-1">{label}</div>
       <div className={`font-display font-bold text-sm ${className}`}>{value}</div>
     </div>
   );
@@ -97,7 +97,7 @@ function MiniStat({ label, value, className }) {
 function DetailList({ title, children }) {
   return (
     <div className="mb-4">
-      <div className="text-stone-500 text-[11px] font-bold uppercase tracking-wide mb-2">{title}</div>
+      <div className="text-text-muted text-[11px] font-bold uppercase tracking-wide mb-2">{title}</div>
       <div className="space-y-1.5">{children}</div>
     </div>
   );
@@ -105,10 +105,10 @@ function DetailList({ title, children }) {
 
 function Row({ title, sub, children }) {
   return (
-    <div className="flex items-center justify-between text-sm bg-stone-950 border border-stone-800 rounded-xl px-3 py-2">
+    <div className="flex items-center justify-between text-sm bg-background border border-border rounded-xl px-3 py-2">
       <div>
         <div className="font-medium">{title}</div>
-        {sub && <div className="text-stone-500 text-xs">{sub}</div>}
+        {sub && <div className="text-text-muted text-xs">{sub}</div>}
       </div>
       {children}
     </div>
@@ -116,5 +116,5 @@ function Row({ title, sub, children }) {
 }
 
 function Empty({ text }) {
-  return <div className="text-stone-600 text-sm py-3 text-center">{text}</div>;
+  return <div className="text-text-muted text-sm py-3 text-center">{text}</div>;
 }

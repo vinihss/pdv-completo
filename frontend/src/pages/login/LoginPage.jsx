@@ -167,19 +167,19 @@ export default function Login() {
   useEffect(() => () => clearTimeout(errorTimer.current), []);
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-50 flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center p-6">
       {screen === "select" && (
         <div className="w-full max-w-md fade-up">
           <div className="text-center mb-10">
             {logoUrl ? (
               <img src={assetUrl(logoUrl)} alt="Logo do restaurante" className="w-32 h-32 rounded-full object-contain mx-auto mb-5" />
             ) : (
-              <div className="w-14 h-14 rounded-full bg-amber-500 flex items-center justify-center mx-auto mb-4">
-                <Lock size={26} className="text-stone-950" strokeWidth={2.5} />
+              <div className="w-14 h-14 rounded-full bg-primary flex items-center justify-center mx-auto mb-4">
+                <Lock size={26} className="text-primary-foreground" strokeWidth={2.5} />
               </div>
             )}
             <h1 className="font-display text-2xl font-bold">{storeName || "PDV"}</h1>
-            <p className="text-stone-500 text-sm mt-1">Selecione seu nome para continuar</p>
+            <p className="text-text-muted text-sm mt-1">Selecione seu nome para continuar</p>
           </div>
 
           {loadingUsers && (
@@ -187,7 +187,7 @@ export default function Login() {
           )}
 
           {loadError && (
-            <div className="text-center text-red-400 text-sm py-10">
+            <div className="text-center text-destructive text-sm py-10">
               Não foi possível conectar ao servidor. Verifique se o backend está rodando.
             </div>
           )}
@@ -201,12 +201,12 @@ export default function Login() {
                   <button
                     key={u.id}
                     onClick={() => openPinScreen(u)}
-                    className="flex flex-col items-center gap-2.5 bg-stone-900 border border-stone-800 hover:border-amber-500/50 hover:bg-stone-800 rounded-2xl p-5 transition-colors active:scale-95"
+                    className="flex flex-col items-center gap-2.5 bg-surface border border-border hover:border-ring/50 hover:bg-surface-overlay rounded-2xl p-5 transition-colors active:scale-95"
                   >
                     <UserAvatar name={u.name} photoPath={u.photoPath} className="w-14 h-14 text-lg" />
                     <div className="text-center">
                       <div className="font-semibold text-sm leading-tight">{u.name}</div>
-                      <div className="flex items-center justify-center gap-1 text-stone-500 text-xs mt-1">
+                      <div className="flex items-center justify-center gap-1 text-text-muted text-xs mt-1">
                         <Icon size={11} /> {meta.label}
                       </div>
                     </div>
@@ -224,7 +224,7 @@ export default function Login() {
                 setServerError(null);
                 setServerOpen(true);
               }}
-              className="inline-flex items-center gap-2 text-stone-600 hover:text-stone-400 text-xs transition-colors max-w-full"
+              className="inline-flex items-center gap-2 text-text-muted hover:text-text-secondary text-xs transition-colors max-w-full"
             >
               <Server size={12} className="shrink-0" />
               <span className="truncate">Servidor: {currentServerLabel()}{serverTag ? ` v${serverTag}` : ""}</span>
@@ -243,14 +243,14 @@ export default function Login() {
               <button
                 type="button"
                 onClick={() => setServerOpen(false)}
-                className="flex-1 py-3 rounded-xl bg-stone-800 hover:bg-stone-700 transition-colors text-sm font-medium"
+                className="flex-1 py-3 rounded-xl bg-surface-overlay hover:bg-surface-overlay transition-colors text-sm font-medium"
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={saveServer}
-                className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 transition-colors text-stone-950 text-sm font-semibold"
+                className="flex-1 py-3 rounded-xl bg-primary hover:bg-primary-strong transition-colors text-primary-foreground text-sm font-semibold"
               >
                 Salvar
               </button>
@@ -270,10 +270,10 @@ export default function Login() {
             }}
             placeholder="https://app.seudominio.com.br"
             aria-label="Endereço do servidor"
-            className="w-full bg-stone-900 border border-stone-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500"
+            className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-ring"
           />
-          {serverError && <p className="text-red-400 text-xs mt-2">{serverError}</p>}
-          <p className="text-stone-600 text-xs mt-3">
+          {serverError && <p className="text-destructive text-xs mt-2">{serverError}</p>}
+          <p className="text-text-muted text-xs mt-3">
             O app recarrega ao salvar. Vazio volta ao servidor padrão
             {serverDefault() ? ` (${serverDefault()})` : " desta instalação"}.
           </p>
@@ -289,7 +289,7 @@ export default function Login() {
               className="w-16 h-16 text-xl mx-auto mb-3"
             />
             <h2 className="font-display text-xl font-bold">{selectedUser.name}</h2>
-            <p className="text-stone-500 text-sm mt-1">Digite seu PIN</p>
+            <p className="text-text-muted text-sm mt-1">Digite seu PIN</p>
           </div>
 
           {/* Input real (transparente) sobre os pontos: tocar na linha abre o
@@ -301,7 +301,7 @@ export default function Login() {
                 <span
                   key={i}
                   className={`w-3 h-3 rounded-full dot-pop ${
-                    i < pin.length ? (error ? "bg-red-500" : "bg-amber-400") : "bg-stone-700"
+                    i < pin.length ? (error ? "bg-destructive" : "bg-primary-strong") : "bg-surface-overlay"
                   }`}
                 />
               ))}
@@ -323,8 +323,8 @@ export default function Login() {
             />
           </div>
           <div className="h-5 text-center mb-4">
-            {error && <span className="text-red-400 text-xs font-medium">{error}</span>}
-            {checking && !error && <span className="text-stone-500 text-xs">Verificando…</span>}
+            {error && <span className="text-destructive text-xs font-medium">{error}</span>}
+            {checking && !error && <span className="text-text-muted text-xs">Verificando…</span>}
           </div>
 
           <div className="grid grid-cols-3 gap-3">
@@ -334,19 +334,19 @@ export default function Login() {
                 type="button"
                 onClick={() => pressDigit(d)}
                 disabled={checking}
-                className="font-display text-2xl font-bold bg-stone-900 border border-stone-800 hover:bg-stone-800 active:scale-95 disabled:opacity-40 rounded-2xl py-5 transition-transform"
+                className="font-display text-2xl font-bold bg-surface border border-border hover:bg-surface-overlay active:scale-95 disabled:opacity-40 rounded-2xl py-5 transition-transform"
               >
                 {d}
               </button>
             ))}
-            <button onClick={backToSelect} className="text-stone-500 hover:text-stone-300 text-xs font-semibold rounded-2xl py-5">
+            <button onClick={backToSelect} className="text-text-muted hover:text-text-secondary text-xs font-semibold rounded-2xl py-5">
               Voltar (Esc)
             </button>
             <button
               type="button"
               onClick={() => pressDigit("0")}
               disabled={checking}
-              className="font-display text-2xl font-bold bg-stone-900 border border-stone-800 hover:bg-stone-800 active:scale-95 disabled:opacity-40 rounded-2xl py-5 transition-transform"
+              className="font-display text-2xl font-bold bg-surface border border-border hover:bg-surface-overlay active:scale-95 disabled:opacity-40 rounded-2xl py-5 transition-transform"
             >
               0
             </button>
@@ -354,7 +354,7 @@ export default function Login() {
               type="button"
               onClick={backspace}
               disabled={checking || pin.length === 0}
-              className="flex items-center justify-center text-stone-500 hover:text-red-400 disabled:opacity-40 rounded-2xl py-5 transition-colors"
+              className="flex items-center justify-center text-text-muted hover:text-destructive disabled:opacity-40 rounded-2xl py-5 transition-colors"
             >
               <Delete size={22} />
             </button>
@@ -364,7 +364,7 @@ export default function Login() {
             type="button"
             onClick={confirmPin}
             disabled={checking || pin.length < MIN_PIN}
-            className="w-full mt-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-stone-950 font-semibold py-4 rounded-2xl flex items-center justify-center gap-2 transition-colors"
+            className="w-full mt-4 bg-primary hover:bg-primary-strong disabled:opacity-40 text-primary-foreground font-semibold py-4 rounded-2xl flex items-center justify-center gap-2 transition-colors"
           >
             {checking ? <Loader2 size={18} className="animate-spin" /> : null}
             {checking ? "Verificando…" : "Entrar"}

@@ -51,7 +51,7 @@ export default function PhotoUpload({
       <UserAvatar
         name={name}
         photoPath={displayPhoto}
-        className={`w-16 h-16 text-lg border border-stone-700 ${className}`}
+        className={`w-16 h-16 text-lg border border-border ${className}`}
       />
       {editable && (
         <>
@@ -61,7 +61,7 @@ export default function PhotoUpload({
             disabled={busy}
             aria-label="Enviar foto"
             title="Enviar foto"
-            className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-amber-500 text-stone-950 flex items-center justify-center hover:bg-amber-400 disabled:opacity-50 transition-colors"
+            className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary-strong disabled:opacity-50 transition-colors"
           >
             <Camera size={13} />
           </button>
@@ -84,7 +84,7 @@ export default function PhotoUpload({
           onClick={onRemove}
           disabled={busy}
           aria-label={removeLabel}
-          className="absolute -bottom-1 -left-1 w-7 h-7 rounded-full bg-red-500/90 text-white flex items-center justify-center hover:bg-red-500 disabled:opacity-50 transition-colors"
+          className="absolute -bottom-1 -left-1 w-7 h-7 rounded-full bg-destructive/90 text-destructive-foreground flex items-center justify-center hover:bg-destructive disabled:opacity-50 transition-colors"
         >
           <Trash2 size={13} />
         </button>

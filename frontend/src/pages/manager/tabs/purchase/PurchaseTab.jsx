@@ -22,10 +22,10 @@ function SuppliersList({ suppliers, onChanged, onOpenCreate, onClose, showToast 
     <Modal title="Fornecedores" onClose={onClose}>
       <div className="p-5 space-y-2">
         {suppliers.map((s) => (
-          <div key={s.id} className="bg-stone-800/60 rounded-xl px-3 py-2.5 flex items-center justify-between gap-3">
+          <div key={s.id} className="bg-surface-overlay/60 rounded-xl px-3 py-2.5 flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="text-sm font-medium truncate">{s.name}</div>
-              <div className="text-stone-500 text-[11px] truncate">
+              <div className="text-text-muted text-[11px] truncate">
                 {s.phone ?? "Sem telefone"}
                 {s.taxId ? ` · ${s.taxId}` : ""}
               </div>
@@ -36,9 +36,9 @@ function SuppliersList({ suppliers, onChanged, onOpenCreate, onClose, showToast 
           </div>
         ))}
         {suppliers.length === 0 && (
-          <div className="text-stone-600 text-center py-10 text-sm">Nenhum fornecedor cadastrado.</div>
+          <div className="text-text-muted text-center py-10 text-sm">Nenhum fornecedor cadastrado.</div>
         )}
-        <button onClick={onOpenCreate} className="flex items-center gap-1.5 text-amber-500 text-sm font-semibold">
+        <button onClick={onOpenCreate} className="flex items-center gap-1.5 text-primary text-sm font-semibold">
           <Plus size={14} /> Novo fornecedor
         </button>
       </div>
@@ -61,20 +61,20 @@ function PurchaseDetail({ purchaseId, onClose }) {
     <Modal title="Compra" onClose={onClose}>
       <div className="p-5">
         {!purchase ? (
-          <div className="text-stone-600 text-center py-10 text-sm">Carregando…</div>
+          <div className="text-text-muted text-center py-10 text-sm">Carregando…</div>
         ) : (
           <>
-            <div className="text-stone-500 text-xs mb-4">
+            <div className="text-text-muted text-xs mb-4">
               {purchase.supplierName ?? "Sem fornecedor"}
               {purchase.invoiceNumber ? ` · ${purchase.invoiceNumber}` : ""}
               {purchase.issuedOn ? ` · ${purchase.issuedOn}` : ""}
             </div>
             <div className="space-y-2 mb-4">
               {purchase.items.map((i) => (
-                <div key={i.id} className="bg-stone-800/60 rounded-xl px-3 py-2.5 flex items-center justify-between gap-3">
+                <div key={i.id} className="bg-surface-overlay/60 rounded-xl px-3 py-2.5 flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-sm font-medium truncate">{i.productName}</div>
-                    <div className="text-stone-500 text-[11px]">
+                    <div className="text-text-muted text-[11px]">
                       {i.quantity} un × {formatBRL(i.unitCost)}
                       {i.batchNo ? ` · lote ${i.batchNo}` : ""}
                       {purchase.averages?.[i.productId] != null ? ` · médio atual ${formatBRL(purchase.averages[i.productId])}` : ""}
@@ -84,11 +84,11 @@ function PurchaseDetail({ purchaseId, onClose }) {
                 </div>
               ))}
             </div>
-            <div className="flex items-center justify-between border-t border-stone-800 pt-3">
-              <span className="text-stone-400 text-sm">Total</span>
+            <div className="flex items-center justify-between border-t border-border pt-3">
+              <span className="text-text-secondary text-sm">Total</span>
               <span className="font-display font-bold text-lg">{formatBRL(purchase.total)}</span>
             </div>
-            {purchase.note && <div className="text-stone-500 text-xs mt-2">{purchase.note}</div>}
+            {purchase.note && <div className="text-text-muted text-xs mt-2">{purchase.note}</div>}
           </>
         )}
       </div>
@@ -148,13 +148,13 @@ export default function PurchaseTab({ showToast }) {
         <div className="flex gap-2">
           <button
             onClick={() => setShowSuppliers(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-stone-800 bg-stone-900 text-stone-300"
+            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-border bg-surface text-text-secondary"
           >
             <Truck size={14} /> Fornecedores
           </button>
           <button
             onClick={() => setShowNew(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-amber-500 text-stone-950"
+            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-primary text-primary-foreground"
           >
             <PackagePlus size={14} /> Nova compra
           </button>
@@ -162,32 +162,32 @@ export default function PurchaseTab({ showToast }) {
       </div>
 
       {loading ? (
-        <div className="text-stone-600 text-center py-12 text-sm">Carregando…</div>
+        <div className="text-text-muted text-center py-12 text-sm">Carregando…</div>
       ) : (
         <div className="space-y-2">
           {purchases.map((p) => (
             <button
               key={p.id}
               onClick={() => setDetailId(p.id)}
-              className="w-full text-left flex items-center justify-between gap-3 bg-stone-900 border border-stone-800 rounded-xl px-3 py-2.5 hover:border-stone-700 transition-colors"
+              className="w-full text-left flex items-center justify-between gap-3 bg-surface border border-border rounded-xl px-3 py-2.5 hover:border-border transition-colors"
             >
               <div className="min-w-0">
                 <div className="font-medium text-sm truncate">
                   {p.supplierName ?? "Sem fornecedor"}
-                  {p.invoiceNumber ? <span className="text-stone-500 font-normal"> · {p.invoiceNumber}</span> : ""}
+                  {p.invoiceNumber ? <span className="text-text-muted font-normal"> · {p.invoiceNumber}</span> : ""}
                 </div>
-                <div className="text-stone-500 text-xs">
+                <div className="text-text-muted text-xs">
                   {p.issuedOn ?? formatDateTime(p.createdAt)} · {p.createdByName}
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <span className="font-display font-bold">{formatBRL(p.total)}</span>
-                <ChevronRight size={15} className="text-stone-600" />
+                <ChevronRight size={15} className="text-text-muted" />
               </div>
             </button>
           ))}
           {purchases.length === 0 && (
-            <div className="text-stone-600 text-center py-16">
+            <div className="text-text-muted text-center py-16">
               <PackagePlus size={32} className="mx-auto mb-2 opacity-50" />
               <div className="text-sm">Nenhuma compra registrada.</div>
               <div className="text-xs mt-1">Registre entradas de mercadoria para atualizar o estoque e o custo médio.</div>

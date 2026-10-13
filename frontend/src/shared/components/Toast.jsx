@@ -17,10 +17,10 @@ export function Toast({ toast }) {
   if (!toast) return null;
   const kindClass =
     toast.kind === "error"
-      ? "border-red-500/50 bg-red-950/90 text-red-100"
+      ? "border-destructive/50 bg-warning/10 text-text-secondary"
       : toast.kind === "success"
-      ? "border-emerald-500/50 bg-emerald-950/90 text-emerald-100"
-      : "border-stone-700 bg-stone-800";
+      ? "border-success/50 bg-warning/10 text-text-secondary"
+      : "border-border bg-surface-overlay";
   return (
     <div
       role="status"

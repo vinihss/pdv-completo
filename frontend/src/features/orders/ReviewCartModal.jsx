@@ -33,12 +33,12 @@ export default function ReviewCartModal({
       footer={
         <>
           <div className="flex items-center justify-between mb-3">
-            <span className="text-stone-400 text-sm">Total</span>
-            <span className="font-display text-lg font-bold text-emerald-400">{formatBRL(total)}</span>
+            <span className="text-text-secondary text-sm">Total</span>
+            <span className="font-display text-lg font-bold text-success">{formatBRL(total)}</span>
           </div>
           <button
             onClick={onConfirm}
-            className="w-full bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-semibold py-3.5 rounded-xl transition-colors"
+            className="w-full bg-success hover:bg-success text-primary-foreground font-semibold py-3.5 rounded-xl transition-colors"
           >
             {confirmLabel(count, kitchenEnabled)}
           </button>
@@ -50,15 +50,15 @@ export default function ReviewCartModal({
           const key = line.product.id + JSON.stringify(line.selectedVariations);
           const variation = variationsText(line.selectedVariations);
           return (
-            <div key={key ?? idx} className="bg-stone-800/60 rounded-xl px-3 py-2.5">
+            <div key={key ?? idx} className="bg-surface-overlay/60 rounded-xl px-3 py-2.5">
               <div className="flex items-center justify-between">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold truncate">{line.product.name}</div>
-                  {variation && <div className="text-stone-500 text-xs truncate">{variation}</div>}
+                  {variation && <div className="text-text-muted text-xs truncate">{variation}</div>}
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                  <span className="text-emerald-400 text-sm font-semibold">{formatBRL(line.product.price * line.quantity)}</span>
-                  <button onClick={() => onRemoveLine(key)} className="text-stone-600 hover:text-red-400 p-1" aria-label={`Remover ${line.product.name}`}>
+                  <span className="text-success text-sm font-semibold">{formatBRL(line.product.price * line.quantity)}</span>
+                  <button onClick={() => onRemoveLine(key)} className="text-text-muted hover:text-destructive p-1" aria-label={`Remover ${line.product.name}`}>
                     <Trash2 size={14} />
                   </button>
                 </div>
@@ -73,7 +73,7 @@ export default function ReviewCartModal({
                   onClick={() => onChangeQty(key, -1)}
                   disabled={line.quantity <= 1}
                   aria-label={`Diminuir ${line.product.name}`}
-                  className="w-9 h-9 flex items-center justify-center rounded-lg bg-stone-900 border border-stone-700 text-stone-200 transition-colors hover:bg-stone-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-9 h-9 flex items-center justify-center rounded-lg bg-surface border border-border text-text-secondary transition-colors hover:bg-surface-overlay disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Minus size={16} />
                 </button>
@@ -82,7 +82,7 @@ export default function ReviewCartModal({
                   type="button"
                   onClick={() => onChangeQty(key, +1)}
                   aria-label={`Aumentar ${line.product.name}`}
-                  className="w-9 h-9 flex items-center justify-center rounded-lg bg-stone-900 border border-stone-700 text-stone-200 transition-colors hover:bg-stone-700"
+                  className="w-9 h-9 flex items-center justify-center rounded-lg bg-surface border border-border text-text-secondary transition-colors hover:bg-surface-overlay"
                 >
                   <Plus size={16} />
                 </button>
@@ -95,8 +95,8 @@ export default function ReviewCartModal({
                   className="mt-2 flex items-center gap-2 cursor-pointer select-none"
                   title="Adicionar observação"
                 >
-                  <Pencil size={14} className="text-stone-400" />
-                  <span className="text-xs text-stone-400">Observações</span>
+                  <Pencil size={14} className="text-text-secondary" />
+                  <span className="text-xs text-text-secondary">Observações</span>
                 </div>
               ) : (
                 /* Campo de observação aberto */
@@ -105,11 +105,11 @@ export default function ReviewCartModal({
                     value={line.notes ?? ""}
                     onChange={(e) => onChangeNotes(key, e.target.value)}
                     placeholder="Observações (ex.: sem cebola, ponto mal passado)"
-                    className="mt-2 w-full bg-stone-900 border border-stone-700 rounded-lg px-3 py-2 text-xs outline-none focus:border-amber-500/50"
+                    className="mt-2 w-full bg-surface border border-border rounded-lg px-3 py-2 text-xs outline-none focus:border-ring/50"
                   />
                   <div className="mt-1 flex items-center gap-1">
-                    <Check size={12} className="text-emerald-400 hover:text-emerald-500" onClick={() => setEditingNotes(null)} />
-                    <span className="text-xs text-stone-400">Confirmar</span>
+                    <Check size={12} className="text-success hover:text-success" onClick={() => setEditingNotes(null)} />
+                    <span className="text-xs text-text-secondary">Confirmar</span>
                   </div>
                 </>
               )}

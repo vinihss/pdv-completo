@@ -167,23 +167,23 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
   }
 
   return (
-    <div className="fixed inset-0 bg-stone-950 text-stone-50 z-40 flex flex-col">
+    <div className="fixed inset-0 bg-background text-foreground z-40 flex flex-col">
       <ScreenHeader title="Adicionar item" onBack={handleExit} backLabel="Fechar lançamento" backIcon="close" />
 
       <div className="px-5 pt-4 shrink-0">
         <div className="relative mb-3">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-600" />
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar produto..."
-            className="w-full bg-stone-900 border border-stone-800 rounded-xl pl-9 pr-3 py-2.5 text-sm outline-none focus:border-amber-500/50"
+            className="w-full bg-surface border border-border rounded-xl pl-9 pr-3 py-2.5 text-sm outline-none focus:border-ring/50"
           />
         </div>
         <div className="flex gap-2 overflow-x-auto pb-1">
           <button
             onClick={() => setActiveCategory(null)}
-            className={`shrink-0 px-3 py-1.5 text-xs font-semibold border-b-2 ${!activeCategory ? "text-amber-500 border-amber-500" : "text-stone-400 border-transparent"}`}
+            className={`shrink-0 px-3 py-1.5 text-xs font-semibold border-b-2 ${!activeCategory ? "text-primary border-ring" : "text-text-secondary border-transparent"}`}
           >
             Todos
           </button>
@@ -191,7 +191,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
             <button
               key={c.id}
               onClick={() => setActiveCategory(c.id)}
-              className={`shrink-0 px-3 py-1.5 text-xs font-semibold border-b-2 ${activeCategory === c.id ? "text-amber-500 border-amber-500" : "text-stone-400 border-transparent"}`}
+              className={`shrink-0 px-3 py-1.5 text-xs font-semibold border-b-2 ${activeCategory === c.id ? "text-primary border-ring" : "text-text-secondary border-transparent"}`}
             >
               {c.name}
             </button>
@@ -204,7 +204,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
         {frequentProducts.length > 0 && !search && !activeCategory && (
           <div className="mb-6">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-stone-300">Frequentemente adicionados</h3>
+              <h3 className="text-sm font-semibold text-text-secondary">Frequentemente adicionados</h3>
               <button
                 onClick={() => {
                   try {
@@ -214,7 +214,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
                     // Ignora erros
                   }
                 }}
-                className="text-xs text-stone-500 hover:text-stone-300"
+                className="text-xs text-text-muted hover:text-text-secondary"
               >
                 Limpar
               </button>
@@ -234,16 +234,16 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
                     disabled={outOfStock}
                     className={`relative overflow-hidden text-left rounded-2xl p-4 border transition-all active:scale-95 ${
                       outOfStock
-                        ? "bg-stone-900 border-stone-800 opacity-50"
+                        ? "bg-surface border-border opacity-50"
                         : recentlyAdded === p.id
-                          ? "bg-emerald-500/20 border-emerald-400 ring-2 ring-emerald-400 scale-105"
+                          ? "bg-success/20 border-warning ring-2 ring-success scale-105"
                           : addedQty > 0
-                            ? "bg-emerald-500/10 border-emerald-500/50"
-                            : "bg-stone-800 border-stone-700 hover:bg-stone-750"
+                            ? "bg-success/10 border-success/50"
+                            : "bg-surface-overlay border-border hover:bg-surface-overlay"
                     }`}
                   >
                     {addedQty > 0 && !outOfStock && (
-                      <span className="absolute top-2 right-2 bg-emerald-500 text-emerald-950 text-xs font-bold min-w-[1.5rem] h-6 px-1 rounded-full flex items-center justify-center shadow-lg pop-anim">
+                      <span className="absolute top-2 right-2 bg-success text-primary-foreground text-xs font-bold min-w-[1.5rem] h-6 px-1 rounded-full flex items-center justify-center shadow-lg pop-anim">
                         {addedQty}
                       </span>
                     )}
@@ -251,9 +251,9 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
                       <img src={assetUrl(p.imagePath)} alt={p.name} className="w-full h-24 object-cover rounded-xl -mt-1 mb-2" />
                     )}
                     <div className="font-semibold text-sm mb-1 pr-6">{p.name}</div>
-                    <div className="text-emerald-400 text-sm font-bold">{formatBRL(p.price)}</div>
+                    <div className="text-success text-sm font-bold">{formatBRL(p.price)}</div>
                     {outOfStock && (
-                      <div className="flex items-center gap-1 text-red-400 text-xs font-bold mt-1">
+                      <div className="flex items-center gap-1 text-destructive text-xs font-bold mt-1">
                         <AlertTriangle size={12} /> Sem estoque
                       </div>
                     )}
@@ -261,7 +261,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
                 );
               })}
             </div>
-            <div className="mt-4 mb-2 border-b border-stone-800"></div>
+            <div className="mt-4 mb-2 border-b border-border"></div>
           </div>
         )}
 
@@ -284,16 +284,16 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
                     disabled={outOfStock}
                     className={`relative overflow-hidden text-left rounded-2xl p-4 border transition-all active:scale-95 ${
                       outOfStock
-                        ? "bg-stone-900 border-stone-800 opacity-50"
+                        ? "bg-surface border-border opacity-50"
                         : recentlyAdded === p.id
-                          ? "bg-emerald-500/20 border-emerald-400 ring-2 ring-emerald-400 scale-105"
+                          ? "bg-success/20 border-warning ring-2 ring-success scale-105"
                           : addedQty > 0
-                            ? "bg-emerald-500/10 border-emerald-500/50"
-                            : "bg-stone-800 border-stone-700 hover:bg-stone-750"
+                            ? "bg-success/10 border-success/50"
+                            : "bg-surface-overlay border-border hover:bg-surface-overlay"
                     }`}
                   >
                     {addedQty > 0 && !outOfStock && (
-                      <span className="absolute top-2 right-2 bg-emerald-500 text-emerald-950 text-xs font-bold min-w-[1.5rem] h-6 px-1 rounded-full flex items-center justify-center shadow-lg pop-anim">
+                      <span className="absolute top-2 right-2 bg-success text-primary-foreground text-xs font-bold min-w-[1.5rem] h-6 px-1 rounded-full flex items-center justify-center shadow-lg pop-anim">
                         {addedQty}
                       </span>
                     )}
@@ -301,11 +301,11 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
                       <img src={assetUrl(p.imagePath)} alt={p.name} className="w-full h-24 object-cover rounded-xl -mt-1 mb-2" />
                     )}
                     <div className="font-semibold text-sm mb-1 pr-6">{p.name}</div>
-                    <div className="text-emerald-400 text-sm font-bold">{formatBRL(p.price)}</div>
-                    {p.description && <div className="text-stone-500 text-xs mt-1 line-clamp-2">{p.description}</div>}
-                    {p.variations?.length > 0 && <div className="text-stone-500 text-xs mt-1">Opções disponíveis</div>}
+                    <div className="text-success text-sm font-bold">{formatBRL(p.price)}</div>
+                    {p.description && <div className="text-text-muted text-xs mt-1 line-clamp-2">{p.description}</div>}
+                    {p.variations?.length > 0 && <div className="text-text-muted text-xs mt-1">Opções disponíveis</div>}
                     {outOfStock && (
-                      <div className="flex items-center gap-1 text-red-400 text-xs font-bold mt-1">
+                      <div className="flex items-center gap-1 text-destructive text-xs font-bold mt-1">
                         <AlertTriangle size={12} /> Sem estoque
                       </div>
                     )}
@@ -313,22 +313,22 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
                 );
               })}
               {catalogLoading && (
-                <div className="col-span-full text-stone-600 text-center py-12 text-sm">Carregando catálogo…</div>
+                <div className="col-span-full text-text-muted text-center py-12 text-sm">Carregando catálogo…</div>
               )}
               {!catalogLoading && catalogError && (
                 <div className="col-span-full flex flex-col items-center gap-3 text-center py-12">
-                  <AlertTriangle size={22} className="text-amber-400" />
-                  <div className="text-stone-400 text-sm">Não foi possível carregar o catálogo.</div>
+                  <AlertTriangle size={22} className="text-primary" />
+                  <div className="text-text-secondary text-sm">Não foi possível carregar o catálogo.</div>
                   <button
                     onClick={loadCatalog}
-                    className="bg-stone-800 hover:bg-stone-750 border border-stone-700 text-stone-100 text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
+                    className="bg-surface-overlay hover:bg-surface-overlay border border-border text-foreground text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
                   >
                     Tentar novamente
                   </button>
                 </div>
               )}
               {!catalogLoading && !catalogError && filteredProductsForMain.length === 0 && (
-                <div className="col-span-full text-stone-600 text-center py-12 text-sm">Nenhum produto encontrado.</div>
+                <div className="col-span-full text-text-muted text-center py-12 text-sm">Nenhum produto encontrado.</div>
               )}
             </div>
           );
@@ -336,10 +336,10 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
       </div>
 
       {cartCount > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 p-4 border-t border-stone-800 bg-stone-900 z-30">
+        <div className="fixed bottom-0 left-0 right-0 p-4 border-t border-border bg-surface z-30">
           <button
             onClick={() => setReviewOpen(true)}
-            className="w-full flex items-center justify-between bg-emerald-500 hover:bg-emerald-400 text-stone-950 font-semibold py-3.5 px-5 rounded-xl transition-colors"
+            className="w-full flex items-center justify-between bg-success hover:bg-success text-primary-foreground font-semibold py-3.5 px-5 rounded-xl transition-colors"
           >
             <span className="flex items-center gap-2">
               <Check size={18} strokeWidth={2.5} />
@@ -376,9 +376,9 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
       )}
 
       {confirming && (
-        <div className="fixed inset-0 bg-stone-900/97 flex flex-col items-center justify-center z-50 pop-anim">
-          <div className="w-16 h-16 rounded-full bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-center mb-4">
-            <Check size={28} className="text-emerald-400" />
+        <div className="fixed inset-0 bg-surface/97 flex flex-col items-center justify-center z-50 pop-anim">
+          <div className="w-16 h-16 rounded-full bg-success/15 border border-success/40 flex items-center justify-center mb-4">
+            <Check size={28} className="text-success" />
           </div>
           <div className="font-display text-lg font-bold">Itens adicionados!</div>
         </div>

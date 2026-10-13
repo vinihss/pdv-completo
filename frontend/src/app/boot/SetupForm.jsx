@@ -29,28 +29,28 @@ export default function SetupForm() {
   }
 
   return (
-    <div className="min-h-screen bg-stone-950 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-background flex items-center justify-center p-6">
       <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-6">
         <div className="text-center space-y-2">
-          <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500 text-lg font-black text-stone-950">
+          <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-lg font-black text-primary-foreground">
             PDV
           </div>
-          <h1 className="text-base font-semibold text-stone-100">Configurar este computador</h1>
-          <p className="text-sm text-stone-500">
+          <h1 className="text-base font-semibold text-foreground">Configurar este computador</h1>
+          <p className="text-sm text-text-muted">
             Uma vez só. O endereço pode ser corrigido depois, em Configurações.
           </p>
         </div>
 
-        <div className="space-y-4 rounded-2xl bg-stone-900/60 border border-stone-800 p-4">
+        <div className="space-y-4 rounded-2xl bg-surface/60 border border-border p-4">
           <AppConfigFields value={draft} onChange={setDraft} />
-          {invalid && <p className="text-xs text-red-400">Informe o endereço do sistema.</p>}
-          {error && <p className="text-xs text-red-400">{error.message}</p>}
+          {invalid && <p className="text-xs text-destructive">Informe o endereço do sistema.</p>}
+          {error && <p className="text-xs text-destructive">{error.message}</p>}
         </div>
 
         <button
           type="submit"
           disabled={saving}
-          className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-semibold py-3.5 rounded-xl transition-colors"
+          className="w-full bg-primary hover:bg-primary-strong disabled:opacity-50 text-primary-foreground font-semibold py-3.5 rounded-xl transition-colors"
         >
           {saving ? "Salvando…" : "Salvar e abrir"}
         </button>

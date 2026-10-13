@@ -659,48 +659,48 @@ export default function CustomerMenuPage() {
 
   if (deliveryAvailable === false) {
     return (
-      <div className="min-h-screen bg-stone-950 text-stone-50 flex items-center justify-center p-6">
-        <div className="max-w-sm w-full bg-stone-900 border border-stone-800 rounded-3xl p-8 text-center">
-          <div className="w-12 h-12 rounded-full bg-stone-800 flex items-center justify-center mx-auto mb-4">
-            <AlertTriangle size={22} className="text-amber-400" />
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center p-6">
+        <div className="max-w-sm w-full bg-surface border border-border rounded-3xl p-8 text-center">
+          <div className="w-12 h-12 rounded-full bg-surface-overlay flex items-center justify-center mx-auto mb-4">
+            <AlertTriangle size={22} className="text-primary" />
           </div>
-          <p className="text-stone-100 font-semibold mb-1">Pedidos por delivery desativados</p>
-          <p className="text-stone-500 text-sm">O estabelecimento não está recebendo pedidos on-line no momento. Entre em contato diretamente com ele.</p>
+          <p className="text-foreground font-semibold mb-1">Pedidos por delivery desativados</p>
+          <p className="text-text-muted text-sm">O estabelecimento não está recebendo pedidos on-line no momento. Entre em contato diretamente com ele.</p>
         </div>
       </div>
     );
   }
   if (menuError) {
     return (
-      <div className="min-h-screen bg-stone-950 text-stone-50 flex items-center justify-center p-6">
-        <p className="text-stone-500 text-sm text-center">Não foi possível carregar o cardápio agora. Tente de novo em alguns minutos.</p>
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center p-6">
+        <p className="text-text-muted text-sm text-center">Não foi possível carregar o cardápio agora. Tente de novo em alguns minutos.</p>
       </div>
     );
   }
   if (!menu) {
     return (
-      <div className="min-h-screen bg-stone-950 text-stone-50 flex justify-center">
-        <div className="w-full max-w-[430px] min-h-screen bg-stone-950 relative flex flex-col">
-          <div className="px-5 pt-6 pb-4 border-b border-stone-800">
+      <div className="min-h-screen bg-background text-foreground flex justify-center">
+        <div className="w-full max-w-[430px] min-h-screen bg-background relative flex flex-col">
+          <div className="px-5 pt-6 pb-4 border-b border-border">
             <div className="mb-4">
-              <div className="h-14 w-14 rounded-full bg-stone-800 animate-pulse" />
+              <div className="h-14 w-14 rounded-full bg-surface-overlay animate-pulse" />
             </div>
-            <div className="h-3 w-32 rounded bg-stone-800 animate-pulse mb-2" />
-            <div className="h-7 w-44 rounded bg-stone-700/60 animate-pulse" />
+            <div className="h-3 w-32 rounded bg-surface-overlay animate-pulse mb-2" />
+            <div className="h-7 w-44 rounded bg-surface-overlay/60 animate-pulse" />
           </div>
           <div className="flex gap-2 px-5 py-3">
             {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="h-8 w-20 rounded-full bg-stone-800 animate-pulse" />
+              <div key={i} className="h-8 w-20 rounded-full bg-surface-overlay animate-pulse" />
             ))}
           </div>
           <div className="px-5 pt-5 space-y-4">
             {[0, 1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex items-center justify-between py-2 border-b border-stone-800">
+              <div key={i} className="flex items-center justify-between py-2 border-b border-border">
                 <div className="space-y-2">
-                  <div className="h-4 w-40 rounded bg-stone-700/60 animate-pulse" />
-                  <div className="h-3 w-28 rounded bg-stone-800 animate-pulse" />
+                  <div className="h-4 w-40 rounded bg-surface-overlay/60 animate-pulse" />
+                  <div className="h-3 w-28 rounded bg-surface-overlay animate-pulse" />
                 </div>
-                <div className="h-9 w-9 rounded-full bg-stone-800 animate-pulse" />
+                <div className="h-9 w-9 rounded-full bg-surface-overlay animate-pulse" />
               </div>
             ))}
           </div>
@@ -710,12 +710,12 @@ export default function CustomerMenuPage() {
   }
 
   return (
-    <div className="min-h-screen bg-stone-950 font-sans text-stone-50">
+    <div className="min-h-screen bg-background font-sans text-foreground">
       {/* Coluna única em todas as larguras. O carrinho não é mais um painel
           fixo na lateral (tirar o "Seu pedido" da direita): ele vive na barra
           flutuante (canto inferior direito no desktop, barra no celular) e abre
           a tela cheia de carrinho. */}
-      <div className="w-full max-w-[480px] lg:max-w-5xl mx-auto min-h-screen bg-stone-950 relative flex flex-col lg:px-8 lg:py-8">
+      <div className="w-full max-w-[480px] lg:max-w-5xl mx-auto min-h-screen bg-background relative flex flex-col lg:px-8 lg:py-8">
         <div ref={menuScrollRef} className="contents lg:flex lg:flex-col lg:min-w-0 lg:overflow-y-auto lg:max-h-[calc(100vh-4rem)] lg:pr-1 scrollbar-none">
         {screen === "menu" && (
           <MenuScreen
@@ -850,7 +850,7 @@ function CartScreen({ items, subtotal, logoUrl, addToCartLine, removeFromCartLin
       <TopBar title="Seu carrinho" onBack={onBack} logoUrl={logoUrl} />
       <div className="flex-1 overflow-y-auto px-5 py-4 max-w-xl mx-auto w-full">
         {items.length === 0 ? (
-          <p className="text-stone-500 text-sm mt-8 text-center">Carrinho vazio.</p>
+          <p className="text-text-muted text-sm mt-8 text-center">Carrinho vazio.</p>
         ) : (
           items.map((it) => (
             <CartLine
@@ -868,9 +868,9 @@ function CartScreen({ items, subtotal, logoUrl, addToCartLine, removeFromCartLin
         )}
       </div>
       {items.length > 0 && (
-        <div className="px-5 pb-6 pt-3 border-t border-stone-800 max-w-xl mx-auto w-full">
-          <p className="text-[11.5px] text-stone-500 mb-3">A taxa de entrega é calculada no próximo passo.</p>
-          <button onClick={onCheckout} className="w-full bg-amber-500 text-[var(--brand-accent-foreground)] rounded-xl h-12 font-semibold text-[14.5px]">
+        <div className="px-5 pb-6 pt-3 border-t border-border max-w-xl mx-auto w-full">
+          <p className="text-[11.5px] text-text-muted mb-3">A taxa de entrega é calculada no próximo passo.</p>
+          <button onClick={onCheckout} className="w-full bg-primary text-[var(--brand-accent-foreground)] rounded-xl h-12 font-semibold text-[14.5px]">
             Continuar · {formatBRL(subtotal)}
           </button>
         </div>
@@ -935,8 +935,8 @@ function ZoneSelector({ zones, value, onChange }) {
   if (!zones || zones.length === 0) return null;
   return (
     <div className="pt-1">
-      <div className="text-[12.5px] font-semibold text-stone-300 mb-1.5">
-        Distância aproximada <span className="text-stone-500 font-normal">(opcional)</span>
+      <div className="text-[12.5px] font-semibold text-text-secondary mb-1.5">
+        Distância aproximada <span className="text-text-muted font-normal">(opcional)</span>
       </div>
       <div className="grid grid-cols-2 gap-2">
         {zones.map((z) => (
@@ -944,14 +944,14 @@ function ZoneSelector({ zones, value, onChange }) {
             key={z.maxKm}
             type="button"
             onClick={() => onChange(value === z.maxKm ? null : z.maxKm)}
-            className={`rounded-lg border px-3 py-2.5 text-left ${value === z.maxKm ? "border-amber-500 bg-amber-500/10" : "border-stone-800 bg-stone-900"}`}
+            className={`rounded-lg border px-3 py-2.5 text-left ${value === z.maxKm ? "border-ring bg-primary/10" : "border-border bg-surface"}`}
           >
-            <span className="block text-[13px] font-medium text-stone-100">{z.label}</span>
-            <span className="block text-[11.5px] text-stone-500">{z.estimate}</span>
+            <span className="block text-[13px] font-medium text-foreground">{z.label}</span>
+            <span className="block text-[11.5px] text-text-muted">{z.estimate}</span>
           </button>
         ))}
       </div>
-      <p className="text-[11.5px] text-stone-600 mt-1.5">
+      <p className="text-[11.5px] text-text-muted mt-1.5">
         Usamos essa informação para estimar a hora de entrega. O frete não muda em relação ao que está acima.
       </p>
     </div>
@@ -969,14 +969,14 @@ function EditRow({ icon, label, value, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="w-full text-left flex items-start gap-2.5 rounded-lg px-2 py-2 -mx-2 hover:bg-stone-800/60 transition-colors"
+      className="w-full text-left flex items-start gap-2.5 rounded-lg px-2 py-2 -mx-2 hover:bg-surface-overlay/60 transition-colors"
     >
-      <span className="mt-0.5 shrink-0 text-amber-400">{icon}</span>
+      <span className="mt-0.5 shrink-0 text-primary">{icon}</span>
       <span className="min-w-0 flex-1">
-        <span className="block text-[10px] font-bold uppercase tracking-wide text-stone-500">{label}</span>
-        <span className="block text-[13.5px] text-stone-100 leading-snug break-words">{value || "—"}</span>
+        <span className="block text-[10px] font-bold uppercase tracking-wide text-text-muted">{label}</span>
+        <span className="block text-[13.5px] text-foreground leading-snug break-words">{value || "—"}</span>
       </span>
-      <Pencil size={14} className="mt-0.5 shrink-0 text-stone-500" />
+      <Pencil size={14} className="mt-0.5 shrink-0 text-text-muted" />
     </button>
   );
 }
@@ -1118,14 +1118,14 @@ function CheckoutScreen(props) {
       />
       <div className="flex-1 overflow-y-auto px-5 py-5 max-w-xl mx-auto w-full">
         {error && (
-          <div className="flex items-center gap-2 text-red-400 text-[13px] bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2.5 mb-4">
+          <div className="flex items-center gap-2 text-destructive text-[13px] bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2.5 mb-4">
             <AlertTriangle size={14} className="shrink-0" /> {error}
           </div>
         )}
 
         {step === "phone" && (
           <div>
-            <p className="text-[13.5px] text-stone-500 mb-3">Pra identificar seu pedido e endereços salvos, informe seu telefone.</p>
+            <p className="text-[13.5px] text-text-muted mb-3">Pra identificar seu pedido e endereços salvos, informe seu telefone.</p>
             <input
               value={phone}
               onChange={(e) => onPhoneChange(e.target.value)}
@@ -1134,7 +1134,7 @@ function CheckoutScreen(props) {
               }}
               placeholder="(11) 99999-0000"
               inputMode="tel"
-              className="w-full bg-stone-900 border border-stone-800 rounded-lg px-4 h-12 text-[15px] text-stone-100 outline-none focus:border-amber-500 placeholder:text-stone-500"
+              className="w-full bg-surface border border-border rounded-lg px-4 h-12 text-[15px] text-foreground outline-none focus:border-ring placeholder:text-text-muted"
             />
           </div>
         )}
@@ -1145,17 +1145,17 @@ function CheckoutScreen(props) {
               <button
                 key={a.id}
                 onClick={() => setSelectedAddressId(a.id)}
-                className={`w-full text-left rounded-lg border p-3.5 flex items-start gap-3 ${selectedAddressId === a.id ? "border-amber-500 bg-amber-500/10" : "border-stone-800 bg-stone-900"}`}
+                className={`w-full text-left rounded-lg border p-3.5 flex items-start gap-3 ${selectedAddressId === a.id ? "border-ring bg-primary/10" : "border-border bg-surface"}`}
               >
-                <MapPin size={17} className="mt-0.5 shrink-0 text-amber-400" />
+                <MapPin size={17} className="mt-0.5 shrink-0 text-primary" />
                 <div className="min-w-0">
-                  <p className="text-[14px] font-semibold text-stone-50">{a.label || "Endereço"}</p>
-                  <p className="text-[12.5px] text-stone-500 mt-0.5">{formatAddress(a)}</p>
+                  <p className="text-[14px] font-semibold text-foreground">{a.label || "Endereço"}</p>
+                  <p className="text-[12.5px] text-text-muted mt-0.5">{formatAddress(a)}</p>
                 </div>
-                {selectedAddressId === a.id && <Check size={17} className="ml-auto shrink-0 text-amber-400" />}
+                {selectedAddressId === a.id && <Check size={17} className="ml-auto shrink-0 text-primary" />}
               </button>
             ))}
-            <button onClick={() => { setSelectedAddressId(null); setStep("new-address"); }} className="w-full text-left rounded-lg border border-dashed border-stone-700 p-3.5 text-[13.5px] text-stone-400">
+            <button onClick={() => { setSelectedAddressId(null); setStep("new-address"); }} className="w-full text-left rounded-lg border border-dashed border-border p-3.5 text-[13.5px] text-text-secondary">
               + Usar um novo endereço
             </button>
             <ZoneSelector zones={deliveryZones} value={deliveryZoneKm} onChange={setDeliveryZoneKm} />
@@ -1177,7 +1177,7 @@ function CheckoutScreen(props) {
                 maxLength={9}
               />
               {cepNotice && (
-                <p className={`mt-1 text-[12px] ${cepNotice.kind === "loading" ? "text-stone-500" : "text-red-400"}`}>
+                <p className={`mt-1 text-[12px] ${cepNotice.kind === "loading" ? "text-text-muted" : "text-destructive"}`}>
                   {cepNotice.text}
                 </p>
               )}
@@ -1217,15 +1217,15 @@ function CheckoutScreen(props) {
                   setPayment(opt.value);
                   if (opt.value !== "cash") setCashReceived("");
                 }}
-                className={`w-full text-left rounded-lg border p-3.5 flex items-center justify-between ${payment === opt.value ? "border-amber-500 bg-amber-500/10" : "border-stone-800 bg-stone-900"}`}
+                className={`w-full text-left rounded-lg border p-3.5 flex items-center justify-between ${payment === opt.value ? "border-ring bg-primary/10" : "border-border bg-surface"}`}
               >
-                <span className="text-[14px] font-medium text-stone-50">{opt.label}</span>
-                {payment === opt.value && <Check size={17} className="text-amber-400" />}
+                <span className="text-[14px] font-medium text-foreground">{opt.label}</span>
+                {payment === opt.value && <Check size={17} className="text-primary" />}
               </button>
             ))}
 
             {payment === "cash" && (
-              <div className="rounded-lg border border-stone-800 bg-stone-900 p-3.5">
+              <div className="rounded-lg border border-border bg-surface p-3.5">
                 <Field
                   label="Vai entregar quanto? (R$)"
                   value={cashReceived}
@@ -1233,11 +1233,11 @@ function CheckoutScreen(props) {
                   placeholder="Ex.: 50,00"
                   inputMode="decimal"
                 />
-                <p className="text-[12px] text-stone-500 mt-1.5">
+                <p className="text-[12px] text-text-muted mt-1.5">
                   Opcional. Deixe vazio se vai pagar o valor exato — aí o entregador não precisa levar troco.
                 </p>
                 {cashChangeLabel(cashReceived, subtotal + deliveryFee) && (
-                  <p className="text-[13px] text-amber-400 font-semibold mt-2">
+                  <p className="text-[13px] text-primary font-semibold mt-2">
                     Troco: {cashChangeLabel(cashReceived, subtotal + deliveryFee)}
                   </p>
                 )}
@@ -1250,7 +1250,7 @@ function CheckoutScreen(props) {
               onChange={(v) => onNewAddressChange({ ...newAddress, customerName: v })}
               placeholder="Como podemos te chamar?"
             />
-            <p className="text-[12px] text-stone-600 -mt-1">
+            <p className="text-[12px] text-text-muted -mt-1">
               É o nome que fica na comanda e o que o entregador chama você.
             </p>
           </div>
@@ -1258,34 +1258,34 @@ function CheckoutScreen(props) {
 
         {step === "review" && (
           <div>
-            <div className="rounded-lg bg-stone-900 border border-stone-800 p-4 mb-4">
+            <div className="rounded-lg bg-surface border border-border p-4 mb-4">
               {items.map((it) => (
-                <div key={it.key} className="flex justify-between text-[13.5px] py-1 text-stone-300 gap-3">
+                <div key={it.key} className="flex justify-between text-[13.5px] py-1 text-text-secondary gap-3">
                   <span className="min-w-0">
                     {it.quantity}x {it.name}
                     {variationsText(it.selectedVariations) && (
-                      <span className="block text-[12px] text-stone-500">{variationsText(it.selectedVariations)}</span>
+                      <span className="block text-[12px] text-text-muted">{variationsText(it.selectedVariations)}</span>
                     )}
                   </span>
-                  <span className="text-stone-500 shrink-0">{formatBRL(it.price * it.quantity)}</span>
+                  <span className="text-text-muted shrink-0">{formatBRL(it.price * it.quantity)}</span>
                 </div>
               ))}
-              <div className="border-t border-stone-800 mt-2 pt-2 flex justify-between text-[14px] font-bold text-stone-50">
+              <div className="border-t border-border mt-2 pt-2 flex justify-between text-[14px] font-bold text-foreground">
                 <span>Subtotal</span><span>{formatBRL(subtotal)}</span>
               </div>
               <div className="flex justify-between text-[13.5px] py-1">
-                <span className="text-stone-300">Taxa de entrega</span><span className="text-stone-500">{formatBRL(deliveryFee)}</span>
+                <span className="text-text-secondary">Taxa de entrega</span><span className="text-text-muted">{formatBRL(deliveryFee)}</span>
               </div>
               <div className="flex justify-between text-[15px] font-extrabold pt-1">
-                <span className="text-stone-50">Total</span><span className="text-amber-400">{formatBRL(subtotal + deliveryFee)}</span>
+                <span className="text-foreground">Total</span><span className="text-primary">{formatBRL(subtotal + deliveryFee)}</span>
               </div>
             </div>
             {/* Resumo editável. É a tela que o cliente recorrente cai direto
                 (startCheckout pula as três etapas quando o perfil tem tudo), então
                 precisa mostrar e permitir corrigir cada dado sem voltar: tocar
                 em qualquer linha leva à etapa correspondente. */}
-            <div className="rounded-lg bg-stone-900 border border-stone-800 p-4 mb-4">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-stone-500 mb-2">
+            <div className="rounded-lg bg-surface border border-border p-4 mb-4">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-text-muted mb-2">
                 Confira e toque para alterar
               </p>
               <div className="space-y-0.5">
@@ -1308,18 +1308,18 @@ function CheckoutScreen(props) {
                   onClick={() => setStep("payment")}
                 />
               </div>
-              <p className="text-[13.5px] text-stone-500 mt-2 pt-2 border-t border-stone-800">
+              <p className="text-[13.5px] text-text-muted mt-2 pt-2 border-t border-border">
                 Previsão de entrega: {zoneLabel(deliveryZoneKm, deliveryZones)}
               </p>
               {payment === "cash" && cashChangeLabel(cashReceived, subtotal + deliveryFee) && (
-                <p className="text-[13.5px] text-amber-400 font-semibold mt-1">
+                <p className="text-[13.5px] text-primary font-semibold mt-1">
                   Troco: {cashChangeLabel(cashReceived, subtotal + deliveryFee)}
                 </p>
               )}
             </div>
             <div>
-              <label className="block text-[12.5px] font-semibold text-stone-300 mb-1.5">
-                Observação <span className="text-stone-500 font-normal">(opcional)</span>
+              <label className="block text-[12.5px] font-semibold text-text-secondary mb-1.5">
+                Observação <span className="text-text-muted font-normal">(opcional)</span>
               </label>
               <textarea
                 value={orderNotes}
@@ -1327,9 +1327,9 @@ function CheckoutScreen(props) {
                 rows={3}
                 maxLength={300}
                 placeholder="Ex.: interfonar no 3º andar, portão azul…"
-                className="w-full bg-stone-950 border border-stone-800 rounded-lg px-3 py-2 text-[13.5px] text-stone-100 outline-none focus:border-amber-500 placeholder:text-stone-600"
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-[13.5px] text-foreground outline-none focus:border-ring placeholder:text-text-muted"
               />
-              <p className="text-[11.5px] text-stone-600 mt-1">
+              <p className="text-[11.5px] text-text-muted mt-1">
                 Vai junto do pedido inteiro: a cozinha e o entregador recebem esta observação. Para mudar um item
                 específico, use a observação do próprio item no carrinho.
               </p>
@@ -1338,7 +1338,7 @@ function CheckoutScreen(props) {
         )}
       </div>
 
-      <div className="px-5 pb-6 pt-3 border-t border-stone-800 max-w-xl mx-auto w-full">
+      <div className="px-5 pb-6 pt-3 border-t border-border max-w-xl mx-auto w-full">
         <button
           disabled={
             submitting ||
@@ -1353,7 +1353,7 @@ function CheckoutScreen(props) {
             else if (step === "payment") setStep("review");
             else onSubmit();
           }}
-          className="w-full bg-amber-500 text-[var(--brand-accent-foreground)] rounded-xl h-12 font-semibold text-[14.5px] disabled:opacity-40"
+          className="w-full bg-primary text-[var(--brand-accent-foreground)] rounded-xl h-12 font-semibold text-[14.5px] disabled:opacity-40"
         >
           {submitting ? "Enviando…" : step === "review" ? `Confirmar pedido · ${formatBRL(subtotal + deliveryFee)}` : "Continuar"}
         </button>
@@ -1400,17 +1400,17 @@ function ConfirmationScreen({ order, status, phone, onCancel, onReset, submittin
   return (
     <div className="flex-1 flex flex-col px-6 pt-10 pb-8 overflow-y-auto max-w-xl mx-auto w-full">
       <div className="text-center mb-8">
-        <div className={`w-14 h-14 rounded-full border flex items-center justify-center mx-auto mb-4 ${failed || cancelled ? "bg-red-500/15 border-red-500/40" : "bg-amber-500/15 border-amber-500/40"}`}>
-          {cancelled ? <X size={24} className="text-red-400" /> : failed ? <AlertTriangle size={24} className="text-red-400" /> : <Check size={26} className="text-amber-400" />}
+        <div className={`w-14 h-14 rounded-full border flex items-center justify-center mx-auto mb-4 ${failed || cancelled ? "bg-destructive/15 border-destructive/40" : "bg-primary/15 border-ring/40"}`}>
+          {cancelled ? <X size={24} className="text-destructive" /> : failed ? <AlertTriangle size={24} className="text-destructive" /> : <Check size={26} className="text-primary" />}
         </div>
-        <h1 className="text-xl font-extrabold text-stone-50">{title}</h1>
+        <h1 className="text-xl font-extrabold text-foreground">{title}</h1>
         {!failed && !cancelled && (
-          <p className="text-[13.5px] text-stone-500 mt-1">{eta} · Total {formatBRL(total)}</p>
+          <p className="text-[13.5px] text-text-muted mt-1">{eta} · Total {formatBRL(total)}</p>
         )}
       </div>
 
       {(failed || cancelled) && (
-        <div className="flex items-start gap-2 text-red-400 text-[13px] bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2.5 mb-6">
+        <div className="flex items-start gap-2 text-destructive text-[13px] bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2.5 mb-6">
           <AlertTriangle size={14} className="shrink-0 mt-0.5" /> {hint}
         </div>
       )}
@@ -1422,13 +1422,13 @@ function ConfirmationScreen({ order, status, phone, onCancel, onReset, submittin
           return (
             <div key={s.stage} className="flex gap-4">
               <div className="flex flex-col items-center">
-                <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors duration-500 ${s.done || s.current ? "bg-amber-500 text-[var(--brand-accent-foreground)]" : "bg-stone-900 text-stone-500 border border-stone-800"}`}>
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors duration-500 ${s.done || s.current ? "bg-primary text-[var(--brand-accent-foreground)]" : "bg-surface text-text-muted border border-border"}`}>
                   {s.done ? <Check size={16} /> : s.current ? <PartyPopper size={15} /> : <span className="w-2 h-2 rounded-full bg-current" />}
                 </div>
-                {!isLast && <div className={`w-0.5 flex-1 min-h-[28px] transition-colors duration-500 ${next?.done || next?.current ? "bg-amber-500" : "bg-stone-800"}`} />}
+                {!isLast && <div className={`w-0.5 flex-1 min-h-[28px] transition-colors duration-500 ${next?.done || next?.current ? "bg-primary" : "bg-surface-overlay"}`} />}
               </div>
               <div className="pb-7 pt-1.5">
-                <p className={`text-[14px] font-medium transition-colors duration-500 ${s.done || s.current ? "text-stone-50" : "text-stone-500"}`}>{s.label}</p>
+                <p className={`text-[14px] font-medium transition-colors duration-500 ${s.done || s.current ? "text-foreground" : "text-text-muted"}`}>{s.label}</p>
               </div>
             </div>
           );
@@ -1441,7 +1441,7 @@ function ConfirmationScreen({ order, status, phone, onCancel, onReset, submittin
             setCancelPhone(phone);
             setCancelOpen(true);
           }}
-          className="w-full mt-2 border border-stone-800 rounded-xl h-12 font-semibold text-[14px] text-stone-400 hover:text-stone-200 hover:border-stone-700"
+          className="w-full mt-2 border border-border rounded-xl h-12 font-semibold text-[14px] text-text-secondary hover:text-text-secondary hover:border-border"
         >
           Cancelar pedido
         </button>
@@ -1455,14 +1455,14 @@ function ConfirmationScreen({ order, status, phone, onCancel, onReset, submittin
             <div className="flex gap-3">
               <button
                 onClick={() => setCancelOpen(false)}
-                className="flex-1 h-11 rounded-xl border border-stone-800 text-[14px] font-semibold text-stone-300"
+                className="flex-1 h-11 rounded-xl border border-border text-[14px] font-semibold text-text-secondary"
               >
                 Voltar
               </button>
               <button
                 onClick={() => onCancel(digitsOnly(cancelPhone))}
                 disabled={submitting || !digitsOnly(cancelPhone)}
-                className="flex-1 h-11 rounded-xl bg-red-500/90 text-white font-semibold text-[14px] disabled:opacity-40"
+                className="flex-1 h-11 rounded-xl bg-destructive/90 text-destructive-foreground font-semibold text-[14px] disabled:opacity-40"
               >
                 {submitting ? "Cancelando…" : "Confirmar cancelamento"}
               </button>
@@ -1470,23 +1470,23 @@ function ConfirmationScreen({ order, status, phone, onCancel, onReset, submittin
           }
         >
           <div className="p-5">
-            <p className="text-[13px] text-stone-500">
+            <p className="text-[13px] text-text-muted">
               {failed
                 ? "A entrega falhou e este pedido ainda está aberto — cancelar evita cobrança."
                 : "Enquanto o pedido não sair para entrega, o cancelamento é imediato."}
             </p>
             <label className="block mt-4">
-              <span className="text-[12px] text-stone-500 mb-1 block">Telefone do pedido</span>
+              <span className="text-[12px] text-text-muted mb-1 block">Telefone do pedido</span>
               <input
                 value={cancelPhone ? maskPhone(cancelPhone) : ""}
                 onChange={(e) => setCancelPhone(maskPhone(e.target.value))}
                 inputMode="tel"
                 placeholder="(11) 99999-0000"
-                className="w-full bg-stone-950 border border-stone-800 rounded-lg px-3.5 h-11 text-[14px] text-stone-100 outline-none focus:border-amber-500 placeholder:text-stone-600"
+                className="w-full bg-background border border-border rounded-lg px-3.5 h-11 text-[14px] text-foreground outline-none focus:border-ring placeholder:text-text-muted"
               />
             </label>
             {cancelError && (
-              <div className="flex items-start gap-2 text-red-400 text-[12.5px] bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 mt-3">
+              <div className="flex items-start gap-2 text-destructive text-[12.5px] bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 mt-3">
                 <AlertTriangle size={13} className="shrink-0 mt-0.5" /> {cancelError}
               </div>
             )}
@@ -1495,12 +1495,12 @@ function ConfirmationScreen({ order, status, phone, onCancel, onReset, submittin
       )}
 
       {!failed && !cancelled && (
-        <p className="text-center text-[11.5px] text-stone-500 mt-2">Esta tela atualiza sozinha — não precisa dar refresh.</p>
+        <p className="text-center text-[11.5px] text-text-muted mt-2">Esta tela atualiza sozinha — não precisa dar refresh.</p>
       )}
 
       <button
         onClick={onReset}
-        className="w-full mt-8 bg-amber-500 text-[var(--brand-accent-foreground)] rounded-xl h-12 font-semibold text-[14.5px]"
+        className="w-full mt-8 bg-primary text-[var(--brand-accent-foreground)] rounded-xl h-12 font-semibold text-[14.5px]"
       >
         Fazer um novo pedido
       </button>
@@ -1511,11 +1511,11 @@ function ConfirmationScreen({ order, status, phone, onCancel, onReset, submittin
 // ---------------------------------------------------------------------------
 function TopBar({ title, onBack, logoUrl }) {
   return (
-    <div className="flex items-center gap-3 px-5 py-3 border-b border-stone-800 shrink-0 text-stone-50">
+    <div className="flex items-center gap-3 px-5 py-3 border-b border-border shrink-0 text-foreground">
       <button onClick={onBack} className="w-8 h-8 -ml-1.5 flex items-center justify-center" aria-label="Voltar">
         <ChevronLeft size={22} />
       </button>
-      <h1 className="text-[15.5px] font-semibold text-stone-50">{title}</h1>
+      <h1 className="text-[15.5px] font-semibold text-foreground">{title}</h1>
       {logoUrl && (
         <img src={assetUrl(logoUrl)} alt="Logo do restaurante" className="h-9 w-9 rounded-full object-contain shrink-0 ml-auto" />
       )}
@@ -1528,7 +1528,7 @@ function TopBar({ title, onBack, logoUrl }) {
 function Field({ label, value, onChange, placeholder, className = "", inputMode, autoComplete, maxLength, onBlur }) {
   return (
     <label className={`block ${className}`}>
-      <span className="text-[12px] text-stone-500 mb-1 block">{label}</span>
+      <span className="text-[12px] text-text-muted mb-1 block">{label}</span>
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -1537,7 +1537,7 @@ function Field({ label, value, onChange, placeholder, className = "", inputMode,
         inputMode={inputMode}
         autoComplete={autoComplete}
         maxLength={maxLength}
-        className="w-full bg-stone-900 border border-stone-800 rounded-lg px-3.5 h-11 text-[14px] text-stone-100 outline-none focus:border-amber-500 placeholder:text-stone-500"
+        className="w-full bg-surface border border-border rounded-lg px-3.5 h-11 text-[14px] text-foreground outline-none focus:border-ring placeholder:text-text-muted"
       />
     </label>
   );

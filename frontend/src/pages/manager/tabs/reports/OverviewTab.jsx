@@ -70,8 +70,8 @@ export default function OverviewTab({ showToast }) {
             aria-pressed={preset === p.id}
             className={`px-3 h-8 rounded-lg text-[13px] font-medium transition-colors ${
               preset === p.id
-                ? "bg-amber-500 text-stone-950 font-semibold"
-                : "bg-stone-900 border border-stone-800 text-stone-400 hover:text-stone-100"
+                ? "bg-primary text-primary-foreground font-semibold"
+                : "bg-surface border border-border text-text-secondary hover:text-foreground"
             }`}
           >
             {p.label}
@@ -106,7 +106,7 @@ export default function OverviewTab({ showToast }) {
         </Field>
       </div>
 
-      {loading && <div className="text-stone-600 text-center py-10">Carregando…</div>}
+      {loading && <div className="text-text-muted text-center py-10">Carregando…</div>}
 
       {data && !loading && (
         <>
@@ -128,7 +128,7 @@ export default function OverviewTab({ showToast }) {
           >
             <SalesChart series={data.series} />
             {comparison && (
-              <p className={`text-[12.5px] mt-2 ${comparison.up ? "text-emerald-400" : "text-red-400"}`}>
+              <p className={`text-[12.5px] mt-2 ${comparison.up ? "text-success" : "text-destructive"}`}>
                 {comparison.up ? "▲" : "▼"} {Math.abs(comparison.delta).toFixed(0)}% entre o primeiro e o
                 último {data.groupBy === "hour" ? "horário" : "dia"} do período
               </p>
@@ -148,8 +148,8 @@ function bestPeriodLabel(series) {
 
 function StatCard({ label, value }) {
   return (
-    <div className="bg-stone-900 border border-stone-800 rounded-xl p-3 text-center">
-      <div className="text-stone-500 text-[11px] mb-1">{label}</div>
+    <div className="bg-surface border border-border rounded-xl p-3 text-center">
+      <div className="text-text-muted text-[11px] mb-1">{label}</div>
       <div className="font-display font-bold text-sm">{value}</div>
     </div>
   );

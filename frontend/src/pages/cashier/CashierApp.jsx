@@ -17,7 +17,7 @@ export default function CashierApp() {
   };
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-50">
+    <div className="min-h-screen bg-background text-foreground">
       {SCREENS[activeId] ?? SCREENS.cash}
       <Toast toast={toast} />
     </div>
