@@ -23,6 +23,10 @@ export default defineConfig({
     fileParallelism: false,
     pool: "forks",
     testTimeout: 30000,
+    // O reset (TRUNCATE ... CASCADE) entre casos pode esperar um lock por
+    // vários segundos sob carga; o default de 10s gerava flake de "Hook timed
+    // out" sem deadlock. Alinhado ao testTimeout.
+    hookTimeout: 30000,
     env: {
       DATABASE_URL: TEST_DATABASE_URL,
       DEPLOYMENT_MODE: "local",
