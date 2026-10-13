@@ -7,7 +7,7 @@ import {
   listCouriersUsecase,
   listCourierLocationsUsecase,
   setDeliveryStatusUsecase,
-} from "../../infra/composition/default-usecases.js";
+} from "../../infra/composition/domains/self-service.js";
 
 // Os 5 valores de `DeliveryStatus` (domain/customer-order-state.ts). Este enum
 // estava com 4 — sem `cancelled`, que a máquina de estados e o filtro do

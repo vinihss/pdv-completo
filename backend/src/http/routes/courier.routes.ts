@@ -7,7 +7,7 @@ import {
   deliverDeliveryUsecase,
   failDeliveryUsecase,
   reportCourierLocationUsecase,
-} from "../../infra/composition/default-usecases.js";
+} from "../../infra/composition/domains/self-service.js";
 
 // "cancelled" (baseline 0001) entra no filtro: o entregador precisa conseguir listar
 // o histórico do que foi cancelado no meio da rota.

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authMiddleware } from "../middlewares/auth.middleware.js";
-import { listAlertsUsecase, markAlertsReadUsecase } from "../../infra/composition/default-usecases.js";
+import { listAlertsUsecase, markAlertsReadUsecase } from "../../infra/composition/domains/alert.js";
 
 // Central de alertas (migration 0004). Sem `requireRole`: os 5 perfis têm o sino
 // no header, e quem não pode ver um alerta não o recebe — o recorte é por

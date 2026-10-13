@@ -13,7 +13,7 @@ import {
   updateOwnProfileUsecase,
   saveUserPhotoUsecase,
   clearUserPhotoUsecase,
-} from "../../infra/composition/default-usecases.js";
+} from "../../infra/composition/domains/auth.js";
 
 const loginSchema = z.object({
   userId: z.string(),
