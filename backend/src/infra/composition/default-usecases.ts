@@ -41,6 +41,7 @@ import { createAuditLogUsecases } from "../../application/audit-log.usecases.js"
 import { createDeliveryUsecases } from "../../application/delivery/calcular-entrega.usecase.js";
 import { createStoreSettingsUsecases } from "../../application/store-settings.usecases.js";
 import { createCustomerUsecases } from "../../application/customer.usecases.js";
+import { createCashFlowUsecases } from "../../application/cash-flow/cash-flow.usecases.js";
 import { createReportUsecases } from "../../application/report.usecases.js";
 import { createOverviewReportUsecases } from "../../application/report-overview.usecases.js";
 import { createDeliveriesReportUsecases } from "../../application/report-deliveries.usecases.js";
@@ -239,6 +240,11 @@ const purchaseInstances = createPurchaseUsecases({ uow, tenant });
 const refundInstances = createRefundUsecases({ uow, tenant });
 const settlementInstances = createSettlementUsecases({ uow, tenant });
 
+// Fluxo de caixa / gaveta (Onda cash-flow) — factory pura (uow + tenant): toda
+// a persistência (gaveta, movimentos, resumo) passa pelos ports de sessão e
+// audit/outbox saem na MESMA transação.
+const cashFlowInstances = createCashFlowUsecases({ uow, tenant });
+
 // ---------------------------------------------------------------------------
 // Exports legados — mesma assinatura de antes da migração (o `deps` some)
 // ---------------------------------------------------------------------------
@@ -375,6 +381,15 @@ export const registerSettlementUsecase = settlementInstances.registerSettlementU
 export const markSettledUsecase = settlementInstances.markSettledUsecase;
 export const listSettlementsUsecase = settlementInstances.listSettlementsUsecase;
 export const getSettlementByOrderIdUsecase = settlementInstances.getSettlementByOrderIdUsecase;
+
+// fluxo de caixa / gaveta (Onda cash-flow)
+export const getCurrentDrawerUsecase = cashFlowInstances.getCurrentDrawerUsecase;
+export const listCashDrawersUsecase = cashFlowInstances.listCashDrawersUsecase;
+export const getCashDrawerDetailUsecase = cashFlowInstances.getCashDrawerDetailUsecase;
+export const sumCashDrawersSummaryUsecase = cashFlowInstances.sumCashDrawersSummaryUsecase;
+export const openCashDrawerUsecase = cashFlowInstances.openCashDrawerUsecase;
+export const registerCashMovementUsecase = cashFlowInstances.registerCashMovementUsecase;
+export const closeCashDrawerUsecase = cashFlowInstances.closeCashDrawerUsecase;
 
 // getSettings — legado (o port StoreSettingsReader é o caminho novo)
 export const getSettings = () => new PostgresStoreSettingsReader().get();

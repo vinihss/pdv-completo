@@ -49,23 +49,23 @@ const EXEMPT: Record<string, readonly string[]> = {
 const KNOWN_VIOLATIONS: readonly string[] = [
   // ------------------------------------------------------------------
   // application: use cases ainda acoplados a infra/integrations/config e
-  // ao Drizzle (18 entradas). Migram use case a use case; ao migrar um, apague
+  // ao Drizzle (16 entradas). Migram use case a use case; ao migrar um, apague
   // as linhas dele — a lista só DIMINUI.
   //
-  // Auditoria desta onda (delivery/manager-delivery-status/order-intake):
-  // restauradas 4 entradas que o commit da Onda 3A removeu por engano — login e
-  // payment (pkg:drizzle-orm) e cash-flow (dir:infra + pkg:drizzle-orm) seguem
-  // acoplados e eram "novas violações" desde então; e removida a entrada
-  // obsoleta de menu.usecases (já migrado, sem drizzle).
+  // Auditoria da Onda 3A (delivery/manager-delivery-status/order-intake):
+  // restauradas entradas que o commit da Onda 3A removeu por engano — login e
+  // payment (pkg:drizzle-orm) seguem acoplados e eram "novas violações" desde
+  // então; e removida a entrada obsoleta de menu.usecases (já migrado, sem
+  // drizzle).
   //
   // Onda 3D: removidas as 6 entradas de report.usecases, report-overview.usecases
   // e report-deliveries.usecases (migrados para ports + UoW, sem infra/Drizzle).
+  // Onda cash-flow: removidas as 2 entradas de cash-flow.usecases (migrado para
+  // ports + UoW, sem infra/Drizzle).
   // ------------------------------------------------------------------
   "src/application/auth/login.usecase.ts :: application :: dir:config",
   "src/application/auth/login.usecase.ts :: application :: dir:infra",
   "src/application/auth/login.usecase.ts :: application :: pkg:drizzle-orm",
-  "src/application/cash-flow/cash-flow.usecases.ts :: application :: dir:infra",
-  "src/application/cash-flow/cash-flow.usecases.ts :: application :: pkg:drizzle-orm",
   "src/application/payment/payment.usecases.ts :: application :: dir:infra",
   "src/application/payment/payment.usecases.ts :: application :: dir:integrations",
   "src/application/payment/payment.usecases.ts :: application :: pkg:drizzle-orm",

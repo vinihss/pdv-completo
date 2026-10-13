@@ -27,7 +27,7 @@ import {
   openCashDrawerUsecase,
   registerCashMovementUsecase,
   closeCashDrawerUsecase,
-} from "../../application/cash-flow/cash-flow.usecases.js";
+} from "../../infra/composition/default-usecases.js";
 
 const noteSchema = z.string().max(200).optional();
 

@@ -1,13 +1,12 @@
 import { and, eq, notInArray, sql } from "drizzle-orm";
 import { db } from "../../infra/db/client.js";
-import { orders, orderItems, orderPayments, deliveries, storeSettings, alerts } from "../../infra/db/schema.js";
+import { orders, orderItems, orderPayments, deliveries, storeSettings, alerts, cashDrawers } from "../../infra/db/schema.js";
 import { SYSTEM_USER_ID } from "../../domain/constants.js";
 import { round2 } from "../../domain/money.js";
 import { Errors } from "../../domain/errors.js";
 import { canTransitionDelivery } from "../../domain/customer-order-state.js";
 import { logAction } from "../../infra/audit-log.js";
 import { enqueueEvent } from "../../infra/realtime/outbox-dispatcher.js";
-import { findOpenDrawerTx } from "../../application/cash-flow/cash-flow.usecases.js";
 
 // Retorno de status do iFood → ciclo de vida local da comanda. O iFood é a
 // fonte da verdade do pedido externo: CANCELLED/STALE encerram sem venda,
@@ -105,7 +104,10 @@ export async function concludeIfoodOrder(orderRef: string): Promise<boolean> {
       let finalConfirmedBy: string | null = SYSTEM_USER_ID;
 
       if (payment.method === "cash") {
-        const openDrawer = await findOpenDrawerTx(tx);
+        // Mesma consulta de `findOpenDrawerTx` do fluxo de caixa, inline: a
+        // dependência foi removida quando `cash-flow.usecases` virou factory
+        // (sem acesso a um `Tx` de Drizzle).
+        const openDrawer = await tx.query.cashDrawers.findFirst({ where: eq(cashDrawers.status, "open") });
         if (!openDrawer) {
           // Caixa fechado: pagamento pendente, aguardando confirmação manual
           confirmed = false;
