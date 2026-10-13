@@ -26,6 +26,7 @@ import { createProductUsecases } from "../../application/product.usecases.js";
 import { createCategoryUsecases } from "../../application/category.usecases.js";
 import { createKitchenGroupUsecases } from "../../application/kitchen-group.usecases.js";
 import { createMenuUsecases } from "../../application/self-service/menu.usecases.js";
+import { createAuditLogUsecases } from "../../application/audit-log.usecases.js";
 import type { TenantContext } from "../../application/ports/tenant-context.js";
 
 // ---------------------------------------------------------------------------
@@ -108,6 +109,8 @@ const menuInstances = createMenuUsecases({
   tenant,
 });
 
+const auditLogInstances = createAuditLogUsecases({ uow, tenant });
+
 // ---------------------------------------------------------------------------
 // Exports legados — mesma assinatura de antes da migração (o `deps` some)
 // ---------------------------------------------------------------------------
@@ -161,6 +164,9 @@ export const listKitchenGroupsLegacyUsecase = kitchenGroupInstances.listKitchenG
 
 // menu
 export const getPublicMenuUsecase = menuInstances.getPublicMenuUsecase;
+
+// audit-log
+export const listAuditLogUsecase = auditLogInstances.listAuditLogUsecase;
 
 // getSettings — legado (o port StoreSettingsReader é o caminho novo)
 export const getSettings = () => new PostgresStoreSettingsReader().get();

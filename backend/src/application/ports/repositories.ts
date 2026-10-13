@@ -675,6 +675,25 @@ export interface AlertRepository {
 
 // ---------- efeitos transacionais (mesma transação da escrita de domínio) ----------
 
+/** Linha de `audit_log` já enriquecida com o nome do usuário (join com `user`). */
+export interface AuditLogEntry {
+  id: Id;
+  userId: Id;
+  userName: string;
+  action: string;
+  orderId: Id | null;
+  details: Json;
+  createdAt: string;
+}
+
+/**
+ * Leitura da trilha de auditoria (`GET /audit-log`). A escrita continua em
+ * `AuditWriter.record` — aqui é só a consulta paginada (Onda 3B).
+ */
+export interface AuditRepository {
+  list(input: { orderId?: Id; limit: number; offset: number }): Promise<{ data: AuditLogEntry[]; total: number }>;
+}
+
 export interface AuditWriter {
   record(input: {
     actorId: Id | null;

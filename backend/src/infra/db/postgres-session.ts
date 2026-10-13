@@ -2,6 +2,7 @@ import type { Tx } from "./client.js";
 import type { TenantSession } from "../../application/ports/unit-of-work.js";
 import {
   PostgresAlertRepository,
+  PostgresAuditRepository,
   PostgresAuditWriter,
   PostgresCatalogRepository,
   PostgresCashFlowRepository,
@@ -38,6 +39,7 @@ export function createPostgresTenantSession(tx: Tx): TenantSession {
     payments: new PostgresPaymentRepository(tx),
     deliveries: new PostgresDeliveryRepository(tx),
     alerts: new PostgresAlertRepository(tx),
+    auditLog: new PostgresAuditRepository(tx),
     audit: new PostgresAuditWriter(tx),
     outbox: new PostgresOutboxWriter(tx),
   };

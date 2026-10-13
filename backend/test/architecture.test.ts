@@ -52,8 +52,6 @@ const KNOWN_VIOLATIONS: readonly string[] = [
   // ao Drizzle (83 entradas). Migram use case a use case; ao migrar um,
   // apague as linhas dele — a lista só DIMINUI.
   // ------------------------------------------------------------------
-  "src/application/audit-log.usecases.ts :: application :: dir:infra",
-  "src/application/audit-log.usecases.ts :: application :: pkg:drizzle-orm",
   "src/application/auth/login.usecase.ts :: application :: dir:config",
   "src/application/auth/login.usecase.ts :: application :: dir:infra",
   "src/application/customer.usecases.ts :: application :: dir:infra",

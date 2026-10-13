@@ -42,6 +42,8 @@ import { isUniqueViolationOn } from "./errors.js";
 import type {
   AlertRecord,
   AlertRepository,
+  AuditLogEntry,
+  AuditRepository,
   AuditWriter,
   CashFlowRepository,
   CatalogRepository,
@@ -1835,6 +1837,44 @@ export class PostgresAuditWriter implements AuditWriter {
       orderId: input.orderId ?? null,
       details: JSON.stringify(details),
     });
+  }
+}
+
+// =====================================================================
+// Audit log — leitura (`listAuditLogUsecase` / `GET /audit-log`)
+// =====================================================================
+
+/**
+ * Réplica de `listAuditLogUsecase`: join com `user` para o nome, filtro
+ * opcional por `order_id`, ordem decrescente por criação e contagem total
+ * (a paginação é `limit`/`offset`, não cursor).
+ */
+export class PostgresAuditRepository implements AuditRepository {
+  constructor(private readonly tx: Tx) {}
+
+  async list(input: { orderId?: Id; limit: number; offset: number }): Promise<{ data: AuditLogEntry[]; total: number }> {
+    const where = input.orderId ? eq(auditLog.orderId, input.orderId) : undefined;
+    const rows = await this.tx
+      .select({ log: auditLog, userName: users.name })
+      .from(auditLog)
+      .innerJoin(users, eq(users.id, auditLog.userId))
+      .where(where)
+      .orderBy(desc(auditLog.createdAt))
+      .limit(input.limit)
+      .offset(input.offset);
+
+    const data = rows.map(({ log, userName }) => ({
+      id: log.id,
+      userId: log.userId,
+      userName,
+      action: log.action,
+      orderId: log.orderId,
+      details: JSON.parse(log.details),
+      createdAt: log.createdAt,
+    }));
+
+    const totalRow = await this.tx.select({ count: count() }).from(auditLog).where(where);
+    return { data, total: totalRow[0]?.count ?? data.length };
   }
 }
 

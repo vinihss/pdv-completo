@@ -3,6 +3,7 @@ import type {
   AuditWriter,
   OutboxWriter,
   AlertRepository,
+  AuditRepository,
   CatalogRepository,
   CustomerRepository,
   UserRepository,
@@ -26,6 +27,8 @@ export interface TenantSession {
   deliveries: DeliveryRepository;
   /** ADIÇÃO (Onda 2): central de alertas (sino) — hub de pedidos. */
   alerts: AlertRepository;
+  /** ADIÇÃO (Onda 3B): leitura da trilha de auditoria (`GET /audit-log`). */
+  auditLog: AuditRepository;
   audit: AuditWriter;
   outbox: OutboxWriter;
 }
