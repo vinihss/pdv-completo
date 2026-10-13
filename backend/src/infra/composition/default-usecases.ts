@@ -48,6 +48,14 @@ import { createDeliveriesReportUsecases } from "../../application/report-deliver
 import { createPurchaseUsecases } from "../../application/purchase/purchase.usecases.js";
 import { createRefundUsecases } from "../../application/refund/refund.usecases.js";
 import { createSettlementUsecases } from "../../application/settlement/settlement.usecases.js";
+import { createProvisioningUsecases } from "../../application/provisioning/provisioning.usecases.js";
+import { createProvisioningEmailUsecases } from "../../application/provisioning/provisioning-email.usecase.js";
+import { createTenantUsecases } from "../../application/tenant/resolve-tenant.usecase.js";
+import { TenantRegistryAdapter } from "../db/tenant-registry-adapter.js";
+import { PublicTenantBrandReaderAdapter } from "../db/public-tenant-brand-reader.js";
+import { MailerPortAdapter } from "../mail/mailer-port-adapter.js";
+import { resolveTenantSchema } from "../storage/index.js";
+import { config } from "../../config/env.js";
 import type { TenantContext } from "../../application/ports/tenant-context.js";
 import type { GeocodingService, RoutingService } from "../../application/ports/effects.js";
 
@@ -245,6 +253,27 @@ const settlementInstances = createSettlementUsecases({ uow, tenant });
 // audit/outbox saem na MESMA transação.
 const cashFlowInstances = createCashFlowUsecases({ uow, tenant });
 
+// Device provisioning (docs/21) + resolução de tenant (docs/15). O
+// `assertDeviceForLogin` é consumido pelo `login.usecase` (ainda não migrado); o
+// `resolveTenant` é consumido pelo `server.ts` e pelo middleware de tenant.
+// O `jwtSecret` é injetado (a `application` não lê `config`).
+const provisioningInstances = createProvisioningUsecases({
+  uow,
+  tenant,
+  jwtSecret: config.jwtSecret,
+});
+const provisioningEmailInstances = createProvisioningEmailUsecases({
+  uow,
+  tenant,
+  mailer: new MailerPortAdapter(),
+  generateProvisioningKey: provisioningInstances.generateProvisioningKeyUsecase,
+});
+const tenantInstances = createTenantUsecases({
+  registry: new TenantRegistryAdapter(),
+  defaultSchema: resolveTenantSchema,
+  publicBrand: new PublicTenantBrandReaderAdapter(),
+});
+
 // ---------------------------------------------------------------------------
 // Exports legados — mesma assinatura de antes da migração (o `deps` some)
 // ---------------------------------------------------------------------------
@@ -393,3 +422,18 @@ export const closeCashDrawerUsecase = cashFlowInstances.closeCashDrawerUsecase;
 
 // getSettings — legado (o port StoreSettingsReader é o caminho novo)
 export const getSettings = () => new PostgresStoreSettingsReader().get();
+
+// device provisioning (docs/21)
+export const generateProvisioningKeyUsecase = provisioningInstances.generateProvisioningKeyUsecase;
+export const exchangeProvisioningCodeUsecase = provisioningInstances.exchangeProvisioningCodeUsecase;
+export const refreshDeviceSessionUsecase = provisioningInstances.refreshDeviceSessionUsecase;
+export const assertDeviceForLogin = provisioningInstances.assertDeviceForLogin;
+export const listUserDevicesUsecase = provisioningInstances.listUserDevicesUsecase;
+export const revokeDeviceUsecase = provisioningInstances.revokeDeviceUsecase;
+export const sendProvisioningEmailUsecase = provisioningEmailInstances.sendProvisioningEmailUsecase;
+export const resendProvisioningEmailUsecase = provisioningEmailInstances.resendProvisioningEmailUsecase;
+
+// resolução de tenant (docs/15)
+export const resolveTenant = tenantInstances.resolveTenant;
+export const getPublicTenantUsecase = tenantInstances.getPublicTenantUsecase;
+export { DEFAULT_TENANT_SLUG, tenantRoutingEnabled } from "../../application/tenant/resolve-tenant.usecase.js";

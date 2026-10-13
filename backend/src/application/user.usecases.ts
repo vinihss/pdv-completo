@@ -6,7 +6,7 @@ import { Errors } from "../domain/errors.js";
 import { logAction } from "../infra/audit-log.js";
 import { enqueueEvent } from "../infra/realtime/outbox-dispatcher.js";
 import { invalidateActiveUser } from "../infra/auth/active-user-check.js";
-import { revokeAllDevicesTx } from "./provisioning/device-state.js";
+import { revokeAllDevicesTx } from "../infra/db/provisioning-tx.js";
 import {
   getStorage,
   isSafeFilename,

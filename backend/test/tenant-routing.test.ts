@@ -25,7 +25,7 @@ import {
   DEFAULT_TENANT_SLUG,
   getPublicTenantUsecase,
   resolveTenant,
-} from "../src/application/tenant/resolve-tenant.usecase.js";
+} from "../src/infra/composition/default-usecases.js";
 import { matchTenantHost, normalizeTenantHost } from "../src/domain/tenant.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

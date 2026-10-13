@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { AppError } from "../../domain/errors.js";
 import { publicLookupRateLimit } from "../middlewares/rate-limit.middleware.js";
-import { getPublicTenantUsecase } from "../../application/tenant/resolve-tenant.usecase.js";
+import { getPublicTenantUsecase } from "../../infra/composition/default-usecases.js";
 
 /**
  * `GET /public/tenants/resolve?host=<hostname>` — a vitrine de pedidos

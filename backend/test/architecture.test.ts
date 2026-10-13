@@ -49,7 +49,7 @@ const EXEMPT: Record<string, readonly string[]> = {
 const KNOWN_VIOLATIONS: readonly string[] = [
   // ------------------------------------------------------------------
   // application: use cases ainda acoplados a infra/integrations/config e
-  // ao Drizzle (16 entradas). Migram use case a use case; ao migrar um, apague
+  // ao Drizzle (8 entradas). Migram use case a use case; ao migrar um, apague
   // as linhas dele — a lista só DIMINUI.
   //
   // Auditoria da Onda 3A (delivery/manager-delivery-status/order-intake):
@@ -62,6 +62,10 @@ const KNOWN_VIOLATIONS: readonly string[] = [
   // e report-deliveries.usecases (migrados para ports + UoW, sem infra/Drizzle).
   // Onda cash-flow: removidas as 2 entradas de cash-flow.usecases (migrado para
   // ports + UoW, sem infra/Drizzle).
+  // Onda provisioning/tenant: removidas as 8 entradas de device-state,
+  // provisioning-email, provisioning.usecases e resolve-tenant (migrados para
+  // ports + UoW). `user.usecases` segue acoplado só pela ponte transacional
+  // `infra/db/provisioning-tx` (o restante dele é Drizzle direto).
   // ------------------------------------------------------------------
   "src/application/auth/login.usecase.ts :: application :: dir:config",
   "src/application/auth/login.usecase.ts :: application :: dir:infra",
@@ -69,14 +73,6 @@ const KNOWN_VIOLATIONS: readonly string[] = [
   "src/application/payment/payment.usecases.ts :: application :: dir:infra",
   "src/application/payment/payment.usecases.ts :: application :: dir:integrations",
   "src/application/payment/payment.usecases.ts :: application :: pkg:drizzle-orm",
-  "src/application/provisioning/device-state.ts :: application :: dir:infra",
-  "src/application/provisioning/device-state.ts :: application :: pkg:drizzle-orm",
-  "src/application/provisioning/provisioning-email.usecase.ts :: application :: dir:infra",
-  "src/application/provisioning/provisioning-email.usecase.ts :: application :: pkg:drizzle-orm",
-  "src/application/provisioning/provisioning.usecases.ts :: application :: dir:config",
-  "src/application/provisioning/provisioning.usecases.ts :: application :: dir:infra",
-  "src/application/provisioning/provisioning.usecases.ts :: application :: pkg:drizzle-orm",
-  "src/application/tenant/resolve-tenant.usecase.ts :: application :: dir:infra",
   "src/application/user.usecases.ts :: application :: dir:infra",
   "src/application/user.usecases.ts :: application :: pkg:drizzle-orm",
   // ------------------------------------------------------------------

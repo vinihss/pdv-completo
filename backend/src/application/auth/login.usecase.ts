@@ -7,8 +7,7 @@ import { currentTenantScope, enterTenantScope } from "../../infra/db/tenant-cont
 import { Errors } from "../../domain/errors.js";
 import { config } from "../../config/env.js";
 import { photoUrl } from "../user.usecases.js";
-import { assertDeviceForLogin } from "../provisioning/provisioning.usecases.js";
-import { resolveTenant } from "../tenant/resolve-tenant.usecase.js";
+import { assertDeviceForLogin, resolveTenant } from "../../infra/composition/default-usecases.js";
 
 const MAX_ATTEMPTS = 5;
 const LOCK_MS = 5 * 60_000;

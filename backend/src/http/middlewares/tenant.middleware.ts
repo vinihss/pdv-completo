@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { resolveTenant } from "../../application/tenant/resolve-tenant.usecase.js";
+import { resolveTenant } from "../../infra/composition/default-usecases.js";
 import { enterTenantScope, exitTenantScope, hasTenantScope, currentTenantScope } from "../../infra/db/tenant-context.js";
 import { Errors } from "../../domain/errors.js";
 

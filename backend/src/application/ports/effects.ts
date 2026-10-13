@@ -59,6 +59,10 @@ export interface StoreSettingsRecord {
   restaurantLong: number | null;
   /** ADIÇÃO (Onda 3 — delivery): total de itens a partir do qual o frete é grátis (0 = desligado). */
   freeDeliveryMin: number;
+  /** ADIÇÃO (Onda tenant): marca da loja consumida pela vitrine pública (`GET /public/tenants/resolve`). */
+  logoPath: string | null;
+  brandColor: string;
+  usesDelivery: boolean;
 }
 
 export interface StoreSettingsReader {
@@ -202,4 +206,49 @@ export interface IdempotencyStore {
     body: unknown;
     handler: () => Promise<{ status: number; body: T }>;
   }): Promise<{ status: number; body: T }>;
+}
+
+// ---------- registry de tenants (espelha `infra/tenant/registry.ts`) ----------
+
+/**
+ * ADIÇÃO (Onda tenant): linha do registry `public.tenant` — a tabela de
+ * controle do multi-tenant (`docs/15` §3.2). `schemaName` é topologia interna
+ * e NUNCA vai para o cliente; o cache (TTL) e o SQL cru moram no adapter.
+ */
+export interface TenantRegistryRecord {
+  slug: string;
+  schemaName: string;
+  displayName: string;
+  status: "active" | "suspended";
+  customDomain: string | null;
+}
+
+export interface TenantRegistry {
+  /** Tenant pelo `slug` (a 1ª label do subdomínio). `null` = não existe. */
+  findBySlug(slug: string): Promise<TenantRegistryRecord | null>;
+  /** Tenant pelo domínio próprio (`umamisushiarte.com.br`). */
+  findByCustomDomain(host: string): Promise<TenantRegistryRecord | null>;
+}
+
+// ---------- marca pública do tenant (vitrine de pedidos) ----------
+
+/** Identidade + marca que a vitrine de pedidos recebe (`GET /public/tenants/resolve`). */
+export interface PublicTenantBrand {
+  name: string;
+  logoUrl: string | null;
+  primaryColor: string;
+  usesDelivery: boolean;
+  kitchenEnabled: boolean;
+}
+
+/**
+ * ADIÇÃO (Onda tenant): leitura da marca pública DENTRO do escopo do tenant
+ * resolvido (ALS + pool por schema, Fase 2). Encapsula o `runInTenantScope` e
+ * a checagem explícita de provisionamento (`information_schema.tables`) — a
+ * application não pode importar `infra/db`. O `search_path` do pool cai para
+ * `public` em silêncio quando o schema não existe, por isso a checagem é
+ * explícita: schema do tenant sem `store_settings` → `tenant_schema_unavailable`.
+ */
+export interface PublicTenantBrandReader {
+  read(tenant: { slug: string; schemaName: string; isDefault: boolean }): Promise<PublicTenantBrand>;
 }

@@ -1,15 +1,20 @@
-// Resolução de tenant: `Host` → loja. Fase 1 do
-// `docs/15-multi-tenant-schema.md` §6.
+// Resolução de tenant (Host → loja) — Fase 1 do `docs/15-multi-tenant-schema.md` §6.
 //
 // As REGRAS (o que é apex, o que é rótulo reservado, o que é slug inválido) são
-// puras e estão em `domain/tenant.ts`; o ACESSO ao registry é infra
-// (`infra/tenant/registry.ts`); aqui é só a cola que decide o resultado — que é
-// use case porque a decisão (404 vs default vs 503) é regra de negócio.
+// puras e estão em `domain/tenant.ts`; o ACESSO ao registry e a leitura da marca
+// pública são PORTS (o cache e o ALS moram nos adapters de `infra/`); aqui é só
+// a cola que decide o resultado — que é use case porque a decisão (404 vs
+// default vs 503) é regra de negócio.
 //
-// O `resolveTenant` é a função que a Fase 2 vai chamar no `onRequest` do Fastify
+// O `resolveTenant` é a função que a Fase 2 chama no `onRequest` do Fastify
 // (§3.1) para popular o ALS; por isso ela já devolve o `schemaName` e já lança
 // os mesmos `AppError` que o middleware precisa (404 `tenant_not_resolved`,
 // 403 `tenant_inactive`).
+//
+// Fábrica com deps injetadas: `registry` (port `TenantRegistry`), `defaultSchema`
+// (leitura do ambiente, ligada a `resolveTenantSchema`) e `publicBrand` (port
+// `PublicTenantBrandReader`, que encapsula o `runInTenantScope` + a checagem de
+// provisionamento). A `application` não conhece ALS, pool nem schema.
 
 import { Errors } from "../../domain/errors.js";
 import {
@@ -18,11 +23,7 @@ import {
   matchTenantHost,
   normalizeTenantHost,
 } from "../../domain/tenant.js";
-import { pool } from "../../infra/db/client.js";
-import { runInTenantScope } from "../../infra/db/tenant-context.js";
-import { findTenantByCustomDomain, findTenantBySlug } from "../../infra/tenant/registry.js";
-import { resolveTenantSchema } from "../../infra/storage/index.js";
-import { getStoreSettingsUsecase } from "../../infra/composition/default-usecases.js";
+import type { PublicTenantBrandReader, TenantRegistry } from "../ports/effects.js";
 
 /**
  * Slug do tenant default (apex, `localhost`, rótulo reservado ou kill-switch
@@ -62,25 +63,7 @@ export type ResolvedTenant = {
   isDefault: boolean;
 };
 
-/** Valida e devolve o schema default do ambiente. */
-function defaultSchemaName(): string {
-  const value = resolveTenantSchema();
-  if (!isSafeSchemaName(value)) {
-    // `DEFAULT_TENANT_SCHEMA` é controlado pela operação, mas entra num
-    // `search_path` na Fase 2: valida na entrada, nunca confie no env para
-    // montar identificador.
-    console.error(`[tenant] DEFAULT_TENANT_SCHEMA inválido: ${JSON.stringify(value)} — usando o fallback`);
-    return "public";
-  }
-  return value;
-}
-
 /**
- * Domínio da plataforma (o mesmo `${ROOT_DOMAIN}` do `deploy/Caddyfile`). É o
- * que separa o apex (`seudominio.com.br`) de um subdomínio de tenant
- * (`pdv1.seudominio.com.br`), e a distinção não dá para fazer contando rótulos
- * num TLD de duas labels (§3.1 do doc 15 assumiu `.tech`).
- *
  * Sem essa env a resolução ainda funciona (cai na heurística do §3.1), mas num
  * domínio `.com.br` o apex passa a ser lido como subdomínio de slug
  * `seudominio` e a levar 404 — por isso o warn, para o operador ver que faltou.
@@ -98,61 +81,13 @@ function platformRootDomain(): string | null {
   return normalized;
 }
 
-function defaultTenant(): ResolvedTenant {
-  return { slug: DEFAULT_TENANT_SLUG, schemaName: defaultSchemaName(), isDefault: true };
-}
-
-function fromRecord(record: { slug: string; schemaName: string; status: string }): ResolvedTenant {
-  if (record.status !== "active") throw Errors.tenantInactive(record.slug);
-  if (!isValidTenantSchemaName(record.schemaName)) {
-    // Não deveria existir: o `CHECK` do registry barra isso (§3.2). Se existir,
-    // é o registry corrompido — e o nome do schema entra num `search_path` na
-    // Fase 2, então a segunda barreira (código) é obrigatória mesmo com o
-    // constraint no banco.
-    console.error(
-      `[tenant] schema_name fora do padrão no registry (slug=${record.slug}): ${JSON.stringify(record.schemaName)}`,
-    );
-    throw Errors.tenantSchemaUnavailable(record.slug, record.schemaName);
-  }
-  return { slug: record.slug, schemaName: record.schemaName, isDefault: false };
-}
-
-/**
- * Resolve o tenant de um `Host` (ou de um host vindo da query, que é como a SPA
- * chama: na API o `Host` é `api.seudominio.com.br`, que não identifica loja
- * nenhuma — o Caddy injeta `X-Tenant-Host` com o MESMO host da API).
- *
- * Ordem das regras (§3.1/§4.8):
- *  1. kill-switch desligado → default, sem olhar o `Host`;
- *  2. `Host` que não parece hostname → 404 (nunca default);
- *  3. rótulo reservado (`www`/`app`/`api`) → default, SEM consultar o registry:
- *     são hosts da plataforma e uma linha de registry não pode tomá-los;
- *  4. domínio próprio (`custom_domain`) — antes da regra do subdomínio, porque
- *     `umamisushiarte.com.br` tem 3 rótulos e a 1ª label (`umamisushiarte`)
- *     não é o slug da loja (`umami`), e porque o domínio próprio de uma loja
- *     também pode estar sob o domínio da plataforma;
- *  5. `localhost` ou apex → default;
- *  6. subdomínio → slug no registry; não existe (ou o slug é inválido) → 404.
- */
-export async function resolveTenant(rawHost: string | undefined | null): Promise<ResolvedTenant> {
-  if (!tenantRoutingEnabled()) return defaultTenant();
-
-  const host = normalizeTenantHost(rawHost);
-  if (!host) throw Errors.tenantNotResolved();
-
-  const rootDomain = platformRootDomain();
-  const match = matchTenantHost(host, rootDomain);
-  if (match.kind === "reserved") return defaultTenant();
-
-  const byDomain = await findTenantByCustomDomain(host);
-  if (byDomain) return fromRecord(byDomain);
-
-  if (match.kind === "default") return defaultTenant();
-  if (match.kind !== "slug") throw Errors.tenantNotResolved();
-
-  const bySlug = await findTenantBySlug(match.slug);
-  if (!bySlug) throw Errors.tenantNotResolved();
-  return fromRecord(bySlug);
+export interface TenantUsecasesDeps {
+  /** Port do registry (`infra/tenant/registry.ts` via adapter): SQL + cache no adapter. */
+  registry: TenantRegistry;
+  /** Schema default do ambiente (`resolveTenantSchema`) — lido a cada chamada. */
+  defaultSchema: () => string;
+  /** Port da marca pública: encapsula `runInTenantScope` + checagem de provisionamento. */
+  publicBrand: PublicTenantBrandReader;
 }
 
 /**
@@ -175,53 +110,108 @@ export type PublicTenant = {
   kitchenEnabled: boolean;
 };
 
-/**
- * Payload público do tenant. Os dados de loja (nome/logo/cor/flags) vêm de
- * `store_settings` do schema RESOLVIDO — a leitura roda dentro de um escopo de
- * tenant (ALS + pool por schema, Fase 2), então cada loja serve a própria marca.
- *
- * O 503 `tenant_schema_unavailable` só existe para o caso legítimo de o schema
- * do tenant **não estar provisionado** (o registry tem a linha, mas
- * `tenant_x.store_settings` não existe — entre a Fase 1 e a Fase 3). Não basta
- * tentar ler e capturar o erro: o `search_path` do pool cai para `public` em
- * SILÊNCIO quando o schema não existe, e a vitrine serviria a marca da
- * plataforma achando que é da loja. Por isso a checagem é explícita, por
- * `information_schema.tables` (imune ao `search_path`).
- *
- * `schema_name` NÃO sai daqui: continua sendo topologia interna.
- */
-export async function getPublicTenantUsecase(rawHost: string | undefined | null): Promise<PublicTenant> {
-  const tenant = await resolveTenant(rawHost);
+export function createTenantUsecases(deps: TenantUsecasesDeps) {
+  /** Valida e devolve o schema default do ambiente. */
+  function defaultSchemaName(): string {
+    const value = deps.defaultSchema();
+    if (!isSafeSchemaName(value)) {
+      // `DEFAULT_TENANT_SCHEMA` é controlado pela operação, mas entra num
+      // `search_path` na Fase 2: valida na entrada, nunca confie no env para
+      // montar identificador.
+      console.error(`[tenant] DEFAULT_TENANT_SCHEMA inválido: ${JSON.stringify(value)} — usando o fallback`);
+      return "public";
+    }
+    return value;
+  }
 
-  return runInTenantScope(
-    { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault },
-    async () => {
-      // Checagem explícita de provisionamento, ANTES de ler o `store_settings`.
-      // A query é qualificada por `table_schema`, então responde pela existência
-      // real do schema (e não pelo `search_path`, que cai para `public` em
-      // silêncio quando o schema do tenant não existe).
-      const { rows } = await pool.query(
-        `SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'store_settings' LIMIT 1`,
-        [tenant.schemaName],
+  function defaultTenant(): ResolvedTenant {
+    return { slug: DEFAULT_TENANT_SLUG, schemaName: defaultSchemaName(), isDefault: true };
+  }
+
+  function fromRecord(record: { slug: string; schemaName: string; status: string }): ResolvedTenant {
+    if (record.status !== "active") throw Errors.tenantInactive(record.slug);
+    if (!isValidTenantSchemaName(record.schemaName)) {
+      // Não deveria existir: o `CHECK` do registry barra isso (§3.2). Se existir,
+      // é o registry corrompido — e o nome do schema entra num `search_path` na
+      // Fase 2, então a segunda barreira (código) é obrigatória mesmo com o
+      // constraint no banco.
+      console.error(
+        `[tenant] schema_name fora do padrão no registry (slug=${record.slug}): ${JSON.stringify(record.schemaName)}`,
       );
-      if (rows.length === 0) {
-        console.error(
-          `[tenant] ${tenant.slug} resolve para o schema ${tenant.schemaName}, que não está provisionado ` +
-            `(sem store_settings) — vitrine indisponível até o provisionamento`,
-        );
-        throw Errors.tenantSchemaUnavailable(tenant.slug, tenant.schemaName);
-      }
+      throw Errors.tenantSchemaUnavailable(record.slug, record.schemaName);
+    }
+    return { slug: record.slug, schemaName: record.schemaName, isDefault: false };
+  }
 
-      const settings = await getStoreSettingsUsecase();
-      return {
-        storeId: tenant.slug,
-        slug: tenant.slug,
-        name: settings.merchantName,
-        logoUrl: settings.logoUrl,
-        primaryColor: settings.brandColor,
-        usesDelivery: settings.usesDelivery,
-        kitchenEnabled: settings.kitchenEnabled,
-      };
-    },
-  );
+  /**
+   * Resolve o tenant de um `Host` (ou de um host vindo da query, que é como a SPA
+   * chama: na API o `Host` é `api.seudominio.com.br`, que não identifica loja
+   * nenhuma — o Caddy injeta `X-Tenant-Host` com o MESMO host da API).
+   *
+   * Ordem das regras (§3.1/§4.8):
+   *  1. kill-switch desligado → default, sem olhar o `Host`;
+   *  2. `Host` que não parece hostname → 404 (nunca default);
+   *  3. rótulo reservado (`www`/`app`/`api`) → default, SEM consultar o registry:
+   *     são hosts da plataforma e uma linha de registry não pode tomá-los;
+   *  4. domínio próprio (`custom_domain`) — antes da regra do subdomínio, porque
+   *     `umamisushiarte.com.br` tem 3 rótulos e a 1ª label (`umamisushiarte`)
+   *     não é o slug da loja (`umami`), e porque o domínio próprio de uma loja
+   *     também pode estar sob o domínio da plataforma;
+   *  5. `localhost` ou apex → default;
+   *  6. subdomínio → slug no registry; não existe (ou o slug é inválido) → 404.
+   */
+  async function resolveTenant(rawHost: string | undefined | null): Promise<ResolvedTenant> {
+    if (!tenantRoutingEnabled()) return defaultTenant();
+
+    const host = normalizeTenantHost(rawHost);
+    if (!host) throw Errors.tenantNotResolved();
+
+    const rootDomain = platformRootDomain();
+    const match = matchTenantHost(host, rootDomain);
+    if (match.kind === "reserved") return defaultTenant();
+
+    const byDomain = await deps.registry.findByCustomDomain(host);
+    if (byDomain) return fromRecord(byDomain);
+
+    if (match.kind === "default") return defaultTenant();
+    if (match.kind !== "slug") throw Errors.tenantNotResolved();
+
+    const bySlug = await deps.registry.findBySlug(match.slug);
+    if (!bySlug) throw Errors.tenantNotResolved();
+    return fromRecord(bySlug);
+  }
+
+  /**
+   * Payload público do tenant. Os dados de loja (nome/logo/cor/flags) vêm de
+   * `store_settings` do schema RESOLVIDO — a leitura roda dentro de um escopo de
+   * tenant (ALS + pool por schema, Fase 2), então cada loja serve a própria marca.
+   *
+   * O 503 `tenant_schema_unavailable` só existe para o caso legítimo de o schema
+   * do tenant **não estar provisionado** (o registry tem a linha, mas
+   * `tenant_x.store_settings` não existe — entre a Fase 1 e a Fase 3). O port
+   * `publicBrand` faz a checagem EXPLÍCITA por `information_schema.tables`
+   * (imune ao `search_path`, que cai para `public` em silêncio).
+   *
+   * `schema_name` NÃO sai daqui: continua sendo topologia interna.
+   */
+  async function getPublicTenantUsecase(rawHost: string | undefined | null): Promise<PublicTenant> {
+    const tenant = await resolveTenant(rawHost);
+    const brand = await deps.publicBrand.read({
+      schemaName: tenant.schemaName,
+      slug: tenant.slug,
+      isDefault: tenant.isDefault,
+    });
+
+    return {
+      storeId: tenant.slug,
+      slug: tenant.slug,
+      name: brand.name,
+      logoUrl: brand.logoUrl,
+      primaryColor: brand.primaryColor,
+      usesDelivery: brand.usesDelivery,
+      kitchenEnabled: brand.kitchenEnabled,
+    };
+  }
+
+  return { resolveTenant, getPublicTenantUsecase };
 }

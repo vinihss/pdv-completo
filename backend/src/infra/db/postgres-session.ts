@@ -15,6 +15,7 @@ import {
   PostgresOrderRepository,
   PostgresOutboxWriter,
   PostgresPaymentRepository,
+  PostgresProvisioningKeyRepository,
   PostgresPurchaseRepository,
   PostgresRefundRepository,
   PostgresReportRepository,
@@ -22,6 +23,7 @@ import {
   PostgresStockRepository,
   PostgresStoreSettingsRepository,
   PostgresSupplierRepository,
+  PostgresUserDeviceRepository,
   PostgresUserRepository,
 } from "./postgres-repositories.js";
 
@@ -58,6 +60,8 @@ export function createPostgresTenantSession(tx: Tx): TenantSession {
     alerts: new PostgresAlertRepository(tx),
     auditLog: new PostgresAuditRepository(tx),
     reports: new PostgresReportRepository(tx),
+    provisioningKeys: new PostgresProvisioningKeyRepository(tx),
+    userDevices: new PostgresUserDeviceRepository(tx),
     audit: new PostgresAuditWriter(tx),
     outbox: new PostgresOutboxWriter(tx),
   };

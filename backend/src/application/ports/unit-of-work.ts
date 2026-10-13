@@ -22,6 +22,8 @@ import type {
   CustomerCartRepository,
   CustomerAddressRepository,
   ReportRepository,
+  ProvisioningKeyRepository,
+  UserDeviceRepository,
 } from "./repositories.js";
 
 export interface TenantSession {
@@ -56,6 +58,10 @@ export interface TenantSession {
   auditLog: AuditRepository;
   /** ADIÇÃO (Onda 3D): relatórios gerenciais (`/reports/sales|overview|deliveries`). */
   reports: ReportRepository;
+  /** ADIÇÃO (device provisioning — docs/21): chaves de provisionamento (`provisioning_key`). */
+  provisioningKeys: ProvisioningKeyRepository;
+  /** ADIÇÃO (device provisioning — docs/21): aparelhos provisionados (`user_device`). */
+  userDevices: UserDeviceRepository;
   audit: AuditWriter;
   outbox: OutboxWriter;
 }
