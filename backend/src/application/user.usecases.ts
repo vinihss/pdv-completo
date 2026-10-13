@@ -1,25 +1,38 @@
-import { eq } from "drizzle-orm";
+// Use cases de equipe (usuários) — CRUD + PIN + foto + seleção do login.
+//
+// Migrado para ports + Unit-of-Work (Onda auth): nenhuma importação de
+// infra/integrations/config nem de Drizzle. Toda persistência sai por
+// `session.users`/`session.userDevices`/`session.storeSettings`, o audit e o
+// outbox pela própria sessão (MESMA transação) e o storage de foto é um port
+// (`FileStorage`) injetado via `deps`. O composition root que liga os adapters
+// concretos é `infra/composition/default-usecases.ts`.
+//
+// NOTA sobre async: dentro de `deps.uow.run` todo acesso ao `session` é uma
+// Promise — sempre `await`. Esquecer o await emitiria o UPDATE depois do
+// COMMIT e a escrita se perderia em silêncio. O `throw` continua sendo o
+// mecanismo de rollback.
 import argon2 from "argon2";
-import { db } from "../infra/db/client.js";
-import { users } from "../infra/db/schema.js";
 import { Errors } from "../domain/errors.js";
-import { logAction } from "../infra/audit-log.js";
-import { enqueueEvent } from "../infra/realtime/outbox-dispatcher.js";
-import { invalidateActiveUser } from "../infra/auth/active-user-check.js";
-import { revokeAllDevicesTx } from "../infra/db/provisioning-tx.js";
-import {
-  getStorage,
-  isSafeFilename,
-  storageAssetPath,
-  storageFilename,
-  type StorageKind,
-} from "../infra/storage/index.js";
-
-const storage = getStorage();
+import type { TenantUnitOfWork, TenantSession } from "./ports/unit-of-work.js";
+import type { TenantContext } from "./ports/tenant-context.js";
+import type { FileStorage } from "./ports/effects.js";
+import type { UserRecord } from "./ports/repositories.js";
 
 export type UserRole = "waiter" | "kitchen" | "manager" | "courier" | "cashier";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// ---------- helpers puros (eram infra/storage) ----------
+//
+// `storageAssetPath`/`isSafeFilename`/`storageFilename` são funções PURAS de
+// `infra/storage` (sem I/O). Replicadas aqui para a application não importar a
+// camada de armazenamento — o `FileStorage` port (put/remove) é a única seam
+// de I/O (mesmo desenho de `customer.usecases.ts`).
+
+const UPLOADS_PREFIX = "/uploads";
+
+/** Domínios de foto cujo caminho público é `/uploads/<kind>/<filename>`. */
+type PhotoKind = "product" | "logo" | "customer" | "user";
 
 /**
  * O banco guarda só o nome do arquivo; quem consome a API precisa do caminho
@@ -30,11 +43,29 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * O `kind` é explícito porque `user.photo_path` e `customer.photo_path` são
  * colunas diferentes apontando para o mesmo formato: `/uploads/<kind>/<arquivo>`.
  */
-export function photoUrl(photoPath: string | null | undefined, kind: StorageKind): string | null {
-  return photoPath ? storageAssetPath(kind, photoPath) : null;
+export function photoUrl(photoPath: string | null | undefined, kind: PhotoKind): string | null {
+  return photoPath ? `${UPLOADS_PREFIX}/${kind}/${photoPath}` : null;
 }
 
-function serialize(u: typeof users.$inferSelect) {
+const FILENAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$/;
+
+function isSafeFilename(filename: string): boolean {
+  if (!filename || filename.length > 200) return false;
+  if (filename.includes("/") || filename.includes("\\") || filename.includes("\0")) return false;
+  if (filename === "." || filename === "..") return false;
+  return FILENAME_RE.test(filename);
+}
+
+/** Normaliza o que está no banco para o nome de arquivo (só o basename). */
+function storageFilename(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const name = raw.split(/[\\/]/).pop() ?? "";
+  return name.length > 0 ? name : null;
+}
+
+// ---------- serialização / normalizações (mesmas do módulo original) ----------
+
+function serialize(u: UserRecord) {
   return {
     id: u.id,
     name: u.name,
@@ -45,11 +76,6 @@ function serialize(u: typeof users.$inferSelect) {
     photoPath: photoUrl(u.photoPath, "user"),
     createdAt: u.createdAt,
   };
-}
-
-export async function listUsersUsecase() {
-  const rows = await db.query.users.findMany({ orderBy: (u, { asc }) => asc(u.name) });
-  return rows.map(serialize);
 }
 
 function randomPin(): string {
@@ -70,220 +96,261 @@ function normalizePhone(phone: string | null | undefined): string | null {
   return digits;
 }
 
-async function assertEmailAvailable(email: string | null | undefined, exceptUserId?: string) {
+async function assertEmailAvailable(session: TenantSession, email: string | null | undefined, exceptUserId?: string) {
   if (!email) return;
-  const clash = await db.query.users.findFirst({ where: eq(users.email, email) });
+  const clash = await session.users.findByEmail(email);
   if (clash && clash.id !== exceptUserId) throw Errors.validationFailed({ field: "email", reason: "email já cadastrado" });
 }
 
-export async function createUserUsecase(input: {
-  name: string;
-  role: UserRole;
-  phone?: string | null;
-  email?: string | null;
-}) {
-  const email = normalizeEmail(input.email);
-  await assertEmailAvailable(email);
-  const phoneDigits = normalizePhone(input.phone);
-  const pin = randomPin();
-  const pinHash = await argon2.hash(pin);
-  const [created] = await db
-    .insert(users)
-    .values({ name: input.name, role: input.role, pinHash, phone: phoneDigits, email })
-    .returning();
-  return { ...serialize(created), pin }; // PIN retornado uma única vez, em texto puro, pra exibição ao gerente
+export interface UserUsecasesDeps {
+  uow: TenantUnitOfWork;
+  /** Resolvido a cada chamada (ALS/request corrente) — nunca memoizado. */
+  tenant: () => TenantContext;
+  /** Upload/remoção da foto do usuário em disco. */
+  storage: FileStorage;
+  /**
+   * Invalida o cache de "usuário ativo" do middleware (infra/auth) na cascata
+   * de desativação — a sessão JWT aberta cai na próxima requisição.
+   */
+  invalidateActiveUser: (userId: string) => void;
 }
 
-export async function updateUserUsecase(
-  id: string,
-  input: {
-    name?: string;
-    role?: UserRole;
-    active?: boolean;
-    phone?: string | null;
-    email?: string | null;
-    pin?: string;
-  },
-  actorId?: string
-) {
-  const existing = await db.query.users.findFirst({ where: eq(users.id, id) });
-  if (!existing) throw Errors.notFound("Usuário");
-
-  const email = input.email !== undefined ? normalizeEmail(input.email) : undefined;
-  if (input.email !== undefined) await assertEmailAvailable(email, id);
-  const phoneDigits = input.phone !== undefined ? normalizePhone(input.phone) : undefined;
-
-  // PIN manual (4-6 dígitos): mesma regra do reset-pin — troca o hash e
-  // desbloqueia a conta. O reset-pin continua existindo para gerar um PIN
-  // aleatório.
-  let pinHash = existing.pinHash;
-  let failedAttempts = existing.failedAttempts;
-  let lockedUntil = existing.lockedUntil;
-  if (input.pin !== undefined) {
-    const digits = input.pin.replace(/\D/g, "");
-    if (digits.length < 4 || digits.length > 6) throw Errors.validationFailed({ field: "pin" });
-    pinHash = await argon2.hash(digits);
-    failedAttempts = 0;
-    lockedUntil = null;
-  }
-
-  // Desativar usuário é a lacuna fechada do docs/21 §5.4: além do login
-  // negar, os aparelhos provisionados do usuário são revogados NA MESMA
-  // transação (+ audit + evento pro gerente) e o cache de sessão aberta do
-  // middleware é invalidado. Reativar NÃO devolve aparelhos (decisão do
-  // plano — exige novo provisionamento).
-  const deactivating = input.active === false && existing.active === true;
-
-  const updated = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(users)
-      .set({
-        ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(input.role !== undefined ? { role: input.role } : {}),
-        ...(input.active !== undefined ? { active: input.active } : {}),
-        ...(phoneDigits !== undefined ? { phone: phoneDigits } : {}),
-        ...(email !== undefined ? { email } : {}),
-        ...(pinHash !== existing.pinHash ? { pinHash, failedAttempts, lockedUntil } : {}),
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(users.id, id))
-      .returning();
-
-    if (deactivating) {
-      const revokedDevices = await revokeAllDevicesTx(tx, id, new Date().toISOString());
-      await logAction(tx, actorId ?? id, "user_access_toggled", null, {
-        userId: id,
-        active: false,
-        revokedDevices,
+export function createUserUsecases(deps: UserUsecasesDeps) {
+  return {
+    /** `GET /users` (manager): lista completa, ordem alfabética. */
+    async listUsersUsecase() {
+      return deps.uow.run(deps.tenant(), async (session) => {
+        const rows = await session.users.list();
+        return rows.map(serialize);
       });
-      await enqueueEvent(tx, "alerts:manager", "user_access_changed", {
-        userId: id,
-        active: false,
-        revokedDevices,
+    },
+
+    /** `POST /users` (manager): cria com PIN aleatório (retornado uma única vez). */
+    async createUserUsecase(input: {
+      name: string;
+      role: UserRole;
+      phone?: string | null;
+      email?: string | null;
+    }) {
+      const email = normalizeEmail(input.email);
+      const phoneDigits = normalizePhone(input.phone);
+      const pin = randomPin();
+      const pinHash = await argon2.hash(pin);
+      const created = await deps.uow.run(deps.tenant(), async (session) => {
+        await assertEmailAvailable(session, email);
+        return session.users.save({ name: input.name, role: input.role, pinHash, phone: phoneDigits, email });
       });
-      // Sessões JWT abertas caem na próxima requisição (não espera os 30s do cache).
-      invalidateActiveUser(id);
-    }
-    return row;
-  });
-  return serialize(updated);
+      return { ...serialize(created), pin }; // PIN em texto puro, uma única vez, pra exibição ao gerente
+    },
+
+    /** `PATCH /users/:id` (manager): update parcial + cascata de desativação. */
+    async updateUserUsecase(
+      id: string,
+      input: {
+        name?: string;
+        role?: UserRole;
+        active?: boolean;
+        phone?: string | null;
+        email?: string | null;
+        pin?: string;
+      },
+      actorId?: string,
+    ) {
+      const email = input.email !== undefined ? normalizeEmail(input.email) : undefined;
+      const phoneDigits = input.phone !== undefined ? normalizePhone(input.phone) : undefined;
+
+      // PIN manual (4-6 dígitos): mesma regra do reset-pin — troca o hash e
+      // desbloqueia a conta. O reset-pin continua existindo para gerar um PIN
+      // aleatório.
+      let pinHash: string | undefined;
+      if (input.pin !== undefined) {
+        const digits = input.pin.replace(/\D/g, "");
+        if (digits.length < 4 || digits.length > 6) throw Errors.validationFailed({ field: "pin" });
+        pinHash = await argon2.hash(digits);
+      }
+
+      const updated = await deps.uow.run(deps.tenant(), async (session) => {
+        const existing = await session.users.findById(id);
+        if (!existing) throw Errors.notFound("Usuário");
+        if (input.email !== undefined) await assertEmailAvailable(session, email, id);
+
+        // Desativar usuário é a lacuna fechada do docs/21 §5.4: além do login
+        // negar, os aparelhos provisionados do usuário são revogados NA MESMA
+        // transação (+ audit + evento pro gerente) e o cache de sessão aberta do
+        // middleware é invalidado. Reativar NÃO devolve aparelhos (decisão do
+        // plano — exige novo provisionamento).
+        const deactivating = input.active === false && existing.active === true;
+
+        const row = await session.users.save({
+          id,
+          name: input.name ?? existing.name,
+          role: input.role ?? existing.role,
+          ...(input.active !== undefined ? { active: input.active } : {}),
+          ...(phoneDigits !== undefined ? { phone: phoneDigits } : {}),
+          ...(email !== undefined ? { email } : {}),
+          ...(pinHash !== undefined ? { pinHash } : {}),
+        });
+
+        if (deactivating) {
+          const revokedDevices = await session.userDevices.revokeAll(id, new Date().toISOString());
+          await session.audit.record({
+            actorId: actorId ?? id,
+            action: "user_access_toggled",
+            orderId: null,
+            details: { userId: id, active: false, revokedDevices },
+          });
+          await session.outbox.enqueue({
+            room: "alerts:manager",
+            type: "user_access_changed",
+            aggregateId: id,
+            payload: { userId: id, active: false, revokedDevices },
+          });
+          // Sessões JWT abertas caem na próxima requisição (não espera os 30s do cache).
+          deps.invalidateActiveUser(id);
+        }
+        return row;
+      });
+      return serialize(updated);
+    },
+
+    /**
+     * Leitura do próprio perfil (GET /auth/me): o mesmo `serialize` do PATCH,
+     * para a tela de perfil abrir com telefone/e-mail reais — o login devolve só
+     * `{ id, name, role, photoPath }` e inicializar o formulário com a sessão
+     * deixaria os campos vazios (um salvar apagaria o que já está no banco).
+     * 404 quando o usuário do token não existe mais (mesma régua do PATCH).
+     */
+    async getOwnProfileUsecase(id: string) {
+      return deps.uow.run(deps.tenant(), async (session) => {
+        const existing = await session.users.findById(id);
+        if (!existing) throw Errors.notFound("Usuário");
+        return serialize(existing);
+      });
+    },
+
+    /**
+     * Self-service de perfil (PATCH /auth/me): o usuário logado atualiza os
+     * PRÓPRIOS dados de contato — `name`, `phone` e `email`.
+     *
+     * O id vem do token, nunca do body, e o conjunto de campos é fechado por
+     * construção — `role`, `active` e `pin` nem entram na assinatura. Audit log
+     * na MESMA transação do UPDATE.
+     */
+    async updateOwnProfileUsecase(
+      id: string,
+      input: { name: string; phone?: string | null; email?: string | null },
+    ) {
+      const email = input.email !== undefined ? normalizeEmail(input.email) : undefined;
+      const phoneDigits = input.phone !== undefined ? normalizePhone(input.phone) : undefined;
+
+      const updated = await deps.uow.run(deps.tenant(), async (session) => {
+        const existing = await session.users.findById(id);
+        if (!existing) throw Errors.notFound("Usuário");
+        if (input.email !== undefined) await assertEmailAvailable(session, email, id);
+
+        const row = await session.users.save({
+          id,
+          name: input.name,
+          role: existing.role,
+          ...(phoneDigits !== undefined ? { phone: phoneDigits } : {}),
+          ...(email !== undefined ? { email } : {}),
+        });
+        await session.audit.record({
+          actorId: id,
+          action: "user_profile_updated",
+          orderId: null,
+          details: {
+            userId: id,
+            fields: [
+              "name",
+              ...(phoneDigits !== undefined ? ["phone"] : []),
+              ...(email !== undefined ? ["email"] : []),
+            ],
+          },
+        });
+        return row;
+      });
+      return serialize(updated);
+    },
+
+    /** `PATCH /users/:id/reset-pin` (manager): PIN aleatório, retornado uma vez. */
+    async resetPinUsecase(id: string) {
+      const pin = randomPin();
+      const pinHash = await argon2.hash(pin);
+      await deps.uow.run(deps.tenant(), async (session) => {
+        const existing = await session.users.findById(id);
+        if (!existing) throw Errors.notFound("Usuário");
+        await session.users.save({ id, name: existing.name, role: existing.role, pinHash });
+      });
+      return { pin };
+    },
+
+    /**
+     * `GET /auth/users` (público, tela de seleção do login): só ativos e
+     * respeitando os toggles de rollout — esconde "kitchen" quando
+     * kitchen_enabled=false e "courier" quando uses_delivery=false.
+     */
+    async listActiveUsersUsecase() {
+      return deps.uow.run(deps.tenant(), async (session) => {
+        const settings = await session.storeSettings.findSingleton();
+        const rows = await session.users.listActive();
+        return rows
+          .filter((u) => settings?.kitchenEnabled || u.role !== "kitchen")
+          .filter((u) => settings?.usesDelivery !== false || u.role !== "courier")
+          .map((u) => ({ id: u.id, name: u.name, role: u.role, photoPath: photoUrl(u.photoPath, "user") }));
+      });
+    },
+
+    // ---------- Foto (upload em disco, caminho gravado em user.photo_path) ----------
+    //
+    // Mesmo desenho das fotos de cliente/produto: nome de arquivo GERADO pelo
+    // app a partir do id (o nome enviado pelo cliente nunca vira caminho em
+    // disco), o nome gravado no banco é só o basename, arquivo antigo removido
+    // quando a extensão muda, e o audit na mesma transação do UPDATE.
+
+    /** `POST /users/:id/photo` e `/auth/me/photo`. */
+    async saveUserPhotoUsecase(id: string, input: { buffer: Buffer; ext: string }, actorId: string) {
+      return deps.uow.run(deps.tenant(), async (session) => {
+        const existing = await session.users.findById(id);
+        if (!existing) throw Errors.notFound("Usuário");
+
+        const filename = `${id}.${input.ext}`;
+        if (!isSafeFilename(filename)) throw Errors.validationFailed({ field: "photo" });
+        await deps.storage.put("user", filename, input.buffer);
+
+        const previous = storageFilename(existing.photoPath);
+        if (previous && previous !== filename) await deps.storage.remove("user", previous);
+
+        const updated = await session.users.save({ id, name: existing.name, role: existing.role, photoPath: filename });
+        await session.audit.record({
+          actorId,
+          action: "user_photo_changed",
+          orderId: null,
+          details: { userId: id },
+        });
+        return serialize(updated);
+      });
+    },
+
+    /** `DELETE /users/:id/photo` e `/auth/me/photo`. */
+    async clearUserPhotoUsecase(id: string, actorId: string) {
+      return deps.uow.run(deps.tenant(), async (session) => {
+        const existing = await session.users.findById(id);
+        if (!existing) throw Errors.notFound("Usuário");
+        const previous = storageFilename(existing.photoPath);
+        if (previous) await deps.storage.remove("user", previous);
+
+        const updated = await session.users.save({ id, name: existing.name, role: existing.role, photoPath: null });
+        await session.audit.record({
+          actorId,
+          action: "user_photo_removed",
+          orderId: null,
+          details: { userId: id },
+        });
+        return serialize(updated);
+      });
+    },
+  };
 }
 
-/**
- * Leitura do próprio perfil (GET /auth/me): o mesmo `serialize` do PATCH,
- * para a tela de perfil abrir com telefone/e-mail reais — o login devolve só
- * `{ id, name, role, photoPath }` e inicializar o formulário com a sessão
- * deixaria os campos vazios (um salvar apagaria o que já está no banco).
- * 404 quando o usuário do token não existe mais (mesma régua do PATCH).
- */
-export async function getOwnProfileUsecase(id: string) {
-  const existing = await db.query.users.findFirst({ where: eq(users.id, id) });
-  if (!existing) throw Errors.notFound("Usuário");
-  return serialize(existing);
-}
-
-/**
- * Self-service de perfil (PATCH /auth/me): o usuário logado atualiza os
- * PRÓPRIOS dados de contato — `name`, `phone` e `email`.
- *
- * Diferença em relação ao `updateUserUsecase` (manager-only): o id vem do
- * token, nunca do body, e o conjunto de campos é fechado por construção —
- * `role`, `active` e `pin` nem entram na assinatura, então não há caminho
- * (nem por body estranho) para um garçom se promover. Normalização de
- * email/telefone é a mesma do update de gerente (fonte única em
- * `normalizeEmail`/`normalizePhone`/`assertEmailAvailable`).
- *
- * Audit log na MESMA transação do UPDATE (convenção de escrita de domínio em
- * docs/agent-backend.md): o `updateUserUsecase` de gerente só audita a cascata
- * de desativação; aqui o registro é a trilha do que o próprio usuário mudou.
- */
-export async function updateOwnProfileUsecase(
-  id: string,
-  input: { name: string; phone?: string | null; email?: string | null }
-) {
-  const existing = await db.query.users.findFirst({ where: eq(users.id, id) });
-  if (!existing) throw Errors.notFound("Usuário");
-
-  const email = input.email !== undefined ? normalizeEmail(input.email) : undefined;
-  if (input.email !== undefined) await assertEmailAvailable(email, id);
-  const phoneDigits = input.phone !== undefined ? normalizePhone(input.phone) : undefined;
-
-  const updated = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(users)
-      .set({
-        name: input.name,
-        ...(phoneDigits !== undefined ? { phone: phoneDigits } : {}),
-        ...(email !== undefined ? { email } : {}),
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(users.id, id))
-      .returning();
-    await logAction(tx, id, "user_profile_updated", null, {
-      userId: id,
-      fields: ["name", ...(phoneDigits !== undefined ? ["phone"] : []), ...(email !== undefined ? ["email"] : [])],
-    });
-    return row;
-  });
-  return serialize(updated);
-}
-
-export async function resetPinUsecase(id: string) {
-  const existing = await db.query.users.findFirst({ where: eq(users.id, id) });
-  if (!existing) throw Errors.notFound("Usuário");
-  const pin = randomPin();
-  const pinHash = await argon2.hash(pin);
-  await db
-    .update(users)
-    .set({ pinHash, failedAttempts: 0, lockedUntil: null, updatedAt: new Date().toISOString() })
-    .where(eq(users.id, id));
-  return { pin }; // exibido uma única vez ao gerente
-}
-
-// ---------- Foto (upload em disco, caminho gravado em user.photo_path) ----------
-//
-// Mesmo desenho de `customer.usecases.ts` e `product.usecases.ts`: nome de
-// arquivo GERADO pelo app a partir do id (o nome enviado pelo cliente nunca
-// vira caminho), arquivo antigo removido quando a extensão muda, e o
-// `logAction` na mesma transação do UPDATE. O caminho em disco é montado pelo
-// `storage` (infra/storage), com o diretório do tenant.
-
-export async function saveUserPhotoUsecase(id: string, input: { buffer: Buffer; ext: string }, actorId: string) {
-  const existing = await db.query.users.findFirst({ where: eq(users.id, id) });
-  if (!existing) throw Errors.notFound("Usuário");
-
-  const filename = `${id}.${input.ext}`;
-  if (!isSafeFilename(filename)) throw Errors.validationFailed({ field: "photo" });
-  await storage.put("user", filename, input.buffer);
-
-  const previous = storageFilename(existing.photoPath);
-  if (previous && previous !== filename) await storage.remove("user", previous);
-
-  const updated = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(users)
-      .set({ photoPath: filename, updatedAt: new Date().toISOString() })
-      .where(eq(users.id, id))
-      .returning();
-    await logAction(tx, actorId, "user_photo_changed", null, { userId: id });
-    return row;
-  });
-  return serialize(updated);
-}
-
-export async function clearUserPhotoUsecase(id: string, actorId: string) {
-  const existing = await db.query.users.findFirst({ where: eq(users.id, id) });
-  if (!existing) throw Errors.notFound("Usuário");
-  const previous = storageFilename(existing.photoPath);
-  if (previous) await storage.remove("user", previous);
-  const updated = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(users)
-      .set({ photoPath: null, updatedAt: new Date().toISOString() })
-      .where(eq(users.id, id))
-      .returning();
-    await logAction(tx, actorId, "user_photo_removed", null, { userId: id });
-    return row;
-  });
-  return serialize(updated);
-}
+export type UserUsecases = ReturnType<typeof createUserUsecases>;

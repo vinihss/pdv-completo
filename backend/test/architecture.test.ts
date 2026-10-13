@@ -64,28 +64,23 @@ const KNOWN_VIOLATIONS: readonly string[] = [
   // ports + UoW, sem infra/Drizzle).
   // Onda provisioning/tenant: removidas as 8 entradas de device-state,
   // provisioning-email, provisioning.usecases e resolve-tenant (migrados para
-  // ports + UoW). `user.usecases` segue acoplado só pela ponte transacional
-  // `infra/db/provisioning-tx` (o restante dele é Drizzle direto).
+  // ports + UoW).
+  // Onda auth: removidas as 5 entradas de login.usecase e user.usecases
+  // (migrados para ports + UoW; a ponte `infra/db/provisioning-tx` foi removida
+  // por ficar órfã) e as 3 de `auth.routes` (acesso a dados saiu para o use case
+  // `listActiveUsersUsecase`, consumido via composition root).
   // ------------------------------------------------------------------
-  "src/application/auth/login.usecase.ts :: application :: dir:config",
-  "src/application/auth/login.usecase.ts :: application :: dir:infra",
-  "src/application/auth/login.usecase.ts :: application :: pkg:drizzle-orm",
   "src/application/payment/payment.usecases.ts :: application :: dir:infra",
   "src/application/payment/payment.usecases.ts :: application :: dir:integrations",
   "src/application/payment/payment.usecases.ts :: application :: pkg:drizzle-orm",
-  "src/application/user.usecases.ts :: application :: dir:infra",
-  "src/application/user.usecases.ts :: application :: pkg:drizzle-orm",
   // ------------------------------------------------------------------
-  // http: rotas/middleware que ainda tocam em Drizzle/schema/client (9).
+  // http: rotas/middleware que ainda tocam em Drizzle/schema/client (6).
   // Quando o acesso a dado sair das rotas, apague estas linhas.
   // `server.ts` NÃO aparece: é o EXEMPT documentado acima.
   // ------------------------------------------------------------------
   "src/http/middlewares/idempotency.middleware.ts :: http :: file:src/infra/db/client",
   "src/http/middlewares/idempotency.middleware.ts :: http :: file:src/infra/db/schema",
   "src/http/middlewares/idempotency.middleware.ts :: http :: pkg:drizzle-orm",
-  "src/http/routes/auth.routes.ts :: http :: file:src/infra/db/client",
-  "src/http/routes/auth.routes.ts :: http :: file:src/infra/db/schema",
-  "src/http/routes/auth.routes.ts :: http :: pkg:drizzle-orm",
   "src/http/routes/ifood.routes.ts :: http :: file:src/infra/db/client",
   "src/http/routes/ifood.routes.ts :: http :: file:src/infra/db/schema",
   "src/http/routes/ifood.routes.ts :: http :: pkg:drizzle-orm",

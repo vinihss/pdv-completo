@@ -252,3 +252,21 @@ export interface PublicTenantBrand {
 export interface PublicTenantBrandReader {
   read(tenant: { slug: string; schemaName: string; isDefault: boolean }): Promise<PublicTenantBrand>;
 }
+
+// ---------- escopo de tenant do request (ALS) ----------
+
+/**
+ * ADIÇÃO (Onda auth): acesso ao escopo de tenant do request corrente.
+ *
+ * O `login.usecase` precisa consultar/entrar no escopo (o workaround de
+ * propagação do ALS no Fastify resolve o tenant pelo host quando o ALS está
+ * vazio) e NÃO pode importar `infra/db/tenant-context`. Este port encapsula
+ * `currentTenantScope`/`enterTenantScope`; o adapter (infra) continua sendo o
+ * único que conhece o ALS.
+ */
+export interface TenantScopeStore {
+  /** Escopo corrente (ALS), ou `undefined` fora de um request. */
+  current(): { slug: string; schemaName: string; isDefault: boolean } | undefined;
+  /** Entra no escopo corrente (workaround de propagação do ALS no login). */
+  enter(scope: { slug: string; schemaName: string; isDefault: boolean }): void;
+}

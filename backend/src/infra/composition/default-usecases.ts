@@ -51,8 +51,12 @@ import { createSettlementUsecases } from "../../application/settlement/settlemen
 import { createProvisioningUsecases } from "../../application/provisioning/provisioning.usecases.js";
 import { createProvisioningEmailUsecases } from "../../application/provisioning/provisioning-email.usecase.js";
 import { createTenantUsecases } from "../../application/tenant/resolve-tenant.usecase.js";
+import { createUserUsecases } from "../../application/user.usecases.js";
+import { createLoginUsecase } from "../../application/auth/login.usecase.js";
 import { TenantRegistryAdapter } from "../db/tenant-registry-adapter.js";
 import { PublicTenantBrandReaderAdapter } from "../db/public-tenant-brand-reader.js";
+import { TenantScopeAdapter } from "../db/tenant-scope-adapter.js";
+import { invalidateActiveUser } from "../auth/active-user-check.js";
 import { MailerPortAdapter } from "../mail/mailer-port-adapter.js";
 import { resolveTenantSchema } from "../storage/index.js";
 import { config } from "../../config/env.js";
@@ -236,6 +240,17 @@ const customerInstances = createCustomerUsecases({
   storage,
 });
 
+// Equipe (Onda auth): CRUD de usuários + PIN + foto. A `invalidateActiveUser`
+// é o efeito de infra que o use case dispara na cascata de desativação
+// (docs/21 §5.4) — o cache de 30s do middleware não pode mentir depois de um
+// toggle explícito.
+const userInstances = createUserUsecases({
+  uow,
+  tenant,
+  storage,
+  invalidateActiveUser,
+});
+
 // Relatórios gerenciais (Onda 3D) — leituras via `session.reports` na janela
 // `uow.run`, cache `reports:*` via o mesmo `alsTenantCache` (prefixo por schema).
 const reportInstances = createReportUsecases({ uow, tenant, cache });
@@ -254,9 +269,10 @@ const settlementInstances = createSettlementUsecases({ uow, tenant });
 const cashFlowInstances = createCashFlowUsecases({ uow, tenant });
 
 // Device provisioning (docs/21) + resolução de tenant (docs/15). O
-// `assertDeviceForLogin` é consumido pelo `login.usecase` (ainda não migrado); o
-// `resolveTenant` é consumido pelo `server.ts` e pelo middleware de tenant.
-// O `jwtSecret` é injetado (a `application` não lê `config`).
+// `assertDeviceForLogin` é consumido pelo `login.usecase`; o `resolveTenant` é
+// consumido pelo `server.ts`, pelo middleware de tenant e pelo próprio login
+// (fallback de host quando o ALS está vazio). O `jwtSecret` é injetado (a
+// `application` não lê `config`).
 const provisioningInstances = createProvisioningUsecases({
   uow,
   tenant,
@@ -272,6 +288,18 @@ const tenantInstances = createTenantUsecases({
   registry: new TenantRegistryAdapter(),
   defaultSchema: resolveTenantSchema,
   publicBrand: new PublicTenantBrandReaderAdapter(),
+});
+
+// Login por PIN (Onda auth): a factory recebe o escopo de tenant (ALS), a
+// resolução por host e a validação do aparelho provisionado — antes o use case
+// importava o composition root e `config`; agora tudo entra por `deps`.
+const loginInstances = createLoginUsecase({
+  uow,
+  tenant,
+  scope: new TenantScopeAdapter(),
+  resolveTenant: tenantInstances.resolveTenant,
+  assertDeviceForLogin: provisioningInstances.assertDeviceForLogin,
+  jwtSecret: config.jwtSecret,
 });
 
 // ---------------------------------------------------------------------------
@@ -386,6 +414,17 @@ export const clearCustomerPhotoUsecase = customerInstances.clearCustomerPhotoUse
 export const listCustomerOrdersUsecase = customerInstances.listCustomerOrdersUsecase;
 export const customerSummaryUsecase = customerInstances.customerSummaryUsecase;
 
+// equipe / usuários (Onda auth)
+export const listUsersUsecase = userInstances.listUsersUsecase;
+export const createUserUsecase = userInstances.createUserUsecase;
+export const updateUserUsecase = userInstances.updateUserUsecase;
+export const getOwnProfileUsecase = userInstances.getOwnProfileUsecase;
+export const updateOwnProfileUsecase = userInstances.updateOwnProfileUsecase;
+export const resetPinUsecase = userInstances.resetPinUsecase;
+export const saveUserPhotoUsecase = userInstances.saveUserPhotoUsecase;
+export const clearUserPhotoUsecase = userInstances.clearUserPhotoUsecase;
+export const listActiveUsersUsecase = userInstances.listActiveUsersUsecase;
+
 // relatórios gerenciais (report, report-overview, report-deliveries)
 export const salesReportUsecase = reportInstances.salesReportUsecase;
 export const overviewReportUsecase = overviewReportInstances.overviewReportUsecase;
@@ -432,6 +471,9 @@ export const listUserDevicesUsecase = provisioningInstances.listUserDevicesUseca
 export const revokeDeviceUsecase = provisioningInstances.revokeDeviceUsecase;
 export const sendProvisioningEmailUsecase = provisioningEmailInstances.sendProvisioningEmailUsecase;
 export const resendProvisioningEmailUsecase = provisioningEmailInstances.resendProvisioningEmailUsecase;
+
+// login por PIN (Onda auth)
+export const loginUsecase = loginInstances.loginUsecase;
 
 // resolução de tenant (docs/15)
 export const resolveTenant = tenantInstances.resolveTenant;

@@ -23,8 +23,7 @@ import {
   resetPinUsecase,
   saveUserPhotoUsecase,
   clearUserPhotoUsecase,
-  type UserRole,
-} from "../../application/user.usecases.js";
+} from "../../infra/composition/default-usecases.js";
 import { imageExtByMime } from "./image-ext.js";
 
 const userRoleEnum = ["waiter", "kitchen", "manager", "courier", "cashier"] as const;

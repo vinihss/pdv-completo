@@ -730,6 +730,8 @@ function toUserRecord(u: typeof users.$inferSelect): UserRecord {
     email: u.email,
     photoPath: u.photoPath,
     createdAt: u.createdAt,
+    failedAttempts: u.failedAttempts,
+    lockedUntil: u.lockedUntil,
   };
 }
 
@@ -753,12 +755,38 @@ export class PostgresUserRepository implements UserRepository {
     return row ? toUserRecord(row) : null;
   }
 
-  async listActive(): Promise<Array<Pick<UserRecord, "id" | "name" | "role">>> {
+  async listActive(): Promise<Array<Pick<UserRecord, "id" | "name" | "role" | "photoPath">>> {
     const rows = await this.tx.query.users.findMany({
       where: eq(users.active, true),
       orderBy: (u, { asc: asc_ }) => asc_(u.name),
     });
-    return rows.map((u) => ({ id: u.id, name: u.name, role: u.role }));
+    return rows.map((u) => ({ id: u.id, name: u.name, role: u.role, photoPath: u.photoPath }));
+  }
+
+  /** ADIÇÃO (Onda auth): lista completa em ordem alfabética (`GET /users`). */
+  async list(): Promise<UserRecord[]> {
+    const rows = await this.tx.query.users.findMany({
+      orderBy: (u, { asc: asc_ }) => asc_(u.name),
+    });
+    return rows.map(toUserRecord);
+  }
+
+  /** ADIÇÃO (Onda auth): usuário por email EXATO (unicidade validada no use case). */
+  async findByEmail(email: string): Promise<UserRecord | null> {
+    const row = await this.tx.query.users.findFirst({ where: eq(users.email, email) });
+    return row ? toUserRecord(row) : null;
+  }
+
+  /**
+   * ADIÇÃO (Onda auth): grava o estado de tentativas de login. Mesma coluna do
+   * original (`failedAttempts`/`lockedUntil`), sem mexer em `updatedAt` — a
+   * régua de `countFailedAttempt`/reset do `login.usecase` é preservada.
+   */
+  async setLoginState(id: Id, state: { failedAttempts: number; lockedUntil: string | null }): Promise<void> {
+    await this.tx
+      .update(users)
+      .set({ failedAttempts: state.failedAttempts, lockedUntil: state.lockedUntil })
+      .where(eq(users.id, id));
   }
 
   /** ADIÇÃO (Onda 3 — self-service): lote por ids (entregadores das listagens de entrega). */
