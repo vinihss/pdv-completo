@@ -39,7 +39,7 @@ import { createSelfServiceDeliveryUsecases } from "../../application/self-servic
 import { createOrderIntakeUsecases } from "../../application/self-service/order-intake.usecase.js";
 import { createAuditLogUsecases } from "../../application/audit-log/audit-log.usecases.js";
 import { createDeliveryUsecases } from "../../application/delivery/calcular-entrega.usecase.js";
-import { createStoreSettingsUsecases } from "../../application/store-settings.usecases.js";
+import { createStoreSettingsUsecases } from "../../application/store-settings/store-settings.usecases.js";
 import { createCustomerUsecases } from "../../application/customer.usecases.js";
 import { createCashFlowUsecases } from "../../application/cash-flow/cash-flow.usecases.js";
 import { createReportUsecases } from "../../application/report.usecases.js";
@@ -50,7 +50,7 @@ import { createRefundUsecases } from "../../application/refund/refund.usecases.j
 import { createProvisioningUsecases } from "../../application/provisioning/provisioning.usecases.js";
 import { createProvisioningEmailUsecases } from "../../application/provisioning/provisioning-email.usecase.js";
 import { createTenantUsecases } from "../../application/tenant/resolve-tenant.usecase.js";
-import { createUserUsecases } from "../../application/user.usecases.js";
+import { createUserUsecases } from "../../application/user/user.usecases.js";
 import { createLoginUsecase } from "../../application/auth/login.usecase.js";
 import { TenantRegistryAdapter } from "../db/tenant-registry-adapter.js";
 import { PublicTenantBrandReaderAdapter } from "../db/public-tenant-brand-reader.js";

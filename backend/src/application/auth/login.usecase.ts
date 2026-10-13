@@ -13,7 +13,7 @@
 import argon2 from "argon2";
 import jwt from "jsonwebtoken";
 import { Errors } from "../../domain/errors.js";
-import { photoUrl } from "../user.usecases.js";
+import { photoUrl } from "../user/shared/user-helpers.js";
 import type { TenantUnitOfWork } from "../ports/unit-of-work.js";
 import type { TenantContext } from "../ports/tenant-context.js";
 import type { TenantScopeStore } from "../ports/effects.js";

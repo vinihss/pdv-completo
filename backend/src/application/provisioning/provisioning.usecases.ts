@@ -5,7 +5,7 @@ import { Errors } from "../../domain/errors.js";
 import type { TenantUnitOfWork } from "../ports/unit-of-work.js";
 import type { TenantContext } from "../ports/tenant-context.js";
 import type { ProvisioningKeyRecord } from "../ports/repositories.js";
-import { photoUrl } from "../user.usecases.js";
+import { photoUrl } from "../user/shared/user-helpers.js";
 import { revokeActiveKey } from "./device-state.js";
 
 // Device provisioning (docs/21-device-provisioning.md) — PR 1.
