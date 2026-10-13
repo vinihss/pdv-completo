@@ -18,12 +18,12 @@
  *
  * Componentes:
  *   AppFrame — casca com header, menu e alertas
- *   AppMenu — menu principal (accordion)
+ *   AppMenu — menu principal (sempre expandido)
  *   AlertBell — sino de alertas
  */
 import React from "react";
-import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
-import { LogOut, Menu, User as UserIcon } from "lucide-react";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { Menu, LogOut } from "lucide-react";
 import { AuthProvider, useAuth } from "@/app/providers/auth";
 import { NavProvider, useNav, useMenuSections } from "@/app/providers/nav";
 import { AlertsProvider } from "@/app/providers/alerts";
@@ -37,21 +37,11 @@ import { CustomerMenuPage } from "@/pages/customer-menu";
 import { LoginPage } from "@/pages/login";
 import { AppMenu } from "@/widgets/app-menu";
 import { AlertBell } from "@/widgets/alert-bell";
-import { UserAvatar } from "@/shared/components";
 import ProfilePage from "@/pages/manager/tabs/profile/ProfilePage";
 
-const ROLE_LABEL = {
-  waiter: "Garçom",
-  kitchen: "Cozinha",
-  manager: "Gerente",
-  cashier: "Caixa",
-  courier: "Entregador",
-};
-
 export function AppFrame({ children }) {
-  const { logout, storeSettings, session } = useAuth();
+  const { logout, storeSettings } = useAuth();
   const { drawerOpen, openDrawer } = useNav();
-  const navigate = useNavigate();
 
   // Mesma conta do AppMenu (fonte única em useMenuSections): 1 item de menu
   // não justifica coluna nem botão de menu — o perfil é de tela única.
@@ -62,22 +52,6 @@ export function AppFrame({ children }) {
   );
 
   const singleItem = totalMenuItems === 1;
-
-  // Menu flutuante de perfil (foto → Perfil / Sair).
-  const [profileMenuOpen, setProfileMenuOpen] = React.useState(false);
-  const profileRef = React.useRef(null);
-
-  // Fecha o menu ao clicar fora dele (o próprio botão já tem onClick para abrir).
-  React.useEffect(() => {
-    if (!profileMenuOpen) return;
-    function onDocClick(e) {
-      if (profileRef.current && !profileRef.current.contains(e.target)) {
-        setProfileMenuOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [profileMenuOpen]);
 
   return (
     <div className="relative min-h-screen">
@@ -109,69 +83,19 @@ export function AppFrame({ children }) {
         </div>
         {/* Sino de alertas + LED de conexão */}
         <AlertBell />
-        {/* Foto do usuário: ao clicar abre o menu flutuante (Perfil / Sair). */}
-        <div ref={profileRef} className="relative shrink-0">
+        {/* Perfis de tela única (waiter, kitchen, courier) não têm menu lateral:
+            o logout fica no header. Para os demais, está no rodapé do menu. */}
+        {singleItem && (
           <button
             type="button"
-            onClick={() => setProfileMenuOpen((v) => !v)}
-            aria-label="Menu do usuário"
-            aria-expanded={profileMenuOpen}
-            aria-haspopup="true"
-            title="Menu do usuário"
-            className="w-10 h-10 -mr-1 flex items-center justify-center rounded-full hover:bg-stone-800/60 transition-colors"
+            onClick={logout}
+            aria-label="Sair"
+            title="Sair"
+            className="w-10 h-10 -mr-1 flex items-center justify-center rounded-full text-stone-300 hover:text-stone-100 hover:bg-stone-800/60 transition-colors shrink-0"
           >
-            <UserAvatar 
-              name={session?.user?.name} 
-              photoPath={session?.user?.photoPath} 
-              className="w-8 h-8"
-            />
+            <LogOut size={20} />
           </button>
-          {/* Menu flutuante do perfil */}
-          {profileMenuOpen && (
-            <div
-              role="menu"
-              className="absolute right-0 top-full mt-2 w-52 rounded-xl bg-stone-800/95 border border-stone-700 p-1.5 shadow-lg z-50"
-            >
-              <div className="flex items-center gap-2 border-b border-stone-700/50 px-2 pb-2 mb-1.5">
-                <UserAvatar 
-                  name={session?.user?.name} 
-                  photoPath={session?.user?.photoPath} 
-                  className="w-8 h-8 shrink-0"
-                />
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-stone-200 truncate">{session?.user?.name ?? "—"}</p>
-                  <p className="text-[11px] text-stone-500 truncate">
-                    {ROLE_LABEL[session?.user?.role] ?? ""}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setProfileMenuOpen(false);
-                  navigate("/manager/profile");
-                }}
-                className="w-full flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-stone-700/70 transition-colors text-stone-200 text-left"
-              >
-                <UserIcon size={15} className="text-stone-400 shrink-0" />
-                Perfil
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setProfileMenuOpen(false);
-                  logout();
-                }}
-                className="w-full flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-red-600/20 transition-colors text-stone-200 text-left"
-              >
-                <LogOut size={15} className="text-stone-400 shrink-0" />
-                Sair
-              </button>
-            </div>
-          )}
-        </div>
+        )}
       </div>
       <div className="flex items-start">
         {!singleItem && <AppMenu />}
