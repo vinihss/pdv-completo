@@ -62,6 +62,9 @@ export type PaymentMethodKind = "cash" | "card" | "pix" | "other";
 export type UserRole = "waiter" | "kitchen" | "manager" | "courier" | "system" | "cashier";
 export type CashMovementKind = "sangria" | "suprimento";
 
+/** ADIÇÃO (Onda 3C — store-settings): tipo de chave Pix (espelha o enum `pix_key_type`). */
+export type PixKeyType = "cpf" | "cnpj" | "email" | "phone" | "random";
+
 // ---------- records ----------
 
 /** ADIÇÃO (Onda 3A — catálogo): categoria do produto. */
@@ -443,13 +446,30 @@ export interface CatalogRepository {
 export interface CustomerRepository {
   findById(id: Id): Promise<CustomerRecord | null>;
   findByPhone(phone: string): Promise<CustomerRecord | null>;
-  list(query: PageQuery & { search?: string }): Promise<Page<CustomerRecord>>;
+  list(query: PageQuery & { search?: string; active?: boolean }): Promise<Page<CustomerRecord>>;
   /** `input.id` presente = update; ausente = create. Normalização (phone/email/cpf) fica no use case. */
   save(input: Partial<CustomerRecord> & Pick<CustomerRecord, "name">): Promise<CustomerRecord>;
   /** Soft-delete (seta `active=false`) — cliente tem histórico, nunca é apagado. */
   delete(id: Id): Promise<void>;
   /** ADIÇÃO (Onda 2): lote por ids (hidratação da listagem de comandas — sem N+1). */
   findByIds(ids: Id[]): Promise<CustomerRecord[]>;
+
+  // ---------- ADIÇÕES (Onda 3C — customer.usecases) ----------
+  /** Cliente por email exato (unicidade `uq_customer_email` — 400 no use case). */
+  findByEmail(email: string): Promise<CustomerRecord | null>;
+  /** Cliente por CPF exato (unicidade `uq_customer_cpf` — 400 no use case). */
+  findByCpf(cpf: string): Promise<CustomerRecord | null>;
+  /**
+   * Busca leve do balcão (abrir comanda com cliente): só ATIVOS, ordem
+   * alfabética, LIMIT 20, sem email — a manutenção completa é a `list`.
+   */
+  searchLight(search?: string): Promise<Array<Pick<CustomerRecord, "id" | "name" | "phone">>>;
+  /**
+   * Contagem de endereços por cliente em uma query agrupada. `customerIds`
+   * vazio devolve mapa vazio; o mapa pode não ter a chave de um cliente sem
+   * endereços (o use case trata como 0).
+   */
+  countAddressesByCustomer(customerIds: Id[]): Promise<Map<Id, number>>;
 }
 
 export interface UserRepository {
@@ -515,6 +535,39 @@ export interface OrderRepository {
    * tem garçom servindo mesa, então nenhum item chega a "delivered" sozinho.
    */
   markItemsDelivered(orderId: Id): Promise<void>;
+
+  // ---------- ADIÇÕES (Onda 3C — customer.usecases) ----------
+  /**
+   * Comandas ABERTAS do cliente, mais antigas primeiro, com `tableNumber`
+   * resolvida por LEFT JOIN — bloco "comanda em aberto" do detalhe do cliente.
+   */
+  listOpenByCustomer(customerId: Id): Promise<CustomerOpenOrderRecord[]>;
+  /**
+   * Histórico paginado do cliente: `closedAt DESC NULLS LAST, openedAt DESC`
+   * + contagem do conjunto filtrado, com `tableNumber` por LEFT JOIN. `from`/`to`
+   * já chegam RESOLVIDOS (bordas do dia local da loja) — o use case valida e
+   * converte `YYYY-MM-DD` com o `tz` antes de chamar.
+   */
+  listHistoryByCustomer(
+    customerId: Id,
+    query: { limit: number; offset: number; from?: string; to?: string },
+  ): Promise<Page<CustomerOrderHistoryRecord>>;
+  /**
+   * Comandas FECHADAS do cliente com `closedAt` em `[from, to]` (bordas já
+   * resolvidas) — só `id`/`closedAt`/`deliveryFee`, que é o que a série de
+   * consumo agrega em JS (mesma régua da visão geral).
+   */
+  listClosedByCustomerBetween(
+    customerId: Id,
+    from: string,
+    to: string,
+  ): Promise<Array<{ id: Id; closedAt: string | null; deliveryFee: number | null }>>;
+  /**
+   * Total e contagem de itens por comanda, numa query agrupada. Mesmo cálculo
+   * de `computeOrderTotal` (soma `unit_price × quantity` do snapshot, excluindo
+   * `cancelled`); `itemCount` soma `quantity`, não linhas.
+   */
+  aggregateItemsByOrders(orderIds: Id[]): Promise<Map<Id, { total: number; itemCount: number }>>;
 
   // -- itens --
   /** Itens da comanda (linhas cruas — sem join de produto). */
@@ -829,14 +882,123 @@ export interface CustomerAddressRepository {
 // ---------- ADIÇÕES (Onda 3 — contexto delivery) ----------
 
 /**
+ * ADIÇÃO (Onda 3C — customer.usecases): comanda em aberto do cliente no bloco
+ * de detalhe — `tableNumber` resolvida por LEFT JOIN com `restaurant_table`.
+ */
+export interface CustomerOpenOrderRecord {
+  id: Id;
+  status: OrderStatus;
+  openedAt: string;
+  tabLabel: string | null;
+  deliveryFee: number | null;
+  tableNumber: string | null;
+}
+
+/**
+ * ADIÇÃO (Onda 3C — customer.usecases): linha do histórico paginado do cliente
+ * (`GET /customers/:id/orders`) — `tableNumber` resolvida por LEFT JOIN.
+ */
+export interface CustomerOrderHistoryRecord {
+  id: Id;
+  status: OrderStatus;
+  openedAt: string;
+  closedAt: string | null;
+  tabLabel: string | null;
+  paymentMethod: string | null;
+  deliveryFee: number | null;
+  tableNumber: string | null;
+}
+
+/**
+ * ADIÇÃO (Onda 3C — store-settings): linha completa do singleton
+ * `store_settings` (todas as colunas, `pixKeyType` como union do enum).
+ */
+export interface StoreSettingsRow {
+  id: Id;
+  merchantName: string;
+  merchantCity: string;
+  logoPath: string | null;
+  brandColor: string;
+  pixKey: string;
+  pixKeyType: PixKeyType;
+  usesTables: boolean;
+  kitchenEnabled: boolean;
+  usesDelivery: boolean;
+  ifoodIntegrationEnabled: boolean;
+  pagarmeEnabled: boolean;
+  inventoryEnabled: boolean;
+  purchaseEnabled: boolean;
+  printerEnabled: boolean;
+  printerAutoPrint: boolean;
+  /** JSON string (mesmo formato do banco) — o parse para `string[]` é do use case. */
+  enabledPaymentMethods: string;
+  kitchenPrepWarnMin: number;
+  kitchenPrepUrgentMin: number;
+  kitchenPickupUrgentMin: number;
+  deliveryFee: number;
+  restaurantLat: number | null;
+  restaurantLong: number | null;
+  freeDeliveryMin: number;
+  /** JSON string (mesmo formato do banco) — o parse para faixas é do use case. */
+  deliveryFeeTiers: string;
+  deliveryPrepMinutes: number;
+  minutesPerKm: number;
+  cashClosingTolerance: number;
+  cashClosingRequireApprovalAbove: number;
+  cashHighValueThreshold: number;
+}
+
+/**
+ * ADIÇÃO (Onda 3C — store-settings): input do `PUT /store-settings` — o
+ * `pixKey` já chega CANÔNICO (o use case roda `canonicalizePixKey` antes) e os
+ * campos JSON chegam como estrutura (o adapter serializa).
+ */
+export interface StoreSettingsUpdateInput {
+  merchantName: string;
+  merchantCity: string;
+  brandColor: string;
+  pixKey: string;
+  pixKeyType: PixKeyType;
+  usesTables: boolean;
+  kitchenEnabled: boolean;
+  usesDelivery: boolean;
+  ifoodIntegrationEnabled: boolean;
+  inventoryEnabled: boolean;
+  purchaseEnabled: boolean;
+  printerEnabled: boolean;
+  printerAutoPrint: boolean;
+  enabledPaymentMethods: string[];
+  kitchenPrepWarnMin: number;
+  kitchenPrepUrgentMin: number;
+  kitchenPickupUrgentMin: number;
+  deliveryFee: number;
+  restaurantLat?: number | null;
+  restaurantLong?: number | null;
+  freeDeliveryMin?: number;
+  deliveryFeeTiers?: Array<{ maxKm: number; fee: number }>;
+  deliveryPrepMinutes?: number;
+  minutesPerKm?: number;
+}
+
+/**
  * ADIÇÃO (Onda 3): escrita de `store_settings` dentro do use case. A LEITURA
  * continua no effect port `StoreSettingsReader` (mesmo caminho já adotado por
- * `order.usecases` e self-service); aqui entra só o que nasce na janela
- * transacional — a geocodificação do endereço do restaurante.
+ * `order.usecases` e self-service); aqui entra o que nasce na janela
+ * transacional — a geocodificação do endereço do restaurante e, a partir da
+ * Onda 3C, TODO o singleton (o `PUT /store-settings` e o logo).
  */
 export interface StoreSettingsRepository {
   /** Grava as coordenadas do estabelecimento (singleton). */
   updateRestaurantCoordinates(input: { latitude: number; longitude: number }): Promise<void>;
+  /** ADIÇÃO (Onda 3C): linha completa do singleton — `null` quando não existe. */
+  findSingleton(): Promise<StoreSettingsRow | null>;
+  /**
+   * ADIÇÃO (Onda 3C): UPDATE de todos os campos do input (`PUT /store-settings`),
+   * devolvendo a linha atualizada.
+   */
+  update(input: StoreSettingsUpdateInput): Promise<StoreSettingsRow>;
+  /** ADIÇÃO (Onda 3C): grava/limpa `logo_path` (upload/remoção do logo), devolvendo a linha atualizada. */
+  setLogoPath(filename: string | null): Promise<StoreSettingsRow>;
 }
 
 /**

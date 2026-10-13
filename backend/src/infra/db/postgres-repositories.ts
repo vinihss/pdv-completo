@@ -16,7 +16,7 @@
  * Métodos ainda não implementados lançam `Error("not_implemented: ...")` com o
  * TODO da onda responsável — nenhum use case os consome nesta fase.
  */
-import { and, asc, count, desc, eq, inArray, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNull, lte, notInArray, or, sql, type SQL } from "drizzle-orm";
 import type { Tx } from "./client.js";
 import {
   alerts,
@@ -53,6 +53,8 @@ import type {
   CashFlowRepository,
   CatalogRepository,
   CategoryRecord,
+  CustomerOpenOrderRecord,
+  CustomerOrderHistoryRecord,
   CustomerRecord,
   CustomerRepository,
   CustomerAddressRecord,
@@ -82,9 +84,12 @@ import type {
   ProductRecord,
   PurchaseRecord,
   PurchaseRepository,
+  PixKeyType,
   StockMovementViewRecord,
   StockRepository,
   StoreSettingsRepository,
+  StoreSettingsRow,
+  StoreSettingsUpdateInput,
   TableRecord,
   TrackedStockProductRecord,
   UserRecord,
@@ -546,9 +551,10 @@ export class PostgresCustomerRepository implements CustomerRepository {
     return row ? toCustomerRecord(row) : null;
   }
 
-  async list(query: PageQuery & { search?: string }): Promise<Page<CustomerRecord>> {
+  async list(query: PageQuery & { search?: string; active?: boolean }): Promise<Page<CustomerRecord>> {
     const conditions: SQL[] = [];
     if (query.search?.trim()) conditions.push(customerSearchCondition(normalizeAccents(query.search.trim())));
+    if (query.active !== undefined) conditions.push(eq(customers.active, query.active));
     const where = conditions.length ? and(...conditions) : undefined;
 
     const rows = await this.tx.query.customers.findMany({
@@ -616,6 +622,53 @@ export class PostgresCustomerRepository implements CustomerRepository {
     if (ids.length === 0) return [];
     const rows = await this.tx.query.customers.findMany({ where: inArray(customers.id, ids) });
     return rows.map(toCustomerRecord);
+  }
+
+  // ---------- ADIÇÕES (Onda 3C — customer.usecases) ----------
+
+  /** Email exato — a unicidade (400 no use case) é o `uq_customer_email`. */
+  async findByEmail(email: string): Promise<CustomerRecord | null> {
+    const row = await this.tx.query.customers.findFirst({ where: eq(customers.email, email) });
+    return row ? toCustomerRecord(row) : null;
+  }
+
+  /** CPF exato — a unicidade (400 no use case) é o `uq_customer_cpf`. */
+  async findByCpf(cpf: string): Promise<CustomerRecord | null> {
+    const row = await this.tx.query.customers.findFirst({ where: eq(customers.cpf, cpf) });
+    return row ? toCustomerRecord(row) : null;
+  }
+
+  /**
+   * Busca leve do balcão — só ATIVOS, ordem alfabética, LIMIT 20, superfície
+   * mínima (id/nome/phone). Mesma régua da antiga `searchCustomersUsecase`.
+   */
+  async searchLight(search?: string): Promise<Array<Pick<CustomerRecord, "id" | "name" | "phone">>> {
+    const conditions: SQL[] = [eq(customers.active, true)];
+    if (search?.trim()) conditions.push(customerSearchCondition(normalizeAccents(search.trim())));
+    const rows = await this.tx.query.customers.findMany({
+      where: and(...conditions),
+      orderBy: (c, { asc: asc_ }) => asc_(c.name),
+      limit: 20,
+    });
+    return rows.map((c) => ({ id: c.id, name: c.name, phone: c.phone ?? null }));
+  }
+
+  /**
+   * Contagem de endereços dos clientes da PÁGINA em uma query agrupada —
+   * corrige o TODO do original (o GROUP BY global, sem `where`, era O(base)
+   * mesmo quando a listagem devolvia 20 linhas). `customer_id IN (ids)` dá o
+   * mesmo resultado observável para as linhas da página.
+   */
+  async countAddressesByCustomer(customerIds: Id[]): Promise<Map<Id, number>> {
+    const map = new Map<Id, number>();
+    if (customerIds.length === 0) return map;
+    const rows = await this.tx
+      .select({ customerId: customerAddresses.customerId, count: sql<number>`count(*)` })
+      .from(customerAddresses)
+      .where(inArray(customerAddresses.customerId, customerIds))
+      .groupBy(customerAddresses.customerId);
+    for (const r of rows) map.set(r.customerId, Number(r.count));
+    return map;
   }
 }
 
@@ -1006,6 +1059,130 @@ export class PostgresOrderRepository implements OrderRepository {
       .update(orderItems)
       .set({ status: "delivered" })
       .where(and(eq(orderItems.orderId, orderId), notInArray(orderItems.status, ["delivered", "cancelled"])));
+  }
+
+  // ---------- ADIÇÕES (Onda 3C — customer.usecases) ----------
+
+  /**
+   * Comandas abertas do cliente, mais antigas primeiro, com `tableNumber` por
+   * LEFT JOIN — o bloco "comanda em aberto" do detalhe do cliente.
+   */
+  async listOpenByCustomer(customerId: Id): Promise<CustomerOpenOrderRecord[]> {
+    const rows = await this.tx
+      .select({
+        id: orders.id,
+        status: orders.status,
+        openedAt: orders.openedAt,
+        tabLabel: orders.tabLabel,
+        deliveryFee: orders.deliveryFee,
+        tableNumber: restaurantTables.number,
+      })
+      .from(orders)
+      .leftJoin(restaurantTables, eq(restaurantTables.id, orders.tableId))
+      .where(and(eq(orders.customerId, customerId), eq(orders.status, "open")))
+      .orderBy(asc(orders.openedAt));
+    return rows.map((r) => ({
+      id: r.id,
+      status: r.status,
+      openedAt: r.openedAt,
+      tabLabel: r.tabLabel,
+      deliveryFee: r.deliveryFee,
+      tableNumber: r.tableNumber ?? null,
+    }));
+  }
+
+  /**
+   * Histórico paginado do cliente: `closedAt DESC NULLS LAST, openedAt DESC`
+   * (a comanda em aberto fica no fim) + contagem do conjunto filtrado. `from`/`to`
+   * já vêm RESOLVIDOS pelo use case (bordas do dia local da loja).
+   */
+  async listHistoryByCustomer(
+    customerId: Id,
+    query: { limit: number; offset: number; from?: string; to?: string },
+  ): Promise<Page<CustomerOrderHistoryRecord>> {
+    const conditions: SQL[] = [eq(orders.customerId, customerId)];
+    if (query.from !== undefined || query.to !== undefined) {
+      if (query.from) conditions.push(gte(orders.closedAt, query.from));
+      if (query.to) conditions.push(lte(orders.closedAt, query.to));
+    }
+    const where = and(...conditions);
+
+    const rows = await this.tx
+      .select({
+        id: orders.id,
+        status: orders.status,
+        openedAt: orders.openedAt,
+        closedAt: orders.closedAt,
+        tabLabel: orders.tabLabel,
+        paymentMethod: orders.paymentMethod,
+        deliveryFee: orders.deliveryFee,
+        tableNumber: restaurantTables.number,
+      })
+      .from(orders)
+      .leftJoin(restaurantTables, eq(restaurantTables.id, orders.tableId))
+      .where(where)
+      .orderBy(sql`${orders.closedAt} DESC NULLS LAST, ${orders.openedAt} DESC`)
+      .limit(query.limit)
+      .offset(query.offset);
+    const totalRow = await this.tx.select({ count: count() }).from(orders).where(where);
+
+    return {
+      data: rows.map((r) => ({
+        id: r.id,
+        status: r.status,
+        openedAt: r.openedAt,
+        closedAt: r.closedAt,
+        tabLabel: r.tabLabel,
+        paymentMethod: r.paymentMethod,
+        deliveryFee: r.deliveryFee,
+        tableNumber: r.tableNumber ?? null,
+      })),
+      total: Number(totalRow[0]?.count ?? rows.length),
+    };
+  }
+
+  /**
+   * Comandas fechadas do cliente com `closedAt` em `[from, to]` — só o que a
+   * série de consumo agrega em JS (id/closedAt/frete), sem join e sem paginar.
+   */
+  async listClosedByCustomerBetween(
+    customerId: Id,
+    from: string,
+    to: string,
+  ): Promise<Array<{ id: Id; closedAt: string | null; deliveryFee: number | null }>> {
+    const rows = await this.tx
+      .select({ id: orders.id, closedAt: orders.closedAt, deliveryFee: orders.deliveryFee })
+      .from(orders)
+      .where(
+        and(
+          eq(orders.customerId, customerId),
+          eq(orders.status, "closed"),
+          gte(orders.closedAt, from),
+          lte(orders.closedAt, to),
+        ),
+      );
+    return rows.map((r) => ({ id: r.id, closedAt: r.closedAt, deliveryFee: r.deliveryFee }));
+  }
+
+  /**
+   * Total e contagem de itens por comanda, numa query agrupada — mesmíssimo
+   * cálculo do `itemsAggregateByOrder` original (snapshot `unit_price × quantity`,
+   * excluindo `cancelled`; `itemCount` soma `quantity`, não linhas).
+   */
+  async aggregateItemsByOrders(orderIds: Id[]): Promise<Map<Id, { total: number; itemCount: number }>> {
+    const map = new Map<Id, { total: number; itemCount: number }>();
+    if (orderIds.length === 0) return map;
+    const rows = await this.tx
+      .select({
+        orderId: orderItems.orderId,
+        total: sql<number>`coalesce(sum(${orderItems.unitPrice} * ${orderItems.quantity}), 0)`,
+        itemCount: sql<number>`coalesce(sum(${orderItems.quantity}), 0)`,
+      })
+      .from(orderItems)
+      .where(and(inArray(orderItems.orderId, orderIds), sql`${orderItems.status} <> 'cancelled'`))
+      .groupBy(orderItems.orderId);
+    for (const r of rows) map.set(r.orderId, { total: Number(r.total), itemCount: Number(r.itemCount) });
+    return map;
   }
 
   // -- itens --
@@ -2129,6 +2306,42 @@ export class PostgresOutboxWriter implements OutboxWriter {
 // Delivery — store_settings (escrita) e cache de geocoding (Onda 3)
 // =====================================================================
 
+/** Linha completa do singleton `store_settings` (todas as colunas do schema). */
+function toStoreSettingsRow(s: typeof storeSettings.$inferSelect): StoreSettingsRow {
+  return {
+    id: s.id,
+    merchantName: s.merchantName,
+    merchantCity: s.merchantCity,
+    logoPath: s.logoPath,
+    brandColor: s.brandColor,
+    pixKey: s.pixKey,
+    pixKeyType: s.pixKeyType as PixKeyType,
+    usesTables: s.usesTables,
+    kitchenEnabled: s.kitchenEnabled,
+    usesDelivery: s.usesDelivery,
+    ifoodIntegrationEnabled: s.ifoodIntegrationEnabled,
+    pagarmeEnabled: s.pagarmeEnabled,
+    inventoryEnabled: s.inventoryEnabled,
+    purchaseEnabled: s.purchaseEnabled,
+    printerEnabled: s.printerEnabled,
+    printerAutoPrint: s.printerAutoPrint,
+    enabledPaymentMethods: s.enabledPaymentMethods,
+    kitchenPrepWarnMin: s.kitchenPrepWarnMin,
+    kitchenPrepUrgentMin: s.kitchenPrepUrgentMin,
+    kitchenPickupUrgentMin: s.kitchenPickupUrgentMin,
+    deliveryFee: s.deliveryFee,
+    restaurantLat: s.restaurantLat,
+    restaurantLong: s.restaurantLong,
+    freeDeliveryMin: s.freeDeliveryMin,
+    deliveryFeeTiers: s.deliveryFeeTiers,
+    deliveryPrepMinutes: s.deliveryPrepMinutes,
+    minutesPerKm: s.minutesPerKm,
+    cashClosingTolerance: s.cashClosingTolerance,
+    cashClosingRequireApprovalAbove: s.cashClosingRequireApprovalAbove,
+    cashHighValueThreshold: s.cashHighValueThreshold,
+  };
+}
+
 export class PostgresStoreSettingsRepository implements StoreSettingsRepository {
   constructor(private readonly tx: Tx) {}
 
@@ -2143,6 +2356,65 @@ export class PostgresStoreSettingsRepository implements StoreSettingsRepository 
       .update(storeSettings)
       .set({ restaurantLat: input.latitude, restaurantLong: input.longitude })
       .where(eq(storeSettings.id, "singleton"));
+  }
+
+  /** ADIÇÃO (Onda 3C): linha completa do singleton — `null` quando não existe. */
+  async findSingleton(): Promise<StoreSettingsRow | null> {
+    const row = await this.tx.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
+    return row ? toStoreSettingsRow(row) : null;
+  }
+
+  /**
+   * ADIÇÃO (Onda 3C): UPDATE de todos os campos do PUT /store-settings. O
+   * `pixKey` já chega canônico (o use case roda `canonicalizePixKey` antes) e
+   * os campos JSON chegam como estrutura — o adapter serializa (mesmos
+   * defaults de antes: `freeDeliveryMin 0`, `deliveryFeeTiers []`,
+   * `deliveryPrepMinutes 40`, `minutesPerKm 2`).
+   */
+  async update(input: StoreSettingsUpdateInput): Promise<StoreSettingsRow> {
+    const [row] = await this.tx
+      .update(storeSettings)
+      .set({
+        merchantName: input.merchantName,
+        merchantCity: input.merchantCity,
+        brandColor: input.brandColor,
+        pixKey: input.pixKey,
+        pixKeyType: input.pixKeyType,
+        usesTables: input.usesTables,
+        kitchenEnabled: input.kitchenEnabled,
+        usesDelivery: input.usesDelivery,
+        ifoodIntegrationEnabled: input.ifoodIntegrationEnabled,
+        inventoryEnabled: input.inventoryEnabled,
+        purchaseEnabled: input.purchaseEnabled,
+        printerEnabled: input.printerEnabled,
+        printerAutoPrint: input.printerAutoPrint,
+        enabledPaymentMethods: JSON.stringify(input.enabledPaymentMethods),
+        kitchenPrepWarnMin: input.kitchenPrepWarnMin,
+        kitchenPrepUrgentMin: input.kitchenPrepUrgentMin,
+        kitchenPickupUrgentMin: input.kitchenPickupUrgentMin,
+        deliveryFee: input.deliveryFee,
+        restaurantLat: input.restaurantLat ?? null,
+        restaurantLong: input.restaurantLong ?? null,
+        freeDeliveryMin: input.freeDeliveryMin ?? 0,
+        deliveryFeeTiers: JSON.stringify(input.deliveryFeeTiers ?? []),
+        deliveryPrepMinutes: input.deliveryPrepMinutes ?? 40,
+        minutesPerKm: input.minutesPerKm ?? 2,
+      })
+      .where(eq(storeSettings.id, "singleton"))
+      .returning();
+    if (!row) throw Errors.notFound("Configuração da loja");
+    return toStoreSettingsRow(row);
+  }
+
+  /** ADIÇÃO (Onda 3C): grava/limpa `logo_path` (upload/remoção do logo). */
+  async setLogoPath(filename: string | null): Promise<StoreSettingsRow> {
+    const [row] = await this.tx
+      .update(storeSettings)
+      .set({ logoPath: filename })
+      .where(eq(storeSettings.id, "singleton"))
+      .returning();
+    if (!row) throw Errors.notFound("Configuração da loja");
+    return toStoreSettingsRow(row);
   }
 }
 

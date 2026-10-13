@@ -16,7 +16,7 @@ import {
   getSelfServiceOrderStatusUsecase,
   getActiveSelfServiceOrderByPhoneUsecase,
 } from "../../infra/composition/default-usecases.js";
-import { getStoreSettingsUsecase } from "../../application/store-settings.usecases.js";
+import { getStoreSettingsUsecase } from "../../infra/composition/default-usecases.js";
 import { Errors } from "../../domain/errors.js";
 
 const addressFields = {

@@ -30,7 +30,7 @@ import {
   clearCustomerPhotoUsecase,
   listCustomerOrdersUsecase,
   customerSummaryUsecase,
-} from "../../application/customer.usecases.js";
+} from "../../infra/composition/default-usecases.js";
 import { imageExtByMime } from "./image-ext.js";
 
 const customerSchema = z.object({

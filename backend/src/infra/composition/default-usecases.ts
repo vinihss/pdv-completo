@@ -39,6 +39,8 @@ import { createSelfServiceDeliveryUsecases } from "../../application/self-servic
 import { createOrderIntakeUsecases } from "../../application/self-service/order-intake.usecase.js";
 import { createAuditLogUsecases } from "../../application/audit-log.usecases.js";
 import { createDeliveryUsecases } from "../../application/delivery/calcular-entrega.usecase.js";
+import { createStoreSettingsUsecases } from "../../application/store-settings.usecases.js";
+import { createCustomerUsecases } from "../../application/customer.usecases.js";
 import type { TenantContext } from "../../application/ports/tenant-context.js";
 import type { GeocodingService, RoutingService } from "../../application/ports/effects.js";
 
@@ -199,6 +201,26 @@ const deliveryInstances = createDeliveryUsecases({
   },
 });
 
+// store-settings (Onda 3C) e customer (Onda 3C) — factories puras. O geocoding
+// usa o MESMO seam do contexto delivery (`setMapServices`), então uma troca de
+// implementação nos testes vale para os dois.
+const storeSettingsInstances = createStoreSettingsUsecases({
+  uow,
+  tenant,
+  cache,
+  storage,
+  geocoding: {
+    reverseGeocode: (coords) => geocodingService.reverseGeocode(coords),
+    forwardGeocode: (address) => geocodingService.forwardGeocode(address),
+  },
+});
+
+const customerInstances = createCustomerUsecases({
+  uow,
+  tenant,
+  storage,
+});
+
 // ---------------------------------------------------------------------------
 // Exports legados — mesma assinatura de antes da migração (o `deps` some)
 // ---------------------------------------------------------------------------
@@ -293,6 +315,23 @@ export const listAuditLogUsecase = auditLogInstances.listAuditLogUsecase;
 export const calcularEntregaUsecase = deliveryInstances.calcularEntregaUsecase;
 export const getDeliveryPricingUsecase = deliveryInstances.getDeliveryPricingUsecase;
 export const geocodeRestaurantUsecase = deliveryInstances.geocodeRestaurantUsecase;
+
+// store-settings
+export const getStoreSettingsUsecase = storeSettingsInstances.getStoreSettingsUsecase;
+export const updateStoreSettingsUsecase = storeSettingsInstances.updateStoreSettingsUsecase;
+export const saveStoreLogoUsecase = storeSettingsInstances.saveStoreLogoUsecase;
+export const clearStoreLogoUsecase = storeSettingsInstances.clearStoreLogoUsecase;
+
+// customer
+export const listCustomersUsecase = customerInstances.listCustomersUsecase;
+export const getCustomerDetailUsecase = customerInstances.getCustomerDetailUsecase;
+export const createCustomerUsecase = customerInstances.createCustomerUsecase;
+export const updateCustomerUsecase = customerInstances.updateCustomerUsecase;
+export const searchCustomersUsecase = customerInstances.searchCustomersUsecase;
+export const saveCustomerPhotoUsecase = customerInstances.saveCustomerPhotoUsecase;
+export const clearCustomerPhotoUsecase = customerInstances.clearCustomerPhotoUsecase;
+export const listCustomerOrdersUsecase = customerInstances.listCustomerOrdersUsecase;
+export const customerSummaryUsecase = customerInstances.customerSummaryUsecase;
 
 // getSettings — legado (o port StoreSettingsReader é o caminho novo)
 export const getSettings = () => new PostgresStoreSettingsReader().get();

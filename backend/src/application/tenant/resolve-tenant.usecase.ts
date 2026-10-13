@@ -22,7 +22,7 @@ import { pool } from "../../infra/db/client.js";
 import { runInTenantScope } from "../../infra/db/tenant-context.js";
 import { findTenantByCustomDomain, findTenantBySlug } from "../../infra/tenant/registry.js";
 import { resolveTenantSchema } from "../../infra/storage/index.js";
-import { getStoreSettingsUsecase } from "../store-settings.usecases.js";
+import { getStoreSettingsUsecase } from "../../infra/composition/default-usecases.js";
 
 /**
  * Slug do tenant default (apex, `localhost`, rótulo reservado ou kill-switch

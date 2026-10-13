@@ -46,7 +46,7 @@ import { refundRoutes } from "./routes/refund.routes.js";
 import { settlementRoutes } from "./routes/settlement.routes.js";
 import { startIfoodSync } from "../integrations/ifood/worker.js";
 import { startPagarmeWorkers } from "../integrations/pagarme/worker.js";
-import { getStoreSettingsUsecase } from "../application/store-settings.usecases.js";
+import { getStoreSettingsUsecase } from "../infra/composition/default-usecases.js";
 import { listActiveTenants } from "../infra/tenant/registry.js";
 import { tenantMiddleware } from "./middlewares/tenant.middleware.js";
 import { enterTenantScope, exitTenantScope } from "../infra/db/tenant-context.js";
