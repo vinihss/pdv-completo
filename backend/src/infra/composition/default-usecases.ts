@@ -42,9 +42,11 @@ import { createDeliveryUsecases } from "../../application/delivery/calcular-entr
 import { createStoreSettingsUsecases } from "../../application/store-settings/store-settings.usecases.js";
 import { createCustomerUsecases } from "../../application/customer/customer.usecases.js";
 import { createCashFlowUsecases } from "../../application/cash-flow/cash-flow.usecases.js";
-import { createReportUsecases } from "../../application/report.usecases.js";
-import { createOverviewReportUsecases } from "../../application/report-overview.usecases.js";
-import { createDeliveriesReportUsecases } from "../../application/report-deliveries.usecases.js";
+import {
+  createReportUsecases,
+  createOverviewReportUsecases,
+  createDeliveriesReportUsecases,
+} from "../../application/report/report.usecases.js";
 import { createPurchaseUsecases } from "../../application/purchase/purchase.usecases.js";
 import { createRefundUsecases } from "../../application/refund/refund.usecases.js";
 import { createProvisioningUsecases } from "../../application/provisioning/provisioning.usecases.js";

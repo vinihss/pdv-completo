@@ -3,7 +3,7 @@
  * da tela de detalhe.
  *
  * REGRA DE VENDA deliberadamente igual à da visão geral
- * (`report-overview.usecases.ts`): só comandas FECHADAS, total pela soma dos
+ * (`report/usecases/overview-report.usecase.ts`): só comandas FECHADAS, total pela soma dos
  * itens no snapshot `unit_price` mais a taxa de entrega. Se os dois gráficos
  * discordarem sobre as mesmas comandas, o gerente perde a confiança nos dois —
  * e um cliente cujo consumo some do gráfico enquanto aparece no relatório é
@@ -25,7 +25,7 @@
  */
 import { Errors } from "../../../domain/errors.js";
 import { round2 } from "../../../domain/money.js";
-import { bucketKeyFor, bucketLabel, fillBuckets } from "../../report-overview.usecases.js";
+import { bucketKeyFor, bucketLabel, fillBuckets } from "../../report/shared/report-buckets.js";
 import { dayEnd, dayStart, isValidTz, parseTzOffset } from "../../cash-flow/day-bounds.js";
 import type { CustomerDependencies } from "../ports/customer-dependencies.js";
 import { normalizeDays } from "../shared/customer-helpers.js";
