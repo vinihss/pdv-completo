@@ -16,9 +16,12 @@ import {
   PostgresOutboxWriter,
   PostgresPaymentRepository,
   PostgresPurchaseRepository,
+  PostgresRefundRepository,
   PostgresReportRepository,
+  PostgresSettlementRepository,
   PostgresStockRepository,
   PostgresStoreSettingsRepository,
+  PostgresSupplierRepository,
   PostgresUserRepository,
 } from "./postgres-repositories.js";
 
@@ -42,6 +45,9 @@ export function createPostgresTenantSession(tx: Tx): TenantSession {
     stock: new PostgresStockRepository(tx),
     cashFlow: new PostgresCashFlowRepository(tx),
     purchases: new PostgresPurchaseRepository(tx),
+    suppliers: new PostgresSupplierRepository(tx),
+    refunds: new PostgresRefundRepository(tx),
+    settlements: new PostgresSettlementRepository(tx),
     payments: new PostgresPaymentRepository(tx),
     deliveries: new PostgresDeliveryRepository(tx),
     courierLocations: new PostgresCourierLocationRepository(tx),

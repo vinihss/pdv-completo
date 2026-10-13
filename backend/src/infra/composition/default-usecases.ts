@@ -44,6 +44,9 @@ import { createCustomerUsecases } from "../../application/customer.usecases.js";
 import { createReportUsecases } from "../../application/report.usecases.js";
 import { createOverviewReportUsecases } from "../../application/report-overview.usecases.js";
 import { createDeliveriesReportUsecases } from "../../application/report-deliveries.usecases.js";
+import { createPurchaseUsecases } from "../../application/purchase/purchase.usecases.js";
+import { createRefundUsecases } from "../../application/refund/refund.usecases.js";
+import { createSettlementUsecases } from "../../application/settlement/settlement.usecases.js";
 import type { TenantContext } from "../../application/ports/tenant-context.js";
 import type { GeocodingService, RoutingService } from "../../application/ports/effects.js";
 
@@ -230,6 +233,12 @@ const reportInstances = createReportUsecases({ uow, tenant, cache });
 const overviewReportInstances = createOverviewReportUsecases({ uow, tenant, cache });
 const deliveriesReportInstances = createDeliveriesReportUsecases({ uow, tenant, cache });
 
+// Financeiro (Onda financeiro) — compras/fornecedores, estornos do balcão
+// (Bloco 4) e liquidações iFood (Bloco 5). Factories puras (uow + tenant).
+const purchaseInstances = createPurchaseUsecases({ uow, tenant });
+const refundInstances = createRefundUsecases({ uow, tenant });
+const settlementInstances = createSettlementUsecases({ uow, tenant });
+
 // ---------------------------------------------------------------------------
 // Exports legados — mesma assinatura de antes da migração (o `deps` some)
 // ---------------------------------------------------------------------------
@@ -346,6 +355,26 @@ export const customerSummaryUsecase = customerInstances.customerSummaryUsecase;
 export const salesReportUsecase = reportInstances.salesReportUsecase;
 export const overviewReportUsecase = overviewReportInstances.overviewReportUsecase;
 export const deliveriesReportUsecase = deliveriesReportInstances.deliveriesReportUsecase;
+
+// compras/fornecedores + valorização do estoque (Onda financeiro)
+export const listSuppliersUsecase = purchaseInstances.listSuppliersUsecase;
+export const createSupplierUsecase = purchaseInstances.createSupplierUsecase;
+export const updateSupplierUsecase = purchaseInstances.updateSupplierUsecase;
+export const createPurchaseUsecase = purchaseInstances.createPurchaseUsecase;
+export const listPurchasesUsecase = purchaseInstances.listPurchasesUsecase;
+export const getPurchaseUsecase = purchaseInstances.getPurchaseUsecase;
+export const inventoryValuationUsecase = purchaseInstances.inventoryValuationUsecase;
+export const averageCostOf = purchaseInstances.averageCostOf;
+
+// estornos do balcão (Bloco 4 — Onda financeiro)
+export const refundOrderPaymentUsecase = refundInstances.refundOrderPaymentUsecase;
+export const listOrderRefundsUsecase = refundInstances.listOrderRefundsUsecase;
+
+// liquidações iFood (Bloco 5 — Onda financeiro)
+export const registerSettlementUsecase = settlementInstances.registerSettlementUsecase;
+export const markSettledUsecase = settlementInstances.markSettledUsecase;
+export const listSettlementsUsecase = settlementInstances.listSettlementsUsecase;
+export const getSettlementByOrderIdUsecase = settlementInstances.getSettlementByOrderIdUsecase;
 
 // getSettings — legado (o port StoreSettingsReader é o caminho novo)
 export const getSettings = () => new PostgresStoreSettingsReader().get();

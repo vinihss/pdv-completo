@@ -441,6 +441,14 @@ export interface CatalogRepository {
    * inexistente fica de fora e `addItems` responde 404 depois.
    */
   findProductsByIds(ids: Id[]): Promise<ProductRecord[]>;
+
+  // ---------- ADIÇÃO (Onda financeiro — compras) ----------
+  /**
+   * Espelha o custo médio móvel vigente em `product.cost_price` (display).
+   * O ledger continua a fonte da verdade; a coluna é leitura conveniente —
+   * mesma disciplina do `payment_method` denormalizado.
+   */
+  setCostPrice(productId: Id, costPrice: number): Promise<void>;
 }
 
 export interface CustomerRepository {
@@ -671,6 +679,16 @@ export interface StockRepository {
     rows: TrackedStockProductRecord[];
     total: number;
   }>;
+  /**
+   * ADIÇÃO (Onda financeiro — valorização): produtos rastreando estoque para
+   * `GET /inventory/value`. Mesma forma do `listTrackedProducts`, mas com a
+   * busca `lower(name) LIKE lower(%term%)` do `inventoryValuationUsecase`
+   * original (sem `unaccent`) — a valorização preserva a régua exata.
+   */
+  listValuationProducts(query: { search?: string; limit: number; offset: number }): Promise<{
+    rows: TrackedStockProductRecord[];
+    total: number;
+  }>;
   /** Linhas de `GET /stock/movements` (produto/usuário resolvidos). */
   listMovements(query: { productId?: Id; limit: number; offset: number }): Promise<{
     rows: StockMovementViewRecord[];
@@ -705,11 +723,197 @@ export interface CashFlowRepository {
   close(input: { drawerId: Id; actorId: Id; countedAmount: number }): Promise<void>;
 }
 
+// ---------- ADIÇÕES (Onda financeiro — compras, estornos e liquidações) ----------
+
+/**
+ * ADIÇÃO (Onda financeiro — compras): fornecedor (`supplier`). O trim/merge dos
+ * campos é do use case; o adapter grava o valor resolvido.
+ */
+export interface SupplierRecord {
+  id: Id;
+  name: string;
+  phone: string | null;
+  taxId: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SupplierRepository {
+  /** Lista (opcionalmente só ativos) `name ASC` + total. */
+  list(query: { activeOnly?: boolean; limit: number; offset: number }): Promise<Page<SupplierRecord>>;
+  findById(id: Id): Promise<SupplierRecord | null>;
+  create(input: { name: string; phone?: string | null; taxId?: string | null }): Promise<SupplierRecord>;
+  /** UPDATE dos campos JÁ resolvidos pelo use case (merge + trim são domínio). */
+  update(
+    id: Id,
+    input: { name: string; phone: string | null; taxId: string | null; active: boolean },
+  ): Promise<SupplierRecord>;
+}
+
+/** ADIÇÃO (Onda financeiro — compras): linha da listagem (`GET /purchases`). */
+export interface PurchaseListItemRecord {
+  id: Id;
+  invoiceNumber: string | null;
+  issuedOn: string | null;
+  supplierId: Id | null;
+  supplierName: string | null;
+  note: string | null;
+  total: number;
+  createdByName: string | null;
+  createdAt: string;
+  itemCount: number;
+}
+
+/** ADIÇÃO (Onda financeiro — compras): cabeçalho do detalhe (`GET /purchases/:id`). */
+export interface PurchaseDetailRecord {
+  id: Id;
+  invoiceNumber: string | null;
+  issuedOn: string | null;
+  note: string | null;
+  total: number;
+  supplierId: Id | null;
+  supplierName: string | null;
+  createdByName: string | null;
+  createdAt: string;
+}
+
+/** ADIÇÃO (Onda financeiro — compras): linha do detalhe, com nome do produto. */
+export interface PurchaseItemViewRecord {
+  id: Id;
+  productId: Id;
+  productName: string | null;
+  quantity: number;
+  unitCost: number;
+  lineTotal: number;
+  batchNo: string | null;
+  expiryDate: string | null;
+}
+
 export interface PurchaseRepository {
   findById(id: Id): Promise<PurchaseRecord | null>;
   create(input: { supplierId?: Id | null; actorId: Id }): Promise<PurchaseRecord>;
   addItem(input: { purchaseId: Id; productId: Id; quantity: number; unitCost: number }): Promise<void>;
   finalize(id: Id): Promise<void>;
+
+  // ---------- ADIÇÃO (Onda financeiro — compras) ----------
+  /** INSERT do documento completo (`createPurchaseUsecase`) com todos os cabeçalhos. */
+  createDocument(input: {
+    supplierId?: Id | null;
+    invoiceNumber?: string | null;
+    issuedOn?: string | null;
+    note?: string | null;
+    total: number;
+    actorId: Id;
+  }): Promise<PurchaseRecord>;
+  /** INSERT da linha (`lineTotal` já arredondado pelo use case). Devolve id + lineTotal. */
+  insertItem(input: {
+    purchaseId: Id;
+    productId: Id;
+    quantity: number;
+    unitCost: number;
+    lineTotal: number;
+    batchNo?: string | null;
+    expiryDate?: string | null;
+    actorId: Id;
+  }): Promise<{ id: Id; lineTotal: number }>;
+  /** Listagem (`createdAt DESC`, fornecedor/usuário resolvidos, contagem de linhas) + total. */
+  list(query: { limit: number; offset: number }): Promise<Page<PurchaseListItemRecord>>;
+  /** Cabeçalho do detalhe (fornecedor/usuário resolvidos) ou null. */
+  findDetail(id: Id): Promise<PurchaseDetailRecord | null>;
+  /** Linhas do documento com nome do produto (`products.name ASC, purchase_item.seq ASC`). */
+  listItems(id: Id): Promise<PurchaseItemViewRecord[]>;
+}
+
+/**
+ * ADIÇÃO (Onda financeiro — estornos do balcão, Bloco 4). Estorno rastreável:
+ * a venda estornada vira linha negativa no relatório, nunca desaparece. A régua
+ * de valores/status é do use case; o adapter lê/grava `order_refund` e agrega.
+ */
+export interface RefundRecord {
+  id: Id;
+  orderId: Id;
+  orderPaymentId: Id;
+  amount: number;
+  method: PaymentMethodKind;
+  reason: string;
+  status: string;
+  requestedBy: Id;
+  requestedAt: string;
+  settledAt: string | null;
+  notes: string | null;
+  createdAt: string;
+}
+
+export interface RefundRepository {
+  /**
+   * Soma dos estornos ATIVOS (`requested`+`settled`) de uma linha de pagamento —
+   * teto do `refundOrderPaymentUsecase` (o round2 é do use case).
+   */
+  sumActiveByPayment(paymentId: Id): Promise<number>;
+  create(input: {
+    id: Id;
+    orderId: Id;
+    orderPaymentId: Id;
+    amount: number;
+    method: PaymentMethodKind;
+    reason: string;
+    status: string;
+    requestedBy: Id;
+    requestedAt: string;
+    settledAt: string | null;
+    notes: string | null;
+  }): Promise<RefundRecord>;
+  /** Estornos do pedido, em ordem de criação (`createdAt ASC`). */
+  listByOrder(orderId: Id): Promise<RefundRecord[]>;
+}
+
+/**
+ * ADIÇÃO (Onda financeiro — liquidações iFood, Bloco 5). Separa receita bruta
+ * de repasse líquido; o settlement é opcional fora do iFood (fallback usa o
+ * total da comanda). A régua de valores/status é do use case; o adapter só
+ * lê/grava `order_settlement` (UNIQUE em `order_id`).
+ */
+export interface SettlementRecord {
+  id: Id;
+  orderId: Id;
+  channel: string;
+  grossAmount: number;
+  commissionAmount: number;
+  marketplaceFee: number;
+  deliveryFeeSubsidy: number;
+  payoutAmount: number;
+  payoutStatus: string;
+  payoutExpectedAt: string | null;
+  payoutSettledAt: string | null;
+  externalRef: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SettlementRepository {
+  findById(id: Id): Promise<SettlementRecord | null>;
+  findByOrderId(orderId: Id): Promise<SettlementRecord | null>;
+  create(input: {
+    id: Id;
+    orderId: Id;
+    channel: string;
+    grossAmount: number;
+    commissionAmount: number;
+    marketplaceFee: number;
+    deliveryFeeSubsidy: number;
+    payoutAmount: number;
+    payoutExpectedAt: string | null;
+    externalRef: string | null;
+    notes: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }): Promise<SettlementRecord>;
+  /** UPDATE de `payout_status='paid'` + `payout_settled_at`/`updated_at`. */
+  markSettled(id: Id, input: { payoutSettledAt: string; updatedAt: string }): Promise<SettlementRecord>;
+  /** Filtros opcionais (`channel`/`payoutStatus`, janela `createdAt`), `createdAt ASC`. */
+  list(query: { channel?: string; payoutStatus?: string; from?: string; to?: string }): Promise<SettlementRecord[]>;
 }
 
 export interface PaymentRepository {

@@ -49,7 +49,7 @@ const EXEMPT: Record<string, readonly string[]> = {
 const KNOWN_VIOLATIONS: readonly string[] = [
   // ------------------------------------------------------------------
   // application: use cases ainda acoplados a infra/integrations/config e
-  // ao Drizzle (24 entradas). Migram use case a use case; ao migrar um, apague
+  // ao Drizzle (18 entradas). Migram use case a use case; ao migrar um, apague
   // as linhas dele — a lista só DIMINUI.
   //
   // Auditoria desta onda (delivery/manager-delivery-status/order-intake):
@@ -76,12 +76,6 @@ const KNOWN_VIOLATIONS: readonly string[] = [
   "src/application/provisioning/provisioning.usecases.ts :: application :: dir:config",
   "src/application/provisioning/provisioning.usecases.ts :: application :: dir:infra",
   "src/application/provisioning/provisioning.usecases.ts :: application :: pkg:drizzle-orm",
-  "src/application/purchase/purchase.usecases.ts :: application :: dir:infra",
-  "src/application/purchase/purchase.usecases.ts :: application :: pkg:drizzle-orm",
-  "src/application/refund/refund.usecases.ts :: application :: dir:infra",
-  "src/application/refund/refund.usecases.ts :: application :: pkg:drizzle-orm",
-  "src/application/settlement/settlement.usecases.ts :: application :: dir:infra",
-  "src/application/settlement/settlement.usecases.ts :: application :: pkg:drizzle-orm",
   "src/application/tenant/resolve-tenant.usecase.ts :: application :: dir:infra",
   "src/application/user.usecases.ts :: application :: dir:infra",
   "src/application/user.usecases.ts :: application :: pkg:drizzle-orm",

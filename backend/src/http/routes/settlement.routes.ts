@@ -7,7 +7,7 @@ import {
   markSettledUsecase,
   listSettlementsUsecase,
   getSettlementByOrderIdUsecase,
-} from "../../application/settlement/settlement.usecases.js";
+} from "../../infra/composition/default-usecases.js";
 
 // ============================================================================
 // Rotas de settlement iFood (Bloco 5 ROADMAP-CAIXA.md)

@@ -19,8 +19,8 @@ import {
   listStockUsecase,
   getStockMovementsUsecase,
   registerStockMovementUsecase,
+  inventoryValuationUsecase,
 } from "../../infra/composition/default-usecases.js";
-import { inventoryValuationUsecase } from "../../application/purchase/purchase.usecases.js";
 import { withIdempotency } from "../middlewares/idempotency.middleware.js";
 
 // Movimento manual de estoque — manager. purchase: entrada (+qty);

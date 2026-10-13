@@ -39,13 +39,17 @@ import {
   outboxEvents,
   payments,
   products,
+  purchaseItems,
   purchases,
   restaurantTables,
   stockMovements,
   storeSettings,
+  suppliers,
   users,
 } from "./schema.js";
 import { isUniqueViolationOn } from "./errors.js";
+import type { OrderRefundStatus } from "../../domain/refund.js";
+import type { SettlementPayoutStatus } from "../../domain/settlement.js";
 import type {
   AlertRecord,
   AlertRepository,
@@ -86,6 +90,15 @@ import type {
   ProductRecord,
   PurchaseRecord,
   PurchaseRepository,
+  PurchaseDetailRecord,
+  PurchaseItemViewRecord,
+  PurchaseListItemRecord,
+  RefundRecord,
+  RefundRepository,
+  SettlementRecord,
+  SettlementRepository,
+  SupplierRecord,
+  SupplierRepository,
   PixKeyType,
   ReportClosedOrderRow,
   ReportDeliveryRow,
@@ -516,6 +529,15 @@ export class PostgresCatalogRepository implements CatalogRepository {
     if (ids.length === 0) return [];
     const rows = await this.tx.query.products.findMany({ where: inArray(products.id, ids) });
     return rows.map(toProductRecord);
+  }
+
+  /**
+   * ADIÇÃO (Onda financeiro — compras): espelha o custo médio móvel corrente em
+   * `product.cost_price` (`createPurchaseUsecase`). Não toca `updated_at` — o
+   * original também não; a coluna é display.
+   */
+  async setCostPrice(productId: Id, costPrice: number): Promise<void> {
+    await this.tx.update(products).set({ costPrice }).where(eq(products.id, productId));
   }
 }
 
@@ -1562,6 +1584,46 @@ export class PostgresStockRepository implements StockRepository {
     };
   }
 
+  /**
+   * ADIÇÃO (Onda financeiro — valorização): mesma forma de `listTrackedProducts`,
+   * mas com a busca ORIGINAL do `inventoryValuationUsecase`
+   * (`lower(name) LIKE lower(%term%)`, sem `unaccent`) — preserva a régua exata
+   * de `GET /inventory/value`.
+   */
+  async listValuationProducts(query: { search?: string; limit: number; offset: number }): Promise<{
+    rows: TrackedStockProductRecord[];
+    total: number;
+  }> {
+    const conditions: SQL[] = [eq(products.trackStock, true)];
+    if (query.search) {
+      conditions.push(sql`lower(${products.name}) like lower(${`%${query.search}%`})`);
+    }
+    const where = and(...conditions);
+
+    const rows = await this.tx.query.products.findMany({
+      where,
+      limit: query.limit,
+      offset: query.offset,
+      orderBy: (p, { asc: asc_ }) => asc_(p.name),
+    });
+    const totalRow = await this.tx.select({ count: count() }).from(products).where(where);
+    const categoryNames = await this.tx.query.categories.findMany({ columns: { id: true, name: true } });
+    const catMap = new Map(categoryNames.map((c) => [c.id, c.name]));
+
+    return {
+      rows: rows.map((p) => ({
+        productId: p.id,
+        name: p.name,
+        categoryId: p.categoryId,
+        categoryName: p.categoryId ? catMap.get(p.categoryId) ?? null : null,
+        unit: p.unit,
+        costPrice: p.costPrice,
+        lowStockThreshold: p.lowStockThreshold,
+      })),
+      total: Number(totalRow[0]?.count ?? rows.length),
+    };
+  }
+
   /** Linhas de `GET /stock/movements` (produto/usuário resolvidos, `createdAt DESC`). */
   async listMovements(query: { productId?: Id; limit: number; offset: number }): Promise<{
     rows: StockMovementViewRecord[];
@@ -1710,6 +1772,77 @@ export class PostgresCashFlowRepository implements CashFlowRepository {
 }
 
 // =====================================================================
+// Fornecedores
+// =====================================================================
+
+function toSupplierRecord(s: typeof suppliers.$inferSelect): SupplierRecord {
+  return {
+    id: s.id,
+    name: s.name,
+    phone: s.phone,
+    taxId: s.taxId,
+    active: s.active,
+    createdAt: s.createdAt,
+    updatedAt: s.updatedAt,
+  };
+}
+
+export class PostgresSupplierRepository implements SupplierRepository {
+  constructor(private readonly tx: Tx) {}
+
+  /** `GET /suppliers` — `active_only`, `name ASC`, paginação + total. */
+  async list(query: { activeOnly?: boolean; limit: number; offset: number }): Promise<Page<SupplierRecord>> {
+    const where = query.activeOnly ? eq(suppliers.active, true) : undefined;
+    const rows = await this.tx.query.suppliers.findMany({
+      where,
+      limit: query.limit,
+      offset: query.offset,
+      orderBy: (s, { asc: asc_ }) => asc_(s.name),
+    });
+    const totalRow = await this.tx.select({ count: count() }).from(suppliers).where(where);
+    return { data: rows.map(toSupplierRecord), total: Number(totalRow[0]?.count ?? rows.length) };
+  }
+
+  async findById(id: Id): Promise<SupplierRecord | null> {
+    const row = await this.tx.query.suppliers.findFirst({ where: eq(suppliers.id, id) });
+    return row ? toSupplierRecord(row) : null;
+  }
+
+  async create(input: { name: string; phone?: string | null; taxId?: string | null }): Promise<SupplierRecord> {
+    const [row] = await this.tx
+      .insert(suppliers)
+      .values({
+        name: input.name,
+        phone: input.phone ?? null,
+        taxId: input.taxId ?? null,
+      })
+      .returning();
+    if (!row) throw Errors.validationFailed({ field: "name" });
+    return toSupplierRecord(row);
+  }
+
+  /** UPDATE dos campos resolvidos pelo use case; `updated_at` é carimbado aqui. */
+  async update(
+    id: Id,
+    input: { name: string; phone: string | null; taxId: string | null; active: boolean },
+  ): Promise<SupplierRecord> {
+    const [row] = await this.tx
+      .update(suppliers)
+      .set({
+        name: input.name,
+        phone: input.phone,
+        taxId: input.taxId,
+        active: input.active,
+        updatedAt: sql`(current_timestamp)`,
+      })
+      .where(eq(suppliers.id, id))
+      .returning();
+    if (!row) throw Errors.notFound("Fornecedor");
+    return toSupplierRecord(row);
+  }
+}
+
+// =====================================================================
 // Compras
 // =====================================================================
 
@@ -1758,6 +1891,323 @@ export class PostgresPurchaseRepository implements PurchaseRepository {
   // (documento + linhas + ledger são atômicos em `createPurchaseUsecase`).
   async finalize(_id: Id): Promise<void> {
     return notImplemented("PurchaseRepository.finalize — semântica a definir na onda de purchase");
+  }
+
+  // ---------- ADIÇÃO (Onda financeiro — compras) ----------
+
+  /** INSERT do documento com todos os cabeçalhos (`createPurchaseUsecase`). */
+  async createDocument(input: {
+    supplierId?: Id | null;
+    invoiceNumber?: string | null;
+    issuedOn?: string | null;
+    note?: string | null;
+    total: number;
+    actorId: Id;
+  }): Promise<PurchaseRecord> {
+    const [row] = await this.tx
+      .insert(purchases)
+      .values({
+        supplierId: input.supplierId ?? null,
+        invoiceNumber: input.invoiceNumber ?? null,
+        issuedOn: input.issuedOn ?? null,
+        note: input.note ?? null,
+        total: input.total,
+        createdBy: input.actorId,
+      })
+      .returning();
+    if (!row) throw Errors.validationFailed({ field: "supplierId" });
+    return toPurchaseRecord(row);
+  }
+
+  /** INSERT de uma linha do documento (`lineTotal` já arredondado pelo use case). */
+  async insertItem(input: {
+    purchaseId: Id;
+    productId: Id;
+    quantity: number;
+    unitCost: number;
+    lineTotal: number;
+    batchNo?: string | null;
+    expiryDate?: string | null;
+    actorId: Id;
+  }): Promise<{ id: Id; lineTotal: number }> {
+    const [row] = await this.tx
+      .insert(purchaseItems)
+      .values({
+        purchaseId: input.purchaseId,
+        productId: input.productId,
+        quantity: input.quantity,
+        unitCost: input.unitCost,
+        lineTotal: input.lineTotal,
+        batchNo: input.batchNo ?? null,
+        expiryDate: input.expiryDate ?? null,
+        createdBy: input.actorId,
+      })
+      .returning();
+    if (!row) throw Errors.validationFailed({ field: "purchaseId" });
+    return { id: row.id, lineTotal: row.lineTotal };
+  }
+
+  /** `GET /purchases` — fornecedor/usuário resolvidos + contagem de linhas, `createdAt DESC` + total. */
+  async list(query: { limit: number; offset: number }): Promise<Page<PurchaseListItemRecord>> {
+    const rows = await this.tx
+      .select({
+        id: purchases.id,
+        invoiceNumber: purchases.invoiceNumber,
+        issuedOn: purchases.issuedOn,
+        supplierId: purchases.supplierId,
+        supplierName: suppliers.name,
+        note: purchases.note,
+        total: purchases.total,
+        createdByName: users.name,
+        createdAt: purchases.createdAt,
+        itemCount: sql<number>`count(${purchaseItems.id})::int`,
+      })
+      .from(purchases)
+      .leftJoin(suppliers, eq(suppliers.id, purchases.supplierId))
+      .leftJoin(users, eq(users.id, purchases.createdBy))
+      .leftJoin(purchaseItems, eq(purchaseItems.purchaseId, purchases.id))
+      .groupBy(purchases.id)
+      .orderBy(desc(purchases.createdAt))
+      .limit(query.limit)
+      .offset(query.offset);
+
+    const totalRow = await this.tx.select({ count: count() }).from(purchases);
+    return { data: rows, total: Number(totalRow[0]?.count ?? rows.length) };
+  }
+
+  /** `GET /purchases/:id` — cabeçalho com fornecedor/usuário resolvidos, ou null. */
+  async findDetail(id: Id): Promise<PurchaseDetailRecord | null> {
+    const [row] = await this.tx
+      .select({
+        id: purchases.id,
+        invoiceNumber: purchases.invoiceNumber,
+        issuedOn: purchases.issuedOn,
+        note: purchases.note,
+        total: purchases.total,
+        supplierId: purchases.supplierId,
+        supplierName: suppliers.name,
+        createdByName: users.name,
+        createdAt: purchases.createdAt,
+      })
+      .from(purchases)
+      .leftJoin(suppliers, eq(suppliers.id, purchases.supplierId))
+      .leftJoin(users, eq(users.id, purchases.createdBy))
+      .where(eq(purchases.id, id));
+    return row ?? null;
+  }
+
+  /** Linhas do documento com nome do produto; `products.name ASC, purchase_item.seq ASC`. */
+  async listItems(id: Id): Promise<PurchaseItemViewRecord[]> {
+    return this.tx
+      .select({
+        id: purchaseItems.id,
+        productId: purchaseItems.productId,
+        productName: products.name,
+        quantity: purchaseItems.quantity,
+        unitCost: purchaseItems.unitCost,
+        lineTotal: purchaseItems.lineTotal,
+        batchNo: purchaseItems.batchNo,
+        expiryDate: purchaseItems.expiryDate,
+      })
+      .from(purchaseItems)
+      .leftJoin(products, eq(products.id, purchaseItems.productId))
+      .where(eq(purchaseItems.purchaseId, id))
+      // Nome do produto e, no empate (mesmo produto em duas linhas), a ordem de
+      // inserção — é como o gerente digitou o documento.
+      .orderBy(products.name, purchaseItems.seq);
+  }
+}
+
+// =====================================================================
+// Estornos do balcão (order_refund — Bloco 4)
+// =====================================================================
+
+function toRefundRecord(r: typeof orderRefunds.$inferSelect): RefundRecord {
+  return {
+    id: r.id,
+    orderId: r.orderId,
+    orderPaymentId: r.orderPaymentId,
+    amount: r.amount,
+    method: r.method,
+    reason: r.reason,
+    status: r.status,
+    requestedBy: r.requestedBy,
+    requestedAt: r.requestedAt,
+    settledAt: r.settledAt,
+    notes: r.notes,
+    createdAt: r.createdAt,
+  };
+}
+
+export class PostgresRefundRepository implements RefundRepository {
+  constructor(private readonly tx: Tx) {}
+
+  /** Soma dos estornos ativos (`requested`+`settled`) de uma linha de pagamento. */
+  async sumActiveByPayment(paymentId: Id): Promise<number> {
+    const result = await this.tx
+      .select({ total: sql<number>`coalesce(sum(${orderRefunds.amount}), 0)` })
+      .from(orderRefunds)
+      .where(
+        and(
+          eq(orderRefunds.orderPaymentId, paymentId),
+          inArray(orderRefunds.status, ["requested", "settled"]),
+        ),
+      );
+    return result[0]?.total ?? 0;
+  }
+
+  async create(input: {
+    id: Id;
+    orderId: Id;
+    orderPaymentId: Id;
+    amount: number;
+    method: "cash" | "card" | "pix" | "other";
+    reason: string;
+    status: string;
+    requestedBy: Id;
+    requestedAt: string;
+    settledAt: string | null;
+    notes: string | null;
+  }): Promise<RefundRecord> {
+    const [row] = await this.tx
+      .insert(orderRefunds)
+      .values({
+        id: input.id,
+        orderId: input.orderId,
+        orderPaymentId: input.orderPaymentId,
+        amount: input.amount,
+        method: input.method,
+        reason: input.reason,
+        status: input.status as OrderRefundStatus,
+        requestedBy: input.requestedBy,
+        requestedAt: input.requestedAt,
+        settledAt: input.settledAt,
+        notes: input.notes,
+      })
+      .returning();
+    if (!row) throw Errors.validationFailed({ field: "orderPaymentId" });
+    return toRefundRecord(row);
+  }
+
+  /** `GET /orders/:id/refunds` — ordem de criação. */
+  async listByOrder(orderId: Id): Promise<RefundRecord[]> {
+    const rows = await this.tx
+      .select()
+      .from(orderRefunds)
+      .where(eq(orderRefunds.orderId, orderId))
+      .orderBy(asc(orderRefunds.createdAt));
+    return rows.map(toRefundRecord);
+  }
+}
+
+// =====================================================================
+// Liquidações (order_settlement — Bloco 5)
+// =====================================================================
+
+function toSettlementRecord(s: typeof orderSettlements.$inferSelect): SettlementRecord {
+  return {
+    id: s.id,
+    orderId: s.orderId,
+    channel: s.channel,
+    grossAmount: s.grossAmount,
+    commissionAmount: s.commissionAmount,
+    marketplaceFee: s.marketplaceFee,
+    deliveryFeeSubsidy: s.deliveryFeeSubsidy,
+    payoutAmount: s.payoutAmount,
+    payoutStatus: s.payoutStatus,
+    payoutExpectedAt: s.payoutExpectedAt,
+    payoutSettledAt: s.payoutSettledAt,
+    externalRef: s.externalRef,
+    notes: s.notes,
+    createdAt: s.createdAt,
+    updatedAt: s.updatedAt,
+  };
+}
+
+export class PostgresSettlementRepository implements SettlementRepository {
+  constructor(private readonly tx: Tx) {}
+
+  async findById(id: Id): Promise<SettlementRecord | null> {
+    const row = await this.tx.query.orderSettlements.findFirst({ where: eq(orderSettlements.id, id) });
+    return row ? toSettlementRecord(row) : null;
+  }
+
+  async findByOrderId(orderId: Id): Promise<SettlementRecord | null> {
+    const row = await this.tx.query.orderSettlements.findFirst({ where: eq(orderSettlements.orderId, orderId) });
+    return row ? toSettlementRecord(row) : null;
+  }
+
+  /** INSERT com `payout_status = 'pending'` (default do schema). */
+  async create(input: {
+    id: Id;
+    orderId: Id;
+    channel: string;
+    grossAmount: number;
+    commissionAmount: number;
+    marketplaceFee: number;
+    deliveryFeeSubsidy: number;
+    payoutAmount: number;
+    payoutExpectedAt: string | null;
+    externalRef: string | null;
+    notes: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }): Promise<SettlementRecord> {
+    const [row] = await this.tx
+      .insert(orderSettlements)
+      .values({
+        id: input.id,
+        orderId: input.orderId,
+        channel: input.channel,
+        grossAmount: input.grossAmount,
+        commissionAmount: input.commissionAmount,
+        marketplaceFee: input.marketplaceFee,
+        deliveryFeeSubsidy: input.deliveryFeeSubsidy,
+        payoutAmount: input.payoutAmount,
+        payoutStatus: "pending",
+        payoutExpectedAt: input.payoutExpectedAt,
+        externalRef: input.externalRef,
+        notes: input.notes,
+        createdAt: input.createdAt,
+        updatedAt: input.updatedAt,
+      })
+      .returning();
+    if (!row) throw Errors.validationFailed({ field: "orderId" });
+    return toSettlementRecord(row);
+  }
+
+  /** `PATCH /settlements/:id/settle` — marca `paid` + carimba `payout_settled_at`. */
+  async markSettled(id: Id, input: { payoutSettledAt: string; updatedAt: string }): Promise<SettlementRecord> {
+    const [row] = await this.tx
+      .update(orderSettlements)
+      .set({ payoutStatus: "paid", payoutSettledAt: input.payoutSettledAt, updatedAt: input.updatedAt })
+      .where(eq(orderSettlements.id, id))
+      .returning();
+    if (!row) throw Errors.notFound("Settlement");
+    return toSettlementRecord(row);
+  }
+
+  /** `GET /settlements` — filtros opcionais (`channel`/`payoutStatus`, janela `createdAt`), `createdAt ASC`. */
+  async list(query: { channel?: string; payoutStatus?: string; from?: string; to?: string }): Promise<SettlementRecord[]> {
+    const conditions: SQL<unknown>[] = [];
+    if (query.channel) {
+      conditions.push(eq(orderSettlements.channel, query.channel));
+    }
+    if (query.payoutStatus) {
+      conditions.push(eq(orderSettlements.payoutStatus, query.payoutStatus as SettlementPayoutStatus));
+    }
+    if (query.from) {
+      conditions.push(sql`${orderSettlements.createdAt} >= ${query.from}`);
+    }
+    if (query.to) {
+      conditions.push(sql`${orderSettlements.createdAt} <= ${query.to}T23:59:59.999Z`);
+    }
+    const rows = await this.tx
+      .select()
+      .from(orderSettlements)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(asc(orderSettlements.createdAt));
+    return rows.map(toSettlementRecord);
   }
 }
 
