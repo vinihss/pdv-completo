@@ -3,6 +3,7 @@ import { asc, eq, sql } from "drizzle-orm";
 import { closeDatabase, db, type Tx } from "./client.js";
 import { runBaseSeed } from "./seed-base.js";
 import { round2 } from "../../domain/money.js";
+import { computeOrderTotal } from "../../domain/order-total.js";
 import {
   alerts,
   auditLog,
@@ -453,12 +454,9 @@ function buildItems(catalog: CatalogProduct[], allCancelled: boolean): PlanItem[
   return items;
 }
 
-/** Total da comanda = MESMA fórmula de computeOrderTotal do app. */
+/** Total da comanda = MESMA fórmula de `domain/order-total.ts` (uma só). */
 function orderItemsTotal(order: { items: PlanItem[]; deliveryFee: number | null }): number {
-  const items = order.items
-    .filter((i) => i.status !== "cancelled")
-    .reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
-  return round2(items + (order.deliveryFee ?? 0));
+  return computeOrderTotal(order.items, order.deliveryFee);
 }
 
 function pickMethod(enabled: PayMethod[]): PayMethod {
