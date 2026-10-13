@@ -5,7 +5,7 @@
  * (`src/infra/db/repositories/delivery.repository.ts`) traduz para
  * Drizzle/schema.
  */
-import type { DeliveryStatus, Id, Page, PageQuery } from "./shared.js";
+import type { DeliveryStatus, Id, Page, PageQuery } from "../../ports/repositories/shared.js";
 
 export interface DeliveryRecord {
   id: Id;

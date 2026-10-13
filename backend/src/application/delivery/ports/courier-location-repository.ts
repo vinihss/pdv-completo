@@ -5,7 +5,7 @@
  * (`src/infra/db/repositories/courier-location.repository.ts`) traduz para
  * Drizzle/schema.
  */
-import type { Id } from "./shared.js";
+import type { Id } from "../../ports/repositories/shared.js";
 
 /**
  * ADIÇÃO (Onda 3 — self-service): última posição do entregador

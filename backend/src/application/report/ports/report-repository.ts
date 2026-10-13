@@ -11,7 +11,7 @@
  * (`src/infra/db/repositories/report.repository.ts`) traduz para
  * Drizzle/schema.
  */
-import type { DeliveryStatus, Id, OrderItemStatus } from "./shared.js";
+import type { DeliveryStatus, Id, OrderItemStatus } from "../../ports/repositories/shared.js";
 
 /**
  * ADIÇÃO (Onda 3D — relatórios gerenciais): comanda fechada com mesa e cliente

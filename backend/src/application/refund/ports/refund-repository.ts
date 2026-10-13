@@ -5,7 +5,7 @@
  * (`src/infra/db/repositories/refund.repository.ts`) traduz para
  * Drizzle/schema.
  */
-import type { Id, PaymentMethodKind } from "./shared.js";
+import type { Id, PaymentMethodKind } from "../../ports/repositories/shared.js";
 
 /**
  * ADIÇÃO (Onda financeiro — estornos do balcão, Bloco 4). Estorno rastreável:

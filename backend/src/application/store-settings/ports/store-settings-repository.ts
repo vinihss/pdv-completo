@@ -9,7 +9,7 @@
  * Postgres (`src/infra/db/repositories/store-settings.repository.ts`) traduz
  * para Drizzle/schema.
  */
-import type { Id, PixKeyType } from "./shared.js";
+import type { Id, PixKeyType } from "../../ports/repositories/shared.js";
 
 /**
  * ADIÇÃO (Onda 3C — store-settings): linha completa do singleton

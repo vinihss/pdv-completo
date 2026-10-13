@@ -5,7 +5,7 @@
  * (`src/infra/db/repositories/alert.repository.ts`) traduz para
  * Drizzle/schema.
  */
-import type { Id } from "./shared.js";
+import type { Id } from "../../ports/repositories/shared.js";
 
 /** Linha de `alert` (sino). */
 export interface AlertRecord {
