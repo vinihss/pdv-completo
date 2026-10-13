@@ -12,7 +12,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
-import { addCustomerAddressUsecase, setDefaultCustomerAddressUsecase, deleteCustomerAddressUsecase } from "../../application/self-service/customer-address.usecases.js";
+import { addCustomerAddressUsecase, setDefaultCustomerAddressUsecase, deleteCustomerAddressUsecase } from "../../infra/composition/default-usecases.js";
 
 const addressCreateSchema = z.object({
   label: z.string().optional().nullable(),

@@ -28,6 +28,9 @@ import { createProductUsecases } from "../../application/product.usecases.js";
 import { createCategoryUsecases } from "../../application/category.usecases.js";
 import { createKitchenGroupUsecases } from "../../application/kitchen-group.usecases.js";
 import { createMenuUsecases } from "../../application/self-service/menu.usecases.js";
+import { createCartUsecases } from "../../application/self-service/cart.usecases.js";
+import { createCustomerAddressUsecases } from "../../application/self-service/customer-address.usecases.js";
+import { createSelfServiceCancelUsecases } from "../../application/self-service/cancel-order.usecase.js";
 import { createAuditLogUsecases } from "../../application/audit-log.usecases.js";
 import { createDeliveryUsecases } from "../../application/delivery/calcular-entrega.usecase.js";
 import type { TenantContext } from "../../application/ports/tenant-context.js";
@@ -111,6 +114,17 @@ const kitchenGroupInstances = createKitchenGroupUsecases({
 const menuInstances = createMenuUsecases({
   uow,
   tenant,
+});
+
+// Self-service: carrinho (customer_cart), endereços (customer_address) e
+// cancelamento pelo cliente. O cancelamento reusa o hub de pedidos — a
+// dependência é injetada, não importada.
+const cartInstances = createCartUsecases({ uow, tenant });
+const customerAddressInstances = createCustomerAddressUsecases({ uow, tenant });
+const selfServiceCancelInstances = createSelfServiceCancelUsecases({
+  uow,
+  tenant,
+  cancelOrder: orderInstances.cancelOrderUsecase,
 });
 
 const auditLogInstances = createAuditLogUsecases({ uow, tenant });
@@ -197,6 +211,22 @@ export const listKitchenGroupsLegacyUsecase = kitchenGroupInstances.listKitchenG
 
 // menu
 export const getPublicMenuUsecase = menuInstances.getPublicMenuUsecase;
+
+// self-service — carrinho (customer_cart)
+export const getCustomerCartUsecase = cartInstances.getCustomerCartUsecase;
+export const saveCustomerCartUsecase = cartInstances.saveCustomerCartUsecase;
+export const clearCustomerCartUsecase = cartInstances.clearCustomerCartUsecase;
+
+// self-service — cliente/endereços (customer_address)
+export const lookupCustomerByPhoneUsecase = customerAddressInstances.lookupCustomerByPhoneUsecase;
+export const createSelfServiceCustomerUsecase = customerAddressInstances.createSelfServiceCustomerUsecase;
+export const addCustomerAddressUsecase = customerAddressInstances.addCustomerAddressUsecase;
+export const listCustomerAddressesUsecase = customerAddressInstances.listCustomerAddressesUsecase;
+export const setDefaultCustomerAddressUsecase = customerAddressInstances.setDefaultCustomerAddressUsecase;
+export const deleteCustomerAddressUsecase = customerAddressInstances.deleteCustomerAddressUsecase;
+
+// self-service — cancelamento pelo cliente
+export const cancelSelfServiceOrderUsecase = selfServiceCancelInstances.cancelSelfServiceOrderUsecase;
 
 // audit-log
 export const listAuditLogUsecase = auditLogInstances.listAuditLogUsecase;

@@ -49,7 +49,7 @@ const EXEMPT: Record<string, readonly string[]> = {
 const KNOWN_VIOLATIONS: readonly string[] = [
   // ------------------------------------------------------------------
   // application: use cases ainda acoplados a infra/integrations/config e
-  // ao Drizzle (45 entradas — 51 antes da Onda 3 do contexto delivery). Migram use case a use case; ao migrar um,
+  // ao Drizzle (39 entradas — 45 antes da Onda 3 do contexto self-service). Migram use case a use case; ao migrar um,
   // apague as linhas dele — a lista só DIMINUI.
   // ------------------------------------------------------------------
   "src/application/auth/login.usecase.ts :: application :: dir:config",
@@ -75,12 +75,6 @@ const KNOWN_VIOLATIONS: readonly string[] = [
   "src/application/report-overview.usecases.ts :: application :: pkg:drizzle-orm",
   "src/application/report.usecases.ts :: application :: dir:infra",
   "src/application/report.usecases.ts :: application :: pkg:drizzle-orm",
-  "src/application/self-service/cancel-order.usecase.ts :: application :: dir:infra",
-  "src/application/self-service/cancel-order.usecase.ts :: application :: pkg:drizzle-orm",
-  "src/application/self-service/cart.usecases.ts :: application :: dir:infra",
-  "src/application/self-service/cart.usecases.ts :: application :: pkg:drizzle-orm",
-  "src/application/self-service/customer-address.usecases.ts :: application :: dir:infra",
-  "src/application/self-service/customer-address.usecases.ts :: application :: pkg:drizzle-orm",
   "src/application/self-service/delivery.usecases.ts :: application :: dir:infra",
   "src/application/self-service/delivery.usecases.ts :: application :: dir:integrations",
   "src/application/self-service/delivery.usecases.ts :: application :: pkg:drizzle-orm",

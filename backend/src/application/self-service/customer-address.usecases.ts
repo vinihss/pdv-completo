@@ -1,6 +1,22 @@
-import { eq } from "drizzle-orm";
-import { db } from "../../infra/db/client.js";
-import { customers, customerAddresses } from "../../infra/db/schema.js";
+// Endereços de cliente (self-service) — ONDA 3 da refatoração arquitetural.
+//
+// Este arquivo é uma FACTORY pura (`createCustomerAddressUsecases(deps)`):
+// nenhuma importação de infra/integrations/config nem Drizzle. A persistência
+// passa pelo `uow.run`/`session.customerAddresses` + `session.customers`. A
+// composition root que liga os adapters concretos é
+// `src/infra/composition/default-usecases.ts`.
+//
+// `normalizeCep`/`formatAddress` continuam exportados como helpers PUROS (sem
+// deps) — consumidos por `order-intake.usecase` e pela composição de snapshots
+// de entrega. Não precisam de factory.
+//
+// APROXIMAÇÃO DE JANELA (mesma da Onda 2): o `db.transaction` que hoje envolve
+// só a escrita (clearDefaults + insert) vira um único `uow.run` que também lê
+// cliente/endereços. Sob READ COMMITTED o resultado é o mesmo; a validação de
+// CEP continua abortando por `throw` antes de qualquer INSERT.
+import type { TenantUnitOfWork } from "../ports/unit-of-work.js";
+import type { TenantContext } from "../ports/tenant-context.js";
+import type { CustomerAddressRecord } from "../ports/repositories.js";
 import { Errors } from "../../domain/errors.js";
 
 const MAX_ADDRESSES_PER_CUSTOMER = 3;
@@ -24,7 +40,7 @@ export function normalizeCep(cep: string | null | undefined): string | null {
   return digits;
 }
 
-function serializeAddress(a: typeof customerAddresses.$inferSelect) {
+function serializeAddress(a: CustomerAddressRecord) {
   return {
     id: a.id,
     customerId: a.customerId,
@@ -68,132 +84,137 @@ export function formatAddress(a: {
   return `${line1} - ${line2}${line3}`;
 }
 
-// ---------- POST /public/customers/lookup ----------
-export async function lookupCustomerByPhoneUsecase(phone: string) {
-  const customer = await db.query.customers.findFirst({ where: eq(customers.phone, phone) });
-  if (!customer) return null;
-  const addresses = await db.query.customerAddresses.findMany({
-    where: eq(customerAddresses.customerId, customer.id),
-  });
+export interface CustomerAddressUsecasesDeps {
+  uow: TenantUnitOfWork;
+  /** Resolvido a cada chamada (ALS/request corrente) — nunca memoizado. */
+  tenant: () => TenantContext;
+}
+
+/**
+ * As use cases de endereço/cliente-self-service, com as MESMAS assinaturas de
+ * antes (sem o `deps`). Os nomes legados são re-exportados por
+ * `infra/composition/default-usecases.ts`.
+ */
+export function createCustomerAddressUsecases(deps: CustomerAddressUsecasesDeps) {
   return {
-    customerId: customer.id,
-    name: customer.name,
-    addresses: addresses.map(serializeAddress),
+    // ---------- POST /public/customers/lookup ----------
+    async lookupCustomerByPhoneUsecase(phone: string) {
+      return deps.uow.run(deps.tenant(), async (session) => {
+        const customer = await session.customers.findByPhone(phone);
+        if (!customer) return null;
+        const addresses = await session.customerAddresses.listByCustomer(customer.id);
+        return {
+          customerId: customer.id,
+          name: customer.name,
+          addresses: addresses.map(serializeAddress),
+        };
+      });
+    },
+
+    // ---------- POST /public/customers ----------
+    // Nome deliberadamente diferente de customer.usecases.ts#createCustomerUsecase
+    // (cadastro manual do balcão, sem checar duplicidade de telefone) — aqui o
+    // telefone É a chave de identificação do fluxo self-service, então precisa
+    // ser único.
+    async createSelfServiceCustomerUsecase(input: { name: string; phone: string }) {
+      return deps.uow.run(deps.tenant(), async (session) => {
+        // Unicidade aplicada em usecase — customer.phone tem índice, mas não
+        // constraint UNIQUE no schema atual (§04, mesmo padrão de address_limit).
+        const existing = await session.customers.findByPhone(input.phone);
+        if (existing) throw Errors.duplicatePhone();
+
+        const created = await session.customers.save({ name: input.name, phone: input.phone });
+        return { customerId: created.id };
+      });
+    },
+
+    // ---------- POST /public/customers/:id/addresses ----------
+    async addCustomerAddressUsecase(input: {
+      customerId: string;
+      label?: string | null;
+      cep?: string | null;
+      street: string;
+      number: string;
+      complement?: string | null;
+      neighborhood: string;
+      city: string;
+      state?: string | null;
+      reference?: string | null;
+      isDefault?: boolean;
+    }) {
+      return deps.uow.run(deps.tenant(), async (session) => {
+        const customer = await session.customers.findById(input.customerId);
+        if (!customer) throw Errors.notFound("Cliente");
+
+        const existing = await session.customerAddresses.listByCustomer(input.customerId);
+        if (existing.length >= MAX_ADDRESSES_PER_CUSTOMER) throw Errors.addressLimitReached();
+
+        // Valida antes de qualquer escrita: CEP inválido não pode consumir um
+        // dos 3 slots nem deixar o cliente com "endereço salvo" que não é.
+        const cep = normalizeCep(input.cep);
+
+        // Primeiro endereço do cliente vira padrão automaticamente, mesmo sem pedir.
+        const isDefault = input.isDefault ?? existing.length === 0;
+
+        if (isDefault) {
+          await session.customerAddresses.clearDefaults(input.customerId);
+        }
+        const created = await session.customerAddresses.create({
+          customerId: input.customerId,
+          label: input.label ?? null,
+          cep,
+          street: input.street,
+          number: input.number,
+          complement: input.complement ?? null,
+          neighborhood: input.neighborhood,
+          city: input.city,
+          state: input.state ?? null,
+          reference: input.reference ?? null,
+          isDefault,
+        });
+        return serializeAddress(created);
+      });
+    },
+
+    async listCustomerAddressesUsecase(customerId: string) {
+      return deps.uow.run(deps.tenant(), async (session) => {
+        const addresses = await session.customerAddresses.listByCustomer(customerId);
+        return addresses.map(serializeAddress);
+      });
+    },
+
+    // ---------- Manutenção de endereço (gerente/caixa) ----------
+
+    async setDefaultCustomerAddressUsecase(customerId: string, addressId: string) {
+      await deps.uow.run(deps.tenant(), async (session) => {
+        const customer = await session.customers.findById(customerId);
+        if (!customer) throw Errors.notFound("Cliente");
+        const address = await session.customerAddresses.findById(addressId);
+        if (!address || address.customerId !== customerId) throw Errors.notFound("Endereço");
+
+        // Um padrão por cliente: limpa os outros antes de marcar o escolhido.
+        await session.customerAddresses.clearDefaults(customerId);
+        await session.customerAddresses.setDefault(addressId);
+      });
+    },
+
+    async deleteCustomerAddressUsecase(customerId: string, addressId: string) {
+      await deps.uow.run(deps.tenant(), async (session) => {
+        const customer = await session.customers.findById(customerId);
+        if (!customer) throw Errors.notFound("Cliente");
+        const address = await session.customerAddresses.findById(addressId);
+        if (!address || address.customerId !== customerId) throw Errors.notFound("Endereço");
+
+        await session.customerAddresses.delete(addressId);
+
+        // Se o removido era o padrão e sobraram endereços, o mais antigo vira padrão.
+        if (address.isDefault) {
+          const remaining = await session.customerAddresses.findOldestByCustomer(customerId);
+          if (remaining) await session.customerAddresses.setDefault(remaining.id);
+        }
+      });
+    },
   };
 }
 
-// ---------- POST /public/customers ----------
-// Nome deliberadamente diferente de customer.usecases.ts#createCustomerUsecase
-// (cadastro manual do balcão, sem checar duplicidade de telefone) — aqui o
-// telefone É a chave de identificação do fluxo self-service, então precisa
-// ser único.
-export async function createSelfServiceCustomerUsecase(input: { name: string; phone: string }) {
-  // Unicidade aplicada em usecase — customer.phone tem índice, mas não
-  // constraint UNIQUE no schema atual (§04, mesmo padrão de address_limit).
-  const existing = await db.query.customers.findFirst({ where: eq(customers.phone, input.phone) });
-  if (existing) throw Errors.duplicatePhone();
-
-  const [created] = await db.insert(customers).values({ name: input.name, phone: input.phone }).returning();
-  return { customerId: created.id };
-}
-
-// ---------- POST /public/customers/:id/addresses ----------
-export async function addCustomerAddressUsecase(input: {
-  customerId: string;
-  label?: string | null;
-  cep?: string | null;
-  street: string;
-  number: string;
-  complement?: string | null;
-  neighborhood: string;
-  city: string;
-  state?: string | null;
-  reference?: string | null;
-  isDefault?: boolean;
-}) {
-  const customer = await db.query.customers.findFirst({ where: eq(customers.id, input.customerId) });
-  if (!customer) throw Errors.notFound("Cliente");
-
-  const existing = await db.query.customerAddresses.findMany({
-    where: eq(customerAddresses.customerId, input.customerId),
-  });
-  if (existing.length >= MAX_ADDRESSES_PER_CUSTOMER) throw Errors.addressLimitReached();
-
-  // Valida antes da transação: CEP inválido não pode consumir um dos 3 slots
-  // nem deixar o cliente com "endereço salvo" que não é.
-  const cep = normalizeCep(input.cep);
-
-  // Primeiro endereço do cliente vira padrão automaticamente, mesmo sem pedir.
-  const isDefault = input.isDefault ?? existing.length === 0;
-
-  const created = await db.transaction(async (tx) => {
-    if (isDefault) {
-      await tx
-        .update(customerAddresses)
-        .set({ isDefault: false })
-        .where(eq(customerAddresses.customerId, input.customerId));
-    }
-    const [row] = await tx
-      .insert(customerAddresses)
-      .values({
-        customerId: input.customerId,
-        label: input.label ?? null,
-        cep,
-        street: input.street,
-        number: input.number,
-        complement: input.complement ?? null,
-        neighborhood: input.neighborhood,
-        city: input.city,
-        state: input.state ?? null,
-        reference: input.reference ?? null,
-        isDefault,
-      })
-      .returning();
-    return row;
-  });
-
-  return serializeAddress(created);
-}
-
-export async function listCustomerAddressesUsecase(customerId: string) {
-  const addresses = await db.query.customerAddresses.findMany({
-    where: eq(customerAddresses.customerId, customerId),
-  });
-  return addresses.map(serializeAddress);
-}
-
-// ---------- Manutenção de endereço (gerente/caixa) ----------
-
-export async function setDefaultCustomerAddressUsecase(customerId: string, addressId: string) {
-  const customer = await db.query.customers.findFirst({ where: eq(customers.id, customerId) });
-  if (!customer) throw Errors.notFound("Cliente");
-  const address = await db.query.customerAddresses.findFirst({ where: eq(customerAddresses.id, addressId) });
-  if (!address || address.customerId !== customerId) throw Errors.notFound("Endereço");
-
-  // Um padrão por cliente: limpa os outros antes de marcar o escolhido.
-  await db.transaction(async (tx) => {
-    await tx.update(customerAddresses).set({ isDefault: false }).where(eq(customerAddresses.customerId, customerId));
-    await tx.update(customerAddresses).set({ isDefault: true }).where(eq(customerAddresses.id, addressId));
-  });
-}
-
-export async function deleteCustomerAddressUsecase(customerId: string, addressId: string) {
-  const customer = await db.query.customers.findFirst({ where: eq(customers.id, customerId) });
-  if (!customer) throw Errors.notFound("Cliente");
-  const address = await db.query.customerAddresses.findFirst({ where: eq(customerAddresses.id, addressId) });
-  if (!address || address.customerId !== customerId) throw Errors.notFound("Endereço");
-
-  await db.delete(customerAddresses).where(eq(customerAddresses.id, addressId));
-
-  // Se o removido era o padrão e sobraram endereços, o mais antigo vira padrão.
-  if (address.isDefault) {
-    const remaining = await db.query.customerAddresses.findMany({
-      where: eq(customerAddresses.customerId, customerId),
-      orderBy: (a, { asc }) => asc(a.createdAt),
-      limit: 1,
-    });
-    if (remaining[0]) {
-      await db.update(customerAddresses).set({ isDefault: true }).where(eq(customerAddresses.id, remaining[0].id));
-    }
-  }
-}
+export type CustomerAddressUsecases = ReturnType<typeof createCustomerAddressUsecases>;
