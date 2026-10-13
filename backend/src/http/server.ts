@@ -6,7 +6,7 @@ import rateLimit from "@fastify/rate-limit";
 import fastifyMultipart from "@fastify/multipart";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ZodError } from "zod";
+
 import { config } from "../config/env.js";
 import { runMigrations } from "../infra/db/migrate.js";
 import { runRegistryMigrations } from "../infra/db/registry-migrate.js";
@@ -15,336 +15,115 @@ import { getTenantPool } from "../infra/db/tenant-db.js";
 import { resolveTenantSchemaInScope } from "../infra/db/tenant-context.js";
 import { startOutboxDispatcher } from "../infra/realtime/outbox-dispatcher.js";
 import { startMaintenanceJobs } from "../infra/maintenance.js";
-import { initStorage } from "../infra/storage/index.js";
-import { AppError } from "../domain/errors.js";
+import { initStorage, resolveTenantSchema } from "../infra/storage/index.js";
 import { initCache, getCache } from "../infra/cache/index.js";
-import { authRoutes } from "./routes/auth.routes.js";
-import { orderRoutes } from "./routes/order.routes.js";
-import { cashFlowRoutes } from "./routes/cash-flow.routes.js";
-import { catalogRoutes } from "./routes/catalog.routes.js";
-import { storeSettingsRoutes } from "./routes/store-settings.routes.js";
-import { userRoutes } from "./routes/user.routes.js";
-import { customerRoutes } from "./routes/customer.routes.js";
-import { customerAdminRoutes } from "./routes/customer-admin.routes.js";
-import { reportRoutes } from "./routes/report.routes.js";
-import { stockRoutes } from "./routes/stock.routes.js";
-import { purchaseRoutes } from "./routes/purchase.routes.js";
-import { auditRoutes } from "./routes/audit.routes.js";
-import { realtimeRoutes } from "./routes/realtime.routes.js";
-import { publicRoutes } from "./routes/public.routes.js";
-import { tenantRoutes } from "./routes/tenant.routes.js";
-import { courierRoutes } from "./routes/courier.routes.js";
-import { deliveryManagerRoutes } from "./routes/delivery-manager.routes.js";
-import { printRoutes } from "./routes/print.routes.js";
-import { alertRoutes } from "./routes/alert.routes.js";
-import { provisioningRoutes } from "./routes/provisioning.routes.js";
-import { uploadsRoutes } from "./routes/uploads.routes.js";
-import { refundRoutes } from "./routes/refund.routes.js";
 import { getStoreSettingsUsecase } from "../infra/composition/default-usecases.js";
 import { listActiveTenants } from "../infra/tenant/registry.js";
-import { tenantMiddleware } from "./middlewares/tenant.middleware.js";
-import { enterTenantScope, exitTenantScope } from "../infra/db/tenant-context.js";
-
-// Escapa metacaracteres de regex para montar o matcher do ask do Caddy a
-// a partir do dominio raiz (vem de env, ex.: `umamisushiarte.com.br` — os
-// pontos casariam com qualquer caractere sem isto).
-import { resolveTenant } from "../infra/composition/default-usecases.js";
-import { resolveTenantSchema } from "../infra/storage/index.js";
 import { ensureTenantScope } from "../infra/db/tenant-context.js";
 
-// Escapa metacaracteres de regex para montar o matcher do ask do Caddy a
-// partir do domínio raiz (vem de env, ex.: `umamisushiarte.com.br` — os
-// pontos casariam com qualquer caractere sem isto).
+// Importações dos novos Plugins e Handlers Isolados
+import { tenantContext } from "./plugins/tenant-context.plugin.js";
+import { appRouter } from "./plugins/router.plugin.js";
+import { configureGlobalErrorHandler } from "./errors/error-handler.js";
+
 function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return value.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&");
 }
 
-// Monta o app Fastify com todas as rotas/plugins, sem escutar. Exportado
-// para os testes (vitest) injetarem requests via `app.inject()`.
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.logLevel }, trustProxy: true });
 
-  // ---------- Cache layer (Redis ou Memory fallback) ----------
+  // 1. Camada de Cache
   await initCache(true);
-  const cacheClient = getCache();
-  app.decorate("cache", cacheClient as any);
+  app.decorate("cache", getCache() as any);
 
-  const NO_TENANT_RESOLVE = new Set(["/health", "/internal/caddy-on-demand-tls", "/public/tenants/resolve"]);
-  
-  // Solução definitiva para o problema de propagação do ALS no Fastify + Node.js 22.x
-  // Este hook intercepta todas as rotas registradas e envolve os handlers com store.run()
-  // para garantir que o tenant scope seja propagado corretamente.
-  app.addHook("onRoute", (routeOptions) => {
-    const originalHandler = routeOptions.handler as any;
+  // 2. Manipulação de Erros Global
+  configureGlobalErrorHandler(app);
 
-    // Não envolve rotas que não precisam de tenant resolution
-    if (NO_TENANT_RESOLVE.has(routeOptions.url.split("?")[0])) {
-      return;
-    }
-
-    // Handler de websocket (GET + { websocket: true }) recebe (socket, request)
-    // — o Fastify request é o SEGUNDO argumento, e `socket.headers` é undefined.
-    // Sem separar este caso, o wrapper estoura no handshake do `/realtime`.
-    const isWebsocket =
-      (routeOptions as any).websocket === true || typeof (routeOptions as any).wsHandler === "function";
-    if (isWebsocket) {
-      routeOptions.handler = async function (socket: any, req: any) {
-        const host = req?.headers?.["x-tenant-host"] || req?.headers?.host || req?.hostname;
-        return ensureTenantScope(host, () => originalHandler(socket, req));
-      } as any;
-      return;
-    }
-
-    // Substitui o handler original por um wrapper que garante o tenant scope
-    routeOptions.handler = async function (req: any, reply: any) {
-      const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
-      return ensureTenantScope(host, () => originalHandler(req, reply));
-    } as any;
-  });
-  
-  app.addHook("onRequest", async (req) => {
-    if (NO_TENANT_RESOLVE.has(req.url.split("?")[0])) return;
-    const rawHost =
-      req.headers["x-tenant-host"] ??
-      req.hostname;
-    const tenant = await resolveTenant(typeof rawHost === "string" ? rawHost : undefined);
-    enterTenantScope({ schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault });
-  });
-  // Limpa o escopo ao fim do request: sem isto, o ALS guardaria a loja
-  // do request anterior para o código que roda depois (inclusive testes
-  // que injetam vários requests no mesmo contexto async).
-  app.addHook("onResponse", async () => {
-    exitTenantScope();
-  });
-
-  // Registrado antes dos plugins/rotas: o handler do contexto raiz precisa
-  // existir quando os contextos encapsulados são criados pra ser aplicado.
-  app.setErrorHandler((err, _req, reply) => {
-    if (err instanceof AppError) {
-      return reply.code(err.status).send({ error: { code: err.code, message: err.message, details: err.details } });
-    }
-    const isZodError =
-      err instanceof ZodError ||
-      (typeof err === "object" &&
-        err !== null &&
-        (err as { name?: unknown }).name === "ZodError" &&
-        Array.isArray((err as { issues?: unknown }).issues));
-    if (isZodError) {
-      return reply
-        .code(400)
-        .send({ error: { code: "validation_failed", message: "Payload inválido.", details: (err as ZodError).issues } });
-    }
-    app.log.error(err);
-    return reply.code(500).send({ error: { code: "internal_error", message: "Erro interno." } });
-  });
-
+  // 3. Plugins Corporativos e Segurança
   await app.register(cors, {
-    // Sem CORS_ORIGIN definido (dev local), libera geral. Em produção,
-    // SEMPRE defina CORS_ORIGIN com o domínio real do frontend — ver
-    // deploy/README.md. Aceita lista separada por vírgula, porque o app
-    // pode ser servido em mais de um endereço (ex.: domínio próprio +
-    // hostname antigo do servidor enquanto o DNS não propaga). O trim
-    // evita que um espaço depois da vírgula quebre a comparação de origem.
     origin: config.corsOrigin
-      ? config.corsOrigin.split(",").map((o) => o.trim()).filter(Boolean)
-      : true,
+        ? config.corsOrigin.split(",").map((o) => o.trim()).filter(Boolean)
+        : true,
   });
-
   await app.register(websocketPlugin);
-
-  // ---------- Fotos (produto, logo, cliente, equipe) ----------
-  // A raiz do volume nasce no boot (e no Docker via volume). Quem serve é a
-  // rota explícita `GET /uploads/:kind/:filename` (uploads.routes.ts): ela
-  // resolve o tenant por operação e lê de `<uploads>/<schema>/<kind>/`, o que
-  // dá fronteira de isolamento ao storage — o `@fastify/static` (diretório
-  // flat, escopo raiz, sem auth) não dava. As imagens seguem públicas: não
-  // têm nada sensível nelas.
-  initStorage();
-
-  await app.register(uploadsRoutes);
-
-  await app.register(fastifyMultipart, {
-    limits: { fileSize: 2 * 1024 * 1024, files: 1 }, // 2 MB, 1 arquivo por request
-  });
-
-  // Rate limit global — proteção básica de DoS pra API exposta na internet.
-  // O login já tem um limite mais apertado próprio (§11); este aqui cobre
-  // o resto das rotas.
+  await app.register(fastifyMultipart, { limits: { fileSize: 2 * 1024 * 1024, files: 1 } });
   await app.register(rateLimit, { max: 300, timeWindow: "1 minute" });
 
-  // ---------- Health check (§14.4) — sem autenticação ----------
+  // 4. Inicialização do Contexto do Tenant (Ordem importa antes das rotas)
+  await app.register(tenantContext);
+
+  // 5. Inicialização do Storage e Rotas Internas Core
+  initStorage();
+
   app.get("/health", async (_req, reply) => {
     const healthy = await checkDatabaseHealth();
-    if (healthy) {
-      return reply.code(200).send({ status: "ok", database: "connected", tag: process.env.APP_TAG ?? "" });
-    }
-    return reply.code(503).send({ status: "degraded", database: "disconnected" });
+    return healthy
+        ? reply.code(200).send({ status: "ok", database: "connected", tag: process.env.APP_TAG ?? "" })
+        : reply.code(503).send({ status: "degraded", database: "disconnected" });
   });
 
-  // ---------- Health check detalhado — lista migrations aplicadas ----------
-  // Endpoint para monitoramento e debug: retorna status do banco e lista
-  // completa das migrations aplicadas no schema do tenant. Útil para validar
-  // que novas migrations foram aplicadas após deploy.
   app.get("/health/detailed", async (_req, reply) => {
-    const healthy = await checkDatabaseHealth();
-    if (!healthy) {
-      return reply.code(503).send({ status: "degraded", database: "disconnected" });
-    }
-
+    if (!(await checkDatabaseHealth())) return reply.code(503).send({ status: "degraded", database: "disconnected" });
     try {
       const schemaName = resolveTenantSchemaInScope();
       const pool = getTenantPool(schemaName);
       const client = await pool.connect();
       try {
-        const { rows } = await client.query<{ name: string; applied_at: string }>(
-          "SELECT name, applied_at FROM _migrations ORDER BY name"
-        );
+        const { rows } = await client.query<{ name: string; applied_at: string }>("SELECT name, applied_at FROM _migrations ORDER BY name");
         return reply.code(200).send({
-          status: "ok",
-          database: "connected",
-          schema: schemaName,
-          tag: process.env.APP_TAG ?? "",
-          migrations: {
-            total: rows.length,
-            applied: rows.map((r) => ({ name: r.name, appliedAt: r.applied_at })),
-          },
+          status: "ok", database: "connected", schema: schemaName, tag: process.env.APP_TAG ?? "",
+          migrations: { total: rows.length, applied: rows.map((r) => ({ name: r.name, appliedAt: r.applied_at })) },
         });
-      } finally {
-        client.release();
-      }
+      } finally { client.release(); }
     } catch (err) {
-      return reply.code(500).send({
-        status: "error",
-        database: "connected",
-        error: (err as Error).message,
-      });
+      return reply.code(500).send({ status: "error", database: "connected", error: (err as Error).message });
     }
   });
 
-  // ---------- Permissão para on-demand TLS do Caddy (§wildcard) ----------
-  // O Caddy consulta GET /internal/caddy-on-demand-tls?domain=<host> antes
-  // de emitir um certificado sob demanda; 2xx libera, demais bloqueia.
-  // Libera subdomínios de UMA label de *.labolabe.tech e de UMA label do
-  // domínio raiz da plataforma: app/api/www e os tenants do wildcard
-  // *.ROOT_DOMAIN passam por aqui no on_demand, e sem isso o emitidor é
-  // barrado. Apex (`<raiz>`) e rótulos múltiplos (`foo.bar.<raiz>`) ficam
-  // de fora.
   app.get("/internal/caddy-on-demand-tls", async (req, reply) => {
     const domain = String((req.query as Record<string, unknown>)?.domain ?? "").toLowerCase();
-    const root = (
-      process.env.PLATFORM_ROOT_DOMAIN?.trim() || "umamisushiarte.com.br"
-    ).toLowerCase();
+    const root = (process.env.PLATFORM_ROOT_DOMAIN?.trim() || "umamisushiarte.com.br").toLowerCase();
     const ok = new RegExp(`^[a-z0-9-]+\\.(labolabe\\.tech|${escapeRegExp(root)})$`).test(domain);
     return reply.code(ok ? 204 : 403).send();
   });
 
-  await app.register(authRoutes);
-  await app.register(orderRoutes);
-  await app.register(cashFlowRoutes);
-  await app.register(catalogRoutes);
-  // Módulos que antes eram um `misc.routes.ts` único — um plugin por feature,
-  // mesmas URLs (sem prefixo), mesmos hooks/validações por encapsulamento.
-  await app.register(storeSettingsRoutes);
-  await app.register(userRoutes);
-  await app.register(customerRoutes);
-  await app.register(customerAdminRoutes);
-  await app.register(reportRoutes);
-  await app.register(stockRoutes);
-  await app.register(purchaseRoutes);
-  await app.register(auditRoutes);
-  await app.register(realtimeRoutes);
-  await app.register(publicRoutes);
-  // ---------- Resolução de loja para a vitrine de pedidos (Fase 1 do doc 15) ----------
-  // `GET /public/tenants/resolve?host=<hostname>`: a página pública do cliente
-  // final (`apps/pedido-public`) descobre a loja pelo hostname ANTES de
-  // qualquer outra chamada, e sem isso ela fica presa em "Loja não encontrada".
-  // Sem autenticação e com o rate limit de lookup público; o `schema_name` do
-  // registry nunca sai na resposta (é topologia interna do banco).
-  await app.register(tenantRoutes);
-  await app.register(courierRoutes);
-  await app.register(deliveryManagerRoutes);
-  await app.register(printRoutes);
-  await app.register(alertRoutes);
-  // Provisionamento de aparelho por usuário (docs/21) — mistura rotas de
-  // gerente e rotas públicas; o auth é por preHandler de rota (ver o arquivo).
-  await app.register(provisioningRoutes);
-  // Estorno de pagamentos (Bloco 4 ROADMAP-CAIXA.md) — manager-only, com
-  // idempotência. Venda estornada vira linha negativa no relatório, não
-  // desaparece.
-  await app.register(refundRoutes);
+  // 6. Registro Centralizado de Rotas do App
+  await app.register(appRouter);
 
-  // ---------- Store info pública (§10) — nome exibido no login, sem pix key ----------
-  // também expõe flags de operação que a página externa e o próprio login usam
-  // para ramificar a UI antes de autenticar (ex.: delivery desligado).
-  await app.register(async (publicApp) => {
-    publicApp.get("/store-info", async (req) => {
-      const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
-      return ensureTenantScope(host, async () => {
-        const s = await getStoreSettingsUsecase();
-        return {
-          merchantName: s.merchantName,
-          merchantCity: s.merchantCity,
-          logoUrl: s.logoUrl,
-          brandColor: s.brandColor,
-          usesDelivery: s.usesDelivery,
-          deliveryFee: s.deliveryFee,
-          // A tabela de frete e os tempos de preparo: o checkout público usa as
-          // mesmas faixas que o balcão para montar o seletor de distância e a
-          // previsão de entrega (domain/delivery-eta.ts). Sem isso aqui, a tela
-          // teria que adivinhar as faixas e a previsão não bateria com a loja.
-          deliveryFeeTiers: s.deliveryFeeTiers,
-          deliveryPrepMinutes: s.deliveryPrepMinutes,
-          minutesPerKm: s.minutesPerKm,
-          enabledPaymentMethods: s.enabledPaymentMethods,
-        };
-      });
+  // 7. Store Info Pública Isolada
+  app.get("/store-info", async (req) => {
+    const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
+    return ensureTenantScope(host, async () => {
+      const s = await getStoreSettingsUsecase();
+      return {
+        merchantName: s.merchantName, merchantCity: s.merchantCity, logoUrl: s.logoUrl,
+        brandColor: s.brandColor, usesDelivery: s.usesDelivery, deliveryFee: s.deliveryFee,
+        deliveryFeeTiers: s.deliveryFeeTiers, deliveryPrepMinutes: s.deliveryPrepMinutes,
+        minutesPerKm: s.minutesPerKm, enabledPaymentMethods: s.enabledPaymentMethods,
+      };
     });
   });
 
   return app;
 }
 
+// O bloco main() e a função isEntrypoint() continuam idênticos abaixo...
 async function main() {
-  // Migrations rodam automaticamente no boot em modo local (§14.5).
-  //
-  // O `await` é obrigatório. Sem ele a promise rejeitada virava unhandled
-  // rejection e o processo subia assim mesmo: o health check respondia 200 e o
-  // sintoma aparecia só como 500 em runtime, com o schema pela metade. É
-  // exatamente o caso perigoso do deploy — banco "saudável", app quebrado.
-  //
-  // Falhar aqui é o comportamento correto: o `main().catch` no fim deste
-  // arquivo aborta com `exit 1`, e o `restart: unless-stopped` do compose faz o
-  // Docker reiniciar o container, deixando o motivo visível em
-  // `docker compose logs backend`. Sem o banco pronto, o `pool.connect()`
-  // estoura em `connectionTimeoutMillis` (10s) — no compose o backend só sobe
-  // depois do `service_healthy` do postgres, então isso não acontece em deploy.
-  //
-  // Ordem obrigatória (§6.1 do doc 15): o REGISTRY antes das migrations de
-  // tenant. As duas podem ser o mesmo boot hoje (só existe o schema default),
-  // mas o registry é o índice dos schemas de tenant e não pode depender deles.
-  // Ambos usam runners separados e advisory locks distintos — ver
-  // `infra/db/registry-migrate.ts` para por que o glob é separado.
   if (config.deploymentMode === "local") {
     try {
       await runRegistryMigrations();
       await runMigrations();
-      // Fase 3: cada schema de tenant ativo no registry precisa estar
-      // migrado. O schema default (`public` / DEFAULT_TENANT_SCHEMA) já
-      // rodou acima; os demais chegam via `runMigrations({ schema })`.
       for (const tenant of await listActiveTenants()) {
         if (tenant.schemaName === resolveTenantSchema()) continue;
         await runMigrations({ schema: tenant.schemaName });
       }
     } catch (err) {
-      throw new Error(
-        `[boot] migrations falharam — não subo para não servir com schema inconsistente: ${(err as Error).message}`,
-        { cause: err },
-      );
+      throw new Error(`[boot] migrations falharam: ${(err as Error).message}`, { cause: err });
     }
   }
 
   const app = await buildApp();
-
   const stopDispatcher = startOutboxDispatcher();
   const stopMaintenance = startMaintenanceJobs();
 
@@ -352,35 +131,18 @@ async function main() {
   app.log.info(`PDV backend rodando em modo ${config.deploymentMode} na porta ${config.port}`);
 
   const shutdown = async () => {
-    stopDispatcher();
-    stopMaintenance();
-    await app.close();
-    process.exit(0);
+    stopDispatcher(); stopMaintenance(); await app.close(); process.exit(0);
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown); process.on("SIGTERM", shutdown);
 }
 
-// `main()` só roda quando este arquivo é o entrypoint do processo. A suíte de
-// testes importa `buildApp` deste módulo (test/helpers.ts) e precisa apenas da
-// factory — sem `main()` cada `import` subia um listener real na porta 3000 e
-// ligava o dispatcher do outbox, que marcava `published = 1` nos eventos a cada
-// 200ms e tornava as asserções que leem `outbox_event` dependentes de timing.
-//
-// A comparação ignora a extensão porque o mesmo arquivo roda como `.ts` no dev
-// (`tsx src/http/server.ts`) e como `.js` no build (`node dist/http/server.js`),
-// e o tsx também aceita `server.js` na linha de comando: sem normalizar, esse
-// último caso não casaria e o processo sairia em silêncio, sem servidor.
 function isEntrypoint(): boolean {
   const entry = process.argv[1];
   if (!entry) return false;
-  const stripExt = (p: string) => path.resolve(p).replace(/\.(js|mjs|cjs|ts|mts|cts)$/, "");
+  const stripExt = (p: string) => path.resolve(p).replace(/\.(js|mjs|cjs|ts|mts|cts)\$/, "");
   return stripExt(entry) === stripExt(fileURLToPath(import.meta.url));
 }
 
 if (isEntrypoint()) {
-  main().catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+  main().catch((err) => { console.error(err); process.exit(1); });
 }

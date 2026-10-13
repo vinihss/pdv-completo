@@ -39,7 +39,7 @@ import {
   getOrderUsecase,
   listOrdersUsecase,
   listTablesUsecase,
-} from "../../infra/composition/default-usecases.js";
+} from "../../infra/composition/domains/order.js";
 
 const openOrderSchema = z.object({
   correlationId: z.string(),

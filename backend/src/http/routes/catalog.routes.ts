@@ -42,7 +42,7 @@ import {
   createKitchenGroupUsecase,
   updateKitchenGroupUsecase,
   deleteKitchenGroupUsecase,
-} from "../../infra/composition/default-usecases.js";
+} from "../../infra/composition/domains/catalog.js";
 import { imageExtByMime } from "./image-ext.js";
 
 const variationGroupSchema = z.object({

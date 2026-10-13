@@ -10,9 +10,9 @@
  */
 import type { FastifyInstance } from "fastify";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
-import { salesReportUsecase } from "../../infra/composition/default-usecases.js";
-import { overviewReportUsecase } from "../../infra/composition/default-usecases.js";
-import { deliveriesReportUsecase } from "../../infra/composition/default-usecases.js";
+import { salesReportUsecase } from "../../infra/composition/domains/reports.js";
+import { overviewReportUsecase } from "../../infra/composition/domains/reports.js";
+import { deliveriesReportUsecase } from "../../infra/composition/domains/reports.js";
 
 export async function reportRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authMiddleware);

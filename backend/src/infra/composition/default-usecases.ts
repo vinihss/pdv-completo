@@ -114,7 +114,7 @@ const storage = new StoragePortAdapter({ schemaName: "public" }, storageRoot);
 // ---------------------------------------------------------------------------
 // Factories dos use cases migrados
 // ---------------------------------------------------------------------------
-const orderInstances = createOrderUsecases({
+export const orderInstances = createOrderUsecases({
   uow,
   cache: { get: () => Promise.resolve(null), set: () => Promise.resolve(), invalidatePrefix: () => Promise.resolve() },
   printer: new OrderPrinterAdapter(),
@@ -122,30 +122,30 @@ const orderInstances = createOrderUsecases({
   tenant,
 });
 
-const alertInstances = createAlertUsecases({ uow, tenant });
+export const alertInstances = createAlertUsecases({ uow, tenant });
 
-const stockInstances = createStockUsecases({ uow, tenant });
+export const stockInstances = createStockUsecases({ uow, tenant });
 
-const productInstances = createProductUsecases({
+export const productInstances = createProductUsecases({
   uow,
   cache,
   storage,
   tenant,
 });
 
-const categoryInstances = createCategoryUsecases({
+export const categoryInstances = createCategoryUsecases({
   uow,
   cache,
   tenant,
 });
 
-const kitchenGroupInstances = createKitchenGroupUsecases({
+export const kitchenGroupInstances = createKitchenGroupUsecases({
   uow,
   cache,
   tenant,
 });
 
-const menuInstances = createMenuUsecases({
+export const menuInstances = createMenuUsecases({
   uow,
   tenant,
 });
@@ -153,9 +153,9 @@ const menuInstances = createMenuUsecases({
 // Self-service: carrinho (customer_cart), endereços (customer_address) e
 // cancelamento pelo cliente. O cancelamento reusa o hub de pedidos — a
 // dependência é injetada, não importada.
-const cartInstances = createCartUsecases({ uow, tenant });
-const customerAddressInstances = createCustomerAddressUsecases({ uow, tenant });
-const selfServiceCancelInstances = createSelfServiceCancelUsecases({
+export const cartInstances = createCartUsecases({ uow, tenant });
+export const customerAddressInstances = createCustomerAddressUsecases({ uow, tenant });
+export const selfServiceCancelInstances = createSelfServiceCancelUsecases({
   uow,
   tenant,
   cancelOrder: orderInstances.cancelOrderUsecase,
@@ -171,21 +171,21 @@ const closeOrderAfterDelivery = createCloseOrderAfterDelivery({
   registerPayment: orderInstances.registerPaymentUsecase,
   closeOrder: orderInstances.closeOrderUsecase,
 });
-const selfServiceDeliveryInstances = createSelfServiceDeliveryUsecases({
+export const selfServiceDeliveryInstances = createSelfServiceDeliveryUsecases({
   uow,
   tenant,
   settings: new PostgresStoreSettingsReader(),
   printer: new OrderPrinterAdapter(),
   closeOrderAfterDelivery,
 });
-const managerDeliveryStatusInstances = createManagerDeliveryStatusUsecases({
+export const managerDeliveryStatusInstances = createManagerDeliveryStatusUsecases({
   uow,
   tenant,
   settings: new PostgresStoreSettingsReader(),
   printer: new OrderPrinterAdapter(),
   closeOrderAfterDelivery,
 });
-const orderIntakeInstances = createOrderIntakeUsecases({
+export const orderIntakeInstances = createOrderIntakeUsecases({
   uow,
   tenant,
   settings: new PostgresStoreSettingsReader(),
@@ -196,7 +196,7 @@ const orderIntakeInstances = createOrderIntakeUsecases({
   getOrder: orderInstances.getOrderUsecase,
 });
 
-const auditLogInstances = createAuditLogUsecases({ uow, tenant });
+export const auditLogInstances = createAuditLogUsecases({ uow, tenant });
 
 // ---------------------------------------------------------------------------
 // Contexto delivery — geocoding/roteamento como SEAM de teste
@@ -213,7 +213,7 @@ export function setMapServices(geocoding: GeocodingService, routing: RoutingServ
   routingService = routing;
 }
 
-const deliveryInstances = createDeliveryUsecases({
+export const deliveryInstances = createDeliveryUsecases({
   uow,
   tenant,
   settings: new PostgresStoreSettingsReader(),
@@ -230,7 +230,7 @@ const deliveryInstances = createDeliveryUsecases({
 // store-settings (Onda 3C) e customer (Onda 3C) — factories puras. O geocoding
 // usa o MESMO seam do contexto delivery (`setMapServices`), então uma troca de
 // implementação nos testes vale para os dois.
-const storeSettingsInstances = createStoreSettingsUsecases({
+export const storeSettingsInstances = createStoreSettingsUsecases({
   uow,
   tenant,
   cache,
@@ -241,7 +241,7 @@ const storeSettingsInstances = createStoreSettingsUsecases({
   },
 });
 
-const customerInstances = createCustomerUsecases({
+export const customerInstances = createCustomerUsecases({
   uow,
   tenant,
   storage,
@@ -251,7 +251,7 @@ const customerInstances = createCustomerUsecases({
 // é o efeito de infra que o use case dispara na cascata de desativação
 // (docs/21 §5.4) — o cache de 30s do middleware não pode mentir depois de um
 // toggle explícito.
-const userInstances = createUserUsecases({
+export const userInstances = createUserUsecases({
   uow,
   tenant,
   storage,
@@ -260,37 +260,37 @@ const userInstances = createUserUsecases({
 
 // Relatórios gerenciais (Onda 3D) — leituras via `session.reports` na janela
 // `uow.run`, cache `reports:*` via o mesmo `alsTenantCache` (prefixo por schema).
-const reportInstances = createReportUsecases({ uow, tenant, cache });
-const overviewReportInstances = createOverviewReportUsecases({ uow, tenant, cache });
-const deliveriesReportInstances = createDeliveriesReportUsecases({ uow, tenant, cache });
+export const reportInstances = createReportUsecases({ uow, tenant, cache });
+export const overviewReportInstances = createOverviewReportUsecases({ uow, tenant, cache });
+export const deliveriesReportInstances = createDeliveriesReportUsecases({ uow, tenant, cache });
 
 // Financeiro (Onda financeiro) — compras/fornecedores e estornos do balcão
 // (Bloco 4). Factories puras (uow + tenant).
-const purchaseInstances = createPurchaseUsecases({ uow, tenant });
-const refundInstances = createRefundUsecases({ uow, tenant });
+export const purchaseInstances = createPurchaseUsecases({ uow, tenant });
+export const refundInstances = createRefundUsecases({ uow, tenant });
 
 // Fluxo de caixa / gaveta (Onda cash-flow) — factory pura (uow + tenant): toda
 // a persistência (gaveta, movimentos, resumo) passa pelos ports de sessão e
 // audit/outbox saem na MESMA transação.
-const cashFlowInstances = createCashFlowUsecases({ uow, tenant });
+export const cashFlowInstances = createCashFlowUsecases({ uow, tenant });
 
 // Device provisioning (docs/21) + resolução de tenant (docs/15). O
 // `assertDeviceForLogin` é consumido pelo `login.usecase`; o `resolveTenant` é
 // consumido pelo `server.ts`, pelo middleware de tenant e pelo próprio login
 // (fallback de host quando o ALS está vazio). O `jwtSecret` é injetado (a
 // `application` não lê `config`).
-const provisioningInstances = createProvisioningUsecases({
+export const provisioningInstances = createProvisioningUsecases({
   uow,
   tenant,
   jwtSecret: config.jwtSecret,
 });
-const provisioningEmailInstances = createProvisioningEmailUsecases({
+export const provisioningEmailInstances = createProvisioningEmailUsecases({
   uow,
   tenant,
   mailer: new MailerPortAdapter(),
   generateProvisioningKey: provisioningInstances.generateProvisioningKeyUsecase,
 });
-const tenantInstances = createTenantUsecases({
+export const tenantInstances = createTenantUsecases({
   registry: new TenantRegistryAdapter(),
   defaultSchema: resolveTenantSchema,
   publicBrand: new PublicTenantBrandReaderAdapter(),
@@ -299,7 +299,7 @@ const tenantInstances = createTenantUsecases({
 // Login por PIN (Onda auth): a factory recebe o escopo de tenant (ALS), a
 // resolução por host e a validação do aparelho provisionado — antes o use case
 // importava o composition root e `config`; agora tudo entra por `deps`.
-const loginInstances = createLoginUsecase({
+export const loginInstances = createLoginUsecase({
   uow,
   tenant,
   scope: new TenantScopeAdapter(),
@@ -308,174 +308,14 @@ const loginInstances = createLoginUsecase({
   jwtSecret: config.jwtSecret,
 });
 
+
+
 // ---------------------------------------------------------------------------
-// Exports legados — mesma assinatura de antes da migração (o `deps` some)
+// Compatibilidade mínima da composition root — encolhida na Onda 5.
+// As rotas importam seus use cases via `../infra/composition/domains/*`.
+// Este arquivo reexporta apenas o que ainda não tem consumidor recebendo
+// deps por parâmetro (ratchet em test/composition-compat.test.ts).
 // ---------------------------------------------------------------------------
-
-// order.usecases
-export const openOrderUsecase = orderInstances.openOrderUsecase;
-export const addItemsUsecase = orderInstances.addItemsUsecase;
-export const updateItemStatusUsecase = orderInstances.updateItemStatusUsecase;
-export const deleteItemUsecase = orderInstances.deleteItemUsecase;
-export const setOrderPaymentsUsecase = orderInstances.setOrderPaymentsUsecase;
-export const confirmOrderPaymentUsecase = orderInstances.confirmOrderPaymentUsecase;
-export const deleteOrderPaymentUsecase = orderInstances.deleteOrderPaymentUsecase;
-export const registerPaymentUsecase = orderInstances.registerPaymentUsecase;
-export const closeOrderUsecase = orderInstances.closeOrderUsecase;
-export const cancelOrderUsecase = orderInstances.cancelOrderUsecase;
-export const getOrderUsecase = orderInstances.getOrderUsecase;
-export const listOrdersUsecase = orderInstances.listOrdersUsecase;
-export const listTablesUsecase = orderInstances.listTablesUsecase;
-
-// alert.usecases
-export const listAlertsUsecase = alertInstances.listAlertsUsecase;
-export const markAlertsReadUsecase = alertInstances.markAlertsReadUsecase;
-
-// stock.usecases
-export const listStockUsecase = stockInstances.listStockUsecase;
-export const getStockMovementsUsecase = stockInstances.getStockMovementsUsecase;
-export const registerStockMovementUsecase = stockInstances.registerStockMovementUsecase;
-
-// category
-export const listCategoriesUsecase = categoryInstances.listCategoriesUsecase;
-export const createCategoryUsecase = categoryInstances.createCategoryUsecase;
-export const updateCategoryUsecase = categoryInstances.updateCategoryUsecase;
-export const deleteCategoryUsecase = categoryInstances.deleteCategoryUsecase;
-
-// kitchen-group
-export const listKitchenGroupsUsecase = kitchenGroupInstances.listKitchenGroupsUsecase;
-export const createKitchenGroupUsecase = kitchenGroupInstances.createKitchenGroupUsecase;
-export const updateKitchenGroupUsecase = kitchenGroupInstances.updateKitchenGroupUsecase;
-export const deleteKitchenGroupUsecase = kitchenGroupInstances.deleteKitchenGroupUsecase;
-
-// product
-export const listProductsUsecase = productInstances.listProductsUsecase;
-export const createProductUsecase = productInstances.createProductUsecase;
-export const updateProductUsecase = productInstances.updateProductUsecase;
-export const setProductActiveUsecase = productInstances.setProductActiveUsecase;
-export const saveProductImageUsecase = productInstances.saveProductImageUsecase;
-export const clearProductImageUsecase = productInstances.clearProductImageUsecase;
-
-// kitchen-group (reexports for compatibility — same names)
-export const listKitchenGroupsLegacyUsecase = kitchenGroupInstances.listKitchenGroupsUsecase;
-
-// menu
-export const getPublicMenuUsecase = menuInstances.getPublicMenuUsecase;
-
-// self-service — carrinho (customer_cart)
-export const getCustomerCartUsecase = cartInstances.getCustomerCartUsecase;
-export const saveCustomerCartUsecase = cartInstances.saveCustomerCartUsecase;
-export const clearCustomerCartUsecase = cartInstances.clearCustomerCartUsecase;
-
-// self-service — cliente/endereços (customer_address)
-export const lookupCustomerByPhoneUsecase = customerAddressInstances.lookupCustomerByPhoneUsecase;
-export const createSelfServiceCustomerUsecase = customerAddressInstances.createSelfServiceCustomerUsecase;
-export const addCustomerAddressUsecase = customerAddressInstances.addCustomerAddressUsecase;
-export const listCustomerAddressesUsecase = customerAddressInstances.listCustomerAddressesUsecase;
-export const setDefaultCustomerAddressUsecase = customerAddressInstances.setDefaultCustomerAddressUsecase;
-export const deleteCustomerAddressUsecase = customerAddressInstances.deleteCustomerAddressUsecase;
-
-// self-service — cancelamento pelo cliente
-export const cancelSelfServiceOrderUsecase = selfServiceCancelInstances.cancelSelfServiceOrderUsecase;
-
-// self-service — entrega (courier + manager)
-export const listCourierDeliveriesUsecase = selfServiceDeliveryInstances.listCourierDeliveriesUsecase;
-export const dispatchDeliveryUsecase = selfServiceDeliveryInstances.dispatchDeliveryUsecase;
-export const deliverDeliveryUsecase = selfServiceDeliveryInstances.deliverDeliveryUsecase;
-export const failDeliveryUsecase = selfServiceDeliveryInstances.failDeliveryUsecase;
-export const listManagerDeliveriesUsecase = selfServiceDeliveryInstances.listManagerDeliveriesUsecase;
-export const assignCourierUsecase = selfServiceDeliveryInstances.assignCourierUsecase;
-export const reportCourierLocationUsecase = selfServiceDeliveryInstances.reportCourierLocationUsecase;
-export const listCourierLocationsUsecase = selfServiceDeliveryInstances.listCourierLocationsUsecase;
-export const listCouriersUsecase = selfServiceDeliveryInstances.listCouriersUsecase;
-export const setDeliveryStatusUsecase = managerDeliveryStatusInstances.setDeliveryStatusUsecase;
-
-// self-service — checkout/status do cliente
-export const createSelfServiceOrderUsecase = orderIntakeInstances.createSelfServiceOrderUsecase;
-export const getSelfServiceOrderStatusUsecase = orderIntakeInstances.getSelfServiceOrderStatusUsecase;
-export const getActiveSelfServiceOrderByPhoneUsecase = orderIntakeInstances.getActiveSelfServiceOrderByPhoneUsecase;
-
-// audit-log
-export const listAuditLogUsecase = auditLogInstances.listAuditLogUsecase;
-
-// delivery (calcular-entrega / delivery-pricing / geocode-restaurant)
-export const calcularEntregaUsecase = deliveryInstances.calcularEntregaUsecase;
-export const getDeliveryPricingUsecase = deliveryInstances.getDeliveryPricingUsecase;
-export const geocodeRestaurantUsecase = deliveryInstances.geocodeRestaurantUsecase;
-
-// store-settings
 export const getStoreSettingsUsecase = storeSettingsInstances.getStoreSettingsUsecase;
-export const updateStoreSettingsUsecase = storeSettingsInstances.updateStoreSettingsUsecase;
-export const saveStoreLogoUsecase = storeSettingsInstances.saveStoreLogoUsecase;
-export const clearStoreLogoUsecase = storeSettingsInstances.clearStoreLogoUsecase;
-
-// customer
-export const listCustomersUsecase = customerInstances.listCustomersUsecase;
-export const getCustomerDetailUsecase = customerInstances.getCustomerDetailUsecase;
-export const createCustomerUsecase = customerInstances.createCustomerUsecase;
-export const updateCustomerUsecase = customerInstances.updateCustomerUsecase;
-export const searchCustomersUsecase = customerInstances.searchCustomersUsecase;
-export const saveCustomerPhotoUsecase = customerInstances.saveCustomerPhotoUsecase;
-export const clearCustomerPhotoUsecase = customerInstances.clearCustomerPhotoUsecase;
-export const listCustomerOrdersUsecase = customerInstances.listCustomerOrdersUsecase;
-export const customerSummaryUsecase = customerInstances.customerSummaryUsecase;
-
-// equipe / usuários (Onda auth)
-export const listUsersUsecase = userInstances.listUsersUsecase;
-export const createUserUsecase = userInstances.createUserUsecase;
-export const updateUserUsecase = userInstances.updateUserUsecase;
-export const getOwnProfileUsecase = userInstances.getOwnProfileUsecase;
-export const updateOwnProfileUsecase = userInstances.updateOwnProfileUsecase;
-export const resetPinUsecase = userInstances.resetPinUsecase;
-export const saveUserPhotoUsecase = userInstances.saveUserPhotoUsecase;
-export const clearUserPhotoUsecase = userInstances.clearUserPhotoUsecase;
-export const listActiveUsersUsecase = userInstances.listActiveUsersUsecase;
-
-// relatórios gerenciais (report, report-overview, report-deliveries)
-export const salesReportUsecase = reportInstances.salesReportUsecase;
-export const overviewReportUsecase = overviewReportInstances.overviewReportUsecase;
-export const deliveriesReportUsecase = deliveriesReportInstances.deliveriesReportUsecase;
-
-// compras/fornecedores + valorização do estoque (Onda financeiro)
-export const listSuppliersUsecase = purchaseInstances.listSuppliersUsecase;
-export const createSupplierUsecase = purchaseInstances.createSupplierUsecase;
-export const updateSupplierUsecase = purchaseInstances.updateSupplierUsecase;
-export const createPurchaseUsecase = purchaseInstances.createPurchaseUsecase;
-export const listPurchasesUsecase = purchaseInstances.listPurchasesUsecase;
-export const getPurchaseUsecase = purchaseInstances.getPurchaseUsecase;
-export const inventoryValuationUsecase = purchaseInstances.inventoryValuationUsecase;
-export const averageCostOf = purchaseInstances.averageCostOf;
-
-// estornos do balcão (Bloco 4 — Onda financeiro)
-export const refundOrderPaymentUsecase = refundInstances.refundOrderPaymentUsecase;
-export const listOrderRefundsUsecase = refundInstances.listOrderRefundsUsecase;
-
-// fluxo de caixa / gaveta (Onda cash-flow)
-export const getCurrentDrawerUsecase = cashFlowInstances.getCurrentDrawerUsecase;
-export const listCashDrawersUsecase = cashFlowInstances.listCashDrawersUsecase;
-export const getCashDrawerDetailUsecase = cashFlowInstances.getCashDrawerDetailUsecase;
-export const sumCashDrawersSummaryUsecase = cashFlowInstances.sumCashDrawersSummaryUsecase;
-export const openCashDrawerUsecase = cashFlowInstances.openCashDrawerUsecase;
-export const registerCashMovementUsecase = cashFlowInstances.registerCashMovementUsecase;
-export const closeCashDrawerUsecase = cashFlowInstances.closeCashDrawerUsecase;
-
-// getSettings — legado (o port StoreSettingsReader é o caminho novo)
-export const getSettings = () => new PostgresStoreSettingsReader().get();
-
-// device provisioning (docs/21)
-export const generateProvisioningKeyUsecase = provisioningInstances.generateProvisioningKeyUsecase;
-export const exchangeProvisioningCodeUsecase = provisioningInstances.exchangeProvisioningCodeUsecase;
-export const refreshDeviceSessionUsecase = provisioningInstances.refreshDeviceSessionUsecase;
-export const assertDeviceForLogin = provisioningInstances.assertDeviceForLogin;
-export const listUserDevicesUsecase = provisioningInstances.listUserDevicesUsecase;
-export const revokeDeviceUsecase = provisioningInstances.revokeDeviceUsecase;
-export const sendProvisioningEmailUsecase = provisioningEmailInstances.sendProvisioningEmailUsecase;
-export const resendProvisioningEmailUsecase = provisioningEmailInstances.resendProvisioningEmailUsecase;
-
-// login por PIN (Onda auth)
-export const loginUsecase = loginInstances.loginUsecase;
-
-// resolução de tenant (docs/15)
 export const resolveTenant = tenantInstances.resolveTenant;
-export const getPublicTenantUsecase = tenantInstances.getPublicTenantUsecase;
 export { DEFAULT_TENANT_SLUG, tenantRoutingEnabled } from "../../application/tenant/resolve-tenant.usecase.js";

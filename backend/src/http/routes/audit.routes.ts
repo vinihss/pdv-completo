@@ -8,7 +8,7 @@
  */
 import type { FastifyInstance } from "fastify";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
-import { listAuditLogUsecase } from "../../infra/composition/default-usecases.js";
+import { listAuditLogUsecase } from "../../infra/composition/domains/audit-log.js";
 
 export async function auditRoutes(app: FastifyInstance) {
   app.addHook("preHandler", authMiddleware);

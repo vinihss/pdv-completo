@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
 import { withIdempotency } from "../middlewares/idempotency.middleware.js";
-import { refundOrderPaymentUsecase, listOrderRefundsUsecase } from "../../infra/composition/default-usecases.js";
+import { refundOrderPaymentUsecase, listOrderRefundsUsecase } from "../../infra/composition/domains/finance.js";
 
 // ============================================================================
 // Rotas de estorno de pagamentos (Bloco 4 ROADMAP-CAIXA.md)

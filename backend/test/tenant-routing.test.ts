@@ -21,11 +21,8 @@ import {
   findTenantBySlug,
   invalidateTenantRegistryCache,
 } from "../src/infra/tenant/registry.js";
-import {
-  DEFAULT_TENANT_SLUG,
-  getPublicTenantUsecase,
-  resolveTenant,
-} from "../src/infra/composition/default-usecases.js";
+import { DEFAULT_TENANT_SLUG, resolveTenant } from "../src/infra/composition/default-usecases.js";
+import { getPublicTenantUsecase } from "../src/infra/composition/domains/tenant.js";
 import { matchTenantHost, normalizeTenantHost } from "../src/domain/tenant.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

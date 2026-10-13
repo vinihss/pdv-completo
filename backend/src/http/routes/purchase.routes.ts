@@ -22,7 +22,7 @@ import {
   createPurchaseUsecase,
   listPurchasesUsecase,
   getPurchaseUsecase,
-} from "../../infra/composition/default-usecases.js";
+} from "../../infra/composition/domains/finance.js";
 import { withIdempotency } from "../middlewares/idempotency.middleware.js";
 
 // Compras (baseline 0001) — documento multi-item.
