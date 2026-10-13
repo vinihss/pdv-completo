@@ -1,8 +1,6 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
 import { api, seedFixture, resetState, closeTestApp, FIXTURE, manager, raw } from "./helpers.js";
-import { handleIncomingWhatsAppMessage } from "../src/application/self-service/whatsapp-bot.usecases.js";
-import { createSelfServiceOrderUsecase } from "../src/application/self-service/order-intake.usecase.js";
-import { setMapServices } from "../src/application/delivery/calcular-entrega.usecase.js";
+import { createSelfServiceOrderUsecase, setMapServices } from "../src/infra/composition/default-usecases.js";
 
 setMapServices(
   {
@@ -82,99 +80,6 @@ describe("POST /calcular-entrega", () => {
     });
     expect(res.status).toBe(400);
     expect(res.json.error.code).toBe("validation_failed");
-  });
-});
-
-describe("Webhook WhatsApp - localização", () => {
-  beforeAll(async () => {
-    await seedFixture();
-    await seedRestaurantCoords();
-  });
-
-  afterAll(async () => {
-    await closeTestApp();
-  });
-
-  beforeEach(async () => {
-    await resetState();
-    await seedRestaurantCoords();
-  });
-
-  it("extrai localização do payload", async () => {
-    const { extractIncomingMessage } = await import("../src/integrations/whatsapp/webhook-payload.js");
-    const payload = {
-      entry: [
-        {
-          changes: [
-            {
-              value: {
-                messages: [
-                  {
-                    from: "5511999999999",
-                    type: "location",
-                    location: { latitude: -29.7542, longitude: -51.1496 },
-                  },
-                ],
-              },
-            },
-          ],
-        },
-      ],
-    };
-    const result = extractIncomingMessage(payload as any);
-    expect(result).not.toBeNull();
-    expect(result!.phone).toBe("5511999999999");
-    expect(result!.location).toEqual({ latitude: -29.7542, longitude: -51.1496 });
-    expect(result!.text).toBeNull();
-  });
-
-  it("extrai texto do payload", async () => {
-    const { extractIncomingMessage } = await import("../src/integrations/whatsapp/webhook-payload.js");
-    const payload = {
-      entry: [
-        {
-          changes: [
-            {
-              value: {
-                messages: [{ from: "5511999999999", type: "text", text: { body: "Olá" } }],
-              },
-            },
-          ],
-        },
-      ],
-    };
-    const result = extractIncomingMessage(payload as any);
-    expect(result).not.toBeNull();
-    expect(result!.text).toBe("Olá");
-    expect(result!.location).toBeNull();
-  });
-
-  it("retorna null para mensagem sem localização nem texto", async () => {
-    const { extractIncomingMessage } = await import("../src/integrations/whatsapp/webhook-payload.js");
-    const payload = {
-      entry: [
-        {
-          changes: [
-            {
-              value: {
-                messages: [{ from: "5511999999999", type: "image" }],
-              },
-            },
-          ],
-        },
-      ],
-    };
-    expect(extractIncomingMessage(payload as any)).toBeNull();
-  });
-
-  it("bot responde com menu quando recebe texto sem localização", async () => {
-    const { replyText } = await handleIncomingWhatsAppMessage("5511999999999", "Olá", null);
-    expect(replyText).toContain("cardápio");
-  });
-
-  it("bot responde ao pedir correção de endereço", async () => {
-    const { replyText } = await handleIncomingWhatsAppMessage("5511999999999", "não", null);
-    expect(replyText.toLowerCase()).toContain("cardápio");
   });
 });
 

@@ -29,11 +29,9 @@ import {
   refreshDeviceSessionUsecase,
   revokeDeviceUsecase,
   listUserDevicesUsecase,
-} from "../../application/provisioning/provisioning.usecases.js";
-import {
   sendProvisioningEmailUsecase,
   resendProvisioningEmailUsecase,
-} from "../../application/provisioning/provisioning-email.usecase.js";
+} from "../../infra/composition/default-usecases.js";
 
 const keyGenSchema = z.object({
   expiresAt: z.string().optional().nullable(),

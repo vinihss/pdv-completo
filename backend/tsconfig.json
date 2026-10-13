@@ -15,7 +15,10 @@
     "sourceMap": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "domain/*": ["./src/domain/*"]
+    }
   },
   "include": ["src"]
 }

@@ -1,0 +1,24 @@
+import type { TenantScopeStore } from "../../application/ports/effects.js";
+import { currentTenantScope, enterTenantScope } from "./tenant-context.js";
+
+/**
+ * Adapter do port `TenantScopeStore` (application/ports/effects.ts).
+ *
+ * Encapsula o ALS de `infra/db/tenant-context` para o `login.usecase`: a
+ * application não importa `infra/db`, e o adapter é o único que conhece as
+ * funções `currentTenantScope`/`enterTenantScope`. O trabalho de resolver o
+ * tenant pelo host quando o ALS está vazio continua no use case (via dep
+ * `resolveTenant`); aqui só entram/consultam o escopo.
+ */
+export class TenantScopeAdapter implements TenantScopeStore {
+  current(): { slug: string; schemaName: string; isDefault: boolean } | undefined {
+    const scope = currentTenantScope();
+    return scope
+      ? { slug: scope.slug, schemaName: scope.schemaName, isDefault: scope.isDefault }
+      : undefined;
+  }
+
+  enter(scope: { slug: string; schemaName: string; isDefault: boolean }): void {
+    enterTenantScope(scope);
+  }
+}

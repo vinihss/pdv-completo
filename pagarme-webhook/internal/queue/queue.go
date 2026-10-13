@@ -37,6 +37,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -44,6 +45,7 @@ import (
 	"pdv-pagarme-webhook/internal/charge"
 	"pdv-pagarme-webhook/internal/inbox"
 	"pdv-pagarme-webhook/internal/nodeapi"
+	"pdv-pagarme-webhook/internal/tenancy"
 )
 
 const (
@@ -140,14 +142,39 @@ type Aplica interface {
 type Drainer struct {
 	db     *sql.DB
 	aplica Aplica
-	poll   time.Duration
-	batch  int
-	now    func() time.Time
+	// fonte devolve os tenants a varrer no ciclo. Nil = modo uma-loja: só o
+	// tenant default, exatamente como antes do multi-tenant.
+	fonte tenancy.Source
+	poll  time.Duration
+	batch int
+	now   func() time.Time
 }
 
-// New monta um Drainer.
+// New monta um Drainer no modo uma-loja (sem fonte de tenants).
 func New(db *sql.DB, aplica Aplica) *Drainer {
-	return &Drainer{db: db, aplica: aplica, poll: PollMS * time.Millisecond, batch: BatchSize, now: time.Now}
+	return NewWithSource(db, aplica, nil)
+}
+
+// NewWithSource monta um Drainer que varre os tenants da `fonte`.
+//
+// Com fonte, cada ciclo abre uma transação POR tenant (`tenancy.Apply` põe
+// `app.tenant_id` + `search_path` antes das queries) e entrega o SLUG ao Node
+// em `nodeapi.Request.Tenant` — é o que faz a fila cair no schema certo sem
+// qualificar tabela nenhuma. Sem fonte o comportamento é o de antes.
+func NewWithSource(db *sql.DB, aplica Aplica, fonte tenancy.Source) *Drainer {
+	return &Drainer{db: db, aplica: aplica, fonte: fonte, poll: PollMS * time.Millisecond, batch: BatchSize, now: time.Now}
+}
+
+// tenants devolve os tenants do ciclo.
+//
+// Sem fonte é só o default (modo uma-loja). O erro do registry é fail-closed:
+// sem saber quais são os tenants, drenar seria gravar/markar em escopo chutado
+// — a fila espera um ciclo, nunca processa no escopo errado.
+func (d *Drainer) tenants(ctx context.Context) ([]tenancy.Tenant, error) {
+	if d.fonte == nil {
+		return []tenancy.Tenant{tenancy.Default()}, nil
+	}
+	return d.fonte.Tenants(ctx)
 }
 
 // Run faz o polling até o ctx ser cancelado.
@@ -213,16 +240,33 @@ const selectStmt = `SELECT id, event_id, event_type, payload, attempts
 	ORDER BY seq ASC
 	LIMIT $2`
 
-// DrainOnce é um ciclo da inbox.
+// DrainOnce é um ciclo da inbox: varre cada tenant da fonte, um de cada vez.
+//
+// ## Um ciclo POR tenant, não um laço sobre linhas
+//
+// Cada tenant roda na própria transação com `tenancy.Apply` (`app.tenant_id` +
+// `search_path` do schema da loja) antes das queries — o `SELECT` de
+// elegibilidade e o `UPDATE` de desfecho resolvem então em `payment_event` do
+// schema certo, sem qualificar tabela nenhuma. Um único lote misturando
+// tenants seria o vazamento clássico: evento da loja B marcado no schema da
+// loja A.
+//
+// Os erros de cada tenant são juntados (`errors.Join`) e não abortam os
+// demais: um schema dropado no meio da migração não pode parar a fila das
+// outras lojas, e o operador vê o tenant culpado na mensagem.
 //
 // ## O que o advisory lock garante, e o que não
 //
-// O ciclo inteiro roda dentro do advisory lock de TRANSAÇÃO (`pdv:payment:worker`,
-// a MESMA chave do worker do Node): se outro processo já está drenando, este
-// ciclo pula em silêncio em vez de disputar as mesmas 25 linhas a cada 2s. O que
-// ele garante é MÚTUA EXCLUSÃO entre drenadores — inclusive entre este serviço e
+// O ciclo roda dentro do advisory lock de TRANSAÇÃO (`pdv:payment:worker`, a
+// MESMA chave do worker do Node): se outro processo já está drenando, o ciclo
+// pula em silêncio em vez de disputar as mesmas 25 linhas a cada 2s. O que ele
+// garante é MÚTUA EXCLUSÃO entre drenadores — inclusive entre este serviço e
 // o worker do Node, que continuam coexistindo durante a migração sem nunca
 // processar a mesma linha ao mesmo tempo.
+//
+// O lock é GLOBAL (sem sufixo de tenant) de propósito: é a mesma string de
+// `LOCKS.paymentWorker` no Node, e sufixá-lo só aqui abriria dois locks
+// paralelos que não se enxergam. A partição é do `search_path`, não do lock.
 //
 // O que ele NÃO garante é quem "é o dono" do webhook: quem decide isso é o Caddy
 // (ver `deploy/Caddyfile` §`handle /webhooks/pagarme`). Um drenador que não está
@@ -239,11 +283,34 @@ const selectStmt = `SELECT id, event_id, event_type, payload, attempts
 // o código precisa. Ver a nota em `backend/src/infra/locks.ts` e a justificativa
 // medida em `ws-gateway/internal/outbox/outbox.go:129`.
 func (d *Drainer) DrainOnce(ctx context.Context) (int, error) {
+	tenants, err := d.tenants(ctx)
+	if err != nil {
+		return 0, err
+	}
+	var total int
+	var erros []error
+	for _, t := range tenants {
+		n, err := d.drainTenant(ctx, t)
+		total += n
+		if err != nil {
+			erros = append(erros, fmt.Errorf("drain do tenant %s: %w", t, err))
+		}
+	}
+	return total, errors.Join(erros...)
+}
+
+// drainTenant drena a fila DE UM tenant: uma transação, um `tenancy.Apply`,
+// um lote.
+func (d *Drainer) drainTenant(ctx context.Context, tenant tenancy.Tenant) (int, error) {
 	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback() // no-op se já commitou
+
+	if err := tenancy.Apply(ctx, tx, tenant); err != nil {
+		return 0, err
+	}
 
 	var locked bool
 	if err := tx.QueryRowContext(ctx,
@@ -278,7 +345,7 @@ func (d *Drainer) DrainOnce(ctx context.Context) (int, error) {
 	rows.Close()
 
 	for _, e := range lote {
-		d.process(ctx, tx, e)
+		d.process(ctx, tx, tenant, e)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -292,7 +359,7 @@ func (d *Drainer) DrainOnce(ctx context.Context) (int, error) {
 // Não devolve erro. Um evento que falha não pode abortar o lote — os outros 24
 // precisam ser vistos, e o erro do evento já vai para `error_message`, que é onde
 // o operador olha.
-func (d *Drainer) process(ctx context.Context, tx *sql.Tx, e eventRow) {
+func (d *Drainer) process(ctx context.Context, tx *sql.Tx, tenant tenancy.Tenant, e eventRow) {
 	charge, err := cargaDe(e.payload)
 	if err != nil {
 		// Payload que o mapper não entende. Terminal de propósito: o mesmo
@@ -307,8 +374,13 @@ func (d *Drainer) process(ctx context.Context, tx *sql.Tx, e eventRow) {
 		EventType:         e.eventType,
 		ProviderOrderID:   charge.ProviderOrderID,
 		ProviderPaymentID: charge.ProviderPaymentID,
-		Source:            nodeapi.SourceEvent,
-		Charge:            nodeapi.NewChargePayload(charge),
+		// `Tenant` é o SLUG do escopo: o Node usa para abrir a transação no
+		// schema da loja antes de `applyCharge`. Sem ele o Node cairia no
+		// default — que é o erro silencioso mais caro possível (pagamento
+		// aplicado na loja errada), por isso ele é preenchido SEMPRE.
+		Tenant:  tenant.Slug,
+		Source:  nodeapi.SourceEvent,
+		Charge:  nodeapi.NewChargePayload(charge),
 	}
 
 	res, err := d.aplica.ApplyEvent(ctx, e.id, req)

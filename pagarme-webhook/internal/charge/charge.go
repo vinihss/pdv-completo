@@ -224,6 +224,7 @@ type Payment struct {
 type Order struct {
 	ID              string       `json:"id"`
 	Status          string       `json:"status"`
+	MerchantID      string       `json:"merchant_id,omitempty"`
 	Amount          Flex         `json:"amount"`
 	PaidAmount      Flex         `json:"paid_amount"`
 	Payments        []Payment    `json:"payments"`
@@ -236,10 +237,34 @@ type Order struct {
 // O `payload` gravado na inbox é o corpo CRU (ver internal/inbox), então este
 // struct é usado para LER da inbox e para extrair `id`/`data.id` no insert —
 // nunca para regerar o JSON.
+//
+// `merchant_id` é o identificador da conta Pagar.me que gerou a cobrança, e é
+// ele que diz em qual tenant (loja) o evento deve ser gravado — ver
+// internal/tenancy. Ele pode vir no envelope (topo) ou dentro de `data`, e o
+// `Merchant()` varre os dois caminhos porque a doc não enumera onde a V5 o
+// coloca em cada tipo de evento.
 type WebhookPayload struct {
-	ID   string `json:"id"`
-	Type string `json:"type"`
-	Data *Order `json:"data"`
+	ID         string `json:"id"`
+	Type       string `json:"type"`
+	MerchantID string `json:"merchant_id,omitempty"`
+	Data       *Order `json:"data"`
+}
+
+// Merchant devolve o `merchant_id` do webhook, varrendo os dois caminhos
+// plausíveis: o envelope (topo) e o `data`. Vazio = o payload não trouxe —
+// quem chama decide (em modo uma-loja cai no default; em modo multi-tenant é
+// `ErrSemTenant` a menos que haja fallback explícito).
+func (p *WebhookPayload) Merchant() string {
+	if p == nil {
+		return ""
+	}
+	if p.MerchantID != "" {
+		return p.MerchantID
+	}
+	if p.Data != nil && p.Data.MerchantID != "" {
+		return p.Data.MerchantID
+	}
+	return ""
 }
 
 // EventIDs devolve o par de ids do gateway que a inbox indexa

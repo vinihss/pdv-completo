@@ -284,7 +284,7 @@ type PlanOrder = {
   tabLabel: string | null;
   customerId: string | null;
   customerName: string | null; // só p/ texto do alerta
-  channel: "balcao" | "web" | "whatsapp";
+  channel: "balcao" | "web";
   waiterId: string;
   openedAt: string;
   closedAt: string | null;
@@ -586,7 +586,7 @@ function buildHistoryOrder(args: {
     customerId = address.customerId;
     customerName = address.customerName;
     tabLabel = `Delivery - ${customerName}`; // mesmo formato do order-intake
-    channel = rng.chance(0.55) ? "web" : "whatsapp";
+    channel = "web";
   }
 
   const openedAt = isoOnDay(daysAgo, rng.int(14, 21), rng.int(0, 59));
@@ -652,7 +652,7 @@ type OpenSpec = {
   kind: "table" | "tab" | "delivery";
   tableIndex?: number; // índice em ctx.tables (mesas livres)
   tabLabel?: string;
-  channel?: "web" | "whatsapp";
+  channel?: "web";
   addressIndex?: number;
   minutesAgo: number;
   waiter: "ana" | "carlos" | "system";
@@ -692,8 +692,8 @@ const OPEN_SPECS: OpenSpec[] = [
   { suffix: "08", kind: "delivery", channel: "web", addressIndex: 0, minutesAgo: 25, waiter: "system",
     items: [ { product: "Pizza Margherita", qty: 1, status: "ready" }, { product: "Refrigerante Lata", qty: 2, status: "ready" } ],
     deliveryStatus: "awaiting_courier" },
-  // 09 — delivery WhatsApp a caminho, cartão pendente de confirmação
-  { suffix: "09", kind: "delivery", channel: "whatsapp", addressIndex: 1, minutesAgo: 80, waiter: "system",
+  // 09 — delivery a caminho, cartão pendente de confirmação
+  { suffix: "09", kind: "delivery", channel: "web", addressIndex: 1, minutesAgo: 80, waiter: "system",
     items: [ { product: "Feijoada Completa", qty: 1, status: "delivered" }, { product: "Suco Natural 500ml", qty: 1, status: "delivered" } ],
     payment: { method: "card" }, deliveryStatus: "out_for_delivery", deliveryCourier: true },
   // 10 — delivery entregue, Pix ainda não caiu
@@ -1202,9 +1202,9 @@ function orderRow(o: PlanOrder) {
 
 /** Texto do alerta — réplica de describeOrderAlert (application/alert). */
 function describeAlert(order: PlanOrder): { title: string; body: string } {
-  const CHANNEL_LABEL: Record<string, string> = { balcao: "Balcão", web: "página", whatsapp: "WhatsApp" };
+  const CHANNEL_LABEL: Record<string, string> = { balcao: "Balcão", web: "página" };
   const channel = CHANNEL_LABEL[order.channel] ?? order.channel;
-  if (order.channel === "web" || order.channel === "whatsapp") {
+  if (order.channel === "web") {
     const who = order.customerName?.trim() || order.tabLabel;
     return { title: who ? `Novo pedido de ${who}` : "Novo pedido de entrega", body: `Entrega · ${channel}` };
   }

@@ -4,15 +4,14 @@ Especificação dos endpoints novos que suportam `04-delivery-self-service-integ
 
 ## Convenções
 
-- **Endpoints públicos** (`/public/*`) não exigem `authMiddleware` — são de leitura de cardápio e criação de pedido pelo cliente final. Todos têm rate limiting em memória por IP (e `POST /public/orders` também por telefone, pra não encher o WhatsApp de alguém com pedidos falsos): `publicLookupRateLimit` 20/min, `publicWriteRateLimit` 10/min, `publicCartRateLimit` 60/min (o PUT do carrinho é debounced no cliente), `publicOrderRateLimit` 5/min por IP **e** 5/min por telefone. `GET /public/menu` e `GET /public/orders/:id/status` não são limitados (superfície de leitura já existente).
+- **Endpoints públicos** (`/public/*`) não exigem `authMiddleware` — são de leitura de cardápio e criação de pedido pelo cliente final. Todos têm rate limiting em memória por IP (e `POST /public/orders` também por telefone, pra não encher a loja de alguém com pedidos falsos): `publicLookupRateLimit` 20/min, `publicWriteRateLimit` 10/min, `publicCartRateLimit` 60/min (o PUT do carrinho é debounced no cliente), `publicOrderRateLimit` 5/min por IP **e** 5/min por telefone. `GET /public/menu` e `GET /public/orders/:id/status` não são limitados (superfície de leitura já existente).
 - **Endpoints de entregador** (`/courier/*`) exigem `authMiddleware` + `requireRole("courier")`.
 - **Endpoints de manager** (`/manager/deliveries/*`) exigem `authMiddleware` + `requireRole("manager")`.
-- **Webhook do WhatsApp** (`/webhooks/whatsapp`) é autenticado por verificação de assinatura da Meta (`X-Hub-Signature-256`), não por JWT.
 - Toda escrita que cria um recurso novo (pedido, endereço) exige `correlationId` no body, igual ao padrão já usado em `POST /orders`.
 
 ## Máquina de estado do cliente (stage canônico)
 
-O cliente (página `/pedido` e bot do WhatsApp) **não** consome os 3 eixos internos
+O cliente (página `/pedido`) **não** consome os 3 eixos internos
 (`orders.status`, `order_item.status`, `delivery.status`) diretamente: eles são
 detalhes de implementação que mudam conforme o fluxo. O que o cliente vê é um
 **stage canônico**, derivado e exposto por `GET /public/orders/:id/status` em
@@ -59,7 +58,7 @@ painel do entregador e o cliente preso em "Pedido recebido" eterno.
 
 ### `GET /public/menu`
 
-Sem parâmetros. Retorna produtos ativos e visíveis nesse canal (respeitando `whatsappVisible`/equivalente, se existir).
+Sem parâmetros. Retorna produtos ativos e visíveis no cardápio público.
 
 ```
 200 → {
@@ -115,12 +114,12 @@ body: { correlationId, label?, street, number, complement?, neighborhood, city, 
 
 ### `POST /public/orders`
 
-Ponto único de checkout — sempre chamado pela página, mesmo quando o cliente chegou pelo link do WhatsApp (o bot não chama isso diretamente, ver "Webhook do WhatsApp" abaixo).
+Ponto único de checkout — sempre chamado pela página do cliente.
 
 ```
 body: {
   correlationId: string,
-  channel: "whatsapp" | "web",  // default "web" — a página passa "whatsapp" quando leu ?via=whatsapp da URL
+  channel: "web",                // self-service sempre chega pela página externa
   customerPhone: string,
   customerName: string,
   addressId?: string,          // endereço salvo
@@ -202,12 +201,12 @@ cancelável em `out_for_delivery` (o entregador já saiu com o pedido) nem em
 
 Idempotente por `correlationId`; o cancelamento usa o mesmo
 `cancelOrderUsecase` do gerente (estorno de estoque/caixa, propagação pra
-delivery, eventos outbox) e notifica o cliente por WhatsApp.
+delivery, eventos outbox).
 
 ### `POST /public/orders/active`
 
 Pedido em andamento do telefone, pra retomada ("Você tem um pedido em
-andamento" na página, mesmo link que o bot manda).
+andamento" na página).
 
 ```
 body: { phone }
@@ -215,7 +214,7 @@ body: { phone }
 200 → null        // sem cliente com esse telefone, ou sem pedido aberto
 ```
 
-"Andamento" = `orders.status = open` de canal `whatsapp`/`web` (o mais recente
+"Andamento" = `orders.status = open` de canal self-service (`web`; o mais recente
 por `opened_at`). Serve também pro `failed`: o cliente precisa ver a falha pra
 cancelar ou reordenar.
 
@@ -259,27 +258,6 @@ um pedido que não existe — responde `join.denied`. Eventos: os mesmos do
 O cliente trata o WS como otimização: o polling de 4s continua sendo o
 garantidor de consistência (o backend não faz buffer de evento perdido).
 
-## Webhook do WhatsApp
-
-### `GET /webhooks/whatsapp`
-
-Verificação de assinatura exigida pela Meta (`hub.challenge`) — sem lógica de negócio.
-
-### `POST /webhooks/whatsapp`
-
-Recebe evento de mensagem inbound. Fluxo interno (implementado em `handleIncomingWhatsAppMessage`):
-
-1. Extrai telefone e conteúdo da mensagem (`webhook-payload.ts#extractIncomingMessage`).
-2. Busca ou atualiza `whatsapp_conversation` pelo telefone — usada só pra saber se já cumprimentou nesta janela de 1h, não pra conduzir carrinho.
-3. Busca pedido self-service **em aberto** do telefone (`POST /public/orders/active`, mesma query do banner da página):
-   - **com** pedido em aberto → responde com o stage atual e o link direto do acompanhamento (`?via=whatsapp&phone=…&order=<orderId>`);
-   - **sem** pedido → monta o link do cardápio (`?via=whatsapp&phone=…`).
-4. Responde com saudação completa (primeira mensagem da janela) ou só o link (mensagens seguintes).
-
-Não chama `createSelfServiceOrderUsecase()` nem os endpoints de cliente/endereço — o pedido em si é criado depois, quando o cliente fecha o checkout em `POST /public/orders` na página, com `channel: "whatsapp"` porque chegou pelo link.
-
-Não há resposta síncrona significativa pro Fastify além de `200 OK` — a resposta ao cliente acontece de forma assíncrona, via chamada à Cloud API.
-
 ## Endpoints do entregador
 
 ### `GET /courier/deliveries`
@@ -308,8 +286,6 @@ Filtra automaticamente por `courier_id = <usuário autenticado>` — entregador 
 200 → { id, status: "delivered", deliveredAt }
 409 → invalid_transition  (se não estava out_for_delivery)
 ```
-Dispara `whatsapp.notifier.ts` de forma assíncrona (outbox), notificando o cliente.
-
 ### `PATCH /courier/deliveries/:id/fail`
 
 ```

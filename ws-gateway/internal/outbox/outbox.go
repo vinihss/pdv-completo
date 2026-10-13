@@ -11,14 +11,23 @@
 // O dispatcher NÃO roda por padrão: ele só publica se `WS_DISPATCH` estiver
 // ligada, porque publicar exige ser o dono do `/realtime` — leia gate.go antes
 // de mexer em qualquer coisa aqui.
+//
+// E cada ciclo é POR TENANT: o lote lido de `outbox_event` é sempre de um
+// schema só (`tenancy.Apply` fixa `search_path` na transação) e o frame sai do
+// hub já etiquetado com o slug, para o connmanager entregar só às conexões
+// daquela loja (docs/15 §3.3).
 package outbox
 
 import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"time"
+
+	"pdv-ws-gateway/internal/tenancy"
 )
 
 const (
@@ -40,8 +49,13 @@ const (
 
 // RoomBroadcaster é o que o dispatcher precisa do hub. Interface mínima para
 // poder testar o dispatcher sem subir websocket nem banco.
+//
+// O primeiro parâmetro é o TENANT do ciclo (o slug), e o hub entrega só às
+// conexões daquele tenant (ver connmanager.BroadcastToRoom) — é a partição que
+// impede o gerente de A de ouvir a gaveta de B com rooms de mesmo nome no wire
+// (docs/15 §3.3, risco R1).
 type RoomBroadcaster interface {
-	BroadcastToRoom(room string, payload []byte) int
+	BroadcastToRoom(tenant, room string, payload []byte) int
 }
 
 // Dispatcher varre o outbox e publica.
@@ -50,11 +64,23 @@ type Dispatcher struct {
 	hub   RoomBroadcaster
 	poll  time.Duration
 	batch int
+	// source diz QUAIS tenants são varridos. Nil = só o tenant default, que é
+	// o comportamento de antes do multi-tenant (uma loja, `outbox_event` em
+	// `public`) — o mesmo caminho que os testes sem banco exercitam.
+	source tenancy.Source
 }
 
-// New monta um Dispatcher.
+// New monta um Dispatcher que varre apenas o tenant default.
 func New(db *sql.DB, hub RoomBroadcaster) *Dispatcher {
 	return &Dispatcher{db: db, hub: hub, poll: PollMS * time.Millisecond, batch: BatchSize}
+}
+
+// NewWithSource monta um Dispatcher que varre os tenants do `source`
+// (produção: registry `public.tenant` ou a lista explícita de `WS_TENANTS`).
+func NewWithSource(db *sql.DB, hub RoomBroadcaster, source tenancy.Source) *Dispatcher {
+	d := New(db, hub)
+	d.source = source
+	return d
 }
 
 // Run faz o polling até o ctx ser cancelado.
@@ -132,6 +158,19 @@ func (d *Dispatcher) Run(ctx context.Context) {
 // lock de transação é liberado no COMMIT/ROLLBACK, que é a garantia que o
 // código precisa. Ver a nota em backend/src/infra/locks.ts.
 //
+// ## Um ciclo por tenant
+//
+// Cada tenant da fonte (`WS_TENANTS` ou o registry `public.tenant`) tem a
+// PRÓPRIA transação: `tenancy.Apply` faz `SET LOCAL app.tenant_id` e
+// `search_path = <schema_do_tenant>, public` antes do SELECT, então o lote
+// lido é só daquele schema e o broadcast sai já etiquetado com o slug. É o
+// que impede o gerente de A de ouvir a gaveta de B com rooms de mesmo nome no
+// wire (docs/15 §3.3, risco R1).
+//
+// Falha da fonte de tenancy = fail-closed: o ciclo inteiro aborta sem publicar
+// nada. Publicar com escopo desconhecido ou errado é pior que não publicar
+// (o evento fica pendente e sai no próximo poll, e o client recarrega por REST).
+//
 // Efeito colateral desejável de o lote estar na transação: o SELECT dos 50
 // pendentes e os 50 `UPDATE published = true` viram atômicos. Se o processo
 // cair no meio do loop, ou commita o lote inteiro, ou os 50 voltam a ficar
@@ -146,17 +185,66 @@ func (d *Dispatcher) PollOnce(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 
+	tenants, err := d.tenants(ctx)
+	if err != nil {
+		// Fail-closed: fonte indisponível não vira "publica só o default".
+		return 0, fmt.Errorf("outbox: fonte de tenants: %w", err)
+	}
+
+	total := 0
+	var errs []error
+	for _, tenant := range tenants {
+		n, err := d.pollTenant(ctx, tenant)
+		total += n
+		if err != nil {
+			// Um tenant quebrado não derruba os demais: segue o ciclo e junta
+			// os erros para o Run logar uma vez.
+			errs = append(errs, err)
+		}
+	}
+	return total, errors.Join(errs...)
+}
+
+// tenants devolve os tenants do ciclo: os da fonte explícita/registry, ou só o
+// default quando não há fonte configurada (comportamento de antes do
+// multi-tenant — uma loja, `outbox_event` em `public`).
+func (d *Dispatcher) tenants(ctx context.Context) ([]tenancy.Tenant, error) {
+	if d.source == nil {
+		return []tenancy.Tenant{tenancy.Default()}, nil
+	}
+	tenants, err := d.source.Tenants(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(tenants) == 0 {
+		return []tenancy.Tenant{tenancy.Default()}, nil
+	}
+	return tenants, nil
+}
+
+// pollTenant é um ciclo completo de um tenant: transação própria, escopo
+// aplicado, lock, seleção, publicação etiquetada e commit.
+//
+// O lock continua GLOBAL (sem sufixo de tenant): o dispatcher de outbox do
+// Node usa o mesmo nome sem sufixo e a migração para lock por tenant tem que
+// acontecer dos dois lados junto (Fase 4) — trocar só aqui quebra a mútua
+// exclusão entre as duas implementações.
+func (d *Dispatcher) pollTenant(ctx context.Context, tenant tenancy.Tenant) (int, error) {
 	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("outbox: begin tenant=%s: %w", tenant.Slug, err)
 	}
 	defer tx.Rollback() // no-op se já commitou
+
+	if err := tenancy.Apply(ctx, tx, tenant); err != nil {
+		return 0, fmt.Errorf("outbox: escopo tenant=%s: %w", tenant.Slug, err)
+	}
 
 	var locked bool
 	err = tx.QueryRowContext(ctx,
 		`SELECT pg_try_advisory_xact_lock(hashtext($1))`, lockName).Scan(&locked)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("outbox: lock tenant=%s: %w", tenant.Slug, err)
 	}
 	if !locked {
 		// Lock ocupado não é erro: é o desenho. A tentativa é de graça (`try_`),
@@ -178,7 +266,7 @@ func (d *Dispatcher) PollOnce(ctx context.Context) (int, error) {
 
 	rows, err := tx.QueryContext(ctx, selectStmt, d.batch)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("outbox: select tenant=%s: %w", tenant.Slug, err)
 	}
 
 	var batch []pending
@@ -186,22 +274,22 @@ func (d *Dispatcher) PollOnce(ctx context.Context) (int, error) {
 		var p pending
 		if err := rows.Scan(&p.id, &p.typ, &p.room, &p.payload); err != nil {
 			rows.Close()
-			return 0, err
+			return 0, fmt.Errorf("outbox: scan tenant=%s: %w", tenant.Slug, err)
 		}
 		batch = append(batch, p)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return 0, err
+		return 0, fmt.Errorf("outbox: rows tenant=%s: %w", tenant.Slug, err)
 	}
 	rows.Close()
 
 	for _, evt := range batch {
-		d.publish(ctx, tx, evt.id, evt.typ, evt.room, evt.payload)
+		d.publish(ctx, tx, tenant, evt.id, evt.typ, evt.room, evt.payload)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("outbox: commit tenant=%s: %w", tenant.Slug, err)
 	}
 	return len(batch), nil
 }
@@ -212,7 +300,7 @@ func (d *Dispatcher) PollOnce(ctx context.Context) (int, error) {
 // daquele payload o broadcast é irrecuperável, e deixar pendente criaria um loop
 // apertado de retry a cada 200ms sobre uma linha que nunca vai ser lida
 // (o Node faz o mesmo em pollOutboxOnce).
-func (d *Dispatcher) publish(ctx context.Context, tx *sql.Tx, id, typ, room, rawPayload string) {
+func (d *Dispatcher) publish(ctx context.Context, tx *sql.Tx, tenant tenancy.Tenant, id, typ, room, rawPayload string) {
 	markPublished := func() {
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE outbox_event SET published = true WHERE id = $1`, id); err != nil {
@@ -244,7 +332,7 @@ func (d *Dispatcher) publish(ctx context.Context, tx *sql.Tx, id, typ, room, raw
 	// o inverso — um processo que não é o dono publicando, em que o zero
 	// assinante significa "os clientes estão no outro servidor" e o evento
 	// morre marcado como publicado. Daí o gate existir em gate.go.
-	d.hub.BroadcastToRoom(room, frame)
+	d.hub.BroadcastToRoom(tenant.Chave(), room, frame)
 	markPublished()
 }
 

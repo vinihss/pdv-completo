@@ -25,7 +25,7 @@ import {
   DEFAULT_TENANT_SLUG,
   getPublicTenantUsecase,
   resolveTenant,
-} from "../src/application/tenant/resolve-tenant.usecase.js";
+} from "../src/infra/composition/default-usecases.js";
 import { matchTenantHost, normalizeTenantHost } from "../src/domain/tenant.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -507,14 +507,14 @@ describe("registry: migrations, isolamento de schema e cache", () => {
     expect(doRegistry).toEqual(["0001_tenant_registry.sql"]);
     expect(doTenant).toEqual([
       "0001_init.sql",
-      "0002_pagarme.sql",
       "0003_courier_location.sql",
       "0004_delivery_arrival_alert_sent.sql",
       "0004_device_provisioning.sql",
       "0005_cash_drawer_denominations.sql",
       "0006_order_refund.sql",
-      "0007_order_settlement.sql",
-      "0008_cash_movement_category.sql"
+      "0008_cash_movement_category.sql",
+      "0009_remove_whatsapp.sql",
+      "0010_remove_payment_ifood.sql"
     ]);
     // E o diretório existe de verdade — a exclusão não é por pasta vazia.
     expect(fs.existsSync(path.dirname(REGISTRY_SQL))).toBe(true);

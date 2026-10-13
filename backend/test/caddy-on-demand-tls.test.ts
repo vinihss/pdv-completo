@@ -9,12 +9,21 @@ import { api, closeTestApp } from "./helpers.js";
 
 const URL_ = "/internal/caddy-on-demand-tls";
 
+// Estes casos verificam o DEFAULT da raiz da plataforma. O `.env` de dev define
+// `PLATFORM_ROOT_DOMAIN`, então removemos durante a suíte (o caso "respeita
+// PLATFORM_ROOT_DOMAIN" define o próprio valor) e restauramos no fim — senão o
+// teste só passa em CI, onde não há `.env`. Mesmo padrão do `tenant-routing`.
+const previousRootDomain = process.env.PLATFORM_ROOT_DOMAIN;
+delete process.env.PLATFORM_ROOT_DOMAIN;
+
 async function ask(domain: string): Promise<number> {
   const res = await api("get", `${URL_}?domain=${encodeURIComponent(domain)}`);
   return res.status;
 }
 
 afterAll(async () => {
+  if (previousRootDomain === undefined) delete process.env.PLATFORM_ROOT_DOMAIN;
+  else process.env.PLATFORM_ROOT_DOMAIN = previousRootDomain;
   await closeTestApp();
 });
 

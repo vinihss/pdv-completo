@@ -231,7 +231,7 @@ describe("scripts/migrate-uploads-layout", () => {
   afterAll(() => closeTestApp());
 
   beforeEach(async () => {
-    resetState();
+    await resetState();
     root = fs.mkdtempSync(path.join(os.tmpdir(), "pdv-uploads-mig-"));
 
     // Nomes de arquivo como o upload faria: `<id>.<ext>`, e o logo com nome fixo.

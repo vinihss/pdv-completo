@@ -1,21 +1,19 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { db } from "../../infra/db/client.js";
-import { users, storeSettings } from "../../infra/db/schema.js";
 import { Errors } from "../../domain/errors.js";
-import { loginUsecase } from "../../application/auth/login.usecase.js";
+import { authMiddleware } from "../middlewares/auth.middleware.js";
+import { loginRateLimit } from "../middlewares/rate-limit.middleware.js";
+import { imageExtByMime } from "./image-ext.js";
+// Acesso a dados via composition root (a rota não toca em Drizzle/schema/client):
+// `login`, a seleção pública de usuários e o self-service de perfil/foto.
 import {
-  photoUrl,
+  loginUsecase,
+  listActiveUsersUsecase,
   getOwnProfileUsecase,
   updateOwnProfileUsecase,
   saveUserPhotoUsecase,
   clearUserPhotoUsecase,
-} from "../../application/user.usecases.js";
-import { authMiddleware } from "../middlewares/auth.middleware.js";
-import { loginRateLimit } from "../middlewares/rate-limit.middleware.js";
-import { imageExtByMime } from "./misc.routes.js";
-import { ensureTenantScope } from "../../infra/db/tenant-context.js";
+} from "../../infra/composition/default-usecases.js";
 
 const loginSchema = z.object({
   userId: z.string(),
@@ -45,40 +43,15 @@ export async function authRoutes(app: FastifyInstance) {
   // só id/name/role/foto de usuários ativos, nunca pinHash. Também respeita os
   // toggles de rollout, escondendo usuários de módulos desligados: "kitchen"
   // quando kitchen_enabled=false e "courier" quando uses_delivery=false —
-  // mesmo filtro por configuração que rege o resto do produto.
-  app.get("/auth/users", async (req) => {
-    const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
-    return ensureTenantScope(host, async () => {
-      const settings = await db.query.storeSettings.findFirst({
-        where: eq(storeSettings.id, "singleton"),
-      });
-      const rows = await db.query.users.findMany({
-        where: eq(users.active, true),
-        orderBy: (u, { asc }) => asc(u.name),
-      });
-      return rows
-        .filter((u) => settings?.kitchenEnabled || u.role !== "kitchen")
-        .filter((u) => settings?.usesDelivery !== false || u.role !== "courier")
-        .map((u) => ({ id: u.id, name: u.name, role: u.role, photoPath: photoUrl(u.photoPath, "user") }));
-    });
-  });
+  // mesmo filtro por configuração que rege o resto do produto. O escopo de
+  // tenant é garantido pelo hook global de `server.ts` (ensureTenantScope).
+  app.get("/auth/users", async () => listActiveUsersUsecase());
 
-  app.post("/auth/login", { preHandler: loginRateLimit }, async (req, reply) => {
+  app.post("/auth/login", { preHandler: loginRateLimit }, async (req) => {
     const body = loginSchema.parse(req.body);
-    // Passa o host para o loginUsecase resolver o tenant manualmente se o ALS estiver vazio
-    const host = (req.headers["x-tenant-host"] as string) || req.headers.host;
-    const result = await loginUsecase(body.userId, body.pin, body.deviceId, host);
-    return reply.code(200).send(result);
+    return loginUsecase(body.userId, body.pin, body.deviceId);
   });
 
-  // Perfil do próprio usuário logado. `authMiddleware` por rota (não por
-  // plugin) porque os endpoints públicos do arquivo (GET /auth/users e
-  // POST /auth/login) continuam sendo. O id vem SEMPRE do token
-  // (`req.authUser!.sub`), nunca do body — não há como um usuário ler ou
-  // editar o perfil de outro. Qualquer papel autenticado entra (sem
-  // `requireRole`): é exatamente a lacuna que PATCH /users/:id (manager-only)
-  // deixava aberta para garçom/cozinha/caixa/entregador.
-  //
   // GET primeiro: a tela de perfil lê o perfil fresco ao abrir — o login
   // não traz phone/email e iniciar o formulário com a sessão deixaria os
   // campos vazios (um salvar apagaria valores existentes no banco).
@@ -90,7 +63,7 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   // Foto do PRÓPRIO usuário logado — o par self-service das rotas
-  // `POST`/`DELETE /users/:id/photo` (manager-only, em misc.routes.ts), para
+  // `POST`/`DELETE /users/:id/photo` (manager-only, em user.routes.ts), para
   // a tela de perfil não depender de gerente para trocar a imagem do próprio
   // avatar. Mesmo desenho do PATCH acima: `authMiddleware` por rota e o id
   // vem SEMPRE do token (`req.authUser!.sub`), nunca de params/body — não há
@@ -99,7 +72,7 @@ export async function authRoutes(app: FastifyInstance) {
   // `@fastify/multipart` é registrado na RAIZ do app (server.ts), antes do
   // `authRoutes`, então `req.file()` já funciona aqui sem registro extra.
   // MIME validado com o MESMO `imageExtByMime` da rota manager (fonte única,
-  // exportada de misc.routes.ts) e a gravação é o MESMO `saveUserPhotoUsecase`
+  // em image-ext.ts) e a gravação é o MESMO `saveUserPhotoUsecase`
   // — nada de lógica de arquivo duplicada. Resposta = mesmo `serialize` do
   // PATCH (inclui `photoPath`); 404 quando o usuário do token não existe mais
   // (mesma régua dos usecases de perfil).
@@ -117,6 +90,6 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.delete("/auth/me/photo", { preHandler: authMiddleware }, async (req) =>
-    clearUserPhotoUsecase(req.authUser!.sub, req.authUser!.sub)
+    clearUserPhotoUsecase(req.authUser!.sub, req.authUser!.sub),
   );
 }

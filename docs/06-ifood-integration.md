@@ -3,7 +3,7 @@
 Integração do PDV com a [iFood](https://developer.ifood.com.br/) para receber
 pedidos do marketplace, sincronizar o cardápio e refletir o ciclo de vida do
 pedido na comanda local. Roda **dentro do processo do backend** (módulo
-in-process, mesmo padrão do `outbox-dispatcher` e do `whatsapp-webhook`), sem
+in-process, mesmo padrão do `outbox-dispatcher`), sem
 serviço separado.
 
 Este documento é o contrato interno do módulo. O shape exato dos payloads do

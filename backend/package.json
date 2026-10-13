@@ -19,6 +19,7 @@
     "db:deactivate-demo": "tsx src/infra/db/deactivate-demo-catalog.ts",
     "uploads:migrate-layout": "tsx scripts/migrate-uploads-layout.ts",
     "test": "vitest run",
+    "test:architecture": "vitest run test/architecture.test.ts",
     "test:watch": "vitest"
   },
   "keywords": [],

@@ -13,9 +13,7 @@ import {
 } from "drizzle-orm/pg-core";
 // `import type`: apaga em tempo de compilação, então não cria dependência de
 // runtime entre infra e domain (o dominio continua sem saber que o banco existe).
-import type { PaymentEventStatus } from "../../domain/payment.js";
 import type { OrderRefundStatus } from "../../domain/refund.js";
-import type { SettlementPayoutStatus } from "../../domain/settlement.js";
 
 // ============================================================
 // Schema Postgres — banco OFICIAL do PDV (o SQLite foi removido).
@@ -28,8 +26,8 @@ import type { SettlementPayoutStatus } from "../../domain/settlement.js";
 //                      crypto.randomUUID() ( igual ao SQLite ), o que
 //                      também preserva os ids externos/não-UUID que já
 //                      existem: 'system' (SYSTEM_USER_ID), 'singleton'
-//                      (store_settings), ids do iFood (evt_/ord_), telefone
-//                      (customer_cart/whatsapp_conversation) e o cardápio
+//                      (store_settings), telefone
+//                      (customer_cart) e o cardápio
 //                      Unami (cat-unami-*, p-unami-NNN).
 //   - TIMESTAMPTZ   -> text ISO-8601 UTC. O app compara/deduplica com
 //                      new Date().toISOString(); em text o ORDEM é
@@ -56,20 +54,18 @@ export const userRole = pgEnum("user_role", ["waiter", "kitchen", "manager", "co
 export const tableStatus = pgEnum("table_status", ["free", "occupied", "closing"]);
 export const orderStatus = pgEnum("order_status", ["open", "closed", "cancelled"]);
 export const paymentMethod = pgEnum("payment_method", ["cash", "card", "pix", "other"]);
+// "whatsapp" e "ifood" seguem no enum do banco só por compatibilidade: os
+// canais deixaram de existir, mas linhas antigas continuam com esse valor
+// (README das migrations explica por que o valor não é removido de um enum em
+// uso).
 export const orderChannel = pgEnum("channel", ["balcao", "whatsapp", "web", "ifood"]);
 export const orderItemStatus = pgEnum("order_item_status", ["ordered", "ready", "delivered", "cancelled"]);
 export const stockMovementType = pgEnum("stock_movement_type", ["sale", "refund", "purchase", "adjustment"]);
 export const cashDrawerStatus = pgEnum("cash_drawer_status", ["open", "closed"]);
 export const cashMovementType = pgEnum("cash_movement_type", ["sangria", "suprimento"]);
-export const ifoodEventStatus = pgEnum("ifood_event_status", ["received", "processed", "ignored", "failed", "acked"]);
-export const whatsappState = pgEnum("whatsapp_state", ["welcome", "browsing", "cart", "checkout", "done", "awaiting_location", "awaiting_confirmation", "awaiting_correction"]);
 export const deliveryStatus = pgEnum("delivery_status", ["awaiting_courier", "out_for_delivery", "delivered", "failed", "cancelled"]);
 export const pixKeyType = pgEnum("pix_key_type", ["cpf", "cnpj", "email", "phone", "random"]);
 export const idempotencyStatus = pgEnum("idempotency_status", ["processing", "completed", "failed"]);
-export const whatsappConnectionStatus = pgEnum("whatsapp_connection_status", ["active", "expired", "revoked", "disconnected"]);
-export const whatsappMessageStatus = pgEnum("whatsapp_message_status", ["sent", "delivered", "read", "failed"]);
-export const whatsappMessageKind = pgEnum("whatsapp_message_kind", ["notification", "bot_reply"]);
-
 const id = () =>
   text("id")
     .primaryKey()
@@ -154,8 +150,6 @@ export const products = pgTable(
     price: real("price").notNull(),
     variations: text("variations").notNull().default("[]"), // JSON string
     imagePath: text("image_path"), // caminho servido via /uploads/<id>.<ext>
-    ifoodEnabled: boolean("ifood_enabled").notNull().default(false),
-    ifoodSku: text("ifood_sku"),
     // Vitrine da página pública (/pedido) — migration 0020. Curadoria pura:
     // o produto continua na sua categoria.
     featured: boolean("featured").notNull().default(false),
@@ -194,20 +188,18 @@ export const orders = pgTable(
     paymentConfirmedAt: text("payment_confirmed_at"),
     paymentConfirmedBy: text("payment_confirmed_by").references(() => users.id),
     channel: orderChannel("channel").notNull().default("balcao"),
-    externalRef: text("external_ref"), // order id externo: iFood quando channel === "ifood"
+    externalRef: text("external_ref"), // order id externo do canal de origem
     deliveryFee: real("delivery_fee"), // snapshot da taxa cobrada, só para channel != "balcao"
     cancelReason: text("cancel_reason"),
     notes: text("notes"),
-    ifoodPayments: text("ifood_payments"), // métodos de pagamento do iFood (JSON)
   },
   (t) => [
     index("idx_order_table").on(t.tableId),
     index("idx_order_customer").on(t.customerId),
     index("idx_order_status").on(t.status),
     index("idx_order_waiter").on(t.waiterId),
-    // iFood entrega o mesmo pedido mais de uma vez se o polling reencontrar
-    // o evento; o índice único deixa o conflito explícito em vez de abrir
-    // duas comandas.
+    // O mesmo pedido externo pode ser reenviado pelo canal de origem; o índice
+    // único deixa o conflito explícito em vez de abrir duas comandas.
     uniqueIndex("uq_order_channel_external_ref").on(t.channel, t.externalRef),
     check(
       "chk_order_identification_required",
@@ -459,12 +451,6 @@ export const storeSettings = pgTable("store_settings", {
   usesTables: boolean("uses_tables").notNull().default(true),
   kitchenEnabled: boolean("kitchen_enabled").notNull().default(true),
   usesDelivery: boolean("uses_delivery").notNull().default(true),
-  ifoodIntegrationEnabled: boolean("ifood_integration_enabled").notNull().default(false),
-  // Integração WhatsApp (baseline 0001): master switch do painel em Configurações.
-  whatsappIntegrationEnabled: boolean("whatsapp_integration_enabled").notNull().default(false),
-  // Pagar.me V5 (0002): mesmo desenho do toggle do WhatsApp — a cobrança no
-  // gateway é opt-in por loja e nada acontece enquanto estiver false.
-  pagarmeEnabled: boolean("pagarme_enabled").notNull().default(false),
   inventoryEnabled: boolean("inventory_enabled").notNull().default(false), // estoque (baseline 0001)
   purchaseEnabled: boolean("purchase_enabled").notNull().default(false), // compras + custo médio (baseline 0001)
   // Impressão térmica (daemon local, 0003): master switch + auto-print.
@@ -543,33 +529,6 @@ export const outboxEvents = pgTable(
   ],
 );
 
-// ---------- iFood ----------
-// Log/dedupe dos eventos recebidos do polling do iFood: obrigatório persistir
-// ANTES do ACK (senão o iFood aplica throttle). O status vira o bookkeeping:
-// received → processed/ignored/failed → acked.
-export const ifoodEvents = pgTable(
-  "ifood_event",
-  {
-    id: text("id").primaryKey(), // event id do iFood (evt_...)
-    orderRef: text("order_ref"), // order id do iFood (ord_...)
-    code: text("code").notNull(),
-    fullCode: text("full_code"),
-    status: ifoodEventStatus("status").notNull().default("received"),
-    raw: text("raw").notNull().default("{}"), // payload completo do evento
-    processedAt: text("processed_at"),
-    createdAt: text("created_at").notNull().default(isoNow),
-  },
-  (t) => [index("idx_ifood_event_status").on(t.status)],
-);
-
-// KV singleton para estado da integração: accessToken + expiração, merchantId
-// resolvido, timestamps de último poll/sync.
-export const ifoodState = pgTable("ifood_state", {
-  key: text("key").primaryKey(),
-  value: text("value").notNull(),
-  updatedAt: text("updated_at").notNull().default(isoNow),
-});
-
 // ---------- self-service / delivery ----------
 export const customerAddresses = pgTable(
   "customer_address",
@@ -598,20 +557,6 @@ export const customerAddresses = pgTable(
   (t) => [index("idx_customer_address_customer").on(t.customerId)],
 );
 
-export const whatsappConversations = pgTable("whatsapp_conversation", {
-  phone: text("phone").primaryKey(),
-  state: whatsappState("state").notNull().default("welcome"),
-  cartItems: text("cart_items").notNull().default("[]"), // JSON string
-  customerName: text("customer_name"),
-  deliveryAddress: text("delivery_address"),
-  // Rastreabilidade (baseline 0001): a WABA de onde a conversa veio. Não é parte
-  // do PK porque há UMA conexão ativa por instalação — enforced no banco
-  // por uq_whatsapp_single_active. Nullable porque a coluna entrou depois.
-  wabaId: text("waba_id"),
-  updatedAt: text("updated_at").notNull().default(isoNow),
-  expiresAt: text("expires_at").notNull(),
-});
-
 // 1:1 com orders. Eixo separado de order_item.status, que já significa
 // "servido na mesa" — não reaproveitado aqui para evitar ambiguidade.
 export const deliveries = pgTable(
@@ -632,7 +577,6 @@ export const deliveries = pgTable(
     dispatchedAt: text("dispatched_at"),
     deliveredAt: text("delivered_at"),
     notes: text("notes"),
-    arrivalAlertSent: boolean("arrival_alert_sent").notNull().default(false),
     createdAt: text("created_at").notNull().default(isoNow),
   },
   (t) => [index("idx_delivery_status").on(t.status), index("idx_delivery_courier").on(t.courierId)],
@@ -675,247 +619,6 @@ export const geocodingCache = pgTable(
   (t) => [index("idx_geocoding_cache_expires").on(t.expiresAt)],
 );
 
-// ============================================================
-// Embedded Signup / WhatsApp Cloud API (baseline 0001) — ver
-// docs/10-whatsapp-embedded-signup.md
-// ============================================================
-
-// A WABA que o dono da loja conectou pelo Embedded Signup, com o token
-// que o servidor trocou pelo código de autorização. Chave natural é
-// waba_id: reconectar o mesmo WABA atualiza a linha em vez de duplicar.
-// A unicidade de UMA conexão `active` é do BANCO
-// (uq_whatsapp_single_active, índice parcial em status) — por isso o
-// saveConnection desativa a anterior antes de promover a nova.
-export const whatsappConnections = pgTable("whatsapp_connection", {
-  id: id(),
-  wabaId: text("waba_id").notNull().unique(),
-  phoneNumberId: text("phone_number_id").notNull(),
-  businessId: text("business_id"),
-  businessName: text("business_name"),
-  displayPhoneNumber: text("display_phone_number"),
-  displayName: text("display_name"),
-  accessToken: text("access_token").notNull(), // texto puro — mesmo tratamento do token do iFood (ifood_state)
-  tokenExpiresAt: text("token_expires_at"), // null = token BISU sem expiração
-  status: whatsappConnectionStatus("status").notNull().default("active"),
-  lastError: text("last_error"),
-  createdAt: text("created_at").notNull().default(isoNow),
-  updatedAt: text("updated_at").notNull().default(isoNow),
-});
-
-// Uma linha por mensagem ENVIADA, chaveada pelo wamid que a Meta devolve.
-// É a junta entre o POST /messages e o webhook `messages.statuses`:
-// sem esta linha não dá para dizer a qual pedido a mensagem entregue
-// pertence. orderId é nullable porque o bot de auto-atendimento também
-// envia, e essa mensagem não pertence a nenhum pedido.
-export const whatsappOutboundMessages = pgTable(
-  "whatsapp_outbound_message",
-  {
-    id: text("id").primaryKey(), // wamid (wamid.XXXX...)
-    wabaId: text("waba_id")
-      .notNull()
-      .references(() => whatsappConnections.wabaId, { onDelete: "cascade" }),
-    orderId: text("order_id").references(() => orders.id, { onDelete: "cascade" }),
-    toPhone: text("to_phone").notNull(),
-    kind: whatsappMessageKind("kind").notNull(),
-    status: whatsappMessageStatus("status").notNull().default("sent"),
-    errorCode: integer("error_code"),
-    errorMessage: text("error_message"),
-    createdAt: text("created_at").notNull().default(isoNow),
-    updatedAt: text("updated_at").notNull().default(isoNow),
-  },
-  (t) => [
-    index("idx_whatsapp_outbound_order").on(t.orderId),
-    index("idx_whatsapp_outbound_waba_created").on(t.wabaId, t.createdAt),
-  ],
-);
-
-// Dedupe do inbound: a Meta reenvia o MESMO webhook enquanto não receber
-// 200, por até ~7 dias. `type` é TEXT de propósito (não enum) — a Meta
-// adiciona tipos sem aviso e um enum quebraria no primeiro novo.
-export const whatsappInboundMessages = pgTable(
-  "whatsapp_inbound_message",
-  {
-    id: text("id").primaryKey(), // wamid (wamid.XXXX...)
-    wabaId: text("waba_id")
-      .notNull()
-      .references(() => whatsappConnections.wabaId, { onDelete: "cascade" }),
-    fromPhone: text("from_phone").notNull(),
-    type: text("type").notNull(),
-    createdAt: text("created_at").notNull().default(isoNow),
-  },
-  (t) => [index("idx_whatsapp_inbound_waba").on(t.wabaId)],
-);
-
-// ============================================================
-// Pagar.me V5 (0002) — ver migrations/0002_pagarme.sql
-// ============================================================
-
-// ## `payment` NÃO é `order_payment` — a armadilha nº1 deste bloco
-//
-// As duas tabelas são "pagamento" e não têm a mesma cara:
-//
-//   - `order_payment`  LINHA REGISTRADA PELA PESSOA. O garçom/gerente/caixa
-//                      anota "recebi 47,50 em dinheiro, trocou 12,50" e marca
-//                      `confirmed`. É a FONTE DA VERDADE DO CAIXA
-//                      (cashPaymentsBetween, application/cash-flow) e dos
-//                      relatórios de venda (application/report): o fechamento
-//                      da comanda exige ≥1 linha, todas confirmed, com a soma
-//                      batendo com o total. Ela existe mesmo sem gateway —
-//                      é o que o PDV já faz no balcão.
-//   - `payment`        COBRANÇA NO GATEWAY. Uma linha por tentativa de cobrar
-//                      no Pagar.me, com os ids externos (or_/ch_/pay_) e o QR
-//                      da cobrança. É a "Payment" da API, e responde "o
-//                      dinheiro do Pagar.me entrou?" — não "quem registrou o
-//                      recebimento aqui?".
-//
-// Por que coexistem, e por que uma NÃO substitui a outra:
-//
-//   1. Answer != registro. O Pagar.me saber que o Pix foi pago não diz que o
-//      caixa local tem o dinheiro conferido: o `order_payment` confirmed é o
-//      que a gaveta soma. Unificar as duas obrigaria o webhook a escrever no
-//      caixa — e aí quem confirmaria a venda seria um evento externo, sem
-//      ninguém no balcão por perto.
-//   2. Uma comanda pode ter N cobranças (o `attempt`) e continuar aberta; o
-//      `order_payment` é a composição do pagamento na hora de fechar.
-//   3. `order_payment.method` é o enum do balcão (cash/card/pix/other) e
-//      `payment.method` é só o que o gateway faz (pix/credit_card). Forçar um
-//      no outro aproximaria dois vocabulários que só se cruzam em 'pix'.
-//
-// Regra prática: pagamento de gateway NUNCA escreve em `order_payment`, e
-// `order_payment` NUNCA é lido para saber o estado de uma cobrança.
-//
-// ## Status em TEXT, não pgEnum
-//
-// `status` (aqui e em `payment_event`) é TEXT pelo mesmo motivo de
-// `whatsapp_inbound_message.type`: o valor vem do EXTERNO e a doc do Pagar.me
-// não o enumera. Um enum quebraria no primeiro status novo que o gateway
-// inventar, e quebrar aqui é perder dinheiro — o mapper devolve `null` para
-// valor desconhecido e quem chama decide (reconciliação/alerta), em vez de
-// gravar um status inventado. Os status do PDV são minúsculos (pending,
-// processing, paid, failed, canceled, partially_refunded, refunded) porque
-// todo enum deste repo é minúsculo — a spec escrevia em SCREAMING_CASE e a
-// tradução acontece no mapper.
-
-// A cobrança. `amount` e `refunded_amount` em REAIS (o resto do schema
-// também), com os centavos só existindo na borda do gateway (mapper.ts).
-export const payments = pgTable(
-  "payment",
-  {
-    id: id(),
-    orderId: text("order_id")
-      .notNull()
-      .references(() => orders.id, { onDelete: "cascade" }),
-    // Tentativa 1, 2, 3... Um segundo Pix do mesmo cliente é OUTRA cobrança,
-    // não a reescrita da primeira.
-    attempt: integer("attempt").notNull().default(1),
-    provider: text("provider").notNull(), // 'pagarme'
-    // String, nunca número: o V5 prefixa por tipo (or_ pedido, ch_ charge,
-    // pay_ pagamento) e o webhook casa pelo id, não pelo prefixo.
-    providerOrderId: text("provider_order_id"),
-    providerChargeId: text("provider_charge_id"),
-    providerPaymentId: text("provider_payment_id"),
-    method: text("method").notNull(), // 'pix' | 'credit_card'
-    amount: real("amount").notNull(),
-    currency: text("currency").notNull().default("BRL"),
-    status: text("status").notNull().default("pending"),
-    refundedAmount: real("refunded_amount").notNull().default(0),
-    failureReason: text("failure_reason"),
-    // QR do GATEWAY — distinto do BR Code local gerado no client a partir da
-    // chave da loja (docs/11-pix-pendencias.md). Nullable de propósito: a doc
-    // oficial não mostra onde o QR vem no corpo da criação (ver mapper.ts),
-    // então o preenchimento depende do webhook/reconciliação.
-    qrCode: text("qr_code"),
-    qrCodeBase64: text("qr_code_base64"),
-    qrCodeUrl: text("qr_code_url"),
-    pixTxid: text("pix_txid"),
-    pixExpiresAt: text("pix_expires_at"),
-    paidAt: text("paid_at"),
-    canceledAt: text("canceled_at"),
-    metadata: text("metadata").notNull().default("{}"), // JSON string
-    createdAt: text("created_at").notNull().default(isoNow),
-    updatedAt: text("updated_at").notNull().default(isoNow),
-  },
-  (t) => [
-    index("idx_payment_order").on(t.orderId),
-    index("idx_payment_status").on(t.status),
-    index("idx_payment_provider_payment_id").on(t.providerPaymentId),
-    // Duas cobranças para a MESMA tentativa são impossíveis no banco. O
-    // `withIdempotency` resolve o retry do mesmo request; este índice
-    // resolve dois requests diferentes convergindo para a mesma tentativa.
-    // É o que faz o papel da tabela `payment_operations` que a spec pedia.
-    uniqueIndex("uq_payment_order_attempt").on(t.orderId, t.attempt),
-    check("chk_payment_amount", sql`${t.amount} > 0`),
-    check(
-      "chk_payment_refunded",
-      sql`${t.refundedAmount} >= 0 AND ${t.refundedAmount} <= ${t.amount}`,
-    ),
-  ],
-);
-
-// Inbox do webhook: gravada ANTES do 200 (o gateway reenvia o mesmo evento
-// enquanto não receber resposta), processada depois por worker com advisory
-// lock — mesmo desenho de `ifood_event`, sem broker (o repo não tem nenhum).
-// `payment_id` é SET NULL e não CASCADE: o evento é a prova do que o gateway
-// mandou e o worker ainda precisa dele depois que a cobrança some.
-export const paymentEvents = pgTable(
-  "payment_event",
-  {
-    id: id(),
-    // Ordem de inserção: `created_at` é texto com precisão de ms e dois
-    // eventos no mesmo ms empatariam num ORDER BY só por ele (mesma razão do
-    // `seq` de outbox_event).
-    seq: bigserial("seq", { mode: "number" }).notNull(),
-    provider: text("provider").notNull(),
-    eventId: text("event_id").notNull(),
-    eventType: text("event_type").notNull(),
-    paymentId: text("payment_id").references(() => payments.id, { onDelete: "set null" }),
-    providerOrderId: text("provider_order_id"),
-    providerPaymentId: text("provider_payment_id"),
-    payload: text("payload").notNull(), // JSON string cru, como o gateway mandou
-    // O union vem do domínio (`PaymentEventStatus`) em vez de uma lista repetida
-    // aqui: a coluna continua `text` no Postgres (logo, SEM migration), mas o
-    // tipo amarra os 6 pontos de escrita do inbox e os 4 de leitura (`eq()`
-    // deriva o lado direito da coluna) num lugar só. Sem isto, um typo —
-    // `"proccessed"` numa escrita, ou num `eq()` — compila e só quebra em
-    // silêncio: a escrita deixa o evento invisível para o worker, e o `eq()`
-    // faz a fila de retry travar sem erro nem log.
-    status: text("status").$type<PaymentEventStatus>().notNull().default("received"),
-    attempts: integer("attempts").notNull().default(0),
-    processedAt: text("processed_at"),
-    errorMessage: text("error_message"),
-    nextAttemptAt: text("next_attempt_at"), // null = elegível agora
-    createdAt: text("created_at").notNull().default(isoNow),
-  },
-  (t) => [
-    // A idempotência do webhook: reenvio do mesmo event_id colide aqui.
-    uniqueIndex("uq_payment_event_provider_event_id").on(t.provider, t.eventId),
-    index("idx_payment_event_status_next").on(t.status, t.nextAttemptAt),
-    index("idx_payment_event_payment").on(t.paymentId),
-  ],
-);
-
-// Um estorno por pedido (parcial ou integral). A linha é escrita ANTES da
-// chamada ao gateway: se a resposta se perder, o próximo ciclo reconcilia por
-// status em vez de o processo "lembrar" o que pediu.
-export const paymentRefunds = pgTable(
-  "payment_refund",
-  {
-    id: id(),
-    paymentId: text("payment_id")
-      .notNull()
-      .references(() => payments.id, { onDelete: "cascade" }),
-    amount: real("amount").notNull(),
-    providerRefundId: text("provider_refund_id"),
-    status: text("status").notNull().default("requested"),
-    reason: text("reason"),
-    requestedBy: text("requested_by").references(() => users.id),
-    requestedAt: text("requested_at"),
-    settledAt: text("settled_at"),
-    createdAt: text("created_at").notNull().default(isoNow),
-    updatedAt: text("updated_at").notNull().default(isoNow),
-  },
-  (t) => [index("idx_payment_refund_payment").on(t.paymentId), check("chk_payment_refund_amount", sql`${t.amount} > 0`)],
-);
 
 // ============================================================
 // Device provisioning (docs/21-device-provisioning.md) — PR 1
@@ -980,8 +683,7 @@ export const userDevices = pgTable(
 // ============================================================
 //
 // Fonte da verdade do estorno no relatório de vendas (estorno vira linha
-// negativa, não desaparece). Diferente de payment_refund (Pagar.me gateway) —
-// aqui é o estorno manual no balcão.
+// negativa, não desaparece). É o estorno manual no balcão.
 //
 // Status: 'requested' (Pix/cartão aguardando integração gateway), 'settled'
 // (dinheiro estornado com sangria automática, ou Pix/cartão confirmado),
@@ -1013,51 +715,6 @@ export const orderRefunds = pgTable(
     index("idx_order_refund_payment").on(t.orderPaymentId),
     index("idx_order_refund_status").on(t.status),
     check("chk_order_refund_amount", sql`${t.amount} > 0`),
-  ],
-);
-
-// ============================================================
-// Settlement iFood (Bloco 5 ROADMAP-CAIXA.md)
-// ============================================================
-//
-// Settlement de marketplace: separa receita bruta de repasse líquido.
-// Um settlement por pedido (UNIQUE em order_id). Para pedidos iFood, o payout_amount
-// é o que efetivamente a loja recebe após comissões e taxas. Para pedidos de outros
-// canais, o settlement é opcional (fallback: usar orders.total).
-//
-// Status: 'pending' (aguardando repasse), 'paid' (repasse confirmado),
-// 'failed' (repasse falhou).
-export const orderSettlements = pgTable(
-  "order_settlement",
-  {
-    id: id(),
-    orderId: text("order_id")
-      .notNull()
-      .unique()
-      .references(() => orders.id, { onDelete: "cascade" }),
-    channel: text("channel").notNull(),
-    grossAmount: real("gross_amount").notNull(),
-    commissionAmount: real("commission_amount").notNull(),
-    marketplaceFee: real("marketplace_fee").notNull().default(0),
-    deliveryFeeSubsidy: real("delivery_fee_subsidy").notNull().default(0),
-    payoutAmount: real("payout_amount").notNull(),
-    payoutStatus: text("payout_status").$type<SettlementPayoutStatus>().notNull().default("pending"),
-    payoutExpectedAt: text("payout_expected_at"),
-    payoutSettledAt: text("payout_settled_at"),
-    externalRef: text("external_ref"),
-    notes: text("notes"),
-    createdAt: text("created_at").notNull().default(isoNow),
-    updatedAt: text("updated_at").notNull().default(isoNow),
-  },
-  (t) => [
-    index("idx_order_settlement_order").on(t.orderId),
-    index("idx_order_settlement_channel").on(t.channel),
-    index("idx_order_settlement_payout_status").on(t.payoutStatus),
-    index("idx_order_settlement_payout_expected_at").on(t.payoutExpectedAt),
-    check("chk_order_settlement_gross", sql`${t.grossAmount} >= 0`),
-    check("chk_order_settlement_commission", sql`${t.commissionAmount} >= 0`),
-    check("chk_order_settlement_fee", sql`${t.marketplaceFee} >= 0`),
-    check("chk_order_settlement_payout", sql`${t.payoutAmount} >= 0`),
   ],
 );
 

@@ -43,11 +43,12 @@ function channelToType(channel: string): string {
   switch (channel) {
     case "balcao":
       return "MESA";
+    // "whatsapp" é legado: o canal não existe mais, mas pedidos antigos
+    // ainda têm esse valor no banco e reimprimir cupom tem que continuar
+    // saindo como DELIVERY.
     case "whatsapp":
     case "web":
       return "DELIVERY";
-    case "ifood":
-      return "IFOOD";
     default:
       return channel.toUpperCase();
   }

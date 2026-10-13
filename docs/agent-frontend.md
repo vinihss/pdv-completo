@@ -28,7 +28,7 @@ src/
 │   ├── order/ product/ category/ kitchen-group/ table/
 │   ├── delivery/ stock/ cash/ customer/ store/ user/ session/
 │   ├── cart/ payment/ reports/ audit/ ifood/ alert/
-│   └── printer/ updater/ whatsapp/
+│   └── printer/ updater/
 ├── shared/               # genérico, sem domínio
 │   ├── api/http.js       # ÚNICO núcleo de rede
 │   ├── components/       # Modal, Drawer, ConfirmModal, Toast, Form, etc.

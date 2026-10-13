@@ -95,7 +95,7 @@ export async function ensureTenantScope<T>(
     return fn();
   }
   // Importação dinâmica para evitar ciclo de dependência
-  const { resolveTenant } = await import("../../application/tenant/resolve-tenant.usecase.js");
+  const { resolveTenant } = await import("../composition/default-usecases.js");
   const tenant = await resolveTenant(host);
   return store.run(
     { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault },

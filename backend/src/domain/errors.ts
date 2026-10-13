@@ -118,106 +118,6 @@ export const Errors = {
       group,
       option,
     }),
-  // ---------- Embedded Signup / WhatsApp Cloud API ----------
-  // Faltou config do APP da Meta (META_APP_ID / META_APP_SECRET /
-  // WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID). 409 e não 400: é a instalação
-  // que não está pronta, não um payload invalido.
-  whatsappNotConfigured: (missing: string[]) =>
-    new AppError(
-      "whatsapp_not_configured",
-      409,
-      "O WhatsApp ainda não está configurado neste servidor.",
-      { missing }
-    ),
-  // O code do Embedded Signup é de uso único e vive 30s. A Meta não diz
-  // o que falhou (expirou? já usado? redirect_uri errado?), então a
-  // mensagem é fixa e o motivo real fica no log do servidor.
-  whatsappInvalidCode: () =>
-    new AppError(
-      "whatsapp_invalid_code",
-      400,
-      "O código de autorização do WhatsApp é inválido ou expirou. Tente conectar de novo."
-    ),
-  // O cliente autorizou, mas o token não tem os escopos que a operação
-  // exige (gerenciar a WABA + enviar mensagem). Detalhar quais faltam
-  // evita o ping-pong de "conectou mas não avisa cliente".
-  whatsappMissingScopes: (missing: string[]) =>
-    new AppError(
-      "whatsapp_missing_scopes",
-      422,
-      "A conta não autorizou o que o PDV precisa para operar o WhatsApp.",
-      { missing }
-    ),
-  // Módulo já integrado (iFood/maps): uma conexão por vez, igual à
-  // uq_whatsapp_single_active no banco.
-  whatsappAlreadyConnected: (displayPhoneNumber: string | null) =>
-    new AppError(
-      "whatsapp_already_connected",
-      409,
-      "Já existe um WhatsApp conectado. Desconecte o atual para conectar outro.",
-      { displayPhoneNumber }
-    ),
-  // A Meta respondeu erro no onboarding (register falhou, token sem
-  // permissão). O detalhe vai junto para o gerente ver na UI.
-  whatsappProviderError: (message: string, details?: unknown) =>
-    new AppError("whatsapp_provider_error", 502, `A Meta recusou a conexão: ${message}`, details),
-  // ---------- Pagar.me V5 (cobrança no gateway) ----------
-  // Mesma lógica do WhatsApp: 409 e não 400/500 porque não é payload
-  // inválido — é a instalação que ainda não está pronta. `missing` diz o que
-  // falta (toggle, secret key) para o gerente não ficar adivinhando.
-  pagarmeNotConfigured: (missing: string[]) =>
-    new AppError(
-      "pagarme_not_configured",
-      409,
-      "A cobrança no Pagar.me ainda não está configurada neste servidor.",
-      { missing },
-    ),
-  // A cobrança existe do lado do gateway mas não aqui (ou nunca foi criada).
-  // 404 e não "não encontrada" genérico: quem chama é o caixa, e a resposta
-  // honesta é que o pagamento não existe, não que o pedido sumiu.
-  paymentNotFound: (ref?: string) =>
-    new AppError("payment_not_found", 404, "Cobrança não encontrada.", ref ? { ref } : undefined),
-  // O gateway recusou a operação financeira (recusou o cartão, estorno não
-  // elegível, valor acima do estornado...). 502: o pedido estava bem, quem
-  // respondeu não foi. A mensagem vai pro log com o detalhe do provedor, não
-  // pro cliente final.
-  pagarmeProviderError: (message: string, details?: unknown) =>
-    new AppError("pagarme_provider_error", 502, `O Pagar.me recusou a operação: ${message}`, details),
-  // Estorno maior do que o que sobrou de estornável. 422 (e não 409): os
-  // números são válidos, a combinação não é — mesma régua do variation_required.
-  invalidRefundAmount: (requested: number, refundable: number) =>
-    new AppError(
-      "invalid_refund_amount",
-      422,
-      `Estorno de R$ ${requested.toFixed(2)} maior que o valor estornável (R$ ${refundable.toFixed(2)}).`,
-      { requested, refundable },
-    ),
-  // Assinatura do webhook ausente ou não confere. 401: quem chamou não se
-  // provou ser o Pagar.me. Mesmo código/mensagem do webhook do WhatsApp
-  // (`invalid_signature`), porque é exatamente o mesmo caso.
-  invalidSignature: () =>
-    new AppError("invalid_signature", 401, "Assinatura do webhook inválida."),
-  // ---------- Canal interno com o serviço Go (`pagarme-webhook/`) ----------
-  //
-  // O status destes três NÃO é livre: é a tabela que o drainer Go usa para
-  // decidir entre reenviar com backoff, marcar `ignored` ou jogar na DLQ.
-  // Ver `pagarme-webhook/internal/queue/queue.go:tratarErro`.
-  //
-  // Token do canal interno. 401 (e não 403) para AusENTE e para ERRADO com a
-  // mesma resposta, para não revelar qual dos dois foi. O serviço Go trata
-  // 401/403 como DLQ imediata: repetir com o mesmo token nunca funciona, e o
-  // log dele cita `PAGARME_INTERNAL_TOKEN` — que é a única pista que o
-  // operador tem.
-  invalidInternalToken: () =>
-    new AppError("invalid_internal_token", 401, "Token do canal interno inválido."),
-  // A carga não é aplicável: `charge.status` fora do vocabulário, `charge`
-  // ausente, id do gateway faltando. 422 e NÃO 400/401 de propósito — o Go
-  // distingue 422 (conteúdo inválido, DLQ imediata) de 401 (token, DLQ
-  // imediata) por motivo de diagnóstico, e responder 401 aqui transformaria
-  // um erro de conteúdo em perda permanente de evento com a pista errada no
-  // log. 409 também não serve: aqui não há conflito de estado, é conteúdo.
-  invalidInternalCharge: (reason: string, details?: unknown) =>
-    new AppError("invalid_internal_charge", 422, `Cobrança recusada: ${reason}`, details),
   // ---------- Multi-tenant (registry `public.tenant`) ----------
   //
   // Códigos e status do §3.1 do `docs/15-multi-tenant-schema.md`, já que o
@@ -325,11 +225,4 @@ export const Errors = {
       `Estorno de R$ ${requested.toFixed(2)} excede o valor disponível (R$ ${available.toFixed(2)}).`,
       { requested, available },
     ),
-  // ---------- Settlement iFood (Bloco 5 ROADMAP-CAIXA.md) ----------
-  // Validações do settlement: pedido precisa estar fechado e não pode ter
-  // settlement duplicado (UNIQUE constraint em order_id).
-  settlementOrderNotClosed: () =>
-    new AppError("settlement_order_not_closed", 422, "Pedido deve estar fechado para registrar settlement."),
-  settlementAlreadyExists: () =>
-    new AppError("settlement_already_exists", 409, "Já existe settlement para este pedido."),
 };

@@ -16,7 +16,7 @@ Entregar ao perfil Caixa uma tela própria para localizar comandas locais pronta
 | Tema | Decisão da primeira entrega |
 |---|---|
 | Papel | Menu visível ao Caixa. Rotas autorizam `cashier` e `manager`; waiter, kitchen e courier não recebem acesso à nova tela/rotas de cobrança. |
-| Comandas da fila | Somente pedidos locais (`channel = balcao`) ainda abertos; pedidos web/WhatsApp/iFood/delivery seguem os fluxos próprios existentes. |
+| Comandas da fila | Somente pedidos locais (`channel = balcao`) ainda abertos; pedidos web/iFood/delivery seguem os fluxos próprios existentes. |
 | Aptidão para concluir | Só permitir fechamento quando todos os itens não cancelados estiverem `delivered`; itens `cancelled` não contam como pendência, conforme `closeOrderUsecase` atual. Contas com itens pendentes podem aparecer em grupo secundário bloqueado, sem CTA de recebimento/fechamento. |
 | Pagamento | Reusar `PaymentModal`, `setPayments`, `confirmPayment` e `closeOrder`. Os pagamentos submetidos continuam cobrindo o total completo no lote; cada forma tem seu estado existente. |
 | Dinheiro | Dinheiro confirmado continua exigindo gaveta aberta. Se a gaveta estiver fechada, informar o motivo e bloquear somente dinheiro na interface; o backend continua sendo autoridade final. |

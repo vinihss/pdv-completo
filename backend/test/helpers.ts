@@ -8,7 +8,7 @@ import { config } from "../src/config/env.js";
 import { resetCache } from "../src/infra/cache/index.js";
 import { clearActiveUserCache } from "../src/infra/auth/active-user-check.js";
 import { runInTenantScope } from "../src/infra/db/tenant-context.js";
-import { resolveTenant } from "../src/application/tenant/resolve-tenant.usecase.js";
+import { resolveTenant } from "../src/infra/composition/default-usecases.js";
 import {
   categories,
   kitchenGroups,
@@ -153,11 +153,7 @@ const TRANSIENT_TABLES = [
   "purchase_item",
   "purchase",
   "supplier",
-  "order_settlement",
   "order_refund",
-  "payment_refund",
-  "payment_event",
-  "payment",
   "order_payment",
   "order_item",
   "cash_drawer_movement",
@@ -170,13 +166,7 @@ const TRANSIENT_TABLES = [
   "courier_location",
   "customer_cart",
   "customer_address",
-  "whatsapp_conversation",
-  "whatsapp_outbound_message",
-  "whatsapp_inbound_message",
-  "whatsapp_connection",
   "geocoding_cache",
-  "ifood_event",
-  "ifood_state",
   "alert",
   "provisioning_key",
   "user_device",

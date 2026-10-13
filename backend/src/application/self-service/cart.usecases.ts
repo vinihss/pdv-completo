@@ -1,16 +1,25 @@
-// Carrinho server-side do cliente — continuação do pedido sem localStorage.
-// Cliente que fechou/reload no meio do checkout reabre o link (o telefone
-// já vem nele, via whatsapp-bot.usecases.ts#buildMenuLink) e continua de
-// onde parou. Chaveado pelo telefone — mesma chave de identificação do
-// fluxo self-service; isolado por telefone (dois aparelhos não misturam).
+// Carrinho server-side do cliente — ONDA 3 da refatoração arquitetural.
 //
-// Sem validação de produto/estoque aqui: é rascunho — a validação acontece
-// no submit (createSelfServiceOrderUsecase → addItemsUsecase). Mesmo
-// desenho previsto no §04 (whatsapp_conversation.cart_items, hoje não
-// usado) — tabela dedicada pra não acoplar carrinho ao estado da conversa.
-import { eq, lt } from "drizzle-orm";
-import { db } from "../../infra/db/client.js";
-import { customerCarts } from "../../infra/db/schema.js";
+// Este arquivo é uma FACTORY pura (`createCartUsecases(deps)`): nenhuma
+// importação de infra/integrations/config nem Drizzle. A persistência passa
+// pelo `uow.run`/`session.customerCarts` (tabela `customer_cart`, desacoplada
+// do pedido). A composition root que liga o adapter concreto é
+// `src/infra/composition/default-usecases.ts`.
+//
+// Carrinho server-side — continuação do pedido sem localStorage. Cliente que
+// fechou/reload no meio do checkout reabre o link (o telefone já vem nele) e
+// continua de onde parou. Chaveado pelo telefone — mesma chave de
+// identificação do fluxo self-service; isolado por telefone (dois aparelhos
+// não misturam).
+//
+// Sem validação de produto/estoque aqui: é rascunho — a validação acontece no
+// submit (createSelfServiceOrderUsecase → addItemsUsecase).
+//
+// APROXIMAÇÃO DE JANELA (mesma da Onda 2): cada leitura/escrita roda numa
+// única janela `uow.run`, inclusive a purga do carrinho expirado (delete na
+// mesma transação da leitura).
+import type { TenantUnitOfWork } from "../ports/unit-of-work.js";
+import type { TenantContext } from "../ports/tenant-context.js";
 
 const CART_TTL_MS = 24 * 60 * 60_000; // 24h — sobrevive ao ciclo do dia; purga no job de maintenance
 
@@ -32,32 +41,52 @@ function parseItems(raw: string): CartItemDraft[] {
   }
 }
 
-// Retorno null = carrinho inexistente ou expirado (expirado é purgado na leitura).
-export async function getCustomerCartUsecase(phone: string): Promise<CartItemDraft[] | null> {
-  const row = await db.query.customerCarts.findFirst({ where: eq(customerCarts.phone, phone) });
-  if (!row) return null;
-  if (new Date(row.expiresAt).getTime() <= Date.now()) {
-    await db.delete(customerCarts).where(eq(customerCarts.phone, phone));
-    return null;
-  }
-  return parseItems(row.items);
+export interface CartUsecasesDeps {
+  uow: TenantUnitOfWork;
+  /** Resolvido a cada chamada (ALS/request corrente) — nunca memoizado. */
+  tenant: () => TenantContext;
 }
 
-// Upsert por telefone — last-write-wins (rascunho, sem idempotência:
-// o PUT do client é debounced e a validação de verdade acontece no submit).
-export async function saveCustomerCartUsecase(phone: string, items: CartItemDraft[]): Promise<void> {
-  const now = new Date();
-  const values = {
-    items: JSON.stringify(items),
-    updatedAt: now.toISOString(),
-    expiresAt: new Date(now.getTime() + CART_TTL_MS).toISOString(),
+/**
+ * As 3 use cases do carrinho, com as MESMAS assinaturas de antes (sem o
+ * `deps`). Os nomes legados (`getCustomerCartUsecase(phone)` etc.) são
+ * re-exportados por `infra/composition/default-usecases.ts`.
+ */
+export function createCartUsecases(deps: CartUsecasesDeps) {
+  return {
+    // Retorno null = carrinho inexistente ou expirado (expirado é purgado na leitura).
+    async getCustomerCartUsecase(phone: string): Promise<CartItemDraft[] | null> {
+      return deps.uow.run(deps.tenant(), async (session) => {
+        const row = await session.customerCarts.findByPhone(phone);
+        if (!row) return null;
+        if (new Date(row.expiresAt).getTime() <= Date.now()) {
+          await session.customerCarts.deleteByPhone(phone);
+          return null;
+        }
+        return parseItems(row.items);
+      });
+    },
+
+    // Upsert por telefone — last-write-wins (rascunho, sem idempotência:
+    // o PUT do client é debounced e a validação de verdade acontece no submit).
+    async saveCustomerCartUsecase(phone: string, items: CartItemDraft[]): Promise<void> {
+      const now = new Date();
+      await deps.uow.run(deps.tenant(), async (session) => {
+        await session.customerCarts.upsert({
+          phone,
+          items: JSON.stringify(items),
+          updatedAt: now.toISOString(),
+          expiresAt: new Date(now.getTime() + CART_TTL_MS).toISOString(),
+        });
+      });
+    },
+
+    async clearCustomerCartUsecase(phone: string): Promise<void> {
+      await deps.uow.run(deps.tenant(), async (session) => {
+        await session.customerCarts.deleteByPhone(phone);
+      });
+    },
   };
-  await db
-    .insert(customerCarts)
-    .values({ phone, ...values })
-    .onConflictDoUpdate({ target: customerCarts.phone, set: values });
 }
 
-export async function clearCustomerCartUsecase(phone: string): Promise<void> {
-  await db.delete(customerCarts).where(eq(customerCarts.phone, phone));
-}
+export type CartUsecases = ReturnType<typeof createCartUsecases>;

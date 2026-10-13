@@ -50,6 +50,7 @@ import (
 	"pdv-pagarme-webhook/internal/inbox"
 	"pdv-pagarme-webhook/internal/queue"
 	"pdv-pagarme-webhook/internal/signature"
+	"pdv-pagarme-webhook/internal/tenancy"
 )
 
 // MaxBodyBytes é o teto do corpo do webhook.
@@ -75,6 +76,10 @@ type Server struct {
 	// serviço não está configurado, e o handler responde 503 sem tocar no resto.
 	secretKey string
 	inbox     InboxStore
+	// resolver devolve o tenant de um `merchant_id` do webhook. Nil = modo
+	// uma-loja: todo evento cai no tenant default (comportamento de antes do
+	// multi-tenant). Ver internal/tenancy.
+	resolver  tenancy.Resolver
 	started   time.Time
 	version   string
 	// health carrega o estado do banco, que o /health só lê (nunca pergunta na
@@ -86,15 +91,21 @@ type Server struct {
 //
 // Interface mínima para o teste do 503/401/400/200 montar um store falso e
 // exercitar a sequência de checagens sem Postgres. `inbox.Store` satisfaz.
+//
+// O `tenant` é o escopo em que gravar: o handler resolve o `merchant_id` do
+// payload (via `Server.resolver`) e entrega o tenant ao store, que grava numa
+// transação com `tenancy.Apply` — é isso que faz `payment_event` cair no
+// schema da loja certa.
 type InboxStore interface {
-	Record(ctx context.Context, rawBody []byte, payload *charge.WebhookPayload) (rowID string, isNew bool, err error)
+	Record(ctx context.Context, tenant tenancy.Tenant, rawBody []byte, payload *charge.WebhookPayload) (rowID string, isNew bool, err error)
 }
 
-// New monta o Server.
-func New(secretKey string, store InboxStore, health *HealthProbe, version string) *Server {
+// New monta o Server. `resolver` pode ser nil (modo uma-loja).
+func New(secretKey string, store InboxStore, resolver tenancy.Resolver, health *HealthProbe, version string) *Server {
 	return &Server{
 		secretKey: secretKey,
 		inbox:     store,
+		resolver:  resolver,
 		started:   time.Now(),
 		version:   version,
 		health:    health,
@@ -104,6 +115,20 @@ func New(secretKey string, store InboxStore, health *HealthProbe, version string
 // SemCredencial diz se o serviço está sem `PAGARME_SECRET_KEY`. O `main` usa para
 // decidir se sobe o serviço em modo recusa (e o `/health` para degradar).
 func (s *Server) SemCredencial() bool { return s.secretKey == "" }
+
+// resolveTenant traduz o merchant do webhook num tenant.
+//
+// Sem resolver configurado (modo uma-loja, `PAGARME_MERCHANT_TENANTS`
+// ausente) todo evento cai no tenant default — é o comportamento de antes do
+// multi-tenant. Com resolver, o erro sobe intacto para o `HandleWebhook`
+// mapear: `ErrSemTenant` vira 400 e erro de infra (registry fora) vira 503.
+// Nunca existe um "default implícito" no meio do caminho.
+func (s *Server) resolveTenant(ctx context.Context, merchantID string) (tenancy.Tenant, error) {
+	if s.resolver == nil {
+		return tenancy.Default(), nil
+	}
+	return s.resolver.Resolve(ctx, merchantID)
+}
 
 // Rotas devolve o mux do serviço.
 //
@@ -229,7 +254,34 @@ func (s *Server) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rowID, isNew, err := s.inbox.Record(r.Context(), raw, &payload)
+	// (7) Resolução merchant → tenant, ANTES de gravar. Fail-closed nos dois
+	// sentidos:
+	//
+	//   - merchant sem tenant configurado (sem fallback) → 400
+	//     `tenant_unresolved`: gravar num escopo chutado deixaria a linha no
+	//     schema errado, e a reconciliação depois trataria o pagamento como
+	//     da loja errada. O Pagar.me reenvia; enquanto a configuração não é
+	//     corrigida a recusa é visível no log e no contador de 4xx;
+	//   - registry indisponível (infra) → 503: o Pagar.me reenvia, e o
+	//     dedupe garante que a segunda tentativa não duplica nada.
+	//
+	// Sem `merchant_id` no payload o caminho é o mesmo: um webhook sem
+	// escopo só resolve pelo fallback explícito, nunca por default implícito.
+	tenant, err := s.resolveTenant(r.Context(), payload.Merchant())
+	if err != nil {
+		if errors.Is(err, tenancy.ErrSemTenant) {
+			log.Printf("[server] webhook do pagarme sem tenant para o merchant %q — recusando (400 tenant_unresolved)", payload.Merchant())
+			writeError(w, http.StatusBadRequest, "tenant_unresolved",
+				"merchant do webhook não corresponde a nenhum tenant configurado")
+			return
+		}
+		log.Printf("[server] falha ao resolver o tenant do merchant %q: %v — recusando (503)", payload.Merchant(), err)
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable",
+			"não consegui resolver o tenant do evento, o gateway deve reenviar")
+		return
+	}
+
+	rowID, isNew, err := s.inbox.Record(r.Context(), tenant, raw, &payload)
 	if err != nil {
 		// `ErrNoEventID` já foi barrado acima; se chegar aqui é porque outro
 		// chamador do `Record` deixou passar, e a resposta correta é a mesma.

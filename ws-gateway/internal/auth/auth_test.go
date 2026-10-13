@@ -49,6 +49,38 @@ func TestVerifyTokenValido(t *testing.T) {
 	}
 }
 
+// O claim `tenant` é o que o gateway usa para PARTICIONAR a conexão — ver
+// connmanager.BroadcastToRoom. Dois casos, e os dois importam:
+//
+//   - token COM tenant (é o que `login.usecase.ts` assina: `{sub, role, tenant}`)
+//     → o slug tem que chegar em `User.Tenant` intacto;
+//   - token SEM tenant (emitido antes do multi-tenant, ou por um backend que
+//     ainda não o assina) → a conexão é aceita com Tenant vazio, e o vazio é o
+//     que o hub trata como "não recebe broadcast de tenant nenhum". Recusar o
+//     token aqui derrubaria client que funciona no REST; entregar tudo seria o
+//     vazamento. Fail-closed do lado errado.
+func TestVerifyMapeiaClaimTenant(t *testing.T) {
+	comTenant := validClaims()
+	comTenant["tenant"] = "umami"
+
+	user, err := Verify(sign(t, comTenant, []byte(secret), jwt.SigningMethodHS256), secret)
+	if err != nil {
+		t.Fatalf("token com claim tenant foi recusado: %v", err)
+	}
+	if user.Tenant != "umami" {
+		t.Errorf("User.Tenant = %q, quer \"umami\" — sem o slug a conexão entraria sem escopo e ficaria muda", user.Tenant)
+	}
+
+	semTenant := validClaims()
+	user, err = Verify(sign(t, semTenant, []byte(secret), jwt.SigningMethodHS256), secret)
+	if err != nil {
+		t.Fatalf("token sem claim tenant foi recusado: %v", err)
+	}
+	if user.Tenant != "" {
+		t.Errorf("User.Tenant = %q para token sem o claim, quer vazio (o vazio é o modo legado, sem partição)", user.Tenant)
+	}
+}
+
 // storeId/storeSlug existem no payload do backend mas não influenceem room. Se
 // um dia passarem a contar para autorização, este teste avisa.
 func TestVerifyTokenComStore(t *testing.T) {

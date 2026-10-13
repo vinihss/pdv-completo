@@ -17,6 +17,7 @@ import (
 
 	"pdv-pagarme-webhook/internal/charge"
 	"pdv-pagarme-webhook/internal/db"
+	"pdv-pagarme-webhook/internal/tenancy"
 )
 
 // dbConnect delega para `internal/db`, que é o mesmo caminho do binário (mesmo
@@ -246,7 +247,7 @@ func TestRecordGravaEventoNovo(t *testing.T) {
 	body := payloadJSON(eventID)
 	store := NewStore(db, nil)
 
-	rowID, isNew, err := store.Record(context.Background(), []byte(body), payloadDe(t, eventID))
+	rowID, isNew, err := store.Record(context.Background(), tenancy.Default(), []byte(body), payloadDe(t, eventID))
 	if err != nil {
 		t.Fatalf("Record falhou: %v", err)
 	}
@@ -305,14 +306,14 @@ func TestRecordDedupeNoReenvio(t *testing.T) {
 	store := NewStore(db, nil)
 	payload := payloadDe(t, eventID)
 
-	primeiroID, isNew, err := store.Record(context.Background(), []byte(body), payload)
+	primeiroID, isNew, err := store.Record(context.Background(), tenancy.Default(), []byte(body), payload)
 	if err != nil || !isNew {
 		t.Fatalf("primeira gravação: isNew=%v err=%v", isNew, err)
 	}
 
 	// Três reenvios, como o Pagar.me faria enquanto não recebe 200.
 	for i := 0; i < 3; i++ {
-		rowID, isNew, err := store.Record(context.Background(), []byte(body), payload)
+		rowID, isNew, err := store.Record(context.Background(), tenancy.Default(), []byte(body), payload)
 		if err != nil {
 			t.Fatalf("reenvio %d deu erro: %v (o dedupe não pode ser erro)", i+1, err)
 		}
@@ -352,7 +353,7 @@ func TestRecordDedupeEPorParDeProvider(t *testing.T) {
 	eventID := eventIDUnique(t)
 
 	// Gravação normal: provider = 'pagarme'.
-	if _, isNew, err := NewStore(db, nil).Record(context.Background(), []byte(payloadJSON(eventID)), payloadDe(t, eventID)); err != nil || !isNew {
+	if _, isNew, err := NewStore(db, nil).Record(context.Background(), tenancy.Default(), []byte(payloadJSON(eventID)), payloadDe(t, eventID)); err != nil || !isNew {
 		t.Fatalf("gravação: isNew=%v err=%v", isNew, err)
 	}
 
@@ -363,7 +364,7 @@ func TestRecordDedupeEPorParDeProvider(t *testing.T) {
 	}
 
 	// E o mesmo provider com OUTRO event_id também é linha nova.
-	if _, isNew, err := NewStore(db, nil).Record(context.Background(), []byte(payloadJSON(eventID+"_b")), payloadDe(t, eventID+"_b")); err != nil || !isNew {
+	if _, isNew, err := NewStore(db, nil).Record(context.Background(), tenancy.Default(), []byte(payloadJSON(eventID+"_b")), payloadDe(t, eventID+"_b")); err != nil || !isNew {
 		t.Fatalf("event_id diferente colidiu: isNew=%v err=%v", isNew, err)
 	}
 }
@@ -387,7 +388,7 @@ func TestRecordRecusaEventoSemID(t *testing.T) {
 		{ID: ""},            // `{"id":""}` — explicitamente vazio
 		{ID: "", Type: "x"}, // id vazio com o resto presente
 	} {
-		rowID, isNew, err := store.Record(context.Background(), []byte(`{}`), p)
+		rowID, isNew, err := store.Record(context.Background(), tenancy.Default(), []byte(`{}`), p)
 		if err == nil {
 			t.Fatalf("payload %+v foi aceito (isNew=%v, id=%q): evento cego na inbox", p, isNew, rowID)
 		}
@@ -414,7 +415,7 @@ func TestRecordDeixaPaymentIDNulo(t *testing.T) {
 	uniqueIndexPaymentEvent(t, db)
 
 	eventID := eventIDUnique(t)
-	if _, _, err := NewStore(db, nil).Record(context.Background(), []byte(payloadJSON(eventID)), payloadDe(t, eventID)); err != nil {
+	if _, _, err := NewStore(db, nil).Record(context.Background(), tenancy.Default(), []byte(payloadJSON(eventID)), payloadDe(t, eventID)); err != nil {
 		t.Fatalf("Record falhou: %v", err)
 	}
 
@@ -508,7 +509,7 @@ func TestRecordGravaCreatedAtNoFormatoDoBanco(t *testing.T) {
 	eventID := eventIDUnique(t)
 
 	store := NewStore(db, func() time.Time { return instante })
-	if _, _, err := store.Record(context.Background(), []byte(payloadJSON(eventID)), payloadDe(t, eventID)); err != nil {
+	if _, _, err := store.Record(context.Background(), tenancy.Default(), []byte(payloadJSON(eventID)), payloadDe(t, eventID)); err != nil {
 		t.Fatalf("Record falhou: %v", err)
 	}
 
@@ -534,7 +535,7 @@ func TestRecordGravaUnknownQuandoTypeAusente(t *testing.T) {
 	p := *payloadDe(t, eventID)
 	p.Type = ""
 
-	if _, _, err := NewStore(db, nil).Record(context.Background(), []byte(body), &p); err != nil {
+	if _, _, err := NewStore(db, nil).Record(context.Background(), tenancy.Default(), []byte(body), &p); err != nil {
 		t.Fatalf("Record falhou: %v", err)
 	}
 

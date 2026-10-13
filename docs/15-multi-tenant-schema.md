@@ -35,7 +35,7 @@
 >   seguintes do roadmap (partição de workers/realtime/gateway, rotas sem
 >   subdomínio, suítes) continuam pendentes.
 > - **Fase 5: parcial** — rodou o bloco de storage (porta + layout por tenant em disco), `d30ec49`
->   (PR #73). O resto da fase (fan-out do WhatsApp, `/health/tenants`, TLS on-demand via registry,
+>   (PR #73). O resto da fase (`/health/tenants`, TLS on-demand via registry,
 >   `printer_daemon_url` por tenant, CORS por registry) segue não iniciado — e o
 >   `/internal/caddy-on-demand-tls` continua no regex hardcoded (§5.8).
 > - **O gateway Go ficou deployável** em `b01000b` (PR #76) — o que §3.3 exige para o particionamento
@@ -216,8 +216,8 @@ do tenant (mesma fonte do `/store-info`), para vitrine e login nunca discordarem
 tarde, `/health/tenants` (Fase 5).
 
 **O que ainda não existe no registry:** `is_default` (citado no passo 8 do §6.2
-mas ausente do DDL original) e `phone_number_id` (fan-out do WhatsApp, R13). A
-Fase 1 resolve o tenant default pelo **ambiente** (`DEFAULT_TENANT_SCHEMA`), e não
+mas ausente do DDL original). A Fase 1 resolve o tenant default pelo **ambiente**
+(`DEFAULT_TENANT_SCHEMA`), e não
 por uma linha do registry — que é coerente com o `CHECK` do `schema_name`, que
 não aceita `public` (o schema default **até** o cutover da Fase 7).
 
@@ -319,7 +319,7 @@ Dois pareceres divergiram, ambos tecnicamente defensáveis. A decisão:
 |---|---|
 | `Pool` dedicado, `options: '-c search_path=tenant_x,public,pg_temp'` | ✅ **Recomendada.** Fixado no *startup packet*: impossível "esquecer de reaplicar", e o pool só fala com aquele schema. `pg_temp` por último elimina o sombreamento (§4.6). Transação herda o `search_path` de graça. |
 | `SET search_path` de sessão em `acquire`/`connect` | ❌ `pg.Pool` não tem hook confiável de *release*. Uma conexão devolvida suja é **o** vazamento clássico, e basta um caminho de erro (timeout) para cruzar dados de loja. |
-| `SET LOCAL search_path` em cada transação, **pool compartilhado** | ⚠️ **Correto e melhor em escala** (conexões não multiplicam por N), mas exige que **todo** acesso esteja dentro de `db.transaction` — e das 241 ocorrências de `db.`, a maioria está fora (`getStoreSettingsUsecase`, `loginUsecase`, `printer.usecases`, `whatsapp/state`). Envolver cada leitura numa transação muda a semântica de concorrência do produto (hoje cada query é sua transação implícita): é regressão escondida, não refatoração. **Guardado como plano B** (§4.3). |
+| `SET LOCAL search_path` em cada transação, **pool compartilhado** | ⚠️ **Correto e melhor em escala** (conexões não multiplicam por N), mas exige que **todo** acesso esteja dentro de `db.transaction` — e das 241 ocorrências de `db.`, a maioria está fora (`getStoreSettingsUsecase`, `loginUsecase`, `printer.usecases`). Envolver cada leitura numa transação muda a semântica de concorrência do produto (hoje cada query é sua transação implícita): é regressão escondida, não refatoração. **Guardado como plano B** (§4.3). |
 | Schema-qualified em todas as queries | ❌ Inviável (31 KB de `schema.ts` multiplicado por tenant, gerado em runtime) e não resolve o SQL cru (`load-menu.ts`, `raw.exec` dos testes, os `.sql`). |
 
 ### 4.3 Teto de escala — nomeado, medido, com saída
@@ -781,7 +781,7 @@ A **preparação §6.0 deve ter acontecido antes** — as fases assumem o baseli
 | **2** | **`db` escopado** | `tenant-context.ts` (ALS), `tenant-db.ts` (Map+LRU), `client.ts` passa a exportar o `Proxy`. `TENANT_STRICT` desligado, ligado após 1 semana em staging. **Destravou o `503 tenant_schema_unavailable`** do endpoint da Fase 1 (que agora só responde 503 para schema não provisionado) e a seam de storage (§4.7). | baixo | 2 d |
 | **3** | **Migrations por schema** | `runMigrations({ schema })`, boot iterando tenants, `provisionTenantSchema()`, `unaccent` em `public`. | médio | 1,5 d |
 | **4** | **Workers, locks, realtime, cache** | Loops por tenant com stagger, `lockName(base, schema)`, gateway particionado, `tenantKey()`. | médio | 2 d |
-| **5** | **Rotas sem subdomínio** | Fan-out do webhook do WhatsApp por `phone_number_id`, `/health/tenants`, on-demand TLS via registry, `printer_daemon_url` por tenant, CORS por registry. **+ porta de storage** (§4.7): `src/infra/storage/` consolidando as 4 cópias duplicadas, layout `<uploadsDir>/<schema>/<kind>/` no disco, rota `GET /uploads/:kind/:filename` que resolve o tenant do `Host` (sai o `@fastify/static`), migração one-shot idempotente dos arquivos do layout flat, API devolvendo `/uploads/<kind>/<filename>`. | médio | 3 d |
+| **5** | **Rotas sem subdomínio** | `/health/tenants`, on-demand TLS via registry, `printer_daemon_url` por tenant, CORS por registry. **+ porta de storage** (§4.7): `src/infra/storage/` consolidando as 4 cópias duplicadas, layout `<uploadsDir>/<schema>/<kind>/` no disco, rota `GET /uploads/:kind/:filename` que resolve o tenant do `Host` (sai o `@fastify/static`), migração one-shot idempotente dos arquivos do layout flat, API devolvendo `/uploads/<kind>/<filename>`. | médio | 3 d |
 | **6** | **JWT + desligamento do single-tenant** | `t` no payload, `tenant_mismatch`, `TENANT_ROUTING=false` como kill-switch. ⚠️ O kill-switch **já existe desde a Fase 1** (default desligado); o que falta aqui é o `t` no JWT e o `tenant_mismatch`. | médio | 1 d |
 | **7** | **Cutover do dado de produção** | §6.2. **Único ponto de não-retorno.** | **alto** | 1 d + janela |
 | **8** | **Suítes de isolamento** | ⚠️ **PARCIAL**: `tenant-routing.test.ts` ✅ (29 casos, Fase 1). `tenant-isolation.test.ts` segue pendente — não há o que provar enquanto o `db` não for escopado (2 sockets, upload cruzado, canário de `nextval`). | nenhum | 2 d |
@@ -993,7 +993,6 @@ que um 404 bem aplicado evita. O painel de provisionamento da plataforma é tool
 | R10 | Cutover perde dado | 🟠 | `EXCEPT` de verificação, `RENAME` (não `DROP`), backup antes e depois, uma release de espera. |
 | R11 | `nextval()` não qualificado + `public` no path = vazão silenciosa | 🟡 | Canário no boot (`current_schema()` == schema do tenant **e** `to_regclass('"order"')` não-nulo); `/health/tenants` reporta. Some quando o `public` for esvaziado (passo 11 do cutover). |
 | R12 | Rollback de migration em N schemas | 🟡 | Expand/contract em 2-3 releases; o **backup pré-deploy do CI já é o mecanismo de rollback** (`pg_restore -n tenant_x`). |
-| R13 | Webhook do WhatsApp chega no apex, sem Host | 🟡 | Fan-out de 1 query indexada por tenant (`phone_number_id`), cache 60s. Sem escrita cruzada no registry. **Fase 5 — a Fase 1 não tocou no webhook** (o registry ainda não tem a coluna `phone_number_id`). |
 | R14 | Limite de taxa do Let's Encrypt estourado | 🟡 | On-demand TLS via registry (§5.8). |
 | R15 | Relatório de gerente passa de `statement_timeout=30s` | 🟡 | P2: override por endpoint. |
 | R16 | `audit_log`/`stock_movement` **nunca são podados** (crescem sem limite;Maintenance só limpa 4 tabelas) | 🟡 | `retention_days` no registry + manutenção por tenant. Origem nº1 de "o banco ficou lento". |

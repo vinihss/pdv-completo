@@ -1,78 +1,103 @@
-import { eq } from "drizzle-orm";
-import { db } from "../infra/db/client.js";
-import { categories, products } from "../infra/db/schema.js";
+/**
+ * Catálogo — categorias. ONDA 3A da refatoração arquitetural.
+ *
+ * Factory pura (`createCategoryUsecases`): nenhuma importação de
+ * infra/Drizzle. Persistência via `session.catalog`, audit via
+ * `session.audit` (MESMA transação da escrita de domínio) e cache
+ * via port `TenantCache` (efeito pós-escrita, não transacional).
+ *
+ * Semântica preservada do módulo original:
+ *   - `listCategoriesUsecase`: cache `categories:*` (TTL 300s) →
+ *     `session.catalog.listCategories()` (ordem de exibição);
+ *   - create/update/delete: 404 prévio (`findCategoryById`), escrita,
+ *     audit e invalidação de `categories:*`/`products:*`/`public-menu`;
+ *   - delete é EXCLUSÃO REAL (§7.5): produtos vinculados ficam com
+ *     `category_id = null` até reatribuição (regra do adapter).
+ */
+import type { TenantUnitOfWork } from "./ports/unit-of-work.js";
+import type { TenantContext } from "./ports/tenant-context.js";
+import type { TenantCache } from "./ports/effects.js";
+import type { CategoryRecord } from "./ports/repositories.js";
 import { Errors } from "../domain/errors.js";
-import { logAction } from "../infra/audit-log.js";
-import { tenantCache } from "../infra/cache/index.js";
 
-// Cache particionado por schema: `categories:*`/`products:*`/`public-menu`
-// são dados de uma loja só.
-const cache = tenantCache;
-
-async function invalidateCategoryRelated() {
-  await cache.invalidatePattern("categories:*");
-  await cache.invalidatePattern("products:*");
-  await cache.invalidatePattern("public-menu");
+export interface CategoryUsecasesDeps {
+  uow: TenantUnitOfWork;
+  cache: TenantCache;
+  /** Resolvido a cada chamada (ALS/request corrente) — nunca memoizado. */
+  tenant: () => TenantContext;
 }
 
-export async function listCategoriesUsecase() {
-  const cached = await cache.get("categories:*");
-  if (cached) return cached;
-  const rows = await db.query.categories.findMany({ orderBy: (c, { asc }) => asc(c.displayOrder) });
-  await cache.set("categories:*", rows, { ttl: 300 });
-  return rows;
+/**
+ * Invalida o cache de catálogo. O `:*` vira o prefixo do port
+ * (`invalidatePrefix` acrescenta o `*`), e `public-menu` é uma chave
+ * fixa — a invalidação por prefixo é um superset seguro (nenhuma outra
+ * chave começa com `public-menu`).
+ */
+async function invalidateCategoryRelated(cache: TenantCache): Promise<void> {
+  await cache.invalidatePrefix("categories:");
+  await cache.invalidatePrefix("products:");
+  await cache.invalidatePrefix("public-menu");
 }
 
-export async function createCategoryUsecase(
-  input: { name: string; displayOrder?: number },
-  actorId: string
-) {
-  const row = await db.transaction(async (tx) => {
-    const [r] = await tx
-      .insert(categories)
-      .values({ name: input.name, displayOrder: input.displayOrder ?? 0 })
-      .returning();
-    await logAction(tx, actorId, "category_created", null, { categoryId: r.id, name: r.name });
-    await invalidateCategoryRelated();
-    return r;
-  });
-  return row;
-}
+export function createCategoryUsecases(deps: CategoryUsecasesDeps) {
+  return {
+    async listCategoriesUsecase(): Promise<CategoryRecord[]> {
+      const cached = await deps.cache.get<CategoryRecord[]>("categories:*");
+      if (cached) return cached;
+      return deps.uow.run(deps.tenant(), async (session) => {
+        const rows = await session.catalog.listCategories();
+        await deps.cache.set("categories:*", rows, { ttl: 300 });
+        return rows;
+      });
+    },
 
-export async function updateCategoryUsecase(
-  id: string,
-  input: { name?: string; displayOrder?: number; active?: boolean },
-  actorId: string
-) {
-  const existing = await db.query.categories.findFirst({ where: eq(categories.id, id) });
-  if (!existing) throw Errors.notFound("Categoria");
-  const row = await db.transaction(async (tx) => {
-    const [r] = await tx
-      .update(categories)
-      .set({
-        ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(input.displayOrder !== undefined ? { displayOrder: input.displayOrder } : {}),
-        ...(input.active !== undefined ? { active: input.active } : {}),
-      })
-      .where(eq(categories.id, id))
-      .returning();
-    await logAction(tx, actorId, "category_updated", null, { categoryId: id, name: r.name });
-    await invalidateCategoryRelated();
-    return r;
-  });
-  return row;
-}
+    async createCategoryUsecase(
+      input: { name: string; displayOrder?: number },
+      actorId: string,
+    ): Promise<CategoryRecord> {
+      return deps.uow.run(deps.tenant(), async (session) => {
+        const row = await session.catalog.createCategory(input);
+        await session.audit.record({
+          actorId,
+          action: "category_created",
+          details: { categoryId: row.id, name: row.name },
+        });
+        await invalidateCategoryRelated(deps.cache);
+        return row;
+      });
+    },
 
-// Exclusão real (categoria pode ser hard-deleted, diferente de produto — §7.5 nota de design).
-// Produtos vinculados ficam com category_id nulo até reatribuição.
-// Transação assíncrona — ver nota em order.usecases.ts.
-export async function deleteCategoryUsecase(id: string, actorId: string) {
-  const existing = await db.query.categories.findFirst({ where: eq(categories.id, id) });
-  if (!existing) throw Errors.notFound("Categoria");
-  await db.transaction(async (tx) => {
-    await tx.update(products).set({ categoryId: null }).where(eq(products.categoryId, id));
-    await tx.delete(categories).where(eq(categories.id, id));
-    await logAction(tx, actorId, "category_deleted", null, { categoryId: id, name: existing.name });
-    await invalidateCategoryRelated();
-  });
+    async updateCategoryUsecase(
+      id: string,
+      input: { name?: string; displayOrder?: number; active?: boolean },
+      actorId: string,
+    ): Promise<CategoryRecord> {
+      return deps.uow.run(deps.tenant(), async (session) => {
+        const existing = await session.catalog.findCategoryById(id);
+        if (!existing) throw Errors.notFound("Categoria");
+        const row = await session.catalog.updateCategory(id, input);
+        await session.audit.record({
+          actorId,
+          action: "category_updated",
+          details: { categoryId: id, name: row.name },
+        });
+        await invalidateCategoryRelated(deps.cache);
+        return row;
+      });
+    },
+
+    async deleteCategoryUsecase(id: string, actorId: string): Promise<void> {
+      return deps.uow.run(deps.tenant(), async (session) => {
+        const existing = await session.catalog.findCategoryById(id);
+        if (!existing) throw Errors.notFound("Categoria");
+        await session.catalog.deleteCategory(id);
+        await session.audit.record({
+          actorId,
+          action: "category_deleted",
+          details: { categoryId: id, name: existing.name },
+        });
+        await invalidateCategoryRelated(deps.cache);
+      });
+    },
+  };
 }

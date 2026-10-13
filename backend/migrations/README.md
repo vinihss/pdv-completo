@@ -19,12 +19,32 @@ A lista abaixo reflete o checkout atual; confirme os arquivos antes de cada muda
 | Ordem | Arquivo ativo | Tema |
 |---:|---|---|
 | 1 | `0001_init.sql` | Baseline consolidado do schema de negócio |
-| 2 | `0002_pagarme.sql` | Cobranças, eventos e integração Pagar.me |
-| 3 | `0003_courier_location.sql` | Última localização do entregador |
-| 4 | `0004_delivery_arrival_alert_sent.sql` | Controle do alerta de chegada |
-| 5 | `0004_device_provisioning.sql` | Chaves e dispositivos provisionados |
+| 2 | `0003_courier_location.sql` | Última localização do entregador |
+| 3 | `0004_delivery_arrival_alert_sent.sql` | Controle do alerta de chegada |
+| 4 | `0004_device_provisioning.sql` | Chaves e dispositivos provisionados |
+| 5 | `0005_cash_drawer_denominations.sql` | Fechamento de caixa com contagem por denominação |
+| 6 | `0006_order_refund.sql` | Tabela `order_refund` — estorno de linhas de pagamento |
+| 7 | `0008_cash_movement_category.sql` | Categoria de sangria/suprimento + alçadas |
+| 8 | `0009_remove_whatsapp.sql` | Remoção da integração WhatsApp |
+| 9 | `0010_remove_payment_ifood.sql` | Remoção da camada de pagamento online (Pagar.me) e do iFood |
 
-Os dois nomes `0004_*` são uma colisão histórica já implantada; a ordenação lexical atual executa `delivery_arrival_alert_sent` antes de `device_provisioning`. **Não renomeie nenhum dos dois**. Para migrations novas, use um prefixo numérico lexicograficamente posterior ao maior existente (no estado atual, `0005_*`) e evite reutilizar prefixos.
+`0002_pagarme.sql` (cobranças, inbox do webhook e estornos do gateway) e
+`0007_order_settlement.sql` (repasse de marketplace) foram removidos da cadeia
+ativa junto com o código de pagamento online e a integração iFood. Instalações
+que já aplicaram essas migrations são limpas por `0010_remove_payment_ifood.sql`
+(payment/payment_event/payment_refund, order_settlement, ifood_event/ifood_state
+e as colunas ifood/pagarme de `order`, `product` e `store_settings`); em banco
+novo a 0010 é no-op.
+
+`0009_remove_whatsapp.sql` derruba `whatsapp_connection`, `whatsapp_conversation`,
+`whatsapp_inbound_message` e `whatsapp_outbound_message`, os enums `whatsapp_*`,
+a coluna `store_settings.whatsapp_integration_enabled` e `delivery.arrival_alert_sent`
+(a coluna só existia para marcar o alerta "sua entrega está chegando", que era
+mensagem de WhatsApp). O valor `'whatsapp'` do enum `channel` **permanece**, por
+compatibilidade de leitura de pedidos antigos — é read-only no código. Pela
+mesma razão, `0010` mantém o valor `'ifood'` do enum `channel`.
+
+Os dois nomes `0004_*` são uma colisão histórica já implantada; a ordenação lexical atual executa `delivery_arrival_alert_sent` antes de `device_provisioning`. **Não renomeie nenhum dos dois**. Para migrations novas, use um prefixo numérico lexicograficamente posterior ao maior existente (no estado atual, `0011_*`) e evite reutilizar prefixos.
 
 ## Regras para mudanças futuras
 

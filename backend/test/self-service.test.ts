@@ -1,6 +1,5 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
 import { api, seedFixture, resetState, closeTestApp, tokenOf, manager, kitchen, FIXTURE, raw } from "./helpers.js";
-import { handleIncomingWhatsAppMessage } from "../src/application/self-service/whatsapp-bot.usecases.js";
 import {
   deriveCustomerStage,
   stageTimeline,
@@ -378,36 +377,6 @@ describe("self-service: stage público, cancelamento e continuação", () => {
     });
     const after = await api("post", "/public/orders/active", { ip, body: { phone } });
     expect(after.json).toBeNull();
-  });
-
-  it("bot manda o link do pedido em andamento (retomada) em vez do cardápio", async () => {
-    const ip = nextIp();
-    const phone = nextPhone();
-
-    const semPedido = await handleIncomingWhatsAppMessage(phone, "oi");
-    expect(semPedido.replyText).toContain("cardápio");
-    expect(semPedido.replyText).toContain(`phone=${phone}`);
-    expect(semPedido.replyText).not.toContain("order=");
-
-    const { orderId } = (await createDeliveryOrder(phone, "cash", ip)).json;
-
-    const comPedido = await handleIncomingWhatsAppMessage(phone, "oi de novo");
-    expect(comPedido.replyText).toContain(`order=${orderId}`);
-    expect(comPedido.replyText).toContain("Pedido recebido");
-    // O link de retomada é a página com via=whatsapp: a página usa phone pra
-    // identificar e order pra abrir direto o acompanhamento.
-    expect(comPedido.replyText).toContain("/pedido?");
-    expect(comPedido.replyText).toContain("via=whatsapp");
-
-    // Pedido cancelado deixa de aparecer como "em andamento" — o bot volta a
-    // convidar pro cardápio.
-    await api("post", `/public/orders/${orderId}/cancel`, {
-      ip,
-      body: { correlationId: crypto.randomUUID(), customerPhone: phone },
-    });
-    const depois = await handleIncomingWhatsAppMessage(phone, "e aí?");
-    expect(depois.replyText).toContain("cardápio");
-    expect(depois.replyText).not.toContain("order=");
   });
 
   it("menu público expõe groups com required/allowMultiple (mesmo formato do garçom)", async () => {

@@ -2,26 +2,22 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { withIdempotency } from "../middlewares/idempotency.middleware.js";
 import { publicLookupRateLimit, publicWriteRateLimit, publicOrderRateLimit, publicCartRateLimit } from "../middlewares/rate-limit.middleware.js";
-import { getPublicMenuUsecase } from "../../application/self-service/menu.usecases.js";
-import { getStoreSettingsUsecase } from "../../application/store-settings.usecases.js";
-import { Errors } from "../../domain/errors.js";
 import {
+  getPublicMenuUsecase,
+  calcularEntregaUsecase,
   lookupCustomerByPhoneUsecase,
   createSelfServiceCustomerUsecase,
   addCustomerAddressUsecase,
-} from "../../application/self-service/customer-address.usecases.js";
-import {
-  createSelfServiceOrderUsecase,
-  getSelfServiceOrderStatusUsecase,
-  getActiveSelfServiceOrderByPhoneUsecase,
-} from "../../application/self-service/order-intake.usecase.js";
-import { cancelSelfServiceOrderUsecase } from "../../application/self-service/cancel-order.usecase.js";
-import {
+  cancelSelfServiceOrderUsecase,
   getCustomerCartUsecase,
   saveCustomerCartUsecase,
   clearCustomerCartUsecase,
-} from "../../application/self-service/cart.usecases.js";
-import { calcularEntregaUsecase } from "../../application/delivery/calcular-entrega.usecase.js";
+  createSelfServiceOrderUsecase,
+  getSelfServiceOrderStatusUsecase,
+  getActiveSelfServiceOrderByPhoneUsecase,
+} from "../../infra/composition/default-usecases.js";
+import { getStoreSettingsUsecase } from "../../infra/composition/default-usecases.js";
+import { Errors } from "../../domain/errors.js";
 
 const addressFields = {
   label: z.string().optional(),
@@ -52,10 +48,6 @@ const addAddressSchema = z.object({ correlationId: z.string(), ...addressFields 
 
 const createOrderSchema = z.object({
   correlationId: z.string(),
-  // Opcional — a página passa "whatsapp" quando o cliente chegou pelo link
-  // do bot (ver whatsapp-bot.usecases.ts#buildMenuLink); default "web" pra
-  // quem chega direto na página sem passar pelo WhatsApp.
-  channel: z.enum(["whatsapp", "web"]).default("web"),
   customerPhone: z.string().min(1),
   customerName: z.string().min(1),
   addressId: z.string().optional(),
@@ -104,7 +96,7 @@ const saveCartSchema = z.object({
 const cartQuerySchema = z.object({ phone: z.string().min(1) });
 
 // Sem authMiddleware — endpoints de cliente final, consumidos pela página
-// externa (e internamente pelo webhook do WhatsApp, como chamada de função,
+// externa (como chamada de função,
 // não HTTP — ver 05-delivery-api-contracts.md).
 export async function publicRoutes(app: FastifyInstance) {
   async function assertDeliveryEnabled(req: any) {
@@ -152,7 +144,7 @@ export async function publicRoutes(app: FastifyInstance) {
     const body = createOrderSchema.parse(req.body);
     await assertDeliveryEnabled(req);
     const result = await withIdempotency("POST /public/orders", body.correlationId, body, async () => {
-      const created = await createSelfServiceOrderUsecase(body);
+      const created = await createSelfServiceOrderUsecase({ ...body, channel: "web" });
       return { status: 201, body: created };
     });
     return reply.code(result.status).send(result.body);

@@ -58,6 +58,7 @@ import (
 	"pdv-pagarme-webhook/internal/nodeapi"
 	"pdv-pagarme-webhook/internal/queue"
 	"pdv-pagarme-webhook/internal/server"
+	"pdv-pagarme-webhook/internal/tenancy"
 )
 
 // poolCloseTimeout é quanto o shutdown espera o pool fechar antes de desistir.
@@ -115,6 +116,27 @@ func main() {
 		}
 	}
 
+	// ---- tenancy: registry + resolver ----
+	//
+	// O registry lê `public.tenant` (com cache 60s, igual ao Node) e o
+	// resolver traduz `merchant_id` → tenant. Sem PAGARME_MERCHANT_TENANTS o
+	// comportamento é o de antes (modo uma-loja: todo webhook cai no tenant
+	// default). Com ele, merchant desconhecido = 400 (fail-closed, nunca grava
+	// no schema errado).
+	var reg *tenancy.Registry
+	if pool != nil {
+		reg = tenancy.NewRegistry(pool)
+	}
+
+	var resolver tenancy.Resolver
+	if reg != nil {
+		if fonte, ok, err := tenancy.FromEnv(reg); err != nil {
+			log.Printf("[pagarme] AVISO: PAGARME_MERCHANT_TENANTS inválido (%v) — modo uma-loja", err)
+		} else if ok && fonte != nil {
+			resolver = fonte
+		}
+	}
+
 	// O Store da inbox só existe com pool: sem ele não há onde gravar, e o webhook
 	// responde 503 — que é o desfecho certo, porque o Pagar.me reenvia.
 	//
@@ -131,7 +153,7 @@ func main() {
 		store = inbox.NewStore(pool, time.Now)
 	}
 
-	srv := server.New(secretKey, store, health, version())
+	srv := server.New(secretKey, store, resolver, health, version())
 
 	// ---- Node (endpoint interno) e gateway (leitura) ----
 	nodeClient := nodeapi.New(envOr("NODE_INTERNAL_URL", "http://backend:3000"), internalToken, nodeapi.DefaultTimeout)

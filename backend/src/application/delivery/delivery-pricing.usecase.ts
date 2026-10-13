@@ -1,8 +1,22 @@
-import { eq } from "drizzle-orm";
-import { db } from "../../infra/db/client.js";
-import { storeSettings } from "../../infra/db/schema.js";
-import { Errors } from "../../domain/errors.js";
+// Precificação de entrega — ONDA 3 da refatoração arquitetural.
+//
+// As funções PURAS (`parseTiers`, `calculateDeliveryFee`, `applyDeliveryPricing`
+// e `deliveryPricingFrom`) não conhecem banco nem efeitos e seguem exportadas
+// como sempre — são elas que os testes e o checkout self-service
+// (`order-intake.usecase.ts`) consomem. A leitura de `store_settings` virou o
+// use case `getDeliveryPricingUsecase(deps)`, que fala o effect port
+// `StoreSettingsReader` (mesmo caminho de `order.usecases`) dentro de um
+// `uow.run`.
+//
+// APROXIMAÇÃO DE JANELA (mesma da Onda 2): a leitura de `store_settings` que
+// antes rodava "fora do tx" (`db.query.storeSettings`) passa a rodar DENTRO do
+// `uow.run`. Sob READ COMMITTED o resultado é o mesmo (snapshot por statement);
+// o ganho é um caminho só para ler e escrever, sem meio-commit.
 import { round2 } from "../../domain/money.js";
+import type { StoreSettingsReader } from "../ports/effects.js";
+import type { StoreSettingsRecord } from "../ports/effects.js";
+import type { TenantUnitOfWork } from "../ports/unit-of-work.js";
+import type { TenantContext } from "../ports/tenant-context.js";
 
 export interface DeliveryFeeTier {
   maxKm: number;
@@ -47,20 +61,6 @@ export function calculateDeliveryFee(tiers: DeliveryFeeTier[], distanceKm: numbe
   return null;
 }
 
-/** Faixas de frete da loja. */
-export async function getDeliveryPricingUsecase(): Promise<{
-  tiers: DeliveryFeeTier[];
-  freeDeliveryMin: number;
-}> {
-  const settings = await db.query.storeSettings.findFirst({ where: eq(storeSettings.id, "singleton") });
-  if (!settings) throw new Error("store_settings não inicializado.");
-
-  return {
-    tiers: parseTiers(settings.deliveryFeeTiers),
-    freeDeliveryMin: settings.freeDeliveryMin ?? 0,
-  };
-}
-
 export function applyDeliveryPricing(
   tiers: DeliveryFeeTier[],
   freeDeliveryMin: number,
@@ -76,4 +76,34 @@ export function applyDeliveryPricing(
   }
 
   return { fee: round2(fee), isFree: false, outOfRange: false };
+}
+
+export interface DeliveryPricingDeps {
+  uow: TenantUnitOfWork;
+  /** Resolvido a cada chamada (ALS/request corrente) — nunca memoizado. */
+  tenant: () => TenantContext;
+  settings: StoreSettingsReader;
+}
+
+/**
+ * Faixas + mínimo de frete grátis a partir da linha de `store_settings` JÁ
+ * lida. Pura de propósito: `calcularEntregaUsecase` roda dentro do próprio
+ * `uow.run` e resolve a precificação com o settings que já tem em mãos, sem
+ * abrir uma segunda transação só para reler o singleton.
+ */
+export function deliveryPricingFrom(
+  settings: Pick<StoreSettingsRecord, "deliveryFeeTiers" | "freeDeliveryMin">,
+): { tiers: DeliveryFeeTier[]; freeDeliveryMin: number } {
+  return {
+    tiers: parseTiers(settings.deliveryFeeTiers),
+    freeDeliveryMin: settings.freeDeliveryMin ?? 0,
+  };
+}
+
+/** Faixas de frete da loja (leitura do singleton dentro do `uow.run`). */
+export async function getDeliveryPricingUsecase(deps: DeliveryPricingDeps): Promise<{
+  tiers: DeliveryFeeTier[];
+  freeDeliveryMin: number;
+}> {
+  return deps.uow.run(deps.tenant(), async () => deliveryPricingFrom(await deps.settings.get()));
 }

@@ -23,7 +23,7 @@ import (
 var ErrUnauthorized = errors.New("unauthorized")
 
 // Claims espelha o payload que o Node assina (login.usecase.ts):
-// `{ sub, role, storeId?, storeSlug? }` + `exp` de 12h.
+// `{ sub, role, tenant, storeId?, storeSlug? }` + `exp` de 12h.
 //
 // `sub` NÃO é campo próprio aqui: RegisteredClaims já traz `Subject` com a tag
 // `json:"sub"`. Declarar outro `UserID string` com a MESMA tag criaria dois
@@ -32,6 +32,7 @@ var ErrUnauthorized = errors.New("unauthorized")
 type Claims struct {
 	jwt.RegisteredClaims
 	Role      string `json:"role"`
+	Tenant    string `json:"tenant,omitempty"`
 	StoreID   string `json:"storeId,omitempty"`
 	StoreSlug string `json:"storeSlug,omitempty"`
 }
@@ -40,6 +41,12 @@ type Claims struct {
 type User struct {
 	ID   string
 	Role string
+	// Tenant é o claim `tenant` (slug) que o Node assina. Vazio = token antigo
+	// emitido antes do multi-tenant, ou token sem escopo: a conexão entra sem
+	// partição e NÃO recebe broadcast de tenant nenhum (fail-closed do
+	// connmanager) — errar para "entrega tudo" seria o vazamento que o slug
+	// existe para impedir.
+	Tenant string
 }
 
 // Roles que o backend emite (ver Role em auth.middleware.ts). Serve só para
@@ -77,7 +84,7 @@ func Verify(token, secret string) (*User, error) {
 		log.Printf("[auth] papel desconhecido no token: %q (sub=%s)", claims.Role, claims.Subject)
 	}
 
-	return &User{ID: claims.Subject, Role: claims.Role}, nil
+	return &User{ID: claims.Subject, Role: claims.Role, Tenant: claims.Tenant}, nil
 }
 
 // TokenFromHandshake extrai o token do header `Sec-WebSocket-Protocol`.

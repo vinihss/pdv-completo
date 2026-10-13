@@ -1,75 +1,97 @@
-import { eq } from "drizzle-orm";
-import { db } from "../infra/db/client.js";
-import { kitchenGroups, products } from "../infra/db/schema.js";
+/**
+ * Catálogo — grupos de produção (estações da cozinha). ONDA 3A.
+ *
+ * Factory pura (`createKitchenGroupUsecases`): sem Drizzle/infra.
+ * Persistência via `session.catalog`, audit via `session.audit`
+ * (mesma transação) e cache via port `TenantCache`.
+ *
+ * Semântica preservada:
+ *   - `listKitchenGroupsUsecase`: cache `kitchen-groups:*`
+ *     (TTL 300s) → `session.catalog.listKitchenGroups()`;
+ *   - create/update/delete: 404 prévio, escrita, audit e
+ *     invalidação de `kitchen-groups:*`/`products:*`;
+ *   - delete é EXCLUSÃO REAL: produtos vinculados ficam com
+ *     `kitchen_group_id = null` (não vão mais para a cozinha)
+ *     até reatribuição (regra do adapter).
+ */
+import type { TenantUnitOfWork } from "./ports/unit-of-work.js";
+import type { TenantContext } from "./ports/tenant-context.js";
+import type { TenantCache } from "./ports/effects.js";
+import type { KitchenGroupRecord } from "./ports/repositories.js";
 import { Errors } from "../domain/errors.js";
-import { logAction } from "../infra/audit-log.js";
-import { tenantCache } from "../infra/cache/index.js";
 
-// Cache particionado por schema (estações de produção são por loja).
-const cache = tenantCache;
-
-async function invalidateKitchenGroupRelated() {
-  await cache.invalidatePattern("kitchen-groups:*");
-  await cache.invalidatePattern("products:*");
+export interface KitchenGroupUsecasesDeps {
+  uow: TenantUnitOfWork;
+  cache: TenantCache;
+  /** Resolvido a cada chamada (ALS/request corrente) — nunca memoizado. */
+  tenant: () => TenantContext;
 }
 
-export async function listKitchenGroupsUsecase() {
-  const cached = await cache.get("kitchen-groups:*");
-  if (cached) return cached;
-  const rows = await db.query.kitchenGroups.findMany({ orderBy: (g, { asc }) => asc(g.displayOrder) });
-  await cache.set("kitchen-groups:*", rows, { ttl: 300 });
-  return rows;
+/** Invalida o cache de grupos e de produtos (grupo afeta o lançamento). */
+async function invalidateKitchenGroupRelated(cache: TenantCache): Promise<void> {
+  await cache.invalidatePrefix("kitchen-groups:");
+  await cache.invalidatePrefix("products:");
 }
 
-export async function createKitchenGroupUsecase(
-  input: { name: string; displayOrder?: number },
-  actorId: string
-) {
-  const row = await db.transaction(async (tx) => {
-    const [r] = await tx
-      .insert(kitchenGroups)
-      .values({ name: input.name, displayOrder: input.displayOrder ?? 0 })
-      .returning();
-    await logAction(tx, actorId, "kitchen_group_created", null, { kitchenGroupId: r.id, name: r.name });
-    await invalidateKitchenGroupRelated();
-    return r;
-  });
-  return row;
-}
+export function createKitchenGroupUsecases(deps: KitchenGroupUsecasesDeps) {
+  return {
+    async listKitchenGroupsUsecase(): Promise<KitchenGroupRecord[]> {
+      const cached = await deps.cache.get<KitchenGroupRecord[]>("kitchen-groups:*");
+      if (cached) return cached;
+      return deps.uow.run(deps.tenant(), async (session) => {
+        const rows = await session.catalog.listKitchenGroups();
+        await deps.cache.set("kitchen-groups:*", rows, { ttl: 300 });
+        return rows;
+      });
+    },
 
-export async function updateKitchenGroupUsecase(
-  id: string,
-  input: { name?: string; displayOrder?: number; active?: boolean },
-  actorId: string
-) {
-  const existing = await db.query.kitchenGroups.findFirst({ where: eq(kitchenGroups.id, id) });
-  if (!existing) throw Errors.notFound("Grupo de produção");
-  const row = await db.transaction(async (tx) => {
-    const [r] = await tx
-      .update(kitchenGroups)
-      .set({
-        ...(input.name !== undefined ? { name: input.name } : {}),
-        ...(input.displayOrder !== undefined ? { displayOrder: input.displayOrder } : {}),
-        ...(input.active !== undefined ? { active: input.active } : {}),
-      })
-      .where(eq(kitchenGroups.id, id))
-      .returning();
-    await logAction(tx, actorId, "kitchen_group_updated", null, { kitchenGroupId: id });
-    await invalidateKitchenGroupRelated();
-    return r;
-  });
-  return row;
-}
+    async createKitchenGroupUsecase(
+      input: { name: string; displayOrder?: number },
+      actorId: string,
+    ): Promise<KitchenGroupRecord> {
+      return deps.uow.run(deps.tenant(), async (session) => {
+        const row = await session.catalog.createKitchenGroup(input);
+        await session.audit.record({
+          actorId,
+          action: "kitchen_group_created",
+          details: { kitchenGroupId: row.id, name: row.name },
+        });
+        await invalidateKitchenGroupRelated(deps.cache);
+        return row;
+      });
+    },
 
-// Exclusão real (como categoria): produtos vinculados ficam com
-// kitchen_group_id nulo (não vão mais para a cozinha) até reatribuição.
-export async function deleteKitchenGroupUsecase(id: string, actorId: string) {
-  const existing = await db.query.kitchenGroups.findFirst({ where: eq(kitchenGroups.id, id) });
-  if (!existing) throw Errors.notFound("Grupo de produção");
-  await db.transaction(async (tx) => {
-    await tx.update(products).set({ kitchenGroupId: null }).where(eq(products.kitchenGroupId, id));
-    await tx.delete(kitchenGroups).where(eq(kitchenGroups.id, id));
-    await logAction(tx, actorId, "kitchen_group_deleted", null, { kitchenGroupId: id, name: existing.name });
-    await invalidateKitchenGroupRelated();
-  });
+    async updateKitchenGroupUsecase(
+      id: string,
+      input: { name?: string; displayOrder?: number; active?: boolean },
+      actorId: string,
+    ): Promise<KitchenGroupRecord> {
+      return deps.uow.run(deps.tenant(), async (session) => {
+        const existing = await session.catalog.findKitchenGroupById(id);
+        if (!existing) throw Errors.notFound("Grupo de produção");
+        const row = await session.catalog.updateKitchenGroup(id, input);
+        await session.audit.record({
+          actorId,
+          action: "kitchen_group_updated",
+          details: { kitchenGroupId: id },
+        });
+        await invalidateKitchenGroupRelated(deps.cache);
+        return row;
+      });
+    },
+
+    async deleteKitchenGroupUsecase(id: string, actorId: string): Promise<void> {
+      return deps.uow.run(deps.tenant(), async (session) => {
+        const existing = await session.catalog.findKitchenGroupById(id);
+        if (!existing) throw Errors.notFound("Grupo de produção");
+        await session.catalog.deleteKitchenGroup(id);
+        await session.audit.record({
+          actorId,
+          action: "kitchen_group_deleted",
+          details: { kitchenGroupId: id, name: existing.name },
+        });
+        await invalidateKitchenGroupRelated(deps.cache);
+      });
+    },
+  };
 }
