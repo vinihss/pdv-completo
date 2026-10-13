@@ -7,6 +7,7 @@ node_modules/
 # aparece como untracked e pode acabar num commit por engano.
 node_modules
 dist/
+frontend/storybook-static/
 deploy/state
 # Cache incremental do `tsc -b`. O app público (apps/pedido-public/) roda
 # `tsc -b` no build, e sem `incremental`/`tsBuildInfoFile` o compilador deixa o

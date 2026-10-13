@@ -17,9 +17,10 @@ app → pages → widgets → features → entities → shared
 
 ## Linguagem visual
 
-- A escala base é escura: fundo `stone-950`, superfícies `stone-900/800`, bordas `stone-800/700` e texto claro. Amber identifica a ação principal; verde, sucesso/pronto; amarelo, atenção; vermelho, erro/urgência.
+- O tema atual do shell usa fundo creme, superfícies claras, sidebar marrom e dourado configurável como acento. Verde, amarelo e vermelho identificam sucesso, atenção e erro; use os tokens semânticos, não cores literais.
 - Os tokens semânticos do shell estão em `src/index.css` (`--app-bg`, `--surface-raised`, `--border-subtle`, `--text-*` e `--status-*`). Ao introduzir uma cor global, prefira um token a um novo hexadecimal espalhado.
 - **Design tokens (estrutura):** as variáveis acima são expostas ao Tailwind via `@theme inline` em `src/index.css` como utilitários estáveis (`bg-background`, `text-foreground`, `bg-surface`, `text-primary`, `text-text-muted`, `border-border`, …). Mudanças de tema/cor/typografia devem acontecer lá, não em N arquivos. Ver `docs/design-tokens.md` (mapeamento legacy → token e regras de uso). Para merge de classes condicionais, use `cn(...)` de `@/shared/lib` (clsx + tailwind-merge); componentes com variantes devem usar `cva` (ex.: `Button`).
+- **Catálogo visual:** execute `npm run storybook` em `frontend/`; histórias `*.stories.jsx` acompanham componentes compartilhados. Rode também `npm run build-storybook` para validar a documentação.
 - A cor principal da marca é configurável pela loja através de `src/shared/lib/theme.js`; não substitua os utilitários amber por outra paleta sem preservar essa personalização.
 - Reutilize `Button`, `PageHeader`, `ScreenHeader`, `Modal`, `ConfirmModal`, `Drawer`, `Section` e `EmptyState` em vez de copiar variantes locais.
 - `PageHeader` é o título do conteúdo; o cabeçalho global pertence à casca em `app/router.jsx`. `ScreenHeader` é para uma tela de fluxo com navegação de retorno.

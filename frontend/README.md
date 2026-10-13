@@ -47,6 +47,8 @@ HTML — não se deduz da URL, que no desktop é `tauri://localhost`). (Garçom/
 | `npm run preview` | Preview do build de produção |
 | `npm run lint` | oxlint |
 | `npm run test` | vitest (jsdom + Testing Library) |
+| `npm run storybook` | Catálogo local de componentes em `http://localhost:6006` |
+| `npm run build-storybook` | Gera o catálogo estático em `storybook-static/` |
 
 O build do app desktop (Tauri) **saiu dos npm scripts** (`desktop:build`/`desktop:dev`
 foram removidos, junto com a devDependency `@tauri-apps/cli` — a CLI agora mora na
@@ -76,3 +78,21 @@ src/
 ```
 
 Ver `docs/agent-frontend.md` para o guia completo de convenções e arquitetura.
+
+## Design system e Storybook
+
+O design system é mantido em `src/index.css` (tokens e tema global) e nas
+primitives de `src/shared/components/` (variantes em CVA, exports no barrel
+`index.js`). A documentação de referência dos tokens está em
+[`docs/design-tokens.md`](docs/design-tokens.md). Histórias ficam junto aos
+componentes como `*.stories.jsx`; ao criar um novo componente compartilhado,
+adicione uma história com seus estados e variantes e mantenha os exemplos sem
+dependências da API ou de dados reais.
+
+```bash
+npm run storybook       # desenvolvimento local
+npm run build-storybook # valida e gera versão estática
+```
+
+O catálogo carrega `src/index.css`, incluindo o tema da marca e as utilities do
+Tailwind, além dos painéis de Controls, Docs e acessibilidade.

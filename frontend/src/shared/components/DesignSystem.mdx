@@ -1,0 +1,44 @@
+import { Meta, ColorPalette, ColorItem } from "@storybook/addon-docs/blocks";
+
+<Meta title="Design System/Visão geral" />
+
+# Design system do PDV
+
+A interface usa tokens semânticos como fonte única do tema, primitives compartilhadas com variantes explícitas e padrões preparados para operação em balcão, tablets e desktop. O CSS global e o tema estão em `src/index.css`; regras e decisões estão em `docs/design-tokens.md`.
+
+## Princípios
+
+- **Tokens antes de valores avulsos:** use `bg-background`, `bg-surface`, `text-foreground`, `text-text-secondary`, `border-border`, `bg-primary` e os tons semânticos de estado.
+- **Componentes compartilhados:** prefira primitives de `src/shared/components` a recriar estilos em páginas ou widgets.
+- **Marca configurável:** a cor primária da loja é aplicada em runtime; não substitua os tokens de marca por uma paleta fixa em componentes.
+- **Operação acessível:** controles têm foco visível, áreas táteis confortáveis e os estados não dependem apenas da cor.
+- **Composição:** use `cn` para combinar classes e `cva` para variantes públicas de componentes.
+
+## Cores semânticas
+
+<ColorPalette>
+  <ColorItem title="Fundo" subtitle="--app-bg" colors={["var(--app-bg)"]} />
+  <ColorItem title="Superfície" subtitle="--surface-raised · --surface-overlay" colors={["var(--surface-raised)", "var(--surface-overlay)"]} />
+  <ColorItem title="Texto" subtitle="--text-primary · --text-secondary · --text-muted" colors={["var(--text-primary)", "var(--text-secondary)", "var(--text-muted)"]} />
+  <ColorItem title="Marca" subtitle="--brand-accent · --brand-accent-strong" colors={["var(--brand-accent)", "var(--brand-accent-strong)"]} />
+  <ColorItem title="Estados" subtitle="sucesso · atenção · erro" colors={["var(--status-success)", "var(--status-warning)", "var(--status-danger)"]} />
+</ColorPalette>
+
+## Tipografia
+
+| Token | Família | Uso |
+|---|---|---|
+| `font-sans` | Inter | Texto, formulário, conteúdo e controles |
+| `font-display` | Fredoka | Títulos de tela e chamadas visuais |
+
+## Espaçamento e raio
+
+Use a escala de espaçamento nativa do Tailwind para compor layouts (`gap-2`, `p-4`, `space-y-4`). O raio base é `--radius` (10 px), com `rounded-xl` e `rounded-2xl` para superfícies e overlays. Não introduza novos valores globais sem documentar em `docs/design-tokens.md`.
+
+## Componentes disponíveis
+
+Explore **Primitives** para botões, badges, cards e campos; **Patterns** contém exemplos de cabeçalho e estado vazio. Cada página de componente inclui Controls e documentação automática das props.
+
+## Rodar localmente
+
+Na pasta `frontend/`, use `npm run storybook` para iniciar o catálogo em `http://localhost:6006` e `npm run build-storybook` para gerar a versão estática em `storybook-static/`.

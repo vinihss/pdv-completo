@@ -32,7 +32,7 @@ Cor (valores resolvem para as variáveis, trocáveis em um lugar só):
 | `bg-warning` / `text-warning`  | `--status-warning` | aviso               |
 | `border-ring`/`outline-ring`   | `--brand-accent` | foco               |
 
-Fontes: `font-sans` (Inter), `font-display` (Space Grotesk).
+Fontes: `font-sans` (Inter), `font-display` (Fredoka).
 
 Helpers: `cn(...)` em `@/shared/lib` (clsx + tailwind-merge) e `cva` para
 variantes de componentes (`Button` é o primeiro exemplo).
@@ -89,3 +89,23 @@ Construídos com os tokens acima + `cn`/`cva`. Preferir em vez de copiar variant
 - `Form.jsx`: `inputClass`, `Section`, `Field`, `ToggleRow` (agora via tokens)
 
 Migração gradual dos wrappers em `pages`/`widgets`: substituir blocos de `div + classes stone/amber` por esses componentes.
+
+## Storybook e contribuição
+
+O catálogo de componentes usa Storybook 10 com React/Vite e é executado na
+pasta `frontend/`:
+
+- `npm run storybook`: desenvolvimento em `http://localhost:6006`.
+- `npm run build-storybook`: gera `storybook-static/` para publicação estática.
+- `.storybook/preview.jsx` carrega `src/index.css`, de forma que as histórias
+  usam os mesmos tokens, tema de marca e utilities Tailwind da aplicação.
+- As histórias `*.stories.jsx` ficam próximas aos componentes compartilhados;
+  documente variantes, estados disabled/invalid e um exemplo contextual quando
+  isso ajudar quem consome o componente. Não dependa de API, sessão ou dados
+  privados nos exemplos.
+- Os add-ons Docs e A11y estão habilitados. O painel de acessibilidade reporta
+  violações como erros durante a validação automatizada do Storybook.
+
+A visão geral dos princípios e cores está em
+`src/shared/components/DesignSystem.mdx`; o README do frontend documenta o
+fluxo de contribuição.
