@@ -27,6 +27,7 @@ import {
   customers,
   customerAddresses,
   customerCarts,
+  courierLocations,
   deliveries,
   geocodingCache,
   kitchenGroups,
@@ -57,6 +58,8 @@ import type {
   CustomerAddressRecord,
   CustomerAddressRepository,
   CustomerCartRepository,
+  CourierLocationRecord,
+  CourierLocationRepository,
   DeliveryRecord,
   DeliveryRepository,
   DeliveryStatus,
@@ -491,6 +494,13 @@ export class PostgresCatalogRepository implements CatalogRepository {
     });
     return rows.map((c) => ({ id: c.id, name: c.name }));
   }
+
+  /** ADIÇÃO (Onda 3 — self-service): lote por ids (validação de variações do checkout). */
+  async findProductsByIds(ids: Id[]): Promise<ProductRecord[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.tx.query.products.findMany({ where: inArray(products.id, ids) });
+    return rows.map(toProductRecord);
+  }
 }
 
 // =====================================================================
@@ -653,6 +663,22 @@ export class PostgresUserRepository implements UserRepository {
       orderBy: (u, { asc: asc_ }) => asc_(u.name),
     });
     return rows.map((u) => ({ id: u.id, name: u.name, role: u.role }));
+  }
+
+  /** ADIÇÃO (Onda 3 — self-service): lote por ids (entregadores das listagens de entrega). */
+  async findByIds(ids: Id[]): Promise<UserRecord[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.tx.query.users.findMany({ where: inArray(users.id, ids) });
+    return rows.map(toUserRecord);
+  }
+
+  /** ADIÇÃO (Onda 3 — self-service): usuários de um papel, ordem alfabética. */
+  async listByRole(role: UserRecord["role"]): Promise<UserRecord[]> {
+    const rows = await this.tx.query.users.findMany({
+      where: eq(users.role, role),
+      orderBy: (u, { asc: asc_ }) => asc_(u.name),
+    });
+    return rows.map(toUserRecord);
   }
 
   /**
@@ -952,6 +978,34 @@ export class PostgresOrderRepository implements OrderRepository {
       .from(orders)
       .where(inArray(orders.id, ids));
     return rows.map((r) => ({ id: r.id, status: r.status }));
+  }
+
+  /** ADIÇÃO (Onda 3 — self-service): comandas em lote (hidratação das listagens de entrega). */
+  async listRowsByIds(ids: Id[]): Promise<OrderRow[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.tx.query.orders.findMany({ where: inArray(orders.id, ids) });
+    return rows.map(toOrderRow);
+  }
+
+  /**
+   * ADIÇÃO (Onda 3 — self-service): comanda em aberto mais recente do cliente
+   * nos canais informados (retomada do self-service; `whatsapp` entra por
+   * compatibilidade de leitura).
+   */
+  async findLatestOpenByCustomer(customerId: Id, channels: OrderChannel[]): Promise<OrderRow | null> {
+    const row = await this.tx.query.orders.findFirst({
+      where: and(eq(orders.customerId, customerId), inArray(orders.channel, channels), eq(orders.status, "open")),
+      orderBy: desc(orders.openedAt),
+    });
+    return row ? toOrderRow(row) : null;
+  }
+
+  /** ADIÇÃO (Onda 3 — self-service): fecha os itens pendentes da entrega como entregues. */
+  async markItemsDelivered(orderId: Id): Promise<void> {
+    await this.tx
+      .update(orderItems)
+      .set({ status: "delivered" })
+      .where(and(eq(orderItems.orderId, orderId), notInArray(orderItems.status, ["delivered", "cancelled"])));
   }
 
   // -- itens --
@@ -1709,6 +1763,164 @@ export class PostgresDeliveryRepository implements DeliveryRepository {
     const rows = await this.tx.query.deliveries.findMany({ where: inArray(deliveries.orderId, ids) });
     return rows.map(toDeliveryRecord);
   }
+
+  // ---------- ADIÇÕES (Onda 3 — self-service) ----------
+
+  /** INSERT da entrega do checkout (status inicial `awaiting_courier`). */
+  async create(input: {
+    orderId: Id;
+    address: string;
+    status: DeliveryStatus;
+    distanceKm: number | null;
+    estimatedMinutes: number;
+  }): Promise<DeliveryRecord> {
+    const [row] = await this.tx
+      .insert(deliveries)
+      .values({
+        orderId: input.orderId,
+        address: input.address,
+        status: input.status,
+        distanceKm: input.distanceKm,
+        estimatedMinutes: input.estimatedMinutes,
+      })
+      .returning();
+    if (!row) throw Errors.validationFailed({ field: "orderId" });
+    return toDeliveryRecord(row);
+  }
+
+  /** Todas as entregas (opcionalmente por status), mais recentes primeiro. */
+  async listAll(statuses?: DeliveryStatus[]): Promise<DeliveryRecord[]> {
+    const rows = await this.tx.query.deliveries.findMany({
+      where: statuses?.length ? inArray(deliveries.status, statuses) : undefined,
+      orderBy: desc(deliveries.createdAt),
+    });
+    return rows.map(toDeliveryRecord);
+  }
+
+  /** Fila do entregador (opcionalmente por status), mais antigas primeiro. */
+  async listForCourier(courierId: Id, statuses?: DeliveryStatus[]): Promise<DeliveryRecord[]> {
+    const rows = await this.tx.query.deliveries.findMany({
+      where: and(
+        eq(deliveries.courierId, courierId),
+        statuses?.length ? inArray(deliveries.status, statuses) : undefined,
+      ),
+      orderBy: asc(deliveries.createdAt),
+    });
+    return rows.map(toDeliveryRecord);
+  }
+
+  /** Falha da entrega: status + motivo no mesmo UPDATE. */
+  async fail(id: Id, reason: string): Promise<DeliveryRecord> {
+    const [row] = await this.tx
+      .update(deliveries)
+      .set({ status: "failed", notes: reason })
+      .where(eq(deliveries.id, id))
+      .returning();
+    if (!row) throw Errors.notFound("Entrega");
+    return toDeliveryRecord(row);
+  }
+
+  /** Edição de status do gerente: preserva `dispatchedAt` (não passa por `transition`). */
+  async setStatus(
+    id: Id,
+    patch: { status: DeliveryStatus; deliveredAt: string | null; notes: string | null },
+  ): Promise<DeliveryRecord> {
+    const [row] = await this.tx
+      .update(deliveries)
+      .set({ status: patch.status, deliveredAt: patch.deliveredAt, notes: patch.notes })
+      .where(eq(deliveries.id, id))
+      .returning();
+    if (!row) throw Errors.notFound("Entrega");
+    return toDeliveryRecord(row);
+  }
+
+  /** Entrega em rota AGORA do entregador (guard do POST /courier/location). */
+  async findActiveForCourier(courierId: Id): Promise<DeliveryRecord | null> {
+    const row = await this.tx.query.deliveries.findFirst({
+      where: and(eq(deliveries.courierId, courierId), eq(deliveries.status, "out_for_delivery")),
+    });
+    return row ? toDeliveryRecord(row) : null;
+  }
+}
+
+// =====================================================================
+// Localização do entregador — ADIÇÃO (Onda 3 — self-service)
+// =====================================================================
+
+function toCourierLocationRecord(r: typeof courierLocations.$inferSelect): CourierLocationRecord {
+  return {
+    courierId: r.courierId,
+    latitude: r.latitude,
+    longitude: r.longitude,
+    accuracy: r.accuracy,
+    updatedAt: r.updatedAt,
+  };
+}
+
+export class PostgresCourierLocationRepository implements CourierLocationRepository {
+  constructor(private readonly tx: Tx) {}
+
+  /** Upsert por courier — a última posição é a única que interessa (SEM histórico). */
+  async upsert(input: {
+    courierId: Id;
+    latitude: number;
+    longitude: number;
+    accuracy: number | null;
+    updatedAt: string;
+  }): Promise<CourierLocationRecord> {
+    const [row] = await this.tx
+      .insert(courierLocations)
+      .values({
+        courierId: input.courierId,
+        latitude: input.latitude,
+        longitude: input.longitude,
+        accuracy: input.accuracy,
+        updatedAt: input.updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: courierLocations.courierId,
+        set: {
+          latitude: input.latitude,
+          longitude: input.longitude,
+          accuracy: input.accuracy,
+          updatedAt: input.updatedAt,
+        },
+      })
+      .returning();
+    if (!row) throw Errors.validationFailed({ field: "courierId" });
+    return toCourierLocationRecord(row);
+  }
+
+  /**
+   * Join a partir da `delivery` em rota (fonte da verdade do "em rota"), não
+   * da `courier_location`: um entregador que terminou a rota mantém a linha,
+   * mas não deve aparecer no mapa. `photoPath` sai CRU (a URL é do use case).
+   */
+  async listOnRoute(): Promise<
+    Array<{
+      courierId: Id;
+      courierName: string | null;
+      photoPath: string | null;
+      latitude: number;
+      longitude: number;
+      updatedAt: string;
+    }>
+  > {
+    const rows = await this.tx
+      .select({
+        courierId: courierLocations.courierId,
+        courierName: users.name,
+        photoPath: users.photoPath,
+        latitude: courierLocations.latitude,
+        longitude: courierLocations.longitude,
+        updatedAt: courierLocations.updatedAt,
+      })
+      .from(deliveries)
+      .innerJoin(courierLocations, eq(courierLocations.courierId, deliveries.courierId))
+      .innerJoin(users, eq(users.id, deliveries.courierId))
+      .where(eq(deliveries.status, "out_for_delivery"));
+    return rows;
+  }
 }
 
 // =====================================================================
@@ -2013,6 +2225,8 @@ function toCustomerAddressRecord(a: typeof customerAddresses.$inferSelect): Cust
     city: a.city,
     state: a.state,
     reference: a.reference,
+    latitude: a.latitude,
+    longitude: a.longitude,
     isDefault: a.isDefault,
     createdAt: a.createdAt,
   };
@@ -2034,6 +2248,15 @@ export class PostgresCustomerAddressRepository implements CustomerAddressReposit
   async listByCustomer(customerId: Id): Promise<CustomerAddressRecord[]> {
     const rows = await this.tx.query.customerAddresses.findMany({
       where: eq(customerAddresses.customerId, customerId),
+    });
+    return rows.map(toCustomerAddressRecord);
+  }
+
+  /** ADIÇÃO (Onda 3 — entrega): endereços de vários clientes em uma query (marker de destino). */
+  async listByCustomers(customerIds: Id[]): Promise<CustomerAddressRecord[]> {
+    if (customerIds.length === 0) return [];
+    const rows = await this.tx.query.customerAddresses.findMany({
+      where: inArray(customerAddresses.customerId, customerIds),
     });
     return rows.map(toCustomerAddressRecord);
   }

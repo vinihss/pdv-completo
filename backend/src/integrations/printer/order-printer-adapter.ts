@@ -9,10 +9,14 @@
  */
 import type { Id } from "../../application/ports/repositories.js";
 import type { OrderPrinter } from "../../application/ports/effects.js";
-import { printKitchenOrder } from "./printer.usecases.js";
+import { printCourierOrder, printKitchenOrder } from "./printer.usecases.js";
 
 export class OrderPrinterAdapter implements OrderPrinter {
   async printKitchenOrder(orderId: Id): Promise<void> {
     await printKitchenOrder(orderId);
+  }
+
+  async printCourierOrder(orderId: Id): Promise<void> {
+    await printCourierOrder(orderId);
   }
 }

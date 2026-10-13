@@ -163,6 +163,12 @@ export interface Printer {
  */
 export interface OrderPrinter {
   printKitchenOrder(orderId: Id): Promise<void>;
+  /**
+   * ADIÇÃO (Onda 3 — self-service): cupom do entregador (`printCourierOrder`).
+   * Mesma semântica fire-and-forget do cupom da cozinha, só muda o
+   * `destination` resolvido no adapter.
+   */
+  printCourierOrder(orderId: Id): Promise<void>;
 }
 
 // ---------- e-mail (espelha `infra/mail` → MailerTransport.send) ----------

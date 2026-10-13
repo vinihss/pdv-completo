@@ -31,6 +31,12 @@ import { createMenuUsecases } from "../../application/self-service/menu.usecases
 import { createCartUsecases } from "../../application/self-service/cart.usecases.js";
 import { createCustomerAddressUsecases } from "../../application/self-service/customer-address.usecases.js";
 import { createSelfServiceCancelUsecases } from "../../application/self-service/cancel-order.usecase.js";
+import {
+  createCloseOrderAfterDelivery,
+  createManagerDeliveryStatusUsecases,
+} from "../../application/self-service/manager-delivery-status.usecase.js";
+import { createSelfServiceDeliveryUsecases } from "../../application/self-service/delivery.usecases.js";
+import { createOrderIntakeUsecases } from "../../application/self-service/order-intake.usecase.js";
 import { createAuditLogUsecases } from "../../application/audit-log.usecases.js";
 import { createDeliveryUsecases } from "../../application/delivery/calcular-entrega.usecase.js";
 import type { TenantContext } from "../../application/ports/tenant-context.js";
@@ -125,6 +131,41 @@ const selfServiceCancelInstances = createSelfServiceCancelUsecases({
   uow,
   tenant,
   cancelOrder: orderInstances.cancelOrderUsecase,
+});
+
+// Self-service: entrega (courier + manager) e checkout/status do cliente. O
+// fechamento da comanda pós-entrega é composto UMA vez e injetado nos dois use
+// cases que concluem entrega (entregador e gerente), evitando duas cópias
+// divergindo.
+const closeOrderAfterDelivery = createCloseOrderAfterDelivery({
+  uow,
+  tenant,
+  registerPayment: orderInstances.registerPaymentUsecase,
+  closeOrder: orderInstances.closeOrderUsecase,
+});
+const selfServiceDeliveryInstances = createSelfServiceDeliveryUsecases({
+  uow,
+  tenant,
+  settings: new PostgresStoreSettingsReader(),
+  printer: new OrderPrinterAdapter(),
+  closeOrderAfterDelivery,
+});
+const managerDeliveryStatusInstances = createManagerDeliveryStatusUsecases({
+  uow,
+  tenant,
+  settings: new PostgresStoreSettingsReader(),
+  printer: new OrderPrinterAdapter(),
+  closeOrderAfterDelivery,
+});
+const orderIntakeInstances = createOrderIntakeUsecases({
+  uow,
+  tenant,
+  settings: new PostgresStoreSettingsReader(),
+  addCustomerAddress: customerAddressInstances.addCustomerAddressUsecase,
+  openOrder: orderInstances.openOrderUsecase,
+  addItems: orderInstances.addItemsUsecase,
+  registerPayment: orderInstances.registerPaymentUsecase,
+  getOrder: orderInstances.getOrderUsecase,
 });
 
 const auditLogInstances = createAuditLogUsecases({ uow, tenant });
@@ -227,6 +268,23 @@ export const deleteCustomerAddressUsecase = customerAddressInstances.deleteCusto
 
 // self-service — cancelamento pelo cliente
 export const cancelSelfServiceOrderUsecase = selfServiceCancelInstances.cancelSelfServiceOrderUsecase;
+
+// self-service — entrega (courier + manager)
+export const listCourierDeliveriesUsecase = selfServiceDeliveryInstances.listCourierDeliveriesUsecase;
+export const dispatchDeliveryUsecase = selfServiceDeliveryInstances.dispatchDeliveryUsecase;
+export const deliverDeliveryUsecase = selfServiceDeliveryInstances.deliverDeliveryUsecase;
+export const failDeliveryUsecase = selfServiceDeliveryInstances.failDeliveryUsecase;
+export const listManagerDeliveriesUsecase = selfServiceDeliveryInstances.listManagerDeliveriesUsecase;
+export const assignCourierUsecase = selfServiceDeliveryInstances.assignCourierUsecase;
+export const reportCourierLocationUsecase = selfServiceDeliveryInstances.reportCourierLocationUsecase;
+export const listCourierLocationsUsecase = selfServiceDeliveryInstances.listCourierLocationsUsecase;
+export const listCouriersUsecase = selfServiceDeliveryInstances.listCouriersUsecase;
+export const setDeliveryStatusUsecase = managerDeliveryStatusInstances.setDeliveryStatusUsecase;
+
+// self-service — checkout/status do cliente
+export const createSelfServiceOrderUsecase = orderIntakeInstances.createSelfServiceOrderUsecase;
+export const getSelfServiceOrderStatusUsecase = orderIntakeInstances.getSelfServiceOrderStatusUsecase;
+export const getActiveSelfServiceOrderByPhoneUsecase = orderIntakeInstances.getActiveSelfServiceOrderByPhoneUsecase;
 
 // audit-log
 export const listAuditLogUsecase = auditLogInstances.listAuditLogUsecase;

@@ -180,7 +180,9 @@ export interface OrderRecord {
 // `whatsapp` seguia no enum do banco só por compatibilidade: o canal deixou
 // de existir no código, mas pedidos antigos de delivery feitos por ele
 // continuam válidos como histórico (relatórios, reimpressão, retomada).
-export type OrderChannel = "balcao" | "web" | "ifood";
+// Entra no union porque a retomada do self-service (`getActiveSelfServiceOrder
+// ByPhone`) lê `channel IN ('whatsapp', 'web')` para não esconder pedido antigo.
+export type OrderChannel = "balcao" | "web" | "ifood" | "whatsapp";
 export type OrderItemStatus = "ordered" | "ready" | "delivered" | "cancelled";
 
 /** Linha completa de `order` (todas as colunas), fiel ao schema. */
@@ -428,6 +430,14 @@ export interface CatalogRepository {
   listActiveProducts(): Promise<ProductRecord[]>;
   /** Categorias ativas (menu público) — ordem de exibição. */
   listActiveCategories(): Promise<Array<{ id: Id; name: string }>>;
+
+  // ---------- ADIÇÕES (Onda 3 — self-service) ----------
+  /**
+   * Lote de produtos por ids (validação de variações do checkout): o
+   * `checkout` confere cada linha contra `variations`/`name` do produto —
+   * inexistente fica de fora e `addItems` responde 404 depois.
+   */
+  findProductsByIds(ids: Id[]): Promise<ProductRecord[]>;
 }
 
 export interface CustomerRepository {
@@ -449,6 +459,10 @@ export interface UserRepository {
   listActive(): Promise<Array<Pick<UserRecord, "id" | "name" | "role">>>;
   /** `input.id` presente = update; ausente = create (exige `pinHash` já argon2-hasheado pelo use case). */
   save(input: Partial<UserRecord> & Pick<UserRecord, "name" | "role">): Promise<UserRecord>;
+  /** ADIÇÃO (Onda 3 — self-service): lote por ids (entregadores da listagem de entregas, sem N+1). */
+  findByIds(ids: Id[]): Promise<UserRecord[]>;
+  /** ADIÇÃO (Onda 3 — self-service): usuários de um papel (`GET /manager/couriers` — inclui inativos). */
+  listByRole(role: UserRole): Promise<UserRecord[]>;
 }
 
 export interface OrderRepository {
@@ -485,6 +499,22 @@ export interface OrderRepository {
   markCancelled(id: Id, reason: string): Promise<OrderRow>;
   /** Status das comandas em lote (alertas mostram "encerrada" sem N+1). */
   listStatuses(ids: Id[]): Promise<Array<{ id: Id; status: string }>>;
+
+  // ---------- ADIÇÕES (Onda 3 — self-service) ----------
+  /** Comandas em lote por ids (hidratação das listagens de entrega, uma query só). */
+  listRowsByIds(ids: Id[]): Promise<OrderRow[]>;
+  /**
+   * Comanda em aberto mais recente de um cliente num conjunto de canais —
+   * retomada do self-service (`getActiveSelfServiceOrderByPhone`). `channels`
+   * inclui o legado `whatsapp` para não esconder pedido antigo.
+   */
+  findLatestOpenByCustomer(customerId: Id, channels: OrderChannel[]): Promise<OrderRow | null>;
+  /**
+   * Marca como `delivered` todos os itens pendentes (não `delivered`/`cancelled`)
+   * da comanda — efeito de `closeOrderAfterDelivery`. A comanda de entrega não
+   * tem garçom servindo mesa, então nenhum item chega a "delivered" sozinho.
+   */
+  markItemsDelivered(orderId: Id): Promise<void>;
 
   // -- itens --
   /** Itens da comanda (linhas cruas — sem join de produto). */
@@ -645,6 +675,79 @@ export interface DeliveryRepository {
   transition(id: Id, status: DeliveryStatus): Promise<DeliveryRecord>;
   /** ADIÇÃO (Onda 2): lote por comandas (hidratação da listagem de comandas — uma query só). */
   listByOrderIds(ids: Id[]): Promise<DeliveryRecord[]>;
+
+  // ---------- ADIÇÕES (Onda 3 — self-service) ----------
+  /** INSERT da entrega do checkout self-service (status inicial `awaiting_courier`). */
+  create(input: {
+    orderId: Id;
+    address: string;
+    status: DeliveryStatus;
+    distanceKm: number | null;
+    estimatedMinutes: number;
+  }): Promise<DeliveryRecord>;
+  /**
+   * Todas as entregas (sem paginação), opcionalmente filtradas por status,
+   * mais recentes primeiro — `GET /manager/deliveries`.
+   */
+  listAll(statuses?: DeliveryStatus[]): Promise<DeliveryRecord[]>;
+  /**
+   * Fila do entregador (opcionalmente filtrada por status), mais antigas
+   * primeiro — `GET /courier/deliveries`.
+   */
+  listForCourier(courierId: Id, statuses?: DeliveryStatus[]): Promise<DeliveryRecord[]>;
+  /** Falha da entrega (`status = failed` + `notes = reason`) — `PATCH .../fail`. */
+  fail(id: Id, reason: string): Promise<DeliveryRecord>;
+  /**
+   * Edição de status do gerente: grava `status` + `deliveredAt`/`notes` já
+   * resolvidos pelo use case, PRESERVANDO `dispatchedAt` (o gerente não
+   * carimba a saída; quem faz isso é o `dispatch` do entregador).
+   */
+  setStatus(
+    id: Id,
+    patch: { status: DeliveryStatus; deliveredAt: string | null; notes: string | null },
+  ): Promise<DeliveryRecord>;
+  /** Entrega em rota AGORA do entregador (guard do `POST /courier/location`). */
+  findActiveForCourier(courierId: Id): Promise<DeliveryRecord | null>;
+}
+
+/**
+ * ADIÇÃO (Onda 3 — self-service): última posição do entregador
+ * (`courier_location`, migration 0003). Uma linha por courier; `upsert` é
+ * last-write-wins e `listOnRoute` parte da `delivery` em rota (fonte da
+ * verdade do "em rota"), não da tabela de posições.
+ */
+export interface CourierLocationRecord {
+  courierId: Id;
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  updatedAt: string;
+}
+
+export interface CourierLocationRepository {
+  /** Upsert por courier (a última posição é a única que interessa) e devolve a linha gravada. */
+  upsert(input: {
+    courierId: Id;
+    latitude: number;
+    longitude: number;
+    accuracy: number | null;
+    updatedAt: string;
+  }): Promise<CourierLocationRecord>;
+  /**
+   * Última posição dos entregadores com entrega em rota agora, com
+   * nome/basename da foto resolvidos — `GET /manager/deliveries/locations`.
+   * `photoPath` sai CRU (basename); a URL pública é do use case.
+   */
+  listOnRoute(): Promise<
+    Array<{
+      courierId: Id;
+      courierName: string | null;
+      photoPath: string | null;
+      latitude: number;
+      longitude: number;
+      updatedAt: string;
+    }>
+  >;
 }
 
 // ---------- ADIÇÕES (Onda 3 — self-service: carrinho e endereços) ----------
@@ -683,6 +786,12 @@ export interface CustomerAddressRecord {
   city: string;
   state: string | null;
   reference: string | null;
+  /**
+   * ADIÇÃO (Onda 3 — entrega): georreferência usada só para o marker de
+   * destino no mapa do entregador/gerente. Não é serializada na API.
+   */
+  latitude: number | null;
+  longitude: number | null;
   isDefault: boolean;
   createdAt: string;
 }
@@ -691,6 +800,11 @@ export interface CustomerAddressRepository {
   findById(id: Id): Promise<CustomerAddressRecord | null>;
   /** Todos os endereços do cliente (mesma consulta sem ordenação do `findMany` original). */
   listByCustomer(customerId: Id): Promise<CustomerAddressRecord[]>;
+  /**
+   * ADIÇÃO (Onda 3 — entrega): endereços de vários clientes em uma query — o
+   * marker de destino do mapa resolve o endereço padrão por cliente (sem N+1).
+   */
+  listByCustomers(customerIds: Id[]): Promise<CustomerAddressRecord[]>;
   /** Mais antigo do cliente (`createdAt ASC`, LIMIT 1) — reassume o padrão na exclusão. */
   findOldestByCustomer(customerId: Id): Promise<CustomerAddressRecord | null>;
   create(input: {

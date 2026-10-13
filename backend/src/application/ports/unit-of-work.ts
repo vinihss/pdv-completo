@@ -13,6 +13,7 @@ import type {
   PurchaseRepository,
   PaymentRepository,
   DeliveryRepository,
+  CourierLocationRepository,
   StoreSettingsRepository,
   GeocodingCacheRepository,
   CustomerCartRepository,
@@ -29,6 +30,8 @@ export interface TenantSession {
   purchases: PurchaseRepository;
   payments: PaymentRepository;
   deliveries: DeliveryRepository;
+  /** ADIÇÃO (Onda 3 — self-service): última posição do entregador (`courier_location`). */
+  courierLocations: CourierLocationRepository;
   /** ADIÇÃO (Onda 3): escrita do singleton `store_settings` (geocode do restaurante). */
   storeSettings: StoreSettingsRepository;
   /** ADIÇÃO (Onda 3): cache persistente de reverse geocoding (cálculo de entrega). */

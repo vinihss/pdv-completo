@@ -12,14 +12,12 @@ import {
   getCustomerCartUsecase,
   saveCustomerCartUsecase,
   clearCustomerCartUsecase,
-} from "../../infra/composition/default-usecases.js";
-import { getStoreSettingsUsecase } from "../../application/store-settings.usecases.js";
-import { Errors } from "../../domain/errors.js";
-import {
   createSelfServiceOrderUsecase,
   getSelfServiceOrderStatusUsecase,
   getActiveSelfServiceOrderByPhoneUsecase,
-} from "../../application/self-service/order-intake.usecase.js";
+} from "../../infra/composition/default-usecases.js";
+import { getStoreSettingsUsecase } from "../../application/store-settings.usecases.js";
+import { Errors } from "../../domain/errors.js";
 
 const addressFields = {
   label: z.string().optional(),

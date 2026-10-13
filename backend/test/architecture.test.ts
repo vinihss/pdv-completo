@@ -49,15 +49,25 @@ const EXEMPT: Record<string, readonly string[]> = {
 const KNOWN_VIOLATIONS: readonly string[] = [
   // ------------------------------------------------------------------
   // application: use cases ainda acoplados a infra/integrations/config e
-  // ao Drizzle (39 entradas — 45 antes da Onda 3 do contexto self-service). Migram use case a use case; ao migrar um,
-  // apague as linhas dele — a lista só DIMINUI.
+  // ao Drizzle (35 entradas). Migram use case a use case; ao migrar um, apague
+  // as linhas dele — a lista só DIMINUI.
+  //
+  // Auditoria desta onda (delivery/manager-delivery-status/order-intake):
+  // restauradas 4 entradas que o commit da Onda 3A removeu por engano — login e
+  // payment (pkg:drizzle-orm) e cash-flow (dir:infra + pkg:drizzle-orm) seguem
+  // acoplados e eram "novas violações" desde então; e removida a entrada
+  // obsoleta de menu.usecases (já migrado, sem drizzle).
   // ------------------------------------------------------------------
   "src/application/auth/login.usecase.ts :: application :: dir:config",
   "src/application/auth/login.usecase.ts :: application :: dir:infra",
+  "src/application/auth/login.usecase.ts :: application :: pkg:drizzle-orm",
+  "src/application/cash-flow/cash-flow.usecases.ts :: application :: dir:infra",
+  "src/application/cash-flow/cash-flow.usecases.ts :: application :: pkg:drizzle-orm",
   "src/application/customer.usecases.ts :: application :: dir:infra",
   "src/application/customer.usecases.ts :: application :: pkg:drizzle-orm",
   "src/application/payment/payment.usecases.ts :: application :: dir:infra",
   "src/application/payment/payment.usecases.ts :: application :: dir:integrations",
+  "src/application/payment/payment.usecases.ts :: application :: pkg:drizzle-orm",
   "src/application/provisioning/device-state.ts :: application :: dir:infra",
   "src/application/provisioning/device-state.ts :: application :: pkg:drizzle-orm",
   "src/application/provisioning/provisioning-email.usecase.ts :: application :: dir:infra",
@@ -75,14 +85,6 @@ const KNOWN_VIOLATIONS: readonly string[] = [
   "src/application/report-overview.usecases.ts :: application :: pkg:drizzle-orm",
   "src/application/report.usecases.ts :: application :: dir:infra",
   "src/application/report.usecases.ts :: application :: pkg:drizzle-orm",
-  "src/application/self-service/delivery.usecases.ts :: application :: dir:infra",
-  "src/application/self-service/delivery.usecases.ts :: application :: dir:integrations",
-  "src/application/self-service/delivery.usecases.ts :: application :: pkg:drizzle-orm",
-  "src/application/self-service/manager-delivery-status.usecase.ts :: application :: dir:infra",
-  "src/application/self-service/manager-delivery-status.usecase.ts :: application :: dir:integrations",
-  "src/application/self-service/menu.usecases.ts :: application :: pkg:drizzle-orm",
-  "src/application/self-service/order-intake.usecase.ts :: application :: dir:infra",
-  "src/application/self-service/order-intake.usecase.ts :: application :: pkg:drizzle-orm",
   "src/application/settlement/settlement.usecases.ts :: application :: dir:infra",
   "src/application/settlement/settlement.usecases.ts :: application :: pkg:drizzle-orm",
   "src/application/store-settings.usecases.ts :: application :: dir:infra",
