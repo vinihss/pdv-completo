@@ -25,8 +25,8 @@ import { createOrderUsecases } from "../../application/order/order.usecases.js";
 import { createAlertUsecases } from "../../application/alert/alert.usecases.js";
 import { createStockUsecases } from "../../application/stock/stock.usecases.js";
 import { createProductUsecases } from "../../application/product/product.usecases.js";
-import { createCategoryUsecases } from "../../application/category.usecases.js";
-import { createKitchenGroupUsecases } from "../../application/kitchen-group.usecases.js";
+import { createCategoryUsecases } from "../../application/category/category.usecases.js";
+import { createKitchenGroupUsecases } from "../../application/kitchen-group/kitchen-group.usecases.js";
 import { createMenuUsecases } from "../../application/self-service/menu.usecases.js";
 import { createCartUsecases } from "../../application/self-service/cart.usecases.js";
 import { createCustomerAddressUsecases } from "../../application/self-service/customer-address.usecases.js";
@@ -37,20 +37,22 @@ import {
 } from "../../application/self-service/manager-delivery-status.usecase.js";
 import { createSelfServiceDeliveryUsecases } from "../../application/self-service/delivery.usecases.js";
 import { createOrderIntakeUsecases } from "../../application/self-service/order-intake.usecase.js";
-import { createAuditLogUsecases } from "../../application/audit-log.usecases.js";
+import { createAuditLogUsecases } from "../../application/audit-log/audit-log.usecases.js";
 import { createDeliveryUsecases } from "../../application/delivery/calcular-entrega.usecase.js";
-import { createStoreSettingsUsecases } from "../../application/store-settings.usecases.js";
-import { createCustomerUsecases } from "../../application/customer.usecases.js";
+import { createStoreSettingsUsecases } from "../../application/store-settings/store-settings.usecases.js";
+import { createCustomerUsecases } from "../../application/customer/customer.usecases.js";
 import { createCashFlowUsecases } from "../../application/cash-flow/cash-flow.usecases.js";
-import { createReportUsecases } from "../../application/report.usecases.js";
-import { createOverviewReportUsecases } from "../../application/report-overview.usecases.js";
-import { createDeliveriesReportUsecases } from "../../application/report-deliveries.usecases.js";
+import {
+  createReportUsecases,
+  createOverviewReportUsecases,
+  createDeliveriesReportUsecases,
+} from "../../application/report/report.usecases.js";
 import { createPurchaseUsecases } from "../../application/purchase/purchase.usecases.js";
 import { createRefundUsecases } from "../../application/refund/refund.usecases.js";
 import { createProvisioningUsecases } from "../../application/provisioning/provisioning.usecases.js";
 import { createProvisioningEmailUsecases } from "../../application/provisioning/provisioning-email.usecase.js";
 import { createTenantUsecases } from "../../application/tenant/resolve-tenant.usecase.js";
-import { createUserUsecases } from "../../application/user.usecases.js";
+import { createUserUsecases } from "../../application/user/user.usecases.js";
 import { createLoginUsecase } from "../../application/auth/login.usecase.js";
 import { TenantRegistryAdapter } from "../db/tenant-registry-adapter.js";
 import { PublicTenantBrandReaderAdapter } from "../db/public-tenant-brand-reader.js";
