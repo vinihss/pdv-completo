@@ -1439,7 +1439,7 @@ export interface OutboxWriter {
   }): Promise<void>;
 }
 
-// ---------- relatórios gerenciais — ADIÇÃO (Onda 3D) ----------
+// ---------- relatórios OutboxWritergerenciais — ADIÇÃO (Onda 3D) ----------
 
 /**
  * ADIÇÃO (Onda 3D — relatórios gerenciais): comanda fechada com mesa e cliente
