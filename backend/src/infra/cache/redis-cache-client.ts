@@ -11,9 +11,46 @@ let redisInstance: Redis.Redis | null = null
 export function getRedis(): Redis.Redis {
   if (!redisInstance) {
     const url = process.env.REDIS_URL || "redis://localhost:6379"
-    redisInstance = new Redis.Redis(url)
+    redisInstance = new Redis.Redis(url, {
+      // Só conecta no primeiro comando — importar o módulo não
+      // dispara conexão nenhuma (o boot decide via initCache()).
+      lazyConnect: true,
+      // Falha rápido quando o Redis está fora: operações pendentes
+      // rejeitam em ~1s em vez de ficarem na fila offline por
+      // dezenas de segundos (o initCache() precisa desse timeout
+      // para decidir o fallback para MemoryCache no boot).
+      maxRetriesPerRequest: 3,
+      retryStrategy(times: number) {
+        return Math.min(times * 200, 2000)
+      },
+    })
+    // Sem este listener, o ioredis imprime "[ioredis] Unhandled error
+    // event" a cada reconexão falha (ECONNREFUSED etc.). O erro é
+    // esperado quando o Redis está fora: o initCache() já faz fallback
+    // para MemoryCache, então só avisamos.
+    redisInstance.on("error", (err) => {
+      // AggregateError do node:net traz a causa real em
+      // .errors — .message sozinho vem vazio (ex.: ECONNREFUSED).
+      const cause = (err as AggregateError | undefined)?.errors?.[0] as
+        | Error
+        | undefined
+      console.warn("[redis] erro de conexão:", cause?.message ?? err.message)
+    })
   }
   return redisInstance
+}
+
+/**
+ * Fecha a conexão do singleton (sem reconectar) e o descarta.
+ * Usado quando o processo decide rodar com MemoryCache: sem isso
+ * o cliente fica reconectando em background para sempre. Uma
+ * próxima chamada a getRedis() cria uma instância nova sob demanda.
+ */
+export function closeRedis(): void {
+  if (redisInstance) {
+    redisInstance.disconnect()
+    redisInstance = null
+  }
 }
 
 /**

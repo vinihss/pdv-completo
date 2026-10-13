@@ -1,7 +1,7 @@
 import { MemoryCache } from "./memory-cache.js";
 import { ICacheClient, CacheEntry, CacheOptions, matchesPattern } from "./cache-client.js";
 import { resolveTenantSchemaInScope } from "../db/tenant-context.js";
-import { RedisCacheClient } from "./redis-cache-client.js";
+import { RedisCacheClient, closeRedis } from "./redis-cache-client.js";
 
 let instance: ICacheClient | null = null;
 let cacheInstance: ICacheClient = new MemoryCache();
@@ -17,6 +17,9 @@ export async function initCache(useRedis: boolean = true): Promise<ICacheClient>
   } catch (err) {
     if (useRedis) {
       console.warn("Redis unavailable, falling back to MemoryCache", err);
+      // O probe falhou: fechar o singleton para ele não ficar
+      // reconectando em background enquanto rodamos em memória.
+      closeRedis();
       cacheInstance = new MemoryCache();
       return cacheInstance;
     } else {
