@@ -1,9 +1,8 @@
+import type { FinanceRoutesDeps } from "../../composition/routes-deps.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
 import { withIdempotency } from "../middlewares/idempotency.middleware.js";
-import { refundOrderPaymentUsecase, listOrderRefundsUsecase } from "../../infra/composition/domains/finance.js";
-
 // ============================================================================
 // Rotas de estorno de pagamentos (Bloco 4 ROADMAP-CAIXA.md)
 // ============================================================================
@@ -25,7 +24,14 @@ const createRefundBody = z.object({
   notes: z.string().max(1000).optional(),
 });
 
-export async function refundRoutes(app: FastifyInstance) {
+export interface FinanceRouteOptions { deps: FinanceRoutesDeps }
+
+export async function refundRoutes(app: FastifyInstance, options: FinanceRouteOptions) {
+  const {
+    refundOrderPaymentUsecase,
+    listOrderRefundsUsecase,
+  } = options.deps;
+
   app.addHook("preHandler", authMiddleware);
 
   // POST /orders/:id/payments/:paymentId/refunds — criar estorno

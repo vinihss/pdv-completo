@@ -1,7 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { AppError } from "../../domain/errors.js";
 import { publicLookupRateLimit } from "../middlewares/rate-limit.middleware.js";
-import { getPublicTenantUsecase } from "../../infra/composition/domains/tenant.js";
+import type { TenantRoutesDeps } from "../../composition/routes-deps.js";
+
+export interface TenantRouteOptions {
+  deps: TenantRoutesDeps;
+}
 
 /**
  * `GET /public/tenants/resolve?host=<hostname>` — a vitrine de pedidos
@@ -31,7 +35,8 @@ import { getPublicTenantUsecase } from "../../infra/composition/domains/tenant.j
  * que sai de lá é o único que o resto do backend usa (e ele nunca volta na
  * resposta).
  */
-const tenantRoutes = async (app: FastifyInstance) => {
+const tenantRoutes = async (app: FastifyInstance, options: TenantRouteOptions) => {
+  const { getPublicTenantUsecase } = options.deps;
   app.get("/public/tenants/resolve", { preHandler: publicLookupRateLimit }, async (req, reply) => {
     const host = requestedHost(req);
 

@@ -11,13 +11,12 @@
  *
  * Use cases: `backend/src/application/` (store-settings, delivery/geocode-restaurant)
  */
+import type { StoreSettingsRoutesDeps } from "../../composition/routes-deps.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { Errors } from "../../domain/errors.js";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
 import { ensureTenantScope } from "../../infra/db/tenant-context.js";
-import { getStoreSettingsUsecase, updateStoreSettingsUsecase, saveStoreLogoUsecase, clearStoreLogoUsecase } from "../../infra/composition/domains/store-settings.js";
-import { geocodeRestaurantUsecase } from "../../infra/composition/domains/store-settings.js";
 import { imageExtByMime } from "./image-ext.js";
 
 const storeSettingsSchema = z.object({
@@ -48,7 +47,17 @@ const storeSettingsSchema = z.object({
   minutesPerKm: z.number().min(0).optional(),
 });
 
-export async function storeSettingsRoutes(app: FastifyInstance) {
+export interface StoreSettingsRouteOptions { deps: StoreSettingsRoutesDeps }
+
+export async function storeSettingsRoutes(app: FastifyInstance, options: StoreSettingsRouteOptions) {
+  const {
+    getStoreSettingsUsecase,
+    updateStoreSettingsUsecase,
+    saveStoreLogoUsecase,
+    clearStoreLogoUsecase,
+    geocodeRestaurantUsecase,
+  } = options.deps;
+
   app.addHook("preHandler", authMiddleware);
 
   // ---------- Store settings ----------

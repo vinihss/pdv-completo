@@ -95,8 +95,8 @@ export async function ensureTenantScope<T>(
     return fn();
   }
   // Importação dinâmica para evitar ciclo de dependência
-  const { resolveTenant } = await import("../composition/default-usecases.js");
-  const tenant = await resolveTenant(host);
+  const { buildContainer } = await import("../../composition/build-app.js");
+  const tenant = await buildContainer().tenant.resolveTenant(host);
   return store.run(
     { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault },
     fn

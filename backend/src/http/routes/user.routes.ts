@@ -12,18 +12,11 @@
  * Use cases: `backend/src/application/` (user)
  * Testes: `backend/test/` (team-customers, profiles)
  */
+import type { UserRoutesDeps } from "../../composition/routes-deps.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { Errors } from "../../domain/errors.js";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
-import {
-  listUsersUsecase,
-  createUserUsecase,
-  updateUserUsecase,
-  resetPinUsecase,
-  saveUserPhotoUsecase,
-  clearUserPhotoUsecase,
-} from "../../infra/composition/domains/user.js";
 import { imageExtByMime } from "./image-ext.js";
 
 const userRoleEnum = ["waiter", "kitchen", "manager", "courier", "cashier"] as const;
@@ -44,7 +37,18 @@ const userUpdateSchema = z.object({
   pin: z.string().min(4).max(6).optional(),
 });
 
-export async function userRoutes(app: FastifyInstance) {
+export interface UserRouteOptions { deps: UserRoutesDeps }
+
+export async function userRoutes(app: FastifyInstance, options: UserRouteOptions) {
+  const {
+    listUsersUsecase,
+    createUserUsecase,
+    updateUserUsecase,
+    resetPinUsecase,
+    saveUserPhotoUsecase,
+    clearUserPhotoUsecase,
+  } = options.deps;
+
   app.addHook("preHandler", authMiddleware);
 
   // ---------- Users ----------

@@ -12,15 +12,10 @@
  *            (`inventory/value` vem de `application/purchase/purchase.usecases.ts`)
  * Testes: `backend/test/` (stock)
  */
+import type { StockRoutesDeps } from "../../composition/routes-deps.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
-import {
-  listStockUsecase,
-  getStockMovementsUsecase,
-  registerStockMovementUsecase,
-  inventoryValuationUsecase,
-} from "../../infra/composition/domains/stock.js";
 import { withIdempotency } from "../middlewares/idempotency.middleware.js";
 
 // Movimento manual de estoque — manager. purchase: entrada (+qty);
@@ -32,7 +27,16 @@ const stockMovementCreateSchema = z.object({
   correlationId: z.string().min(1),
 });
 
-export async function stockRoutes(app: FastifyInstance) {
+export interface StockRouteOptions { deps: StockRoutesDeps }
+
+export async function stockRoutes(app: FastifyInstance, options: StockRouteOptions) {
+  const {
+    listStockUsecase,
+    getStockMovementsUsecase,
+    registerStockMovementUsecase,
+    inventoryValuationUsecase,
+  } = options.deps;
+
   app.addHook("preHandler", authMiddleware);
 
   // ---------- Stock (inventário) ----------

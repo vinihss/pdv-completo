@@ -9,11 +9,10 @@
  *
  * Use cases: `backend/src/application/self-service/customer-address.usecases.ts`
  */
+import type { CustomerRoutesDeps } from "../../composition/routes-deps.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
-import { addCustomerAddressUsecase, setDefaultCustomerAddressUsecase, deleteCustomerAddressUsecase } from "../../infra/composition/domains/customer.js";
-
 const addressCreateSchema = z.object({
   label: z.string().optional().nullable(),
   cep: z.string().optional().nullable(),
@@ -30,7 +29,15 @@ const addressCreateSchema = z.object({
   isDefault: z.boolean().optional(),
 });
 
-export async function customerAdminRoutes(app: FastifyInstance) {
+export interface CustomerRouteOptions { deps: CustomerRoutesDeps }
+
+export async function customerAdminRoutes(app: FastifyInstance, options: CustomerRouteOptions) {
+  const {
+    addCustomerAddressUsecase,
+    setDefaultCustomerAddressUsecase,
+    deleteCustomerAddressUsecase,
+  } = options.deps;
+
   app.addHook("preHandler", authMiddleware);
 
   // ---------- Customers — endereços (manutenção) ----------

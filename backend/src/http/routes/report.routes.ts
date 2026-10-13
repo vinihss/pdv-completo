@@ -8,13 +8,18 @@
  *
  * Use cases: `backend/src/application/` (report, report-overview, report-deliveries)
  */
+import type { ReportsRoutesDeps } from "../../composition/routes-deps.js";
 import type { FastifyInstance } from "fastify";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
-import { salesReportUsecase } from "../../infra/composition/domains/reports.js";
-import { overviewReportUsecase } from "../../infra/composition/domains/reports.js";
-import { deliveriesReportUsecase } from "../../infra/composition/domains/reports.js";
+export interface ReportsRouteOptions { deps: ReportsRoutesDeps }
 
-export async function reportRoutes(app: FastifyInstance) {
+export async function reportRoutes(app: FastifyInstance, options: ReportsRouteOptions) {
+  const {
+    salesReportUsecase,
+    overviewReportUsecase,
+    deliveriesReportUsecase,
+  } = options.deps;
+
   app.addHook("preHandler", authMiddleware);
 
   // ---------- Reports ----------
