@@ -16,21 +16,11 @@
  * Use cases: `backend/src/application/` (customer)
  * Testes: `backend/test/` (team-customers, profiles)
  */
+import type { CustomerRoutesDeps } from "../../composition/routes-deps.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { Errors } from "../../domain/errors.js";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
-import {
-  listCustomersUsecase,
-  getCustomerDetailUsecase,
-  createCustomerUsecase,
-  updateCustomerUsecase,
-  searchCustomersUsecase,
-  saveCustomerPhotoUsecase,
-  clearCustomerPhotoUsecase,
-  listCustomerOrdersUsecase,
-  customerSummaryUsecase,
-} from "../../infra/composition/domains/customer.js";
 import { imageExtByMime } from "./image-ext.js";
 
 const customerSchema = z.object({
@@ -45,7 +35,21 @@ const customerSchema = z.object({
 });
 const customerUpdateSchema = customerSchema.partial().extend({ active: z.boolean().optional() });
 
-export async function customerRoutes(app: FastifyInstance) {
+export interface CustomerRouteOptions { deps: CustomerRoutesDeps }
+
+export async function customerRoutes(app: FastifyInstance, options: CustomerRouteOptions) {
+  const {
+    listCustomersUsecase,
+    getCustomerDetailUsecase,
+    createCustomerUsecase,
+    updateCustomerUsecase,
+    searchCustomersUsecase,
+    saveCustomerPhotoUsecase,
+    clearCustomerPhotoUsecase,
+    listCustomerOrdersUsecase,
+    customerSummaryUsecase,
+  } = options.deps;
+
   app.addHook("preHandler", authMiddleware);
 
   // ---------- Customers ----------

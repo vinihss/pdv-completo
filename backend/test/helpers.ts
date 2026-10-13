@@ -8,7 +8,7 @@ import { config } from "../src/config/env.js";
 import { resetCache } from "../src/infra/cache/index.js";
 import { clearActiveUserCache } from "../src/infra/auth/active-user-check.js";
 import { runInTenantScope } from "../src/infra/db/tenant-context.js";
-import { resolveTenant } from "../src/infra/composition/default-usecases.js";
+import { resolveTenant } from "../src/application/tenant/resolve-tenant.usecase.js";
 import {
   categories,
   kitchenGroups,

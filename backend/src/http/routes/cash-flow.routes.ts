@@ -14,21 +14,12 @@
  * Use cases: `backend/src/application/cash-flow/cash-flow.usecases.ts`
  * Testes: `backend/test/cash-flow.test.ts`
  */
+import type { CashFlowRoutesDeps } from "../../composition/routes-deps.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
 import { withIdempotency } from "../middlewares/idempotency.middleware.js";
 import { dayStart, dayEnd, isValidTz } from "../../application/cash-flow/day-bounds.js";
-import {
-  getCurrentDrawerUsecase,
-  listCashDrawersUsecase,
-  getCashDrawerDetailUsecase,
-  sumCashDrawersSummaryUsecase,
-  openCashDrawerUsecase,
-  registerCashMovementUsecase,
-  closeCashDrawerUsecase,
-} from "../../infra/composition/domains/cash-flow.js";
-
 const noteSchema = z.string().max(200).optional();
 
 // Offset opcional de fuso para interpretar datas "YYYY-MM-DD" como um dia
@@ -86,7 +77,19 @@ const closeSchema = z.object({
 // Caixa e gerente operam o fluxo de caixa.
 const CASH_ROLES = ["cashier", "manager"] as const;
 
-export async function cashFlowRoutes(app: FastifyInstance) {
+export interface CashFlowRouteOptions { deps: CashFlowRoutesDeps }
+
+export async function cashFlowRoutes(app: FastifyInstance, options: CashFlowRouteOptions) {
+  const {
+    getCurrentDrawerUsecase,
+    listCashDrawersUsecase,
+    getCashDrawerDetailUsecase,
+    sumCashDrawersSummaryUsecase,
+    openCashDrawerUsecase,
+    registerCashMovementUsecase,
+    closeCashDrawerUsecase,
+  } = options.deps;
+
   app.addHook("preHandler", authMiddleware);
 
   app.get("/cash-drawer/current", { preHandler: requireRole(...CASH_ROLES) }, async () => getCurrentDrawerUsecase());

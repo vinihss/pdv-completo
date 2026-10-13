@@ -1,3 +1,4 @@
+import type { AuthRoutesDeps } from "../../composition/routes-deps.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { Errors } from "../../domain/errors.js";
@@ -6,15 +7,6 @@ import { loginRateLimit } from "../middlewares/rate-limit.middleware.js";
 import { imageExtByMime } from "./image-ext.js";
 // Acesso a dados via composition root (a rota não toca em Drizzle/schema/client):
 // `login`, a seleção pública de usuários e o self-service de perfil/foto.
-import {
-  loginUsecase,
-  listActiveUsersUsecase,
-  getOwnProfileUsecase,
-  updateOwnProfileUsecase,
-  saveUserPhotoUsecase,
-  clearUserPhotoUsecase,
-} from "../../infra/composition/domains/auth.js";
-
 const loginSchema = z.object({
   userId: z.string(),
   pin: z.string().min(4).max(6),
@@ -35,7 +27,18 @@ const meUpdateSchema = z.strictObject({
   email: z.string().optional().nullable(),
 });
 
-export async function authRoutes(app: FastifyInstance) {
+export interface AuthRouteOptions { deps: AuthRoutesDeps }
+
+export async function authRoutes(app: FastifyInstance, options: AuthRouteOptions) {
+  const {
+    loginUsecase,
+    listActiveUsersUsecase,
+    getOwnProfileUsecase,
+    updateOwnProfileUsecase,
+    saveUserPhotoUsecase,
+    clearUserPhotoUsecase,
+  } = options.deps;
+
   // Rota pública mínima pra alimentar a tela de seleção de usuário do login
   // (login-prototype.jsx / 02-frontend-spec.md). Não estava na lista de
   // endpoints originais da spec — GET /users é manager-only, mas a tela de

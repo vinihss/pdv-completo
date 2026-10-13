@@ -1,8 +1,7 @@
+import type { AlertRoutesDeps } from "../../composition/routes-deps.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authMiddleware } from "../middlewares/auth.middleware.js";
-import { listAlertsUsecase, markAlertsReadUsecase } from "../../infra/composition/domains/alert.js";
-
 // Central de alertas (migration 0004). Sem `requireRole`: os 5 perfis têm o sino
 // no header, e quem não pode ver um alerta não o recebe — o recorte é por
 // `audience_roles` dentro do usecase, não por papel na rota. Um
@@ -15,7 +14,14 @@ const MAX_LIMIT = 50;
 
 const markReadSchema = z.object({ orderId: z.string().min(1).optional() });
 
-export async function alertRoutes(app: FastifyInstance) {
+export interface AlertRouteOptions { deps: AlertRoutesDeps }
+
+export async function alertRoutes(app: FastifyInstance, options: AlertRouteOptions) {
+  const {
+    listAlertsUsecase,
+    markAlertsReadUsecase,
+  } = options.deps;
+
   app.addHook("preHandler", authMiddleware);
 
   // `unread_only` é para o futuro "mostrar só o que falta"; o sino pede a

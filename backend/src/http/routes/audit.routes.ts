@@ -6,11 +6,16 @@
  *
  * Use cases: `backend/src/application/audit-log/` (módulo `AuditLogModule`)
  */
+import type { AuditLogRoutesDeps } from "../../composition/routes-deps.js";
 import type { FastifyInstance } from "fastify";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
-import { listAuditLogUsecase } from "../../infra/composition/domains/audit-log.js";
+export interface AuditLogRouteOptions { deps: AuditLogRoutesDeps }
 
-export async function auditRoutes(app: FastifyInstance) {
+export async function auditRoutes(app: FastifyInstance, options: AuditLogRouteOptions) {
+  const {
+    listAuditLogUsecase,
+  } = options.deps;
+
   app.addHook("preHandler", authMiddleware);
 
   // ---------- Audit log ----------

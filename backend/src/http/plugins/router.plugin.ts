@@ -24,31 +24,40 @@ import { alertRoutes } from "../routes/alert.routes.js";
 import { provisioningRoutes } from "../routes/provisioning.routes.js";
 import { uploadsRoutes } from "../routes/uploads.routes.js";
 import { refundRoutes } from "../routes/refund.routes.js";
+import type { RoutesDeps } from "../../composition/routes-deps.js";
 
-async function routerPlugin(app: FastifyInstance) {
-    await app.register(authRoutes);
-    await app.register(orderRoutes);
-    await app.register(cashFlowRoutes);
-    await app.register(catalogRoutes);
-    await app.register(storeSettingsRoutes);
-    await app.register(userRoutes);
-    await app.register(customerRoutes);
-    await app.register(customerAdminRoutes);
-    await app.register(reportRoutes);
-    await app.register(stockRoutes);
-    await app.register(purchaseRoutes);
-    await app.register(auditRoutes);
-    await app.register(realtimeRoutes);
-    await app.register(publicRoutes);
-    await app.register(tenantRoutes);
-    await app.register(courierRoutes);
-    await app.register(deliveryManagerRoutes);
-    await app.register(printRoutes);
-    await app.register(alertRoutes);
-    await app.register(provisioningRoutes);
-    await app.register(uploadsRoutes);
-    await app.register(refundRoutes);
+interface RouterOptions {
+  container: RoutesDeps;
 }
 
-// O uso do fastify-plugin evita que o Fastify crie um novo escopo isolado de contexto
+async function routerPlugin(app: FastifyInstance, options: RouterOptions) {
+  const deps = options.container;
+
+  await app.register(authRoutes, { deps: deps.auth });
+  await app.register(orderRoutes, { deps: deps.order });
+  await app.register(cashFlowRoutes, { deps: deps.cashFlow });
+  await app.register(catalogRoutes, { deps: deps.catalog });
+  await app.register(storeSettingsRoutes, { deps: deps.storeSettings });
+  await app.register(userRoutes, { deps: deps.user });
+  await app.register(customerRoutes, { deps: deps.customer });
+  await app.register(customerAdminRoutes, { deps: deps.customer });
+  await app.register(reportRoutes, { deps: deps.reports });
+  await app.register(stockRoutes, { deps: deps.stock });
+  await app.register(purchaseRoutes, { deps: deps.finance });
+  await app.register(auditRoutes, { deps: deps.auditLog });
+  await app.register(realtimeRoutes);
+  await app.register(publicRoutes, { deps: { selfService: deps.selfService, storeSettings: deps.storeSettings } });
+  await app.register(tenantRoutes, { deps: deps.tenant });
+  await app.register(courierRoutes, { deps: deps.selfService });
+  await app.register(deliveryManagerRoutes, { deps: deps.selfService });
+  await app.register(printRoutes);
+  await app.register(alertRoutes, { deps: deps.alert });
+  await app.register(provisioningRoutes, { deps: deps.provisioning });
+  await app.register(uploadsRoutes);
+  await app.register(refundRoutes, { deps: deps.finance });
+}
+
+// O uso do fastify-plugin evita que o Fastify crie um novo escopo isolado de
+// contexto. As dependências chegam pelas `opts` (o `container` montado pela
+// composition root em `composition/build-app.ts`).
 export const appRouter = fp(routerPlugin);

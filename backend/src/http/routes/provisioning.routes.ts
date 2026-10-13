@@ -19,20 +19,11 @@
  * vazaria para os endpoints públicos), as rotas de gerente listam
  * `[authMiddleware, requireRole("manager")]` no próprio preHandler, na ordem.
  */
+import type { ProvisioningRoutesDeps } from "../../composition/routes-deps.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
 import { provisioningRateLimit } from "../middlewares/rate-limit.middleware.js";
-import {
-  generateProvisioningKeyUsecase,
-  exchangeProvisioningCodeUsecase,
-  refreshDeviceSessionUsecase,
-  revokeDeviceUsecase,
-  listUserDevicesUsecase,
-  sendProvisioningEmailUsecase,
-  resendProvisioningEmailUsecase,
-} from "../../infra/composition/domains/provisioning.js";
-
 const keyGenSchema = z.object({
   expiresAt: z.string().optional().nullable(),
 });
@@ -59,7 +50,19 @@ const emailSchema = z.object({
     .optional(),
 });
 
-export async function provisioningRoutes(app: FastifyInstance) {
+export interface ProvisioningRouteOptions { deps: ProvisioningRoutesDeps }
+
+export async function provisioningRoutes(app: FastifyInstance, options: ProvisioningRouteOptions) {
+  const {
+    generateProvisioningKeyUsecase,
+    exchangeProvisioningCodeUsecase,
+    refreshDeviceSessionUsecase,
+    revokeDeviceUsecase,
+    listUserDevicesUsecase,
+    sendProvisioningEmailUsecase,
+    resendProvisioningEmailUsecase,
+  } = options.deps;
+
   const managerOnly: any[] = [authMiddleware, requireRole("manager")];
 
   app.post("/users/:id/provisioning-key", { preHandler: managerOnly }, async (req, reply) => {

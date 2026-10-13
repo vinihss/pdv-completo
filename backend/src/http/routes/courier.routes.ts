@@ -1,14 +1,7 @@
+import type { SelfServiceRoutesDeps } from "../../composition/routes-deps.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
-import {
-  listCourierDeliveriesUsecase,
-  dispatchDeliveryUsecase,
-  deliverDeliveryUsecase,
-  failDeliveryUsecase,
-  reportCourierLocationUsecase,
-} from "../../infra/composition/domains/self-service.js";
-
 // "cancelled" (baseline 0001) entra no filtro: o entregador precisa conseguir listar
 // o histórico do que foi cancelado no meio da rota.
 const statusEnum = z.enum(["awaiting_courier", "out_for_delivery", "delivered", "failed", "cancelled"]);
@@ -37,7 +30,17 @@ const failSchema = z.object({ reason: z.string().min(1) });
  */
 const COURIER_DEFAULT_STATUSES = ["awaiting_courier", "out_for_delivery", "failed"] as const;
 
-export async function courierRoutes(app: FastifyInstance) {
+export interface SelfServiceRouteOptions { deps: SelfServiceRoutesDeps }
+
+export async function courierRoutes(app: FastifyInstance, options: SelfServiceRouteOptions) {
+  const {
+    listCourierDeliveriesUsecase,
+    dispatchDeliveryUsecase,
+    deliverDeliveryUsecase,
+    failDeliveryUsecase,
+    reportCourierLocationUsecase,
+  } = options.deps;
+
   app.addHook("preHandler", authMiddleware);
   app.addHook("preHandler", requireRole("courier"));
 

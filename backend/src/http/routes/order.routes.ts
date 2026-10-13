@@ -25,21 +25,11 @@ import crypto from "node:crypto";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
 import { withIdempotency } from "../middlewares/idempotency.middleware.js";
 import { ensureTenantScope } from "../../infra/db/tenant-context.js";
-import {
-  openOrderUsecase,
-  addItemsUsecase,
-  updateItemStatusUsecase,
-  deleteItemUsecase,
-  registerPaymentUsecase,
-  setOrderPaymentsUsecase,
-  confirmOrderPaymentUsecase,
-  deleteOrderPaymentUsecase,
-  closeOrderUsecase,
-  cancelOrderUsecase,
-  getOrderUsecase,
-  listOrdersUsecase,
-  listTablesUsecase,
-} from "../../infra/composition/domains/order.js";
+import type { OrderRoutesDeps } from "../../composition/routes-deps.js";
+
+export interface OrderRouteOptions {
+  deps: OrderRoutesDeps;
+}
 
 const openOrderSchema = z.object({
   correlationId: z.string(),
@@ -99,7 +89,22 @@ const deletePaymentSchema = z.object({
 const closeSchema = z.object({ correlationId: z.string() });
 const cancelSchema = z.object({ correlationId: z.string(), reason: z.string().min(1) });
 
-export async function orderRoutes(app: FastifyInstance) {
+export async function orderRoutes(app: FastifyInstance, options: OrderRouteOptions) {
+  const {
+    openOrderUsecase,
+    addItemsUsecase,
+    updateItemStatusUsecase,
+    deleteItemUsecase,
+    registerPaymentUsecase,
+    setOrderPaymentsUsecase,
+    confirmOrderPaymentUsecase,
+    deleteOrderPaymentUsecase,
+    closeOrderUsecase,
+    cancelOrderUsecase,
+    getOrderUsecase,
+    listOrdersUsecase,
+    listTablesUsecase,
+  } = options.deps;
   app.addHook("preHandler", authMiddleware);
 
   app.post("/orders", { preHandler: requireRole("waiter", "manager") }, async (req, reply) => {

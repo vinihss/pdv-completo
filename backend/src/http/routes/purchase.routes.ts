@@ -12,17 +12,10 @@
  * Use cases: `backend/src/application/purchase/purchase.usecases.ts`
  * Testes: `backend/test/` (purchase)
  */
+import type { FinanceRoutesDeps } from "../../composition/routes-deps.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
-import {
-  listSuppliersUsecase,
-  createSupplierUsecase,
-  updateSupplierUsecase,
-  createPurchaseUsecase,
-  listPurchasesUsecase,
-  getPurchaseUsecase,
-} from "../../infra/composition/domains/finance.js";
 import { withIdempotency } from "../middlewares/idempotency.middleware.js";
 
 // Compras (baseline 0001) — documento multi-item.
@@ -49,7 +42,18 @@ const purchaseCreateSchema = z.object({
   correlationId: z.string().min(1),
 });
 
-export async function purchaseRoutes(app: FastifyInstance) {
+export interface FinanceRouteOptions { deps: FinanceRoutesDeps }
+
+export async function purchaseRoutes(app: FastifyInstance, options: FinanceRouteOptions) {
+  const {
+    listSuppliersUsecase,
+    createSupplierUsecase,
+    updateSupplierUsecase,
+    createPurchaseUsecase,
+    listPurchasesUsecase,
+    getPurchaseUsecase,
+  } = options.deps;
+
   app.addHook("preHandler", authMiddleware);
 
   // ---------- Fornecedores (baseline 0001) ----------

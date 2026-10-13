@@ -1,14 +1,7 @@
+import type { SelfServiceRoutesDeps } from "../../composition/routes-deps.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
-import {
-  listManagerDeliveriesUsecase,
-  assignCourierUsecase,
-  listCouriersUsecase,
-  listCourierLocationsUsecase,
-  setDeliveryStatusUsecase,
-} from "../../infra/composition/domains/self-service.js";
-
 // Os 5 valores de `DeliveryStatus` (domain/customer-order-state.ts). Este enum
 // estava com 4 — sem `cancelled`, que a máquina de estados e o filtro do
 // entregador já usavam: quem pedisse ?status=cancelled no histórico do gerente
@@ -21,7 +14,17 @@ const setStatusSchema = z.object({
   reason: z.string().max(300).optional(),
 });
 
-export async function deliveryManagerRoutes(app: FastifyInstance) {
+export interface SelfServiceRouteOptions { deps: SelfServiceRoutesDeps }
+
+export async function deliveryManagerRoutes(app: FastifyInstance, options: SelfServiceRouteOptions) {
+  const {
+    listManagerDeliveriesUsecase,
+    assignCourierUsecase,
+    listCouriersUsecase,
+    listCourierLocationsUsecase,
+    setDeliveryStatusUsecase,
+  } = options.deps;
+
   app.addHook("preHandler", authMiddleware);
   app.addHook("preHandler", requireRole("manager"));
 

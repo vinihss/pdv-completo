@@ -2,22 +2,15 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { withIdempotency } from "../middlewares/idempotency.middleware.js";
 import { publicLookupRateLimit, publicWriteRateLimit, publicOrderRateLimit, publicCartRateLimit } from "../middlewares/rate-limit.middleware.js";
-import {
-  getPublicMenuUsecase,
-  calcularEntregaUsecase,
-  lookupCustomerByPhoneUsecase,
-  createSelfServiceCustomerUsecase,
-  addCustomerAddressUsecase,
-  cancelSelfServiceOrderUsecase,
-  getCustomerCartUsecase,
-  saveCustomerCartUsecase,
-  clearCustomerCartUsecase,
-  createSelfServiceOrderUsecase,
-  getSelfServiceOrderStatusUsecase,
-  getActiveSelfServiceOrderByPhoneUsecase,
-} from "../../infra/composition/domains/self-service.js";
-import { getStoreSettingsUsecase } from "../../infra/composition/domains/store-settings.js";
 import { Errors } from "../../domain/errors.js";
+import type {
+  SelfServiceRoutesDeps,
+  StoreSettingsRoutesDeps,
+} from "../../composition/routes-deps.js";
+
+export interface PublicRouteOptions {
+  deps: { selfService: SelfServiceRoutesDeps; storeSettings: StoreSettingsRoutesDeps };
+}
 
 const addressFields = {
   label: z.string().optional(),
@@ -98,7 +91,23 @@ const cartQuerySchema = z.object({ phone: z.string().min(1) });
 // Sem authMiddleware — endpoints de cliente final, consumidos pela página
 // externa (como chamada de função,
 // não HTTP — ver 05-delivery-api-contracts.md).
-export async function publicRoutes(app: FastifyInstance) {
+export async function publicRoutes(app: FastifyInstance, options: PublicRouteOptions) {
+  const { selfService, storeSettings } = options.deps;
+  const {
+    getPublicMenuUsecase,
+    calcularEntregaUsecase,
+    lookupCustomerByPhoneUsecase,
+    createSelfServiceCustomerUsecase,
+    addCustomerAddressUsecase,
+    cancelSelfServiceOrderUsecase,
+    getCustomerCartUsecase,
+    saveCustomerCartUsecase,
+    clearCustomerCartUsecase,
+    createSelfServiceOrderUsecase,
+    getSelfServiceOrderStatusUsecase,
+    getActiveSelfServiceOrderByPhoneUsecase,
+  } = selfService;
+  const { getStoreSettingsUsecase } = storeSettings;
   async function assertDeliveryEnabled(req: any) {
     const s = await getStoreSettingsUsecase();
     if (!s.usesDelivery) throw Errors.deliveryDisabled();

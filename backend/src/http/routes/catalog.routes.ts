@@ -22,27 +22,12 @@
  * Use cases: `backend/src/application/` (product, category, kitchen-group)
  * Testes: `backend/test/` (catalog)
  */
+import type { CatalogRoutesDeps } from "../../composition/routes-deps.js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { Errors } from "../../domain/errors.js";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
 import { ensureTenantScope } from "../../infra/db/tenant-context.js";
-import {
-  listProductsUsecase,
-  createProductUsecase,
-  updateProductUsecase,
-  setProductActiveUsecase,
-  saveProductImageUsecase,
-  clearProductImageUsecase,
-  listCategoriesUsecase,
-  createCategoryUsecase,
-  updateCategoryUsecase,
-  deleteCategoryUsecase,
-  listKitchenGroupsUsecase,
-  createKitchenGroupUsecase,
-  updateKitchenGroupUsecase,
-  deleteKitchenGroupUsecase,
-} from "../../infra/composition/domains/catalog.js";
 import { imageExtByMime } from "./image-ext.js";
 
 const variationGroupSchema = z.object({
@@ -90,7 +75,26 @@ const categoryUpdateSchema = categoryCreateSchema.partial().extend({ active: z.b
 const kitchenGroupCreateSchema = z.object({ name: z.string().min(1), displayOrder: z.number().int().optional() });
 const kitchenGroupUpdateSchema = kitchenGroupCreateSchema.partial().extend({ active: z.boolean().optional() });
 
-export async function catalogRoutes(app: FastifyInstance) {
+export interface CatalogRouteOptions { deps: CatalogRoutesDeps }
+
+export async function catalogRoutes(app: FastifyInstance, options: CatalogRouteOptions) {
+  const {
+    listProductsUsecase,
+    createProductUsecase,
+    updateProductUsecase,
+    setProductActiveUsecase,
+    saveProductImageUsecase,
+    clearProductImageUsecase,
+    listCategoriesUsecase,
+    createCategoryUsecase,
+    updateCategoryUsecase,
+    deleteCategoryUsecase,
+    listKitchenGroupsUsecase,
+    createKitchenGroupUsecase,
+    updateKitchenGroupUsecase,
+    deleteKitchenGroupUsecase,
+  } = options.deps;
+
   app.addHook("preHandler", authMiddleware);
 
   // ---------- Products ----------
