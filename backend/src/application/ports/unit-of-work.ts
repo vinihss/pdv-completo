@@ -13,6 +13,8 @@ import type {
   PurchaseRepository,
   PaymentRepository,
   DeliveryRepository,
+  StoreSettingsRepository,
+  GeocodingCacheRepository,
 } from "./repositories.js";
 
 export interface TenantSession {
@@ -25,6 +27,10 @@ export interface TenantSession {
   purchases: PurchaseRepository;
   payments: PaymentRepository;
   deliveries: DeliveryRepository;
+  /** ADIÇÃO (Onda 3): escrita do singleton `store_settings` (geocode do restaurante). */
+  storeSettings: StoreSettingsRepository;
+  /** ADIÇÃO (Onda 3): cache persistente de reverse geocoding (cálculo de entrega). */
+  geocodingCache: GeocodingCacheRepository;
   /** ADIÇÃO (Onda 2): central de alertas (sino) — hub de pedidos. */
   alerts: AlertRepository;
   /** ADIÇÃO (Onda 3B): leitura da trilha de auditoria (`GET /audit-log`). */

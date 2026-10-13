@@ -17,7 +17,7 @@ import { Errors } from "../../domain/errors.js";
 import { authMiddleware, requireRole } from "../middlewares/auth.middleware.js";
 import { ensureTenantScope } from "../../infra/db/tenant-context.js";
 import { getStoreSettingsUsecase, updateStoreSettingsUsecase, saveStoreLogoUsecase, clearStoreLogoUsecase } from "../../application/store-settings.usecases.js";
-import { geocodeRestaurantUsecase } from "../../application/delivery/geocode-restaurant.usecase.js";
+import { geocodeRestaurantUsecase } from "../../infra/composition/default-usecases.js";
 import { imageExtByMime } from "./image-ext.js";
 
 const storeSettingsSchema = z.object({

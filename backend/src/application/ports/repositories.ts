@@ -647,6 +647,33 @@ export interface DeliveryRepository {
   listByOrderIds(ids: Id[]): Promise<DeliveryRecord[]>;
 }
 
+// ---------- ADIÇÕES (Onda 3 — contexto delivery) ----------
+
+/**
+ * ADIÇÃO (Onda 3): escrita de `store_settings` dentro do use case. A LEITURA
+ * continua no effect port `StoreSettingsReader` (mesmo caminho já adotado por
+ * `order.usecases` e self-service); aqui entra só o que nasce na janela
+ * transacional — a geocodificação do endereço do restaurante.
+ */
+export interface StoreSettingsRepository {
+  /** Grava as coordenadas do estabelecimento (singleton). */
+  updateRestaurantCoordinates(input: { latitude: number; longitude: number }): Promise<void>;
+}
+
+/**
+ * ADIÇÃO (Onda 3): cache PERSISTENTE de reverse geocoding (`geocoding_cache`).
+ *
+ * Distinto do `TenantCache` (effects): aquele é cache de processo por schema e
+ * guarda derivados; este é a tabela `geocoding_cache`, que o cálculo público de
+ * entrega lê/grava para não bater no Nominatim a cada request. A checagem de
+ * expiração (`expires_at`) fica no use case — o adapter devolve a linha crua.
+ */
+export interface GeocodingCacheRepository {
+  find(cacheKey: string): Promise<{ response: string; expiresAt: string } | null>;
+  /** Upsert por `cache_key` (mesma chave já normalizada pelo use case). */
+  upsert(input: { cacheKey: string; response: string; expiresAt: string }): Promise<void>;
+}
+
 // ---------- repositório de alertas (sino) — ADIÇÃO (Onda 2) ----------
 
 /**

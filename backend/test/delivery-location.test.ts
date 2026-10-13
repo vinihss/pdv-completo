@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
 import { api, seedFixture, resetState, closeTestApp, FIXTURE, manager, raw } from "./helpers.js";
 import { createSelfServiceOrderUsecase } from "../src/application/self-service/order-intake.usecase.js";
-import { setMapServices } from "../src/application/delivery/calcular-entrega.usecase.js";
+import { setMapServices } from "../src/infra/composition/default-usecases.js";
 
 setMapServices(
   {

@@ -8,11 +8,13 @@ import {
   PostgresCashFlowRepository,
   PostgresCustomerRepository,
   PostgresDeliveryRepository,
+  PostgresGeocodingCacheRepository,
   PostgresOrderRepository,
   PostgresOutboxWriter,
   PostgresPaymentRepository,
   PostgresPurchaseRepository,
   PostgresStockRepository,
+  PostgresStoreSettingsRepository,
   PostgresUserRepository,
 } from "./postgres-repositories.js";
 
@@ -38,6 +40,8 @@ export function createPostgresTenantSession(tx: Tx): TenantSession {
     purchases: new PostgresPurchaseRepository(tx),
     payments: new PostgresPaymentRepository(tx),
     deliveries: new PostgresDeliveryRepository(tx),
+    storeSettings: new PostgresStoreSettingsRepository(tx),
+    geocodingCache: new PostgresGeocodingCacheRepository(tx),
     alerts: new PostgresAlertRepository(tx),
     auditLog: new PostgresAuditRepository(tx),
     audit: new PostgresAuditWriter(tx),

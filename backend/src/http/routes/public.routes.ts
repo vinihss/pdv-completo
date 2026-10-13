@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { withIdempotency } from "../middlewares/idempotency.middleware.js";
 import { publicLookupRateLimit, publicWriteRateLimit, publicOrderRateLimit, publicCartRateLimit } from "../middlewares/rate-limit.middleware.js";
-import { getPublicMenuUsecase } from "../../infra/composition/default-usecases.js";
+import { getPublicMenuUsecase, calcularEntregaUsecase } from "../../infra/composition/default-usecases.js";
 import { getStoreSettingsUsecase } from "../../application/store-settings.usecases.js";
 import { Errors } from "../../domain/errors.js";
 import {
@@ -21,7 +21,6 @@ import {
   saveCustomerCartUsecase,
   clearCustomerCartUsecase,
 } from "../../application/self-service/cart.usecases.js";
-import { calcularEntregaUsecase } from "../../application/delivery/calcular-entrega.usecase.js";
 
 const addressFields = {
   label: z.string().optional(),

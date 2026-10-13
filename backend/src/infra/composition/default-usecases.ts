@@ -19,6 +19,8 @@ import { StoragePortAdapter } from "../storage/storage-port-adapter.js";
 import { createOrderNotifier } from "../realtime/outbox-order-notifier.js";
 import { PostgresStoreSettingsReader } from "../db/store-settings-reader.js";
 import { OrderPrinterAdapter } from "../../integrations/printer/order-printer-adapter.js";
+import { GeocodingPortAdapter } from "../../integrations/maps/geocoding-port-adapter.js";
+import { RoutingPortAdapter } from "../../integrations/maps/routing-port-adapter.js";
 import { createOrderUsecases } from "../../application/order/order.usecases.js";
 import { createAlertUsecases } from "../../application/alert/alert.usecases.js";
 import { createStockUsecases } from "../../application/stock/stock.usecases.js";
@@ -27,7 +29,9 @@ import { createCategoryUsecases } from "../../application/category.usecases.js";
 import { createKitchenGroupUsecases } from "../../application/kitchen-group.usecases.js";
 import { createMenuUsecases } from "../../application/self-service/menu.usecases.js";
 import { createAuditLogUsecases } from "../../application/audit-log.usecases.js";
+import { createDeliveryUsecases } from "../../application/delivery/calcular-entrega.usecase.js";
 import type { TenantContext } from "../../application/ports/tenant-context.js";
+import type { GeocodingService, RoutingService } from "../../application/ports/effects.js";
 
 // ---------------------------------------------------------------------------
 // Tenant resolver: lê o ALS (contexto do request/worker corrente) e monta o
@@ -112,6 +116,35 @@ const menuInstances = createMenuUsecases({
 const auditLogInstances = createAuditLogUsecases({ uow, tenant });
 
 // ---------------------------------------------------------------------------
+// Contexto delivery — geocoding/roteamento como SEAM de teste
+// ---------------------------------------------------------------------------
+// `setMapServices` preserva a semântica do antigo (módulo `calcular-entrega`):
+// troca as implementações usadas pelo contexto delivery. Aqui a troca é feita
+// nas referências que os adapters-delegate capturam no wiring abaixo — as
+// chamadas seguintes enxergam a nova implementação.
+let geocodingService: GeocodingService = new GeocodingPortAdapter();
+let routingService: RoutingService = new RoutingPortAdapter();
+
+export function setMapServices(geocoding: GeocodingService, routing: RoutingService): void {
+  geocodingService = geocoding;
+  routingService = routing;
+}
+
+const deliveryInstances = createDeliveryUsecases({
+  uow,
+  tenant,
+  settings: new PostgresStoreSettingsReader(),
+  cache,
+  geocoding: {
+    reverseGeocode: (coords) => geocodingService.reverseGeocode(coords),
+    forwardGeocode: (address) => geocodingService.forwardGeocode(address),
+  },
+  routing: {
+    calculateRoute: (origin, destination) => routingService.calculateRoute(origin, destination),
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Exports legados — mesma assinatura de antes da migração (o `deps` some)
 // ---------------------------------------------------------------------------
 
@@ -167,6 +200,11 @@ export const getPublicMenuUsecase = menuInstances.getPublicMenuUsecase;
 
 // audit-log
 export const listAuditLogUsecase = auditLogInstances.listAuditLogUsecase;
+
+// delivery (calcular-entrega / delivery-pricing / geocode-restaurant)
+export const calcularEntregaUsecase = deliveryInstances.calcularEntregaUsecase;
+export const getDeliveryPricingUsecase = deliveryInstances.getDeliveryPricingUsecase;
+export const geocodeRestaurantUsecase = deliveryInstances.geocodeRestaurantUsecase;
 
 // getSettings — legado (o port StoreSettingsReader é o caminho novo)
 export const getSettings = () => new PostgresStoreSettingsReader().get();

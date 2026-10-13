@@ -34,9 +34,9 @@ export interface TenantCache {
  * ADIÇÃO (Onda 2): leitura do singleton `store_settings`.
  *
  * `store_settings` tem 40+ colunas; este record traz EXATAMENTE os campos que
- * os consumidores de `getSettings()` usam hoje (hub de pedidos + self-service).
- * Ajustar aqui é explícito — mudar o settings passa a ser diff visível, e não
- * uma leitura esquecida num use case distante.
+ * os consumidores de `getSettings()` usam hoje (hub de pedidos + self-service
+ * + contexto delivery). Ajustar aqui é explícito — mudar o settings passa a
+ * ser diff visível, e não uma leitura esquecida num use case distante.
  */
 export interface StoreSettingsRecord {
   kitchenEnabled: boolean;
@@ -51,6 +51,14 @@ export interface StoreSettingsRecord {
   deliveryFeeTiers: string;
   deliveryPrepMinutes: number;
   minutesPerKm: number;
+  /** ADIÇÃO (Onda 3 — delivery): endereço do estabelecimento (geocode-restaurant monta `${merchantName}, ${merchantCity}`). */
+  merchantName: string;
+  merchantCity: string;
+  /** ADIÇÃO (Onda 3 — delivery): coordenadas do restaurante (origem da rota). NULL = não configurado. */
+  restaurantLat: number | null;
+  restaurantLong: number | null;
+  /** ADIÇÃO (Onda 3 — delivery): total de itens a partir do qual o frete é grátis (0 = desligado). */
+  freeDeliveryMin: number;
 }
 
 export interface StoreSettingsReader {

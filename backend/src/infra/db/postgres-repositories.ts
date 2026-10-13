@@ -26,6 +26,7 @@ import {
   categories,
   customers,
   deliveries,
+  geocodingCache,
   kitchenGroups,
   orderItems,
   orderPayments,
@@ -36,6 +37,7 @@ import {
   purchases,
   restaurantTables,
   stockMovements,
+  storeSettings,
   users,
 } from "./schema.js";
 import { isUniqueViolationOn } from "./errors.js";
@@ -53,6 +55,7 @@ import type {
   DeliveryRecord,
   DeliveryRepository,
   DeliveryStatus,
+  GeocodingCacheRepository,
   Id,
   KitchenGroupRecord,
   MovingAverageRecord,
@@ -73,6 +76,7 @@ import type {
   PurchaseRepository,
   StockMovementViewRecord,
   StockRepository,
+  StoreSettingsRepository,
   TableRecord,
   TrackedStockProductRecord,
   UserRecord,
@@ -1901,5 +1905,54 @@ export class PostgresOutboxWriter implements OutboxWriter {
       eventType: input.type,
       payload: input.payload === undefined ? JSON.stringify({ aggregateId: input.aggregateId }) : toJsonText(input.payload, "{}"),
     });
+  }
+}
+
+// =====================================================================
+// Delivery — store_settings (escrita) e cache de geocoding (Onda 3)
+// =====================================================================
+
+export class PostgresStoreSettingsRepository implements StoreSettingsRepository {
+  constructor(private readonly tx: Tx) {}
+
+  /**
+   * `UPDATE store_settings SET restaurant_lat, restaurant_long WHERE id =
+   * 'singleton'` — mesma escrita que `geocodeRestaurantUsecase` fazia dentro do
+   * `db.transaction`. Nada além das duas coordenadas: o restante da linha é
+   * território do `store-settings.usecases` (PUT /store-settings).
+   */
+  async updateRestaurantCoordinates(input: { latitude: number; longitude: number }): Promise<void> {
+    await this.tx
+      .update(storeSettings)
+      .set({ restaurantLat: input.latitude, restaurantLong: input.longitude })
+      .where(eq(storeSettings.id, "singleton"));
+  }
+}
+
+export class PostgresGeocodingCacheRepository implements GeocodingCacheRepository {
+  constructor(private readonly tx: Tx) {}
+
+  /** Linha crua por `cache_key` — a decisão de expiração é do use case. */
+  async find(cacheKey: string): Promise<{ response: string; expiresAt: string } | null> {
+    const row = await this.tx.query.geocodingCache.findFirst({
+      where: eq(geocodingCache.cacheKey, cacheKey),
+    });
+    if (!row) return null;
+    return { response: row.response, expiresAt: row.expiresAt };
+  }
+
+  /** Upsert por `cache_key` (mesmo `onConflictDoUpdate` da versão legada). */
+  async upsert(input: { cacheKey: string; response: string; expiresAt: string }): Promise<void> {
+    await this.tx
+      .insert(geocodingCache)
+      .values({
+        cacheKey: input.cacheKey,
+        response: input.response,
+        expiresAt: input.expiresAt,
+      })
+      .onConflictDoUpdate({
+        target: geocodingCache.cacheKey,
+        set: { response: input.response, expiresAt: input.expiresAt },
+      });
   }
 }
