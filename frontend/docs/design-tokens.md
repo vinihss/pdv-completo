@@ -109,3 +109,13 @@ pasta `frontend/`:
 A visão geral dos princípios e cores está em
 `src/shared/components/DesignSystem.mdx`; o README do frontend documenta o
 fluxo de contribuição.
+
+## Tema claro e escuro
+
+O app oferece os esquemas `light` (padrão) e `dark` por meio do controle
+`ThemeToggle`, visível no cabeçalho do app e na tela de login. A escolha fica
+salva no `localStorage` (`pdv:color-scheme`) neste dispositivo e é aplicada no
+elemento raiz (`data-theme`) antes do primeiro paint. O modo escuro redefine os
+tokens semânticos em `src/index.css`; a cor de marca escolhida pela loja é
+mantida nos dois modos. O Storybook oferece a mesma alternância na toolbar do
+canvas.

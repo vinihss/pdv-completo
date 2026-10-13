@@ -13,7 +13,7 @@ describe("componentes visuais compartilhados", () => {
     render(<Button variant="danger" onClick={onClick}>Excluir</Button>);
     const button = screen.getByRole("button", { name: "Excluir" });
     expect(button.getAttribute("type")).toBe("button");
-    expect(button.className).toContain("bg-destructive");
+    expect(button.className).toContain("bg-danger-fill");
     fireEvent.click(button);
     expect(onClick).toHaveBeenCalledTimes(1);
   });

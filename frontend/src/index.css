@@ -21,7 +21,13 @@
   --color-destructive: var(--status-danger);
   --color-destructive-foreground: var(--text-primary);
   --color-success: var(--status-success);
+  --color-success-fill: var(--status-success-fill);
+  --color-success-fill-strong: var(--status-success-fill-strong);
+  --color-success-foreground: var(--status-success-foreground);
   --color-warning: var(--status-warning);
+  --color-danger-fill: var(--status-danger-fill);
+  --color-danger-fill-strong: var(--status-danger-fill-strong);
+  --color-danger-foreground: var(--status-danger-foreground);
   --color-attention: oklch(0.55 0.2 275); /* roxo de atenção para destaques */
   --color-overlay: oklch(0.1 0.01 0); /* overlay escuro proposital (modais, drawers) */
   --color-ring: var(--brand-accent);
@@ -54,6 +60,12 @@
   --status-success: oklch(0.42 0.12 145);     /* verde sucesso (tema claro) */
   --status-warning: oklch(0.65 0.15 80);      /* amarelo aviso */
   --status-danger: oklch(0.50 0.20 27);       /* vermelho erro */
+  --status-success-fill: var(--status-success);
+  --status-success-fill-strong: var(--status-success);
+  --status-success-foreground: var(--text-primary);
+  --status-danger-fill: var(--status-danger);
+  --status-danger-fill-strong: var(--status-danger);
+  --status-danger-foreground: var(--text-primary);
   --brand-accent: oklch(0.86 0.17 92);        /* dourado primário */
   --brand-accent-strong: oklch(0.78 0.16 85); /* dourado hover */
   --brand-accent-foreground: oklch(0.18 0.01 50);
@@ -68,6 +80,34 @@
   --sidebar-accent-fg: oklch(0.98 0.01 90);
   --sidebar-border: oklch(0.36 0.04 48);
   --radius: 0.625rem;
+}
+
+/* Tema escuro: os componentes continuam consumindo os mesmos tokens semânticos.
+   A cor de marca é herdada do tema global e pode continuar sendo personalizada
+   pela loja por `applyBrandPrimary`, sem fixar uma segunda paleta de marca. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --app-bg: oklch(0.17 0.012 50);
+  --surface-raised: oklch(0.22 0.014 50);
+  --surface-overlay: oklch(0.28 0.016 50);
+  --border-subtle: oklch(0.36 0.018 50);
+  --text-primary: oklch(0.94 0.008 85);
+  --text-secondary: oklch(0.82 0.014 75);
+  --text-muted: oklch(0.77 0.016 70);
+  --status-success: oklch(0.80 0.14 145);
+  --status-warning: oklch(0.86 0.14 82);
+  --status-danger: oklch(0.80 0.12 28);
+  --status-success-fill: oklch(0.48 0.13 145);
+  --status-success-fill-strong: oklch(0.53 0.14 145);
+  --status-success-foreground: oklch(0.98 0.005 85);
+  --status-danger-fill: oklch(0.48 0.15 28);
+  --status-danger-fill-strong: oklch(0.53 0.16 28);
+  --status-danger-foreground: oklch(0.98 0.005 85);
+  --sidebar-bg: oklch(0.13 0.018 50);
+  --sidebar-fg: oklch(0.94 0.008 85);
+  --sidebar-accent: oklch(0.23 0.022 50);
+  --sidebar-accent-fg: oklch(0.98 0.004 85);
+  --sidebar-border: oklch(0.29 0.018 50);
 }
 
 html, body, #root {

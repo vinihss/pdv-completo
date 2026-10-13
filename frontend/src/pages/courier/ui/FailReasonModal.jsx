@@ -36,7 +36,7 @@ export default function FailReasonModal({ delivery, reason, onChange, onClose, o
             type="button"
             onClick={onConfirm}
             disabled={!canConfirm}
-            className="h-12 flex-1 rounded-xl bg-destructive text-white text-sm font-bold disabled:opacity-40 active:scale-[0.99]"
+            className="h-12 flex-1 rounded-xl bg-danger-fill text-danger-foreground text-sm font-bold disabled:opacity-40 active:scale-[0.99]"
           >
             Confirmar falha
           </button>

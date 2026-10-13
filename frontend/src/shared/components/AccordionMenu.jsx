@@ -2,7 +2,7 @@ import React from "react";
 
 function Badge({ value }) {
   return (
-    <span className="ml-auto bg-destructive text-destructive-foreground rounded-full min-w-[1.1rem] h-[1.1rem] px-1 flex items-center justify-center text-[10px] font-bold">
+    <span className="ml-auto bg-danger-fill text-danger-foreground rounded-full min-w-[1.1rem] h-[1.1rem] px-1 flex items-center justify-center text-[10px] font-bold">
       {value}
     </span>
   );

@@ -1462,7 +1462,7 @@ function ConfirmationScreen({ order, status, phone, onCancel, onReset, submittin
               <button
                 onClick={() => onCancel(digitsOnly(cancelPhone))}
                 disabled={submitting || !digitsOnly(cancelPhone)}
-                className="flex-1 h-11 rounded-xl bg-destructive/90 text-destructive-foreground font-semibold text-[14px] disabled:opacity-40"
+                className="flex-1 h-11 rounded-xl bg-danger-fill/90 text-danger-foreground font-semibold text-[14px] disabled:opacity-40"
               >
                 {submitting ? "Cancelando…" : "Confirmar cancelamento"}
               </button>

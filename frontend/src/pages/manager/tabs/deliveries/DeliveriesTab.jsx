@@ -449,7 +449,7 @@ export default function DeliveriesTab({ showToast }) {
                       // motivo já digitado, era um clique de distância do erro.
                       onClick={() => setConfirmCancelFor(d)}
                       disabled={!cancelReason.trim() || submitting}
-                      className="bg-destructive text-destructive-foreground px-3 rounded-lg text-xs font-semibold disabled:opacity-40"
+                      className="bg-danger-fill text-danger-foreground px-3 rounded-lg text-xs font-semibold disabled:opacity-40"
                     >
                       Revisar cancelamento
                     </button>

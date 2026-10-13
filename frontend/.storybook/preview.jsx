@@ -1,6 +1,22 @@
 import "../src/index.css";
+import ThemeCanvas from "./ThemeCanvas.jsx";
 
 const preview = {
+  globalTypes: {
+    colorScheme: {
+      name: "Tema",
+      description: "Alterna entre o tema claro e o escuro",
+      defaultValue: "light",
+      toolbar: {
+        icon: "circlehollow",
+        items: [
+          { value: "light", icon: "sun", title: "Claro" },
+          { value: "dark", icon: "moon", title: "Escuro" },
+        ],
+        dynamicTitle: true,
+      },
+    },
+  },
   parameters: {
     layout: "centered",
     controls: {
@@ -21,11 +37,7 @@ const preview = {
     },
   },
   decorators: [
-    (Story) => (
-      <div className="min-h-24 min-w-64 bg-background p-6 text-foreground">
-        <Story />
-      </div>
-    ),
+    (Story, context) => <ThemeCanvas Story={Story} colorScheme={context.globals.colorScheme ?? "light"} />,
   ],
 };
 

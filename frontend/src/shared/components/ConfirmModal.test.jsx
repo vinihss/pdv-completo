@@ -54,6 +54,6 @@ describe("ConfirmModal", () => {
   it("destructive pinta a confirmação de vermelho", () => {
     setup({ destructive: true });
     const confirmButton = screen.getByRole("button", { name: "Remover" });
-    expect(confirmButton.className).toContain("bg-destructive");
+    expect(confirmButton.className).toContain("bg-danger-fill");
   });
 });

@@ -1,9 +1,8 @@
 import React from "react";
-import { Trash2 } from "lucide-react";
 import { useAuth } from "@/app/providers/auth";
 import { useNavigate } from "react-router-dom";
 import { getMe, uploadUserMePhoto, removeUserMePhoto } from "@/entities/session";
-import { Field, inputClass, ScreenHeader, UserAvatar, PhotoUpload } from "@/shared/components";
+import { Field, inputClass, ScreenHeader, PhotoUpload, ThemeToggle } from "@/shared/components";
 
 /**
  * Perfil do usuário logado (menu do header → Perfil).
@@ -126,7 +125,7 @@ export default function ProfilePage() {
 
   return (
     <div className="bg-background min-h-screen">
-      <ScreenHeader title="Meu perfil" subtitle="Nome, telefone e e-mail" onBack={() => navigate(-1)} />
+      <ScreenHeader title="Meu perfil" subtitle="Nome, telefone e e-mail" onBack={() => navigate(-1)} right={<ThemeToggle />} />
       <div className="p-6 max-w-md mx-auto">
         <div className="text-center mb-6">
           <PhotoUpload
@@ -192,7 +191,7 @@ export default function ProfilePage() {
           type="submit"
           form="profile-form"
           disabled={loading || saving}
-          className="w-full bg-success hover:bg-success disabled:opacity-60 text-primary-foreground font-semibold py-3.5 rounded-xl transition-colors mt-2"
+          className="w-full bg-success-fill hover:bg-success-fill-strong disabled:opacity-60 text-success-foreground font-semibold py-3.5 rounded-xl transition-colors mt-2"
         >
           {saving ? "Salvando…" : "Salvar alterações"}
         </button>

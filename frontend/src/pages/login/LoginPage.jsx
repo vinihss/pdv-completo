@@ -3,7 +3,7 @@ import { Delete, ChefHat, UtensilsCrossed, ClipboardList, Lock, Loader2, Wallet,
 import { listLoginUsers } from "@/entities/session";
 import { getStoreInfo } from "@/entities/store";
 import { useAuth } from "@/app/providers/auth";
-import { Modal, UserAvatar } from "@/shared/components";
+import { Modal, UserAvatar, ThemeToggle } from "@/shared/components";
 import { applyBrandPrimary } from "@/shared/lib";
 import { assetUrl, currentServerLabel, fetchTag, setServerBase, getServerBase, serverDefault } from "@/shared/lib/server";
 import { Spinner } from "@/shared/components";
@@ -167,7 +167,8 @@ export default function Login() {
   useEffect(() => () => clearTimeout(errorTimer.current), []);
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center p-6">
+    <div className="relative min-h-screen bg-background text-foreground flex flex-col items-center justify-center p-6">
+      <ThemeToggle className="absolute right-4 top-4" />
       {screen === "select" && (
         <div className="w-full max-w-md fade-up">
           <div className="text-center mb-10">

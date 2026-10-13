@@ -96,3 +96,7 @@ npm run build-storybook # valida e gera versão estática
 
 O catálogo carrega `src/index.css`, incluindo o tema da marca e as utilities do
 Tailwind, além dos painéis de Controls, Docs e acessibilidade.
+No app, o botão de lua/sol no cabeçalho ou na tela de login alterna entre os
+temas claro e escuro; a preferência permanece salva neste dispositivo. No
+Storybook, use o seletor **Tema** na toolbar para inspecionar qualquer história
+nos dois esquemas.

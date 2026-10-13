@@ -38,6 +38,7 @@ import { LoginPage } from "@/pages/login";
 import { AppMenu } from "@/widgets/app-menu";
 import { AlertBell } from "@/widgets/alert-bell";
 import ProfilePage from "@/pages/manager/tabs/profile/ProfilePage";
+import { ThemeToggle } from "@/shared/components";
 
 export function AppFrame({ children }) {
   const { logout, storeSettings } = useAuth();
@@ -81,6 +82,7 @@ export function AppFrame({ children }) {
           )}
           <span className="text-sm font-semibold text-text-secondary truncate">{storeSettings?.merchantName ?? "PDV"}</span>
         </div>
+        <ThemeToggle />
         {/* Sino de alertas + LED de conexão */}
         <AlertBell />
         {/* Perfis de tela única (waiter, kitchen, courier) não têm menu lateral:

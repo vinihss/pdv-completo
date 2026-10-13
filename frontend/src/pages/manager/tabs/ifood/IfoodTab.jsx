@@ -42,7 +42,7 @@ export default function IfoodTab({ showToast }) {
       <div className="bg-surface border border-border rounded-2xl p-5 space-y-3">
         <div className="flex items-center justify-between">
           <span className="font-semibold text-sm">Integração iFood</span>
-          <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${status.enabled ? "bg-success text-primary-foreground" : "bg-destructive/15 text-destructive"}`}>
+          <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${status.enabled ? "bg-success-fill text-success-foreground" : "bg-destructive/15 text-destructive"}`}>
             {status.enabled ? "Ativa" : "Desativada"}
           </span>
         </div>

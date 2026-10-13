@@ -12,7 +12,7 @@ const buttonVariants = cva(
       variant: {
         primary: "bg-primary text-primary-foreground hover:bg-primary-strong",
         secondary: "border border-border bg-surface-overlay text-text-secondary hover:bg-surface-overlay",
-        danger: "bg-destructive text-destructive-foreground hover:bg-destructive",
+        danger: "bg-danger-fill text-danger-foreground hover:bg-danger-fill-strong",
         ghost: "text-text-secondary hover:bg-surface-overlay hover:text-foreground",
       },
       size: {

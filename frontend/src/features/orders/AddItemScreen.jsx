@@ -243,7 +243,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
                     }`}
                   >
                     {addedQty > 0 && !outOfStock && (
-                      <span className="absolute top-2 right-2 bg-success text-primary-foreground text-xs font-bold min-w-[1.5rem] h-6 px-1 rounded-full flex items-center justify-center shadow-lg pop-anim">
+                      <span className="absolute top-2 right-2 bg-success-fill text-success-foreground text-xs font-bold min-w-[1.5rem] h-6 px-1 rounded-full flex items-center justify-center shadow-lg pop-anim">
                         {addedQty}
                       </span>
                     )}
@@ -293,7 +293,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
                     }`}
                   >
                     {addedQty > 0 && !outOfStock && (
-                      <span className="absolute top-2 right-2 bg-success text-primary-foreground text-xs font-bold min-w-[1.5rem] h-6 px-1 rounded-full flex items-center justify-center shadow-lg pop-anim">
+                      <span className="absolute top-2 right-2 bg-success-fill text-success-foreground text-xs font-bold min-w-[1.5rem] h-6 px-1 rounded-full flex items-center justify-center shadow-lg pop-anim">
                         {addedQty}
                       </span>
                     )}
@@ -339,7 +339,7 @@ export default function AddItemScreen({ order, onClose, onConfirmed, showToast }
         <div className="fixed bottom-0 left-0 right-0 p-4 border-t border-border bg-surface z-30">
           <button
             onClick={() => setReviewOpen(true)}
-            className="w-full flex items-center justify-between bg-success hover:bg-success text-primary-foreground font-semibold py-3.5 px-5 rounded-xl transition-colors"
+            className="w-full flex items-center justify-between bg-success-fill hover:bg-success-fill-strong text-success-foreground font-semibold py-3.5 px-5 rounded-xl transition-colors"
           >
             <span className="flex items-center gap-2">
               <Check size={18} strokeWidth={2.5} />
