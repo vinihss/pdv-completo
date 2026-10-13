@@ -1,5 +1,4 @@
 import React from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
 
 function Badge({ value }) {
   return (
@@ -46,11 +45,11 @@ function RailItem({ item, active, onSelect }) {
 }
 
 /**
- * Menu em acordeão: seções expansíveis com itens dentro, e itens que podem ter
- * um submenu próprio (terceiro nível). Três formas de seção de menu, todas no
- * mesmo componente:
+ * Menu lateral com submenus sempre visíveis: seções e itens com filhos
+ * (terceiro nível) são renderizados expandidos, sem clique para abrir/fechar.
+ * Três formas de seção de menu, todas no mesmo componente:
  *
- * - seção com mais de um item → cabeçalho clicável (expande/colapsa) + lista;
+ * - seção com mais de um item → cabeçalho (label não-clicável) + lista;
  * - seção com um item só → o cabeçalho É o item (nada de aninhar "Comandas >
  *   Comandas");
  * - `variant="rail"` → um item só por menu, sem seções: o perfil tem uma tela
@@ -59,12 +58,16 @@ function RailItem({ item, active, onSelect }) {
  * Burro de propósito: recebe as seções já montadas e não sabe o que é
  * comanda, estoque ou gerente — quem monta é `widgets/app-menu`.
  *
- * O submenu (`item.children`) é um grupo, não uma tela: o clique no pai
- * EXPANDE, e o `aria-expanded` diz isso. Só os filhos navegam. O pai fica
- * visualmente ativo quando algum filho é a tela atual — é o que dá a
- * sensação de "onde eu estou" ao olhar a coluna.
+ * O submenu (`item.children`) é um grupo, não uma tela: o pai é um label e
+ * os filhos são as telas navegáveis. O pai fica visualmente ativo quando
+ * algum filho é a tela atual — é o que dá a sensação de "onde eu estou" ao
+ * olhar a coluna.
+ *
+ * As props `expanded`, `onToggleSection`, `expandedItems` e `onToggleItem`
+ * são mantidas na assinatura para compatibilidade com consumidores anteriores,
+ * mas são ignoradas — o menu é sempre expandido.
  */
-export default function AccordionMenu({ sections, activeId, onSelect, variant = "full", expanded, onToggleSection, expandedItems = new Set(), onToggleItem, footer }) {
+export default function AccordionMenu({ sections, activeId, onSelect, variant = "full", footer }) {
   if (variant === "rail") {
     const items = sections.flatMap((s) => s.items);
     return (
@@ -79,9 +82,8 @@ export default function AccordionMenu({ sections, activeId, onSelect, variant = 
   return (
     <nav aria-label="Menu principal" className="flex flex-col gap-1 p-2">
       {sections.map((section) => {
-        const isOpen = expanded.has(section.id);
-        // O badge também vai no cabeçalho: com a seção recolhida, é a única
-        // forma do sinal (estoque no mínimo) continuar visível.
+        // O badge também vai no cabeçalho: é a única forma do sinal
+        // (estoque no mínimo) continuar visível quando a seção está recolhida.
         const sectionBadge = section.items.reduce((sum, i) => sum + (i.badge ?? 0), 0);
 
         // Seção de um item: o cabeçalho é o item, sem segundo nível.
@@ -91,12 +93,8 @@ export default function AccordionMenu({ sections, activeId, onSelect, variant = 
 
         return (
           <div key={section.id}>
-            <button
-              type="button"
-              onClick={() => onToggleSection(section.id)}
-              aria-expanded={isOpen}
-              aria-controls={`menu-section-${section.id}`}
-              className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-stone-500 hover:text-stone-200 hover:bg-stone-800/40 transition-colors"
+            <div
+              className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-stone-500"
             >
               <section.icon size={12} className="shrink-0 opacity-50" />
               <span className="text-[10px] font-bold uppercase tracking-widest truncate text-left opacity-60">{section.label}</span>
@@ -105,25 +103,17 @@ export default function AccordionMenu({ sections, activeId, onSelect, variant = 
                   {sectionBadge}
                 </span>
               )}
-              <ChevronDown
-                size={14}
-                className={`ml-auto shrink-0 transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
-              />
-            </button>
-            {isOpen && (
-              <div id={`menu-section-${section.id}`} role="group" aria-label={section.label} className="fade-up flex flex-col gap-0.5 pt-0.5">
-                {section.items.map((item) => (
-                  <ItemWithSubmenu
-                    key={item.id}
-                    item={item}
-                    activeId={activeId}
-                    onSelect={onSelect}
-                    expandedItems={expandedItems}
-                    onToggleItem={onToggleItem}
-                  />
-                ))}
-              </div>
-            )}
+            </div>
+            <div role="group" aria-label={section.label} className="flex flex-col gap-0.5 pt-0.5">
+              {section.items.map((item) => (
+                <ItemWithSubmenu
+                  key={item.id}
+                  item={item}
+                  activeId={activeId}
+                  onSelect={onSelect}
+                />
+              ))}
+            </div>
           </div>
         );
       })}
@@ -132,41 +122,32 @@ export default function AccordionMenu({ sections, activeId, onSelect, variant = 
   );
 }
 
-/** Item comum ou, se tiver `children`, um cabeçalho que abre a lista abaixo. */
-function ItemWithSubmenu({ item, activeId, onSelect, expandedItems, onToggleItem }) {
+/** Item comum ou, se tiver `children`, um label com a lista sempre visível abaixo. */
+function ItemWithSubmenu({ item, activeId, onSelect }) {
   if (!item.children?.length) {
     return <MenuItem item={item} active={item.id === activeId} onSelect={onSelect} />;
   }
 
-  const open = expandedItems.has(item.id);
   // Um filho ativo conta como pai ativo — o item é apenas o guarda-chuva da
   // seção "Gestão", mas o usuário precisa saber em qual relatório está.
   const activeChild = item.children.some((c) => c.id === activeId);
-  const ChildIcon = open ? ChevronDown : ChevronRight;
 
   return (
     <div>
-      <button
-        type="button"
-        onClick={() => onToggleItem(item.id)}
-        aria-expanded={open}
-        aria-controls={`menu-sub-${item.id}`}
+      <div
         aria-current={activeChild ? "true" : undefined}
-        className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors ${
-          activeChild ? "bg-stone-800/60 text-stone-100 font-semibold" : "text-stone-400 hover:text-stone-100 hover:bg-stone-800/60"
+        className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm ${
+          activeChild ? "bg-stone-800/60 text-stone-100 font-semibold" : "text-stone-400"
         }`}
       >
         <item.icon size={15} className="shrink-0" />
         <span className="truncate text-left">{item.label}</span>
-        <ChildIcon size={14} className="ml-auto shrink-0 text-stone-500" />
-      </button>
-      {open && (
-        <div id={`menu-sub-${item.id}`} role="group" aria-label={item.label} className="flex flex-col gap-0.5">
-          {item.children.map((child) => (
-            <MenuItem key={child.id} item={child} active={child.id === activeId} onSelect={onSelect} nested />
-          ))}
-        </div>
-      )}
+      </div>
+      <div role="group" aria-label={item.label} className="flex flex-col gap-0.5">
+        {item.children.map((child) => (
+          <MenuItem key={child.id} item={child} active={child.id === activeId} onSelect={onSelect} nested />
+        ))}
+      </div>
     </div>
   );
 }
