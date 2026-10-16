@@ -1,0 +1,4 @@
+.delivery-map-panel { position: relative; width: 100%; min-height: 420px; overflow: hidden; border: 1px solid #d1d5db; border-radius: 12px; }
+.delivery-map { width: 100%; height: min(68vh, 720px); min-height: 420px; z-index: 0; }
+.delivery-map-attribution { position: absolute; right: 4px; bottom: 0; z-index: 500; margin: 0; padding: 1px 4px; background: rgb(255 255 255 / 85%); font-size: 11px; }
+.delivery-map-error { position: absolute; top: 8px; left: 8px; z-index: 1000; margin: 0; padding: 8px 12px; color: #991b1b; background: white; border: 1px solid #fecaca; border-radius: 6px; }

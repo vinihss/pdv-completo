@@ -39,6 +39,9 @@ export interface DeliveryRepository {
     status: DeliveryStatus;
     distanceKm: number | null;
     estimatedMinutes: number;
+    /** Coordenadas geocodificadas do endereço, quando disponíveis no checkout. */
+    latitude?: number | null;
+    longitude?: number | null;
   }): Promise<DeliveryRecord>;
   /**
    * Todas as entregas (sem paginação), opcionalmente filtradas por status,
