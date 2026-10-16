@@ -1,5 +1,5 @@
 
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { closeDatabase, db, type Tx } from "./client.js";
 import { runBaseSeed } from "./seed-base.js";
 import { round2 } from "../../domain/money.js";
@@ -218,6 +218,14 @@ const NEIGHBORHOODS = [
   "Butantã", "Aclimação", "Bom Retiro", "Vila Olímpia",
 ];
 
+// Base das coordenadas demo: Praça da Sé, São Paulo. Os endereços são
+// espalhados em grade em volta (ver ensureCustomers) para o mapa do gerente
+// nascer com markers de pedido, e os motoboys em rota com posição conhecida —
+// sem coordenada, `GET /manager/deliveries` devolve `addressLatitude` nulo e o
+// mapa fica vazio.
+const DEMO_BASE_LAT = -23.5505;
+const DEMO_BASE_LNG = -46.6333;
+
 const ORDER_NOTES = ["Sem cebola", "Cliente alérgico a camarão", "Aniversário — levar vela", "Conta dividida em 2", "Sem gelo"];
 const CANCEL_REASONS = ["Cliente desistiu", "Pedido duplicado", "Cliente saiu do salão"];
 const TAB_LABELS = ["Balcão 01", "Balcão 02", "Balcão 03", "Retirada · Balcão", "Balcão 04", "Retirada · Jantar"];
@@ -336,6 +344,9 @@ type People = {
   roberto: string;
   caixa: string;
   entregador: string;
+  // Todos os entregadores (papel `courier`). O seed distribui as entregas em
+  // rota entre eles para o mapa do gerente mostrar mais de um motoboy.
+  couriers: string[];
   system: string;
 };
 
@@ -361,6 +372,7 @@ type Ctx = {
   trackedProducts: { id: string; name: string; costPrice: number; lowStockThreshold: number }[];
   tables: TableRow[]; // livres, ordenadas por número
   addresses: AddrRow[];
+  couriers: string[]; // entregadores, para o pool de atribuição das entregas
   fee: number; // taxa de delivery (store_settings.delivery_fee)
   enabled: PayMethod[]; // store_settings.enabled_payment_methods
 };
@@ -638,7 +650,7 @@ function buildHistoryOrder(args: {
 }
 
 // ------------------------------------------------------------
-// Comandas ABERTAS de hoje — 12 casos cobrindo todos os estados da cozinha,
+// Comandas ABERTAS de hoje — 15 casos cobrindo todos os estados da cozinha,
 // pagamentos pendentes/confirmados e entregas em andamento. Produtos nomeados
 // de propósito (a tela da cozinha fica legível); se um nome não existir no
 // catálogo do banco alvo, cai no sorteio ponderado.
@@ -659,6 +671,10 @@ type OpenSpec = {
   cancelReason?: string;
   deliveryStatus?: PlanDelivery["status"];
   deliveryCourier?: boolean;
+  // Índice em `ctx.couriers` do motoboy atribuído (default 0). Só tem efeito
+  // quando `deliveryCourier` é true; é o que espalha as entregas em rota entre
+  // os 3 entregadores para o mapa mostrar mais de um marker.
+  courierIndex?: number;
   notes?: string | null;
 };
 
@@ -693,11 +709,11 @@ const OPEN_SPECS: OpenSpec[] = [
   // 09 — delivery a caminho, cartão pendente de confirmação
   { suffix: "09", kind: "delivery", channel: "web", addressIndex: 1, minutesAgo: 80, waiter: "system",
     items: [ { product: "Feijoada Completa", qty: 1, status: "delivered" }, { product: "Suco Natural 500ml", qty: 1, status: "delivered" } ],
-    payment: { method: "card" }, deliveryStatus: "out_for_delivery", deliveryCourier: true },
+    payment: { method: "card" }, deliveryStatus: "out_for_delivery", deliveryCourier: true, courierIndex: 0 },
   // 10 — delivery entregue, Pix ainda não caiu
   { suffix: "10", kind: "delivery", channel: "web", addressIndex: 2, minutesAgo: 150, waiter: "system",
     items: [ { product: "Combo Casal", qty: 1, status: "delivered" }, { product: "Mojito", qty: 2, status: "delivered" } ],
-    payment: { method: "pix" }, deliveryStatus: "delivered", deliveryCourier: true },
+    payment: { method: "pix" }, deliveryStatus: "delivered", deliveryCourier: true, courierIndex: 1 },
   // 11 — cancelada hoje (salão)
   { suffix: "11", kind: "table", tableIndex: 5, minutesAgo: 30, waiter: "ana", cancelReason: "Cliente desistiu",
     items: [ { product: "Calabresa Acebolada", qty: 1, status: "cancelled", notes: "Cancelado pelo garçom" } ] },
@@ -705,6 +721,18 @@ const OPEN_SPECS: OpenSpec[] = [
   { suffix: "12", kind: "table", tableIndex: 6, minutesAgo: 200, waiter: "carlos",
     items: [ { product: "Frango à Passarinho", qty: 1, status: "delivered" }, { product: "Cerveja Artesanal IPA 500ml", qty: 2, status: "delivered" }, { product: "Brownie com Sorvete", qty: 1, status: "delivered" } ],
     payment: { method: "card", confirmedMinutesAgo: 10 } },
+  // 13 — delivery a caminho (2º motoboy)
+  { suffix: "13", kind: "delivery", channel: "web", addressIndex: 3, minutesAgo: 45, waiter: "system",
+    items: [ { product: "Picanha na Chapa", qty: 1, status: "delivered" }, { product: "Cerveja Long Neck", qty: 2, status: "delivered" } ],
+    payment: { method: "cash" }, deliveryStatus: "out_for_delivery", deliveryCourier: true, courierIndex: 1 },
+  // 14 — delivery a caminho (3º motoboy)
+  { suffix: "14", kind: "delivery", channel: "web", addressIndex: 4, minutesAgo: 35, waiter: "system",
+    items: [ { product: "Pizza Margherita", qty: 1, status: "delivered" }, { product: "Refrigerante Lata", qty: 1, status: "delivered" } ],
+    payment: { method: "pix" }, deliveryStatus: "out_for_delivery", deliveryCourier: true, courierIndex: 2 },
+  // 15 — delivery aguardando entregador, sem atribuição (mais um pedido no mapa)
+  { suffix: "15", kind: "delivery", channel: "web", addressIndex: 5, minutesAgo: 12, waiter: "system",
+    items: [ { product: "X-Burger", qty: 1, status: "ordered" }, { product: "Batata frita", qty: 1, status: "ordered" } ],
+    deliveryStatus: "awaiting_courier" },
 ];
 
 function buildOpenOrders(ctx: Ctx): PlanOrder[] {
@@ -783,7 +811,9 @@ function buildOpenOrders(ctx: Ctx): PlanOrder[] {
         distanceKm: round2(rng.float() * 5.5 + 0.8),
         estimatedMinutes: 0,
         status,
-        courierId: spec.deliveryCourier ? ctx.people.entregador : null,
+        courierId: spec.deliveryCourier
+          ? (ctx.couriers[spec.courierIndex ?? 0] ?? ctx.people.entregador)
+          : null,
         dispatchedAt: status === "awaiting_courier" ? null : isoPlus(openedAt, Math.min(spec.minutesAgo, 15)),
         deliveredAt: status === "delivered" ? isoMinus(nowIso, 5) : null,
         notes: null,
@@ -1002,24 +1032,40 @@ async function ensureCustomers(): Promise<void> {
       .onConflictDoNothing({ target: customers.id })
       .returning();
 
+    // Grade 4x4 em volta da base: coordenadas determinísticas (o seed não
+    // consome o RNG fora do plano) e distintas o bastante para o mapa não
+    // sobrepor os 16 markers.
+    const addressRows = Array.from({ length: 16 }, (_, i) => ({
+      id: `demo-addr-${pad2(i + 1)}`,
+      customerId: `demo-cust-${pad2(i + 1)}`,
+      label: i % 3 === 0 ? "Casa" : "Trabalho",
+      street: STREETS[i % STREETS.length]!,
+      number: String(10 + ((i * 37) % 480)),
+      complement: i % 2 === 0 ? `Apto ${100 + i * 3}` : null,
+      neighborhood: NEIGHBORHOODS[i % NEIGHBORHOODS.length]!,
+      city: "São Paulo",
+      state: "SP",
+      isDefault: true,
+      latitude: DEMO_BASE_LAT + (Math.floor(i / 4) - 1.5) * 0.02,
+      longitude: DEMO_BASE_LNG + ((i % 4) - 1.5) * 0.02,
+    }));
+
     const addr = await tx
       .insert(customerAddresses)
-      .values(
-        Array.from({ length: 16 }, (_, i) => ({
-          id: `demo-addr-${pad2(i + 1)}`,
-          customerId: `demo-cust-${pad2(i + 1)}`,
-          label: i % 3 === 0 ? "Casa" : "Trabalho",
-          street: STREETS[i % STREETS.length]!,
-          number: String(10 + ((i * 37) % 480)),
-          complement: i % 2 === 0 ? `Apto ${100 + i * 3}` : null,
-          neighborhood: NEIGHBORHOODS[i % NEIGHBORHOODS.length]!,
-          city: "São Paulo",
-          state: "SP",
-          isDefault: true,
-        })),
-      )
+      .values(addressRows)
       .onConflictDoNothing({ target: customerAddresses.id })
       .returning();
+
+    // Backfill das coordenadas: bancos semeados antes desta mudança já têm os
+    // 16 endereços sem lat/lng e o `onConflictDoNothing` acima não os toca —
+    // sem este UPDATE, reexecutar o seed deixaria o mapa sem markers de pedido.
+    for (const a of addressRows) {
+      await tx
+        .update(customerAddresses)
+        .set({ latitude: a.latitude, longitude: a.longitude })
+        .where(and(eq(customerAddresses.id, a.id), isNull(customerAddresses.latitude)));
+    }
+
     console.log(`[seed:demo] clientes: +${cust.length}/40 novos, +${addr.length}/16 endereços novos`);
   });
 }
@@ -1034,12 +1080,21 @@ async function resolvePeople(): Promise<People> {
   if (!ana || !roberto) {
     throw new Error("[seed:demo] usuários base ausentes (garçom/gerente) — rode o seed base antes.");
   }
+  // Ordem estável (por nome) para atribuir as entregas em rota sempre aos
+  // mesmos motoboys entre execuções: `rows` não tem ORDER BY e a atribuição
+  // ficaria não-determinística.
+  const couriers = rows
+    .filter((r) => r.role === "courier")
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((r) => r.id);
+  const entregador = byName.get("Entregador Teste") ?? byRole("courier") ?? roberto;
   return {
     ana,
     carlos: byName.get("Carlos Lima") ?? ana,
     roberto,
     caixa: byName.get("Caixa Teste") ?? byRole("cashier") ?? roberto,
-    entregador: byName.get("Entregador Teste") ?? byRole("courier") ?? roberto,
+    entregador,
+    couriers: couriers.length ? couriers : [entregador],
     system: rows.find((r) => r.id === "system")?.id ?? byRole("system") ?? roberto,
   };
 }
@@ -1112,6 +1167,7 @@ async function loadCtx(people: People): Promise<Ctx> {
     trackedProducts: prodRows.filter((p) => p.trackStock).map((p) => ({ id: p.id, name: p.name, costPrice: p.costPrice, lowStockThreshold: p.lowStockThreshold })),
     tables,
     addresses: addrRows,
+    couriers: people.couriers,
     fee,
     enabled,
   };
@@ -1608,19 +1664,73 @@ async function printSummaryAndValidate(): Promise<void> {
 }
 
 // ------------------------------------------------------------
+// Rastreamento demo: última posição dos motoboys e geometria dos pedidos.
+//
+// O mapa do gerente (`GET /manager/deliveries/locations`) só mostra entregador
+// com entrega `out_for_delivery` E linha em `courier_location` — sem o ping do
+// app do entregador, o seed precisa plantar a última posição conhecida. E o
+// marker de pedido depende do endereço georreferenciado; sem isso, o mapa de
+// um banco de demonstração nasce vazio.
+//
+// Idempotente: `ON CONFLICT` no ponto e `UPDATE ... WHERE ... IS NULL` na
+// geometria, então reexecutar o seed só completa o que falta.
+// ------------------------------------------------------------
+async function ensureCourierDemo(ctx: Ctx): Promise<void> {
+  // Posição de cada motoboy: ponto determinístico em volta da base (na cidade,
+  // não no mar), com `position` preenchido — o mapa lê lat/lng, mas o GIS e o
+  // roteamento leem a geometria.
+  for (const [i, courierId] of ctx.couriers.entries()) {
+    const latitude = round2(DEMO_BASE_LAT + 0.012 + i * 0.008);
+    const longitude = round2(DEMO_BASE_LNG + 0.01 - i * 0.007);
+    await db.execute(sql`
+      INSERT INTO courier_location (courier_id, latitude, longitude, accuracy, updated_at, position)
+      VALUES (${courierId}, ${latitude}, ${longitude}, 15, ${new Date().toISOString()},
+              ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326))
+      ON CONFLICT (courier_id) DO UPDATE
+        SET latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude,
+            accuracy = EXCLUDED.accuracy, updated_at = EXCLUDED.updated_at,
+            position = EXCLUDED.position`);
+  }
+
+  // Geometria da entrega: mesma projeção da aplicação (endereço padrão do
+  // cliente da comanda). Só preenche o que está nulo — não sobrescreve um
+  // pedido cuja coordenada já tenha sido ajustada no mapa do gerente.
+  await db.execute(sql`
+    UPDATE delivery d
+    SET coordinate = ST_SetSRID(ST_MakePoint(a.longitude, a.latitude), 4326)
+    FROM "order" o
+    JOIN customer_address a ON a.customer_id = o.customer_id AND a.is_default
+    WHERE d.order_id = o.id AND d.coordinate IS NULL
+      AND a.latitude IS NOT NULL AND a.longitude IS NOT NULL`);
+
+  // Região, quando houver alguma desenhada: mesma regra do
+  // `assignDeliveryCoordinate` (a menor que contém o ponto).
+  await db.execute(sql`
+    UPDATE delivery d
+    SET region_id = (SELECT r.id FROM delivery_region r
+                     WHERE ST_Contains(r.area_geografica, d.coordinate)
+                     ORDER BY ST_Area(r.area_geografica::geography) LIMIT 1)
+    WHERE d.region_id IS NULL AND d.coordinate IS NOT NULL`);
+
+  console.log(
+    `[seed:demo] rastreamento: ${ctx.couriers.length} motoboy(s) posicionado(s) + geometria das entregas`,
+  );
+}
+
+// ------------------------------------------------------------
 // Runner
 // ------------------------------------------------------------
 async function main(): Promise<void> {
-  console.log("[seed:demo] 1/6 seed base (migrations + usuários + catálogo inicial)…");
+  console.log("[seed:demo] 1/7 seed base (migrations + usuários + catálogo inicial)…");
   await runBaseSeed();
 
-  console.log("[seed:demo] 2/6 pessoas, catálogo demo e clientes…");
+  console.log("[seed:demo] 2/7 pessoas, catálogo demo e clientes…");
   const people = await resolvePeople();
   await ensureCatalog();
   await ensureCustomers();
   const ctx = await loadCtx(people);
 
-  console.log("[seed:demo] 3/6 construindo plano (30 dias de histórico + comandas abertas)…");
+  console.log("[seed:demo] 3/7 construindo plano (30 dias de histórico + comandas abertas)…");
   const plan = buildPlan(ctx);
   const plannedOrders = plan.reduce((sum, d) => sum + d.orders.length, 0);
   const plannedClosed = plan.reduce((sum, d) => sum + d.orders.filter((o) => o.status === "closed").length, 0);
@@ -1628,12 +1738,12 @@ async function main(): Promise<void> {
     `[seed:demo] plano: ${plannedOrders} comandas (${plannedClosed} fechadas, ${plan.reduce((s, d) => s + d.orders.filter((o) => o.status === "cancelled").length, 0)} canceladas, ${plan.find((d) => d.isToday)?.orders.length ?? 0} de hoje) · ${plan.length - 1} gavetas históricas · métodos: ${ctx.enabled.join(", ")}`,
   );
 
-  console.log("[seed:demo] 4/6 ajustes iniciais do ledger…");
+  console.log("[seed:demo] 4/7 ajustes iniciais do ledger…");
   await db.transaction(async (tx) => {
     await ensureInitialAdjustments(tx, plan, ctx);
   });
 
-  console.log("[seed:demo] 5/6 dias de histórico (uma transação por dia, do mais antigo ao recente)…");
+  console.log("[seed:demo] 5/7 dias de histórico (uma transação por dia, do mais antigo ao recente)…");
   for (const day of plan) {
     if (day.isToday) continue;
     const created = await db.transaction(async (tx) => {
@@ -1652,7 +1762,10 @@ async function main(): Promise<void> {
   });
   console.log(`[seed:demo]   hoje: ${createdToday}/${today.orders.length} comandas novas`);
 
-  console.log("[seed:demo] 6/6 marcador de conclusão + validação…");
+  console.log("[seed:demo] 6/7 posição dos motoboys e geometria das entregas…");
+  await ensureCourierDemo(ctx);
+
+  console.log("[seed:demo] 7/7 marcador de conclusão + validação…");
   await db.transaction(async (tx) => {
     await tx
       .insert(auditLog)

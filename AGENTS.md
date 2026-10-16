@@ -107,6 +107,8 @@ Usuários de teste (seed de dev — nunca rode em produção):
 | Roberto Alves | Gerente | 9999 |
 | Caixa Teste | Caixa | 2468 |
 | Entregador Teste | Entregador | 1357 |
+| Marcos Entrega | Entregador | 2222 |
+| Júlia Entrega | Entregador | 3333 |
 | Estação Cozinha | Cozinha | 0000 |
 
 Health check: `GET http://localhost:3000/health`

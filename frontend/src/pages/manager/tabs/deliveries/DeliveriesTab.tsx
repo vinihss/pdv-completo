@@ -190,6 +190,13 @@ export default function DeliveriesTab({ showToast }) {
   // diferença entre duas listas que já são iguais.
   const resolvedCount = deliveries.filter((d) => !isOpenDelivery(d)).length;
 
+  // Pedidos que ainda pedem ação e têm destino georreferenciado — o que o mapa
+  // desenha além dos motoboys. Entregues/canceladas ficam de fora: o mapa é
+  // operação, não histórico, e o endpoint lista as do dia.
+  const mapDeliveries = deliveries.filter(
+    (d) => isOpenDelivery(d) && d.addressLatitude != null && d.addressLongitude != null,
+  );
+
   return (
     <div className="p-4 max-w-2xl mx-auto space-y-4">
       <div className="flex items-center gap-4 text-sm text-text-secondary">
@@ -241,7 +248,7 @@ export default function DeliveriesTab({ showToast }) {
 
       {/* O mapa geral continua disponível, mas recolhido por padrão para
           priorizar a fila operacional e evitar scroll desnecessário. */}
-      {(outCount > 0 || locations.length > 0) && (
+      {(outCount > 0 || locations.length > 0 || mapDeliveries.length > 0) && (
         <div className="overflow-hidden rounded-xl border border-border">
           <button
             type="button"
@@ -252,7 +259,7 @@ export default function DeliveriesTab({ showToast }) {
             className="flex w-full items-center justify-between gap-2 bg-surface px-3 py-2 text-left text-xs text-text-secondary hover:text-text-secondary"
           >
             <span className="flex items-center gap-2">
-              <MapPin size={13} aria-hidden="true" /> Mapa de entregadores em rota
+              <MapPin size={13} aria-hidden="true" /> Mapa de entregadores e pedidos
             </span>
             <ChevronDown
               size={14}
@@ -262,7 +269,11 @@ export default function DeliveriesTab({ showToast }) {
           </button>
           <div id="deliveries-tracking-map-panel" hidden={!expandedMap} className="p-2">
             {expandedMap && (
-              <DeliveriesTrackingMap locations={locations} loaded={locationsLoaded} />
+              <DeliveriesTrackingMap
+                locations={locations}
+                deliveries={mapDeliveries}
+                loaded={locationsLoaded}
+              />
             )}
           </div>
         </div>

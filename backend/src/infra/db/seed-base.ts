@@ -26,6 +26,8 @@ export const DEMO_USERS = [
   { name: "Roberto Alves", role: "manager" as const, pin: "9999", phone: "11999990003", email: "roberto.alves@exemplo.com" },
   { name: "Caixa Teste", role: "cashier" as const, pin: "2468", phone: "11999990004", email: "caixa.teste@exemplo.com" },
   { name: "Entregador Teste", role: "courier" as const, pin: "1357", phone: "11999990005", email: "entregador.teste@exemplo.com" },
+  { name: "Marcos Entrega", role: "courier" as const, pin: "2222", phone: "11999990007", email: "marcos.entrega@exemplo.com" },
+  { name: "Júlia Entrega", role: "courier" as const, pin: "3333", phone: "11999990008", email: "julia.entrega@exemplo.com" },
   { name: "Estação Cozinha", role: "kitchen" as const, pin: "0000", phone: "11999990006", email: "cozinha@exemplo.com" },
 ];
 
@@ -48,7 +50,7 @@ export async function runBaseSeed(): Promise<void> {
     console.log("[seed] store_settings já existe — pulando dados base e reconciliando usuários demo.");
     await reconcileDemoUsers();
     console.log("[seed] concluído.");
-    console.log("[seed] PINs de teste — Ana: 1234 · Carlos: 5678 · Roberto: 9999 · Caixa: 2468 · Entregador: 1357 · Cozinha: 0000");
+    console.log("[seed] PINs de teste — Ana: 1234 · Carlos: 5678 · Roberto: 9999 · Caixa: 2468 · Entregador: 1357 · Marcos: 2222 · Júlia: 3333 · Cozinha: 0000");
     return;
   }
 
@@ -137,5 +139,5 @@ export async function runBaseSeed(): Promise<void> {
   );
 
   console.log("[seed] concluído.");
-  console.log("[seed] PINs de teste — Ana: 1234 · Carlos: 5678 · Roberto: 9999 · Caixa: 2468 · Entregador: 1357 · Cozinha: 0000");
+  console.log("[seed] PINs de teste — Ana: 1234 · Carlos: 5678 · Roberto: 9999 · Caixa: 2468 · Entregador: 1357 · Marcos: 2222 · Júlia: 3333 · Cozinha: 0000");
 }
