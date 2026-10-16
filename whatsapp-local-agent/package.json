@@ -1,0 +1,16 @@
+{
+  "name": "pdv-whatsapp-local-agent-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Protótipo local experimental de atendimento WhatsApp Web para testes Linux.",
+  "scripts": {
+    "start": "node src/index.mjs",
+    "check": "node --check src/index.mjs && node --check src/filters.mjs",
+    "test": "node --test src/filters.test.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.63.0",
+    "sql.js": "^1.15.0"
+  }
+}
