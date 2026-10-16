@@ -434,7 +434,13 @@ services:
   # (Postgres externo? ajuste DATABASE_URL no .env e use --no-deps, senão o
   # depends_on do backend sobe este Postgres mesmo sem uso.)
   postgres:
-    image: postgres:16-alpine
+    # PostGIS obrigatório pela migration `0011_delivery_gis.sql`: a extensão é
+    # criada por SQL, mas o pacote do SO vem da imagem. `postgis/postgis` é a
+    # mesma `postgres:16-alpine` (mesma versão e PGDATA) com o PostGIS
+    # acrescentado, então o volume existente é reaproveitado e a extensão só
+    # precisa ser criada nos bancos pré-existentes. Ver a nota longa em
+    # `docker-compose.dev.yml`.
+    image: postgis/postgis:16-3.5-alpine
     restart: unless-stopped
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-pdv}

@@ -150,7 +150,9 @@ services:
   # Banco oficial (mesmo nome de volume do compose de produção, para o
   # mesmo banco ser reaproveitado entre as duas formas de subir).
   postgres:
-    image: postgres:16-alpine
+    # PostGIS obrigatório pela migration `0011_delivery_gis.sql`; ver a nota no
+    # `docker-compose.dev.yml` (mesma imagem, volume e PGDATA).
+    image: postgis/postgis:16-3.5-alpine
     restart: unless-stopped
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-pdv}

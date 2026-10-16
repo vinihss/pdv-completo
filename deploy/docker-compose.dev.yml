@@ -128,7 +128,15 @@ services:
 
   # Banco oficial — mesmo volume do compose de produção.
   postgres:
-    image: postgres:16-alpine
+    # PostGIS: a migration `0011_delivery_gis.sql` faz `CREATE EXTENSION postgis`,
+    # e `CREATE EXTENSION` NÃO instala o pacote do SO — quem precisa trazer o
+    # PostGIS é a imagem. `postgis/postgis:16-3.5-alpine` é a `postgres:16-alpine`
+    # (mesma versão 16.x e mesmo PGDATA `/var/lib/postgresql/data`) com o PostGIS
+    # acrescentado, então o volume `pdv_postgres_data` já existente é
+    # reaproveitado sem dump/restore — a extensão só precisa ser criada à mão
+    # (`CREATE EXTENSION postgis`) nos bancos que já existem, porque os scripts de
+    # init da imagem só rodam com o diretório de dados vazio.
+    image: postgis/postgis:16-3.5-alpine
     restart: unless-stopped
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-pdv}

@@ -214,18 +214,23 @@ export function createOrderIntakeUsecases(deps: OrderIntakeUsecasesDeps) {
         // 2. Resolve o endereço SALVO (o novo é criado fora daqui, pelo use
         // case dedicado que abre a própria transação).
         let addressText: string | null = null;
+        let coordinate: { latitude: number; longitude: number } | null = null;
         if (input.addressId) {
           const address = await session.customerAddresses.findById(input.addressId);
           if (!address || address.customerId !== customer.id) throw Errors.notFound("Endereço");
           addressText = formatAddress(address);
+          if (address.latitude != null && address.longitude != null) {
+            coordinate = { latitude: address.latitude, longitude: address.longitude };
+          }
         }
-        return { customerId: customer.id, addressText };
+        return { customerId: customer.id, addressText, coordinate };
       });
 
       // Endereço novo: use case dedicado (aplica o limite de 3 via
       // addCustomerAddressUsecase), com a PRÓPRIA transação — por isso fora do
       // `uow.run` acima.
       let addressText: string;
+      let coordinate = resolved.coordinate;
       if (resolved.addressText !== null) {
         addressText = resolved.addressText;
       } else {
@@ -310,6 +315,8 @@ export function createOrderIntakeUsecases(deps: OrderIntakeUsecasesDeps) {
           status: "awaiting_courier",
           distanceKm: zoneKm,
           estimatedMinutes,
+          latitude: coordinate?.latitude,
+          longitude: coordinate?.longitude,
         });
 
         await session.outbox.enqueue({

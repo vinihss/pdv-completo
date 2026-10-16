@@ -3,7 +3,7 @@
 Todos os endpoints do backend, agrupados por domínio. Para detalhes completos, ver `docs/01-backend-spec.md`.
 
 **Critério desta lista:** só entra aqui o que está registrado no código, em
-`backend/src/http/routes/*.ts` (mais `/health`, registrado em `http/server.ts`).
+`backend/src/http/routes/*.ts` e módulos de rotas explicitamente registrados pelo router (mais `/health`, registrado em `http/server.ts`).
 Endpoint planejado ou apenas especificado **não entra aqui** — vai para
 `docs/14-usabilidade-e-processos.md` (§ *Endpoints documentados e ainda não
 implementados*). Se uma linha desta tabela não tiver rota no código, ela está
@@ -84,8 +84,13 @@ listadas nas seções **Comandas** e **Catálogo** — não são repetidas aqui.
 | PATCH | `/manager/deliveries/:id/assign` | manager | Atribuir entregador |
 | PATCH | `/manager/deliveries/:id/status` | manager | Mudar status da entrega |
 | GET | `/manager/couriers` | manager | Listar entregadores |
-| POST | `/courier/location` | courier | Ping de localização (upsert; só com entrega `out_for_delivery`, senão 409 `courier_not_on_route`; publica `courier.location` no room `deliveries` com `courierName`/`photoPath`) |
+| POST | `/courier/location` | courier | Ping de localização (upsert; só com entrega `out_for_delivery`, senão 409 `courier_not_on_route`; publica `courier.location` e, ao cruzar limite, `courier.region_changed` no room `deliveries`) |
 | GET | `/manager/deliveries/locations` | manager | Última posição dos entregadores com entrega em rota (com `courierName` e `photoPath`) |
+| GET | `/delivery-regions` | manager | Listar regiões de entrega em GeoJSON |
+| POST | `/delivery-regions` | manager | Criar/atualizar região a partir de polígono GeoJSON |
+| POST | `/delivery-regions/deliveries/:id/coordinate` | manager | Gravar coordenada da entrega e atribuir região via `ST_Contains` |
+| POST | `/delivery-regions/:id/route` | manager | Otimizar sequência de paradas pendentes via OSRM Trip |
+| POST | `/regioes/:id/roteirizar` | manager | Alias em português para roteirização OSRM |
 
 ## Catálogo (Products & Categories)
 
