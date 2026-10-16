@@ -368,4 +368,18 @@ describe("DeliveriesTab — filtros das últimas 24 horas", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByTestId("deliveries-map-empty")).toBeTruthy();
   });
+
+  it("mostra o painel do mapa quando só há pedido com destino no mapa (sem entregador em rota)", () => {
+    // Sem ninguém `out_for_delivery`, o mapa ainda interessa: o gerente precisa
+    // ver o destino dos pedidos que aguardam entregador.
+    setup({ ...ENTREGA, status: "awaiting_courier", addressLatitude: -23.55, addressLongitude: -46.63 });
+
+    expect(screen.getByTestId("deliveries-map-toggle")).toBeTruthy();
+  });
+
+  it("não mostra o painel do mapa quando não há entregador em rota nem pedido georreferenciado", () => {
+    setup({ ...ENTREGA, status: "awaiting_courier" });
+
+    expect(screen.queryByTestId("deliveries-map-toggle")).toBeNull();
+  });
 });
