@@ -11,11 +11,15 @@
     "build:all": "cross-env VITE_APP_PROFILE=all vite build",
     "build:pdv": "cross-env VITE_APP_PROFILE=pdv vite build",
     "build:kds": "cross-env VITE_APP_PROFILE=kds vite build",
-    "lint": "oxlint src vite .storybook vite.config.js vitest.config.js",
     "test": "vitest run",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "/* Scripts de Qualidade de Código */": "",
+    "lint": "oxlint src vite .storybook vite.config.ts vitest.config.js",
+    "format": "biome format src --write",
+    "check": "biome check --write src",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -25,6 +29,7 @@
     "@tauri-apps/plugin-updater": "^2.13.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "idb": "^8.0.4",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.31.0",
     "qrcode": "^1.5.4",
@@ -37,18 +42,27 @@
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
     "@storybook/addon-a11y": "^10.6.2",
     "@storybook/addon-docs": "^10.6.2",
     "@storybook/react-vite": "^10.6.2",
     "@testing-library/react": "^16.3.3",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
+    "@types/node": "^22.13.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.0.4",
     "cross-env": "^10.1.0",
     "jsdom": "^26.1.0",
     "oxlint": "^1.75.0",
     "storybook": "^10.6.2",
+    "typescript": "^5.7.3",
     "vite": "^8.2.0",
+    "vite-plugin-pwa": "^0.21.1",
     "vitest": "^5.0.1"
+  },
+  "overrides": {
+    "vite-plugin-pwa": {
+      "vite": "$vite"
+    }
   }
 }

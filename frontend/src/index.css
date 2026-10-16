@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap");
 @import "tailwindcss";
 
 /* Design tokens semânticos: vinculam o tema (variáveis CSS) aos utilitários
@@ -40,8 +40,8 @@
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar-accent-foreground: var(--sidebar-accent-fg);
   --color-sidebar-border: var(--sidebar-border);
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-display: 'Fredoka', 'Inter', system-ui, sans-serif;
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-display: "Fredoka", "Inter", system-ui, sans-serif;
   --radius-lg: calc(var(--radius) * 1);
   --radius-xl: calc(var(--radius) * 1.4);
   --radius-2xl: calc(var(--radius) * 1.8);
@@ -50,27 +50,27 @@
 :root {
   color-scheme: light;
   /* Paleta Cheempa: creme/marrom/dourado. Troque aqui para re-skin global. */
-  --app-bg: oklch(0.99 0.006 90);            /* fundo creme */
-  --surface-raised: oklch(1 0 0);             /* cards: branco */
-  --surface-overlay: oklch(0.96 0.012 85);    /* overlays/hover: cinza-quente */
-  --border-subtle: oklch(0.91 0.015 80);      /* bordas */
-  --text-primary: oklch(0.18 0.01 50);        /* texto: marrom-escuro */
-  --text-secondary: oklch(0.48 0.02 55);      /* texto secundário */
-  --text-muted: oklch(0.55 0.03 55);          /* texto fraco */
-  --status-success: oklch(0.42 0.12 145);     /* verde sucesso (tema claro) */
-  --status-warning: oklch(0.65 0.15 80);      /* amarelo aviso */
-  --status-danger: oklch(0.50 0.20 27);       /* vermelho erro */
+  --app-bg: oklch(0.99 0.006 90); /* fundo creme */
+  --surface-raised: oklch(1 0 0); /* cards: branco */
+  --surface-overlay: oklch(0.96 0.012 85); /* overlays/hover: cinza-quente */
+  --border-subtle: oklch(0.91 0.015 80); /* bordas */
+  --text-primary: oklch(0.18 0.01 50); /* texto: marrom-escuro */
+  --text-secondary: oklch(0.48 0.02 55); /* texto secundário */
+  --text-muted: oklch(0.55 0.03 55); /* texto fraco */
+  --status-success: oklch(0.42 0.12 145); /* verde sucesso (tema claro) */
+  --status-warning: oklch(0.65 0.15 80); /* amarelo aviso */
+  --status-danger: oklch(0.5 0.2 27); /* vermelho erro */
   --status-success-fill: var(--status-success);
   --status-success-fill-strong: var(--status-success);
   --status-success-foreground: var(--text-primary);
   --status-danger-fill: var(--status-danger);
   --status-danger-fill-strong: var(--status-danger);
   --status-danger-foreground: var(--text-primary);
-  --brand-accent: oklch(0.86 0.17 92);        /* dourado primário */
+  --brand-accent: oklch(0.86 0.17 92); /* dourado primário */
   --brand-accent-strong: oklch(0.78 0.16 85); /* dourado hover */
   --brand-accent-foreground: oklch(0.18 0.01 50);
-  --channel-sky: oklch(0.5 0.09 220);         /* identificador de canal: Site / WhatsApp */
-  --whatsapp: oklch(0.72 0.18 145);           /* verde oficial do WhatsApp */
+  --channel-sky: oklch(0.5 0.09 220); /* identificador de canal: Site / WhatsApp */
+  --whatsapp: oklch(0.72 0.18 145); /* verde oficial do WhatsApp */
   /* Sidebar marrom do Cheempa */
   --sidebar-bg: oklch(0.27 0.04 48);
   --sidebar-fg: oklch(0.95 0.02 85);
@@ -94,9 +94,9 @@
   --text-primary: oklch(0.94 0.008 85);
   --text-secondary: oklch(0.82 0.014 75);
   --text-muted: oklch(0.77 0.016 70);
-  --status-success: oklch(0.80 0.14 145);
+  --status-success: oklch(0.8 0.14 145);
   --status-warning: oklch(0.86 0.14 82);
-  --status-danger: oklch(0.80 0.12 28);
+  --status-danger: oklch(0.8 0.12 28);
   --status-success-fill: oklch(0.48 0.13 145);
   --status-success-fill-strong: oklch(0.53 0.14 145);
   --status-success-foreground: oklch(0.98 0.005 85);
@@ -110,7 +110,9 @@
   --sidebar-border: oklch(0.29 0.018 50);
 }
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
 }
 html {
@@ -118,13 +120,16 @@ html {
   text-size-adjust: 100%;
 }
 body {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: "Inter", system-ui, sans-serif;
   background-color: var(--app-bg);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
-button, input, textarea, select {
+button,
+input,
+textarea,
+select {
   font: inherit;
 }
 button:not(:disabled) {
@@ -153,59 +158,125 @@ button:not(:disabled) {
 }
 
 .font-display {
-  font-family: 'Fredoka', 'Inter', system-ui, sans-serif;
+  font-family: "Fredoka", "Inter", system-ui, sans-serif;
 }
 
-@keyframes shakeX { 
-  10%, 90% { transform: translateX(-2px); } 
-  20%, 80% { transform: translateX(4px); } 
-  30%, 50%, 70% { transform: translateX(-8px); } 
-  40%, 60% { transform: translateX(8px); } 
+@keyframes shakeX {
+  10%,
+  90% {
+    transform: translateX(-2px);
+  }
+  20%,
+  80% {
+    transform: translateX(4px);
+  }
+  30%,
+  50%,
+  70% {
+    transform: translateX(-8px);
+  }
+  40%,
+  60% {
+    transform: translateX(8px);
+  }
 }
-.shake-anim { animation: shakeX 0.42s ease-in-out; }
+.shake-anim {
+  animation: shakeX 0.42s ease-in-out;
+}
 
-@keyframes fadeUp { 
-  from { opacity: 0; transform: translateY(8px); } 
-  to { opacity: 1; transform: translateY(0); } 
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
-.fade-up { animation: fadeUp 0.25s ease-out; }
+.fade-up {
+  animation: fadeUp 0.25s ease-out;
+}
 
-@keyframes slideInLeft { 
-  from { transform: translateX(-100%); } 
-  to { transform: translateX(0); } 
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
-.slide-in-left { animation: slideInLeft 0.22s ease-out; }
+.slide-in-left {
+  animation: slideInLeft 0.22s ease-out;
+}
 
-@keyframes slideInRight { 
-  from { transform: translateX(100%); } 
-  to { transform: translateX(0); } 
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
-.slide-in-right { animation: slideInRight 0.22s ease-out; }
+.slide-in-right {
+  animation: slideInRight 0.22s ease-out;
+}
 
-@keyframes dotPop { 
-  0% { transform: scale(0.6); } 
-  60% { transform: scale(1.15); } 
-  100% { transform: scale(1); } 
+@keyframes dotPop {
+  0% {
+    transform: scale(0.6);
+  }
+  60% {
+    transform: scale(1.15);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
-.dot-pop { animation: dotPop 0.18s ease-out; }
+.dot-pop {
+  animation: dotPop 0.18s ease-out;
+}
 
-@keyframes popIn { 
-  from { transform: scale(0.9); opacity: 0; } 
-  to { transform: scale(1); opacity: 1; } 
+@keyframes popIn {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
-.pop-anim { animation: popIn 0.2s ease-out; }
+.pop-anim {
+  animation: popIn 0.2s ease-out;
+}
 
-@keyframes toastIn { 
-  from { transform: translate(-50%, -12px); opacity: 0; } 
-  to { transform: translate(-50%, 0); opacity: 1; } 
+@keyframes toastIn {
+  from {
+    transform: translate(-50%, -12px);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
 }
-.toast-anim { animation: toastIn 0.2s ease-out; }
+.toast-anim {
+  animation: toastIn 0.2s ease-out;
+}
 
-@keyframes urgentPulse { 
-  0%, 100% { box-shadow: 0 0 0 0 rgba(248,113,113,0.35); } 
-  50% { box-shadow: 0 0 0 8px rgba(248,113,113,0); } 
+@keyframes urgentPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(248, 113, 113, 0);
+  }
 }
-.urgent-pulse { animation: urgentPulse 1.6s ease-out infinite; }
+.urgent-pulse {
+  animation: urgentPulse 1.6s ease-out infinite;
+}
 
 .scrollbar-none {
   scrollbar-width: none;
@@ -219,9 +290,18 @@ button:not(:disabled) {
     `#print-root` pode estar aninhado em qualquer lugar do DOM — o truque é
     esconder tudo com visibility e re-expor apenas a subárvore do cupom. */
 @media print {
-  body * { visibility: hidden; }
-  #print-root, #print-root * { visibility: visible; }
-  #print-root { position: fixed; inset: 0; overflow: visible; }
+  body * {
+    visibility: hidden;
+  }
+  #print-root,
+  #print-root * {
+    visibility: visible;
+  }
+  #print-root {
+    position: fixed;
+    inset: 0;
+    overflow: visible;
+  }
 }
 
 /* NEW: Login Page Spinner Styles */
@@ -275,15 +355,15 @@ button:not(:disabled) {
   top: 0;
   left: 0;
   width: 0;
-  content: '';
+  content: "";
   height: inherit;
   position: absolute;
-  background-color: #FBCE13;
+  background-color: #fbce13;
   animation: bar 2500ms linear infinite;
 }
 
 .text {
-  color: #FBCE13;
+  color: #fbce13;
   font-size: 24px;
   font-weight: 500;
   text-align: center;
@@ -307,7 +387,7 @@ button:not(:disabled) {
   margin-left: 12px;
   border-radius: 3px;
   position: absolute;
-  background-color: #FBCE13;
+  background-color: #fbce13;
   animation: move-cap 2500ms linear infinite;
 }
 
@@ -337,9 +417,9 @@ button:not(:disabled) {
 .bottle:after {
   left: 50%;
   opacity: 0;
-  content: '';
+  content: "";
   position: absolute;
-  background-color: #FCE480;
+  background-color: #fce480;
 }
 
 .bottle:before {
@@ -360,15 +440,24 @@ button:not(:disabled) {
   animation: show-cap 2500ms linear infinite;
 }
 
-.bottle:nth-child(2), .bottle:nth-child(2):before, .bottle:nth-child(2):after, .bottle:nth-child(2) .bottle-fill {
+.bottle:nth-child(2),
+.bottle:nth-child(2):before,
+.bottle:nth-child(2):after,
+.bottle:nth-child(2) .bottle-fill {
   animation-delay: 625ms;
 }
 
-.bottle:nth-child(3), .bottle:nth-child(3):before, .bottle:nth-child(3):after, .bottle:nth-child(3) .bottle-fill {
+.bottle:nth-child(3),
+.bottle:nth-child(3):before,
+.bottle:nth-child(3):after,
+.bottle:nth-child(3) .bottle-fill {
   animation-delay: 1250ms;
 }
 
-.bottle:nth-child(4), .bottle:nth-child(4):before, .bottle:nth-child(4):after, .bottle:nth-child(4) .bottle-fill {
+.bottle:nth-child(4),
+.bottle:nth-child(4):before,
+.bottle:nth-child(4):after,
+.bottle:nth-child(4) .bottle-fill {
   animation-delay: 1875ms;
 }
 
@@ -380,11 +469,21 @@ button:not(:disabled) {
 
 /* Fixed keyframes issues */
 @keyframes bottle-fade {
-  0% { opacity: 0 }
-  20% { opacity: 1 }
-  50% { opacity: 1 }
-  80% { opacity: 1 }
-  100% { opacity: 0 }
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 @keyframes move {
@@ -396,11 +495,15 @@ button:not(:disabled) {
     opacity: 1;
     transform: translateX(75px);
   }
-  48% { transform: translateX(144px) translateY(0); }
+  48% {
+    transform: translateX(144px) translateY(0);
+  }
   50% {
     transform: translateX(150px) translateY(-10px);
   }
-  52% { transform: translateX(156px) translateY(0); }
+  52% {
+    transform: translateX(156px) translateY(0);
+  }
   75% {
     opacity: 1;
     transform: translateX(225px);
@@ -420,12 +523,18 @@ button:not(:disabled) {
     opacity: 1;
     transform: translate(75px, 0);
   }
-  45% { opacity: 1; }
-  48% { transform: translate(144px, 0); }
+  45% {
+    opacity: 1;
+  }
+  48% {
+    transform: translate(144px, 0);
+  }
   50% {
     transform: translate(150px, 10px);
   }
-  52% { opacity: 0; }
+  52% {
+    opacity: 0;
+  }
   75% {
     transform: translate(225px, 0);
   }
@@ -436,22 +545,44 @@ button:not(:disabled) {
 }
 
 @keyframes show-cap {
-  0%, 45% { opacity: 0; }
-  48%, 90% { opacity: 1; }
+  0%,
+  45% {
+    opacity: 0;
+  }
+  48%,
+  90% {
+    opacity: 1;
+  }
 }
 
 @keyframes lock-cap {
-  0%, 45%, 48%, 100% { opacity: 0; transform: translateY(-10px); }
-  46%, 47% { opacity: 1; transform: translateY(0); }
+  0%,
+  45%,
+  48%,
+  100% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  46%,
+  47% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes bar {
-  0% { width: 0; }
-  100% { width: 100%; }
+  0% {
+    width: 0;
+  }
+  100% {
+    width: 100%;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;

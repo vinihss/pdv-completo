@@ -1,1 +1,0 @@
-export { default as CashierApp } from "./CashierApp.jsx";
