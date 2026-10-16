@@ -1,0 +1,1 @@
+export { default as ManagerApp } from "./ManagerApp.jsx";
