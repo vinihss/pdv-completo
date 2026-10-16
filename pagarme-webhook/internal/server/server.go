@@ -79,9 +79,9 @@ type Server struct {
 	// resolver devolve o tenant de um `merchant_id` do webhook. Nil = modo
 	// uma-loja: todo evento cai no tenant default (comportamento de antes do
 	// multi-tenant). Ver internal/tenancy.
-	resolver  tenancy.Resolver
-	started   time.Time
-	version   string
+	resolver tenancy.Resolver
+	started  time.Time
+	version  string
 	// health carrega o estado do banco, que o /health só lê (nunca pergunta na
 	// request) — ver health.go.
 	health *HealthProbe

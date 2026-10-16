@@ -116,11 +116,11 @@ const (
 // mapper.ts), e um segundo lugar que descobre `pay_` dentro do JSON seria um
 // segundo lugar que pode descobrir diferente.
 type Request struct {
-	EventID           string         `json:"eventId,omitempty"`
-	EventType         string         `json:"eventType,omitempty"`
-	ProviderOrderID   string         `json:"providerOrderId,omitempty"`
-	ProviderPaymentID string         `json:"providerPaymentId,omitempty"`
-	Source            string         `json:"source"`
+	EventID           string `json:"eventId,omitempty"`
+	EventType         string `json:"eventType,omitempty"`
+	ProviderOrderID   string `json:"providerOrderId,omitempty"`
+	ProviderPaymentID string `json:"providerPaymentId,omitempty"`
+	Source            string `json:"source"`
 	// Tenant é o slug da loja dona do evento (ver internal/tenancy). O Node o
 	// usa para escopar a transação de `applyCharge` no schema daquela loja
 	// (`SET LOCAL search_path`). `omitempty` porque o modo uma-loja (sem
