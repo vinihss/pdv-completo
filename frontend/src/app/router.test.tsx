@@ -90,25 +90,6 @@ describe("AppFrame", () => {
         <Root />
       </MemoryRouter>
     );
-    npm;
-    warn;
-    deprecated;
-    trim;
-    @0.0
-    0.1;
-    : Use String.prototype.trim() instead
-    npm warn deprecated jpeg-exif
-    @1.1
-    0.4;
-    : Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
-
-        /home/vinicius/.npm/_npx/496fe2562efe5dfa/node_modules/rename-cli/rename.js:352
-    throw "InvalidReplacementVariable";
-    ^
-    InvalidReplacementVariable
-    (Use `node --trace-uncaught ...` to show where the exception was thrown)
-
-    Node.js v24.15.0
     expect(container.querySelector("header, .sticky")?.className).toContain("h-14")
     expect(container.querySelector("aside").className).toContain("top-14")
   });

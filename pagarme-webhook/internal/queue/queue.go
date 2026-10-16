@@ -378,9 +378,9 @@ func (d *Drainer) process(ctx context.Context, tx *sql.Tx, tenant tenancy.Tenant
 		// schema da loja antes de `applyCharge`. Sem ele o Node cairia no
 		// default — que é o erro silencioso mais caro possível (pagamento
 		// aplicado na loja errada), por isso ele é preenchido SEMPRE.
-		Tenant:  tenant.Slug,
-		Source:  nodeapi.SourceEvent,
-		Charge:  nodeapi.NewChargePayload(charge),
+		Tenant: tenant.Slug,
+		Source: nodeapi.SourceEvent,
+		Charge: nodeapi.NewChargePayload(charge),
 	}
 
 	res, err := d.aplica.ApplyEvent(ctx, e.id, req)
