@@ -56,7 +56,7 @@ Ver nota completa em `src/application/order/order.usecases.ts:15-28`.
 
 A estrutura, a lista atual e as regras de compatibilidade estão em [`backend/migrations/README.md`](../backend/migrations/README.md). O runner persiste o **filename completo** em `_migrations.name`; nomes já publicados são imutáveis. Não renomeie/mova/reordene SQL aplicado.
 
-Estado do checkout (lista pode evoluir; confirme a pasta antes de criar): baseline `0001_init.sql` e incrementais `0002_pagarme.sql`, `0003_courier_location.sql`, `0004_delivery_arrival_alert_sent.sql` e `0004_device_provisioning.sql`. Os dois `0004_*` são uma colisão histórica, ordenada lexicamente; não a replique. A próxima migration deve usar prefixo novo superior (`0005_*` no estado atual).
+Estado do checkout (lista pode evoluir; confirme a pasta antes de criar): baseline `0001_init.sql` e incrementais `0002_pagarme.sql`, `0003_courier_location.sql`, `0004_delivery_arrival_alert_sent.sql` e `0004_device_provisioning.sql`. Os dois `0004_*` são uma colisão histórica, ordenada lexicamente; não a replique. A próxima migration deve usar prefixo novo superior (`0012_*` no estado atual).
 
 - O runner lê apenas arquivos `.sql` diretamente em `backend/migrations/`, ordena pelo filename e aplica por schema dentro de transação.
 - `archive/` é histórico não executável; `registry/` usa runner separado e aplica somente em `public`. Não misture os diretórios.
@@ -90,6 +90,13 @@ tem um `statSync().isFile()` explícito por isso.
   hoje): ligado, todo endereço fora do registry dá 404. `PLATFORM_ROOT_DOMAIN`
   (= `${ROOT_DOMAIN}` do Caddy) é o que separa o apex de um subdomínio num TLD de
   duas labels. Kill-switch: `TENANT_ROUTING=false` → todo host vira tenant default.
+
+## GIS/roteirização de entregas
+
+- O módulo `src/modules/delivery/` usa `getTenantPool(resolveTenantSchemaInScope())` para manter o isolamento por schema; não use a pool global.
+- Migration `0011_delivery_gis.sql` instala PostGIS no banco e adiciona geometria à tabela `delivery`/`courier_location`. Leia `deploy/maps/README.md` antes de configurar OSRM/tiles.
+- As rotas `/delivery-regions*` são exclusivas do gerente; o checkout atribui região se o endereço salvo já tem coordenadas. Para entregas sem coordenadas, use `POST /delivery-regions/deliveries/:id/coordinate`. `POST /courier/location` também salva a geometria/região e publica evento no outbox quando há mudança de região.
+- OSRM Trip é heurística para sequência de paradas, não um solver VRP com capacidades/janelas.
 
 ## Build da imagem Docker
 

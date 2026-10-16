@@ -27,6 +27,7 @@ A lista abaixo reflete o checkout atual; confirme os arquivos antes de cada muda
 | 7 | `0008_cash_movement_category.sql` | Categoria de sangria/suprimento + alçadas |
 | 8 | `0009_remove_whatsapp.sql` | Remoção da integração WhatsApp |
 | 9 | `0010_remove_payment_ifood.sql` | Remoção da camada de pagamento online (Pagar.me) e do iFood |
+| 10 | `0011_delivery_gis.sql` | PostGIS, regiões geográficas, geofencing e rotas OSRM |
 
 `0002_pagarme.sql` (cobranças, inbox do webhook e estornos do gateway) e
 `0007_order_settlement.sql` (repasse de marketplace) foram removidos da cadeia
@@ -44,7 +45,7 @@ mensagem de WhatsApp). O valor `'whatsapp'` do enum `channel` **permanece**, por
 compatibilidade de leitura de pedidos antigos — é read-only no código. Pela
 mesma razão, `0010` mantém o valor `'ifood'` do enum `channel`.
 
-Os dois nomes `0004_*` são uma colisão histórica já implantada; a ordenação lexical atual executa `delivery_arrival_alert_sent` antes de `device_provisioning`. **Não renomeie nenhum dos dois**. Para migrations novas, use um prefixo numérico lexicograficamente posterior ao maior existente (no estado atual, `0011_*`) e evite reutilizar prefixos.
+Os dois nomes `0004_*` são uma colisão histórica já implantada; a ordenação lexical atual executa `delivery_arrival_alert_sent` antes de `device_provisioning`. **Não renomeie nenhum dos dois**. Para migrations novas, use um prefixo numérico lexicograficamente posterior ao maior existente (no estado atual, `0012_*`) e evite reutilizar prefixos.
 
 ## Regras para mudanças futuras
 

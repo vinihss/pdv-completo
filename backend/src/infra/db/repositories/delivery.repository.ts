@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { Tx } from "../client.js";
 import { deliveries } from "../schema.js";
 import { Errors } from "../../../domain/errors.js";
@@ -117,6 +117,8 @@ export class PostgresDeliveryRepository implements DeliveryRepository {
     status: DeliveryStatus;
     distanceKm: number | null;
     estimatedMinutes: number;
+    latitude?: number | null;
+    longitude?: number | null;
   }): Promise<DeliveryRecord> {
     const [row] = await this.tx
       .insert(deliveries)
@@ -129,6 +131,17 @@ export class PostgresDeliveryRepository implements DeliveryRepository {
       })
       .returning();
     if (!row) throw Errors.validationFailed({ field: "orderId" });
+    if (input.latitude != null && input.longitude != null) {
+      if (input.latitude < -90 || input.latitude > 90 || input.longitude < -180 || input.longitude > 180) {
+        throw Errors.validationFailed({ field: "coordinate", reason: "coordenada fora do intervalo WGS84" });
+      }
+      await this.tx.execute(sql`WITH point AS (
+        SELECT ST_SetSRID(ST_MakePoint(${input.longitude}, ${input.latitude}), 4326) AS geom
+      ) UPDATE delivery d SET coordinate = point.geom,
+        region_id = (SELECT r.id FROM delivery_region r WHERE ST_Contains(r.area_geografica, point.geom)
+          ORDER BY ST_Area(r.area_geografica::geography) LIMIT 1)
+        FROM point WHERE d.id = ${row.id}`);
+    }
     return toDeliveryRecord(row);
   }
 

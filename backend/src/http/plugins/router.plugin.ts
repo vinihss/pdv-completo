@@ -24,6 +24,7 @@ import { alertRoutes } from "../routes/alert.routes.js";
 import { provisioningRoutes } from "../routes/provisioning.routes.js";
 import { uploadsRoutes } from "../routes/uploads.routes.js";
 import { refundRoutes } from "../routes/refund.routes.js";
+import { deliveryGisRoutes } from "../../modules/delivery/delivery-gis.routes.js";
 
 async function routerPlugin(app: FastifyInstance) {
     await app.register(authRoutes);
@@ -48,6 +49,7 @@ async function routerPlugin(app: FastifyInstance) {
     await app.register(provisioningRoutes);
     await app.register(uploadsRoutes);
     await app.register(refundRoutes);
+    await app.register(deliveryGisRoutes);
 }
 
 // O uso do fastify-plugin evita que o Fastify crie um novo escopo isolado de contexto

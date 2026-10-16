@@ -8,6 +8,7 @@ import {
   failDeliveryUsecase,
   reportCourierLocationUsecase,
 } from "../../infra/composition/domains/self-service.js";
+import { updateCourierPosition } from "../../modules/delivery/delivery-gis.service.js";
 
 // "cancelled" (baseline 0001) entra no filtro: o entregador precisa conseguir listar
 // o histórico do que foi cancelado no meio da rota.
@@ -70,7 +71,11 @@ export async function courierRoutes(app: FastifyInstance) {
 
   app.post("/courier/location", async (req) => {
     const body = locationSchema.parse(req.body);
-    return reportCourierLocationUsecase({ courierId: req.authUser!.sub, ...body });
+    const location = await reportCourierLocationUsecase({ courierId: req.authUser!.sub, ...body });
+    // A escrita convencional mantém accuracy/updated_at e publica o evento
+    // existente; esta segunda etapa acrescenta a geometria e deteta a região.
+    const spatial = await updateCourierPosition(req.authUser!.sub, body);
+    return { ...location, regionId: spatial?.region_id ?? null };
   });
 
   app.patch("/courier/deliveries/:id/fail", async (req) => {
