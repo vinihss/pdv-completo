@@ -96,7 +96,16 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # PostGIS obrigatório: `backend/test/global-setup.ts` roda o runner REAL
+        # de migrations, e a `0011_delivery_gis.sql` faz `CREATE EXTENSION
+        # postgis`. A imagem `postgres:16` não traz o pacote do SO e a migration
+        # falha com `extension "postgis" is not available`. `postgis/postgis` é a
+        # mesma base `postgres:16-alpine` com o PostGIS acrescentado — mesmo
+        # PGDATA e mesmo comportamento de conexão (o DSN deste job, sem TLS,
+        # segue valendo igual).
+        # Os outros dois serviços de Postgres deste arquivo NÃO rodam migrations
+        # e seguem com a imagem enxuta.
+        image: postgis/postgis:16-3.5-alpine
         env:
 
           POSTGRES_USER: pdv
