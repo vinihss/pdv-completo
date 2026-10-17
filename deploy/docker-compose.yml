@@ -1,43 +1,24 @@
-# ============================================================
-# Deploy completo: backend + frontend (o proxy Caddy roda FORA do Docker,
-# como serviço systemd `pdv-caddy` no host — ver caddy-host.sh)
-# Uso: cd deploy && cp .env.example .env && ajuste os valores && docker compose up -d
-#
-# PostgreSQL é o ÚNICO banco suportado (o SQLite foi removido). O serviço
-# `postgres` abaixo sobe junto por padrão e o backend espera o healthcheck.
-# Para usar um Postgres gerenciado (RDS, Neon, etc.), aponte DATABASE_URL para o
-# endpoint externo e suba o backend sem a dependência do serviço local:
-#   docker compose up -d --no-deps backend frontend
-#
-# ---------- Deploy sem downtime ----------
-# A partir do 2º deploy, NÃO use `docker compose up -d --build`: use
-# `deploy/switch.sh` (o mesmo que o CI chama). A topologia tem duas
-# instâncias de backend e duas de frontend — `backend`/`frontend` e
-# `backend-next`/`frontend-next` — que saem da MESMA âncora (e da mesma
-# imagem), então "próxima" e "atual" são só nomes. O que decide quem está
-# no ar é o ponteiro `state/active-upstream`, lido pelo `caddy-assemble.sh`
-# (no host, pelo unit `pdv-caddy`; no perfil `--profile local`, de dentro do
-# container do Caddy — os dois mundos usam o mesmo script). As instâncias
-# `-next` estão no profile
-# `canary`: um `up` comum não as sobe, o que mantém esta instalação
-# igual à anterior para quem nunca fez um switch.
-# ============================================================
+name: pdv
 services:
-  # ---------- O Caddy saiu daqui ----------
-  # Em produção o proxy é o serviço systemd `pdv-caddy` no HOST
-  # (`deploy/caddy-host.sh` + `deploy/pdv-caddy.service`): ele ocupa 80/443
-  # fora do Docker e resolve os nomes dos containers (`backend`,
-  # `pedidopublic`, …) pelo bloco do `/etc/hosts` que o mesmo script grava —
-  # daí os `ipv4_address` fixos lá embaixo. Os stacks `local`/`dev`
-  # (docker-compose.local.yml / .dev.yml) CONTINUAM com o Caddy
-  # containerizado; o `switch.sh` escolhe o caminho por `has_service caddy`.
-  #
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=localhost
+      - PDV_WS_UPSTREAM=${PDV_WS_UPSTREAM:-backend:3000}
+    volumes:
+      - ./Caddyfile.dev:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - pdv-internal
 
-  # ---------- Backend ----------
-  # `backend` e `backend-next` são o MESMO serviço com nomes diferentes
-  # (`extends`, não cópia: não há como os dois divergirem por esquecimento
-  # no meio do caminho). A diferença entre "atual" e "próxima" é o
-  # healthcheck + o `stop_grace_period`, não o conteúdo.
   backend:
     build:
       context: ../backend
@@ -47,47 +28,20 @@ services:
     # mesmo tag (duas imagens iguais custariam build e disco à toa).
     image: ${BACKEND_IMAGE:-pdv-backend:local}
     restart: unless-stopped
-    # ---------- IP fixo na bridge do Docker ----------
-    # O proxy de produção roda no HOST (unit `pdv-caddy`) e resolve o nome
-    # `backend` pelo bloco que o `caddy-host.sh` grava no `/etc/hosts`
-    # (`172.18.0.241 backend`). Nome de container só dá para prever com IP
-    # fixo — e a faixa começa em `.241` porque a alocação sequencial do
-    # Docker começa em `.2` e sobe: escolher `.2`-`.10` colidiria com o
-    # próximo container que a rede criar.
     networks:
-      default:
-        ipv4_address: 172.18.0.241
+      - pdv-internal
     environment:
       - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-local}
       - DATABASE_URL=${DATABASE_URL:-postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}}
       - DATABASE_POOL_MAX=${DATABASE_POOL_MAX:-10}
       - UPLOADS_DIR=/app/uploads
       - JWT_SECRET=${JWT_SECRET}
-      # Lista de origens permitidas, separada por vírgula. O padrão é só o
-      # domínio do app; se o PDV também for servido em outro endereço (ex.:
-      # hostname antigo do servidor), defina CORS_ORIGIN no .env com a lista
-      # completa — se não, o navegador bloqueia a API e o app "carrega mas
-      # não funciona".
       - CORS_ORIGIN=${CORS_ORIGIN:-https://${DOMAIN}}
       - PORT=3000
       - LOG_LEVEL=info
-      # Schema que o processo fala enquanto `TENANT_ROUTING` estiver
-      # desligado (kill-switch, default off). Produção usa `umami1` (o dado
-      # do Umami saiu de `public`); vazio/ausente = `public` (o backend trata
-      # "" como unset). Precisa estar listado AQUI: o `backend-next` herda
-      # só o que está neste bloco via `extends` — sem a chave o canary
-      # subiria em `public` enquanto o azul ficaria no schema novo.
       - DEFAULT_TENANT_SCHEMA=${DEFAULT_TENANT_SCHEMA:-}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
-      # Kill-switch do roteamento por Host (tenantRoutingEnabled em
-      # resolve-tenant.usecase.ts): sem esta linha no BLOCO, o `.env` até tem
-      # `TENANT_ROUTING=true` mas o processo não vê — e todo host cai no
-      # schema default. `backend-next` herda via `extends`.
       - TENANT_ROUTING=${TENANT_ROUTING:-false}
-
-      # ---------- WhatsApp Cloud API (Embedded Signup) ----------
-      # Sem isto a aba 'WhatsApp' do gerente mostra 'não configurado' — o
-      # resto do app funciona normal.
       - META_APP_ID=${META_APP_ID:-}
       - META_APP_SECRET=${META_APP_SECRET:-}
       - WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID=${WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID:-}
@@ -96,11 +50,7 @@ services:
       - APP_TAG=${APP_TAG:-}
     volumes:
       - backend_uploads:/app/uploads
-    # Portão do switch: o container só fica "healthy" depois que o
-    # /health responde, e o /health só abre depois das migrations
-    # (server.ts roda runMigrations() antes do app.listen). Sem isto o
-    # switch poderia cortar o tráfego para uma instância ainda sem schema.
-    # A imagem é node:slim, sem curl/wget — o próprio node faz o check.
+
     healthcheck:
       test:
         - CMD
@@ -133,8 +83,7 @@ services:
     # serviços nasceriam com o MESMO 172.18.0.241 — o Docker recusa o
     # segundo container ("Pool overlaps"). Mesma razão, faixa contígua.
     networks:
-      default:
-        ipv4_address: 172.18.0.242
+      - pdv-internal
     depends_on:
       postgres:
         condition: service_healthy
@@ -149,12 +98,8 @@ services:
     restart: unless-stopped
     # IP fixo para o `/etc/hosts` do caddy-host.sh (mesma razão do `backend`).
     networks:
-      default:
-        ipv4_address: 172.18.0.243
-    # nginx serve conteúdo estático, mas "estático" não quer dizer "pronto no
-    # instante": o switch espera este healthcheck antes de apontar o proxy,
-    # senão o primeiro F5 pós-deploy pega 502. A imagem nginx:alpine traz
-    # wget do busybox (não traz curl).
+      - pdv-internal
+
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
       interval: 3s
@@ -162,43 +107,7 @@ services:
       retries: 20
       start_period: 3s
 
-  frontend-next:
-    extends:
-      service: frontend
-    profiles: ["canary"]
-    # Override obrigatório do `ipv4_address` herdado (ver `backend-next`).
-    networks:
-      default:
-        ipv4_address: 172.18.0.244
 
-  # ---------- Gateway WebSocket em Go (opt-in) ----------
-  # Servidor WS do PDV escrito em Go: serve `/realtime`, `/realtime/public`
-  # e `/health`, e publica o que o backend grava em `outbox_event`. Mesmo
-  # handshake, mesmas rooms e mesmo token do `WsGateway` do Node — quem não
-  # muda é o app. Não escreve nada no banco, então não tem migration e não
-  # tem estado em disco.
-  #
-  # ---------- Por que está atrás de `profiles` ----------
-  # O dispatcher do gateway disputa com o do Node o MESMO advisory lock
-  # (`pdv:outbox:owner`, backend/src/infra/locks.ts) e marca o evento como
-  # publicado mesmo com ZERO assinantes na room. Um gateway de pé que não
-  # está no caminho do `/realtime` ganha metade dos ciclos e engole os
-  # eventos realtime de quem está no Node — sem erro em log nenhum, só a
-  # tela do salão que não atualiza. Ou seja: subir este container não é
-  # inofensivo como "só mais um serviço parado". Ele sobe junto com a flag
-  # `WS_BACKEND=go` (README §"Gateway WebSocket em Go"), e o Caddy não
-  # depende dele de propósito: o rollback pro Node tem que funcionar com o
-  # gateway quebrado ou parado.
-  #
-  # O `profiles:` segura o `up` do dia a dia, e só isso. Ele NÃO fecha a
-  # janela perigosa: subir o container para preparar a virada faz o gateway
-  # disputar o lock com o Node antes do Caddy virar, e é justamente aí que
-  # ele parece inofensivo (ninguém conectado nele). Quem fecha essa janela
-  # é o gate `WS_DISPATCH` (ver `environment` abaixo e
-  # `ws-gateway/internal/outbox/gate.go`): desligado, o dispatcher do
-  # gateway simplesmente não existe, e o `profile` volta a ser só convenção
-  # de inicialização. Por isso os dois andam juntos — o profile é a
-  # convenção, o gate é a garantia.
   ws-gateway:
     build:
       context: ../ws-gateway
@@ -211,75 +120,17 @@ services:
     # a funcionar: a porta 8080 não é publicada, mas o host alcança o IP da
     # bridge diretamente.
     networks:
-      default:
-        ipv4_address: 172.18.0.246
+      - pdv-internal
     environment:
-      # Mesmo banco e mesmo `outbox_event` do backend — o gateway não tem
-      # schema próprio, é só um leitor da fila que o backend grava.
-      #
-      # `?sslmode=disable` no DEFAULT (e só no default): o driver do gateway é o
-      # lib/pq, que assume `sslmode=require` quando a DSN não diz nada, e o
-      # `postgres` deste compose não tem TLS — sem o parâmetro o `db.Connect`
-      # falha com "pq: SSL is not enabled on the server" e o gateway sobe SEM
-      # pool: `/health` 200, `outboxEnabled:false`, log de aviso, e nenhum
-      # evento sai. Medido. Quem aponta `DATABASE_URL` no `.env` (Postgres
-      # externo, com ou sem TLS) escolhe o próprio parâmetro, porque aí a DSN
-      # inteira vem de fora.
       - DATABASE_URL=${DATABASE_URL:-postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}?sslmode=disable}
       - PORT=8080
-      # `JWT_SECRET` e NÃO `WS_JWT_SECRET`: o binário aceita os dois (o
-      # primeiro com fallback para o segundo), mas passar só um garante que
-      # os dois processos não podem divergir. Divergindo, a falha é o pior
-      # caso possível — o browser leva 401 no handshake, o WebSocket morre
-      # em silêncio e o app entra em loop de reconexão sem mensagem nenhuma
-      # no servidor além do log do gateway.
       - JWT_SECRET=${JWT_SECRET}
-      # Vazio (default) = aceita qualquer origem; atrás do Caddy é o certo,
-      # porque quem autentica o realtime é o JWT no subprotocol. Ver
-      # .env.example antes de preencher.
       - WS_ALLOWED_ORIGINS=${WS_ALLOWED_ORIGINS:-}
-      # Gate de posse do realtime: desligado (vazio) por padrão, e o gateway
-      # NÃO despacha `outbox_event` — ele serve as conexões e não come a fila
-      # de quem ainda está conectado no Node. Só `1|true|yes|on` ligam.
-      #
-      # Repassar isto aqui não é opcional: sem a linha, a variável chega
-      # VAZIA no container (o `docker compose run/up` só injeta o que está
-      # declarado), o gate fica desligado para sempre e `WS_BACKEND=go` vira
-      # no-op silencioso — o Caddy aponta /realtime para o gateway, o
-      # handshake passa, o `join` é aceito e NENHUM evento chega, sem erro em
-      # lugar nenhum. O sino do salão só volta a tocar no F5 seguinte.
-      #
-      # Ligue junto com a virada do proxy (README §"Como ligar"), nunca
-      # antes: ligado cedo, o gateway passa a disputar o advisory lock
-      # `pdv:outbox:owner` com o Node e a ganhar metade dos ciclos, marcando
-      # `published = true` de evento que o Node ainda precisa entregar a quem
-      # está conectado lá. O `profiles:` abaixo segura o `up` normal, não essa
-      # janela — o gate é que fecha.
+
       - WS_DISPATCH=${WS_DISPATCH:-}
-      # Só aparece no /health ("version"). A pipeline ainda não exporta
-      # GIT_SHA, então em produção vem "dev" — quando exportar, dá para
-      # confirmar pelo /health qual build do gateway está no ar.
+
       - GIT_SHA=${GIT_SHA:-}
-    # ---------- O /health e o que ele realmente porta ----------
-    # O /health responde 503 quando o banco deixa de responder, e a diferença
-    # que importa é a do banco CONGELADO: lá o TCP está aberto e nada responde,
-    # um `PingContext` nunca volta, e antes desta versão o endpoint pendurava
-    # sem responder — sem prazo. Agora um probe de fundo pergunta a 1s (no máx.
-    # 2 perguntas em andamento) e o handler só lê o resultado; um "ok" mais
-    # velho que 3s deixa de valer, então é o tempo, não o driver, que degrada.
-    # Medido com Postgres de verdade: banco travado → 503 em ~1-3ms, destravado
-    # → 200 sozinho, sem restart.
-    #
-    # Sem `DATABASE_URL` o /health responde 200, e isso é decisão: o rollback
-    # do realtime é voltar o Caddy para o Node com o gateway vivo, e com o
-    # dispatcher desligado pelo `WS_DISPATCH` o gateway mudo é o modo normal de
-    # subida lado a lado, não um estado degradado. Degradar esse caso quebraria
-    # o `--profile ws-gateway` e o caminho de rollback.
-    #
-    # O portão real do deploy continua sendo o /health do BACKEND: o `switch.sh`
-    # não espera este serviço (o `wait_healthy` cobre backend e frontend) e o
-    # Caddy não roteia `/health` para cá. A imagem é alpine (busybox tem wget,
-    # não curl).
+
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"]
       # `retries: 20` com `interval: 3s` é o que segura o ruído: um banco
@@ -290,138 +141,18 @@ services:
       timeout: 5s
       retries: 20
       start_period: 3s
-    # O binário trata o SIGTERM com um drain de até 10s (fecha as conexões
-    # com frame de close antes de sair), então a janela precisa ser MAIOR que
-    # isso — abaixo de 10s o SIGKILL corta o drain no meio e o cliente só
-    # descobre pela queda, em vez de reconectar para outro lugar.
     stop_grace_period: 15s
     depends_on:
       postgres:
         condition: service_healthy
-    # Não expõe porta pro host — só o Caddy fala com ele, na rede interna
-    # do compose, como o backend.
-
-  # ---------- Webhook do Pagar.me em Go (opt-in) ----------
-  # Recebe `POST /webhooks/pagarme`, grava em `payment_event` e drena a fila
-  # chamando o endpoint interno do backend Node. Não escreve estado de domínio:
-  # quem decide o que um `paid` significa continua sendo o `applyCharge` do Node.
-  #
-  # ---------- Por que está atrás de `profiles` ----------
-  # O drain disputa com o worker do Node o MESMO advisory lock
-  # (`pdv:payment:worker`, backend/src/infra/locks.ts), e os dois entregam ao
-  # MESMO endpoint interno — que é idempotente. Então, ao contrário do
-  # `ws-gateway`, subir este container NÃO é perigoso por si só.
-  #
-  # O que é perigoso é a combinação: subir o container E ligar `PAGARME_DRAIN=1`
-  # antes de o backend Node ter o endpoint interno (ou antes de a
-  # `PAGARME_INTERNAL_TOKEN` bater nos dois lados) faz cada webhook virar um
-  # 401/404, cada retry esgota o teto e a fila INTEIRA vai para a DLQ. O sintoma
-  # é "nenhuma confirmação de pagamento" e nada no log do Pagar.me denuncia que
-  # a culpa é de deploy.
-  #
-  # Por isso os dois andam juntos — o `profiles` é convenção de inicialização e
-  # o `PAGARME_DRAIN` é a garantia. Sem a flag, este processo GRAVA o evento na
-  # inbox (o dedupe acontece, o `/health` fica verde) mas não processa: quem
-  # processa é o worker do Node. Ver `pagarme-webhook/internal/queue/gate.go`.
-  pagarme-webhook:
-    build:
-      context: ../pagarme-webhook
-      dockerfile: ${PAGARME_DOCKERFILE:-Dockerfile}
-    image: ${PAGARME_WEBHOOK_IMAGE:-pdv-pagarme-webhook:local}
-    profiles: ["pagarme-webhook"]
-    restart: unless-stopped
-    # IP fixo para o `/etc/hosts` do caddy-host.sh (mesma razão do `backend`);
-    # vale para o probe do host, como no `ws-gateway`.
-    networks:
-      default:
-        ipv4_address: 172.18.0.247
-    environment:
-      # Mesmo banco e mesma `payment_event` do backend — este serviço é o
-      # segundo leitor da fila que o Node já escreve (e, com o drain ligado, o
-      # primeiro a processar).
-      #
-      # `?sslmode=disable` no DEFAULT (e só no default): o driver é o lib/pq, que
-      # assume `sslmode=require` quando a DSN não diz nada, e o `postgres` deste
-      # compose não tem TLS — sem o parâmetro o `db.Connect` falha com "pq: SSL
-      # is not enabled on the server" e o serviço sobe SEM pool: `/health` 503,
-      # log de aviso, e cada webhook responde 503. Medido (mesma armadilha do
-      # `ws-gateway`). Quem aponta `DATABASE_URL` no `.env` escolhe o próprio
-      # parâmetro, porque aí a DSN inteira vem de fora.
-      - DATABASE_URL=${DATABASE_URL:-postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}?sslmode=disable}
-      - PORT=8080
-      # A MESMA do backend. Repassar mesmo vazia é obrigatório: sem a linha
-      # abaixo, a variável chega VAZIA no container (o `docker compose up` só
-      # injeta o que está declarado) e o serviço recusa todo webhook com 503 —
-      # silenciosamente, do ponto de vista do Pagar.me, que só reenvia até desistir.
-      - PAGARME_SECRET_KEY=${PAGARME_SECRET_KEY:-}
-      # Base do gateway. Só muda para sandbox (`https://sdx-api.pagar.me/core/v5`)
-      # ou para um stub de teste.
-      - PAGARME_BASE_URL=${PAGARME_BASE_URL:-https://api.pagar.me/core/v5}
-      # Onde está o backend Node, para o endpoint interno. `backend:3000` é o
-      # default do compose; com blue/green, ajuste para a instância "próxima"
-      # durante o switch ou deixe como está — o drain só perde um ciclo quando a
-      # conexão cai, e volta no ciclo seguinte.
-      - NODE_INTERNAL_URL=${NODE_INTERNAL_URL:-http://backend:3000}
-      # Token opaco do endpoint interno. Ausente = o drain NÃO sobe, e o log de
-      # boot diz o nome da env. Gerar com `openssl rand -hex 32`, o MESMO valor
-      # dos dois lados.
-      - PAGARME_INTERNAL_TOKEN=${PAGARME_INTERNAL_TOKEN:-}
-      # Gate de posse do drain. DESLIGADO por padrão e default-deny (só
-      # `1|true|yes|on` ligam). Só ligar no deploy em que (a) o Caddy aponta
-      # /webhooks/pagarme para este serviço E (b) o backend já responde o
-      # endpoint interno. Ligado antes, a fila de confirmação de pagamento vai
-      # para a DLQ.
-      - PAGARME_DRAIN=${PAGARME_DRAIN:-}
-      # Cadência da reconciliação (10min). Recomeçar em 10min quando a fila
-      # cresce é aceitável; acelerar durante um incidente é o que este número
-      # permite, e a única forma segura de fazer isso.
-      - PAGARME_RECONCILIATION_INTERVAL_MS=${PAGARME_RECONCILIATION_INTERVAL_MS:-600000}
-      # Só aparece no /health ("version"), como no gateway WS.
-      - GIT_SHA=${GIT_SHA:-}
-    # ---------- O /health e o que ele realmente porta ----------
-    # O portão do `switch.sh` NÃO espera este serviço (o `wait_healthy` cobre
-    # backend e frontend) e o Caddy não roteia `/health` para cá: o que porta é o
-    # healthcheck do próprio container, e ele é o que impede o compose de marcar
-    # o serviço como pronto antes de ele conseguir gravar.
-    #
-    # O `/health` responde 503 quando o banco deixa de responder E quando não há
-    # `PAGARME_SECRET_KEY`. O segundo é decisão, e é o contrário do `ws-gateway`
-    # (que responde 200 sem pool para permitir rollback): aqui este serviço recusa
-    # TODO webhook nesses estados, então um 200 mandaria tráfego para um 503 em
-    # cada requisição — que é a pior categoria de falha numa caixa.
-    #
-    # Já o `PAGARME_DRAIN` desligado com o resto saudável é 200: é o estado normal
-    # de subida lado a lado (grava a inbox, o Node processa). A imagem é alpine
-    # (busybox tem wget, não curl).
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health || exit 1"]
-      interval: 3s
-      timeout: 5s
-      retries: 20
-      start_period: 3s
-    # O binário trata o SIGTERM com um drain de até 10s (o `Shutdown` do
-    # `http.Server` espera as requisições em voo antes de fechar o pool), então a
-    # janela precisa ser MAIOR que isso. Um ciclo de drenagem em andamento segura
-    # transação e advisory lock durante chamadas HTTP ao Node, e um SIGKILL no meio
-    # deixa o evento elegível de novo — o que é seguro (o apply é at-least-once) e
-    # desperdício (uma chamada repetida).
-    stop_grace_period: 20s
-    depends_on:
-      postgres:
-        condition: service_healthy
-    # Não expõe porta pro host — só o Caddy fala com ele, na rede interna do
-    # compose, como o backend. E sem volumes: não há estado em disco, o que
-    # significa que um container novo pode receber o tráfego no meio de um ciclo
-    # de drain sem perder nada (a fila está no Postgres).
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
     networks:
-      default:
-        ipv4_address: 172.18.0.248
-    ports:
-      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+      - pdv-internal
+#    ports:
+#      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -430,16 +161,7 @@ services:
     volumes:
       - redis_data:/data
 
-  # Banco oficial. Sem profile: sobe sempre, e o backend espera o healthcheck.
-  # (Postgres externo? ajuste DATABASE_URL no .env e use --no-deps, senão o
-  # depends_on do backend sobe este Postgres mesmo sem uso.)
   postgres:
-    # PostGIS obrigatório pela migration `0011_delivery_gis.sql`: a extensão é
-    # criada por SQL, mas o pacote do SO vem da imagem. `postgis/postgis` é a
-    # mesma `postgres:16-alpine` (mesma versão e PGDATA) com o PostGIS
-    # acrescentado, então o volume existente é reaproveitado e a extensão só
-    # precisa ser criada nos bancos pré-existentes. Ver a nota longa em
-    # `docker-compose.dev.yml`.
     image: postgis/postgis:16-3.5-alpine
     restart: unless-stopped
     environment:
@@ -448,128 +170,49 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-pdv}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # Publica a porta do Postgres no HOST. Quem roda DENTRO do compose (o
-    # backend) continua falando com o banco pelo nome `postgres` na rede
-    # interna — isto é para quem chega de fora do container: psql/dBeaver do
-    # operador na própria máquina, ferramenta de backup externa, e o
-    # `run-cloud.sh` (que monta a DATABASE_URL apontando para localhost:5432).
-    # A porta da DIREITA é a do container e é fixa em 5432; a da ESQUERDA é a
-    # do host, configurável.
-    #
-    # Bind em 127.0.0.1 (loopback) por padrão, NUNCA 0.0.0.0: este é o compose
-    # de produção e roda num VPS de IP público, então 0.0.0.0:5432 é o banco
-    # inteiro aberto para a internet — senha em brute-force e CVE do Postgres
-    # viram porta de entrada. Loopback já satisfaz "acessível pelo host".
-    # POSTGRES_BIND_ADDRESS=0.0.0.0 só faz sentido para alcançar o banco de
-    # outra máquina da rede (a LAN de casa, por exemplo) — e mesmo assim com
-    # senha forte e firewall. Não é recomendado.
-    #
-    # O resto da armadilha: mesmo em loopback a porta fica alcançável por
-    # qualquer processo e qualquer usuário da máquina do deploy, inclusive o
-    # que roda FORA do compose (shell de dev, script de terceiro, container
-    # solto). Loopback esconde da rede, não da máquina.
-    ports:
-      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+
+#    ports:
+#      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pdv} -d ${POSTGRES_DB:-pdv}"]
       interval: 10s
       timeout: 5s
       retries: 5
-
-
-  # ---------- Serviço do pedido público (SPA estático) ----------
-  # Tela de cardápio online para cliente final, acessada via QR/subdomínio.
-  # 100% estático (Vite build), servido por nginx.
-  # Comunica-se com o backend via API pública (sem autenticação).
-  pedidopublic:
-    build:
-      context: ..
-      dockerfile: apps/pedido-public/Dockerfile
-    container_name: pdv-pedido-public
-    restart: unless-stopped
-    # Rede default do projeto, como os outros serviços. Este serviço declarava
-    # `networks: [pdv-net]` e o arquivo NÃO tinha chave top-level `networks:` —
-    # o `docker compose config` morria com
-    #   service "pedidopublic" refers to undefined network pdv-net: invalid compose project
-    # e o `switch.sh` (que faz `compose build` no passo 1/5, com
-    # `set -euo pipefail`) abortava antes de tocar qualquer container. A chave
-    # top-level `networks:` lá embaixo resolveu isso E ancorou a rede já
-    # existente `deploy_default` (subnet 172.18.0.0/16).
-    #
-    # IP fixo para o `/etc/hosts` do caddy-host.sh: a Caddyfile faz
-    # `reverse_proxy pedidopublic:80` em dois blocos e quem resolve o nome é o
-    # Caddy do host — nome de container só dá para prever com IP fixo.
     networks:
-      default:
-        ipv4_address: 172.18.0.245
-    expose:
-      - "80"
-    # Antes havia um `depends_on: caddy` aqui, e a razão era só ORDEM DE BOOT
-    # (subir o proxy junto com o resto numa instalação nova): este nginx não
-    # fala com o Caddy — ele apenas é publicado por ele. O proxy de produção
-    # agora é o unit `pdv-caddy` do host, que não é um serviço do compose, e
-    # `apps/pedido-public/nginx.conf` não faz proxy para o caddy. O
-    # `--no-deps` do switch.sh continua no lugar por segurança (numa instalação
-    # ele impede que um `up` de cardápio toque no postgres ou, no perfil
-    # `local`, no Caddy containerizado).
-    # O healthcheck tem que provar que o nginx responde DE VERDADE. `/healthz`
-    # não existia: o `location /` do nginx.conf faz `try_files → /index.html`,
-    # então QUALQUER caminho devolve 200 com o index — o healthcheck passava
-    # mesmo com o app quebrado. O `/healthz` é servido pelo nginx em
-    # `apps/pedido-public/nginx.conf` e responde 200 sem depender do bundle.
-    #
-    # `127.0.0.1` e NÃO `localhost` — medido no run 37409580179 (tag v1.29.0),
-    # que abortou o deploy no passo 3/5 com este serviço `unhealthy`.
-    #
-    # Por que `localhost` quebra aqui e não quebra no `frontend` (mesma imagem
-    # base, mesmo default.conf sobrescrito, mesmo nginx:1.27-alpine):
-    #
-    #   1. O `Dockerfile` copia o nosso nginx.conf POR CIMA do
-    #      `/etc/nginx/conf.d/default.conf` do pacote.
-    #   2. O entrypoint `10-listen-on-ipv6-by-default.sh` compara o checksum
-    #      desse arquivo com o do pacote; como divergiu, ele loga
-    #      "differs from the packaged version" e sai SEM aplicar nada.
-    #   3. Logo o nginx escuta SÓ em `0.0.0.0:80`. Confirmação no container:
-    #      `netstat -lnt` → uma linha só, `tcp 0 0 0.0.0.0:80 LISTEN`.
-    #   4. O `/etc/hosts` do container resolve `localhost` para `::1` PRIMEIRO
-    #      (`::1  localhost ip6-localhost ip6-loopback`), e o wget do busybox
-    #      não faz fallback para IPv4.
-    #   5. Resultado: `wget` sai 1 com
-    #      `Connecting to localhost ([::1]:80)` + `Connection refused`, para
-    #      sempre. O nginx está de pé e answering — só que em `127.0.0.1`.
-    #
-    # O sintoma engana justamente porque o log do container fica limpo: o
-    # healthcheck não escreve no log do nginx, e o `switch.sh` (que só imprime
-    # `compose logs --tail=40`) mostra só o "start worker process" saudável.
-    #
-    # Por que o frontend não caiu: ele tem exatamente a mesma imagem e o mesmo
-    # default.conf sobrescrito — logo também só em IPv4 — mas o healthcheck dele
-    # diz `http://127.0.0.1/` desde sempre. `localhost` no healthcheck foi o
-    # ÚNICO serviço do compose com essa palavra (os outros: `127.0.0.1`,
-    # `127.0.0.1:8080`, `pg_isready`).
-    #
-    # A temporização também foi alinhada com o `frontend` (`interval: 3s` /
-    # `retries: 20` / `start_period: 3s`). Com `interval: 30s` × `retries: 3`,
-    # o container só era marcado `unhealthy` ~90s depois de subir — e o
-    # `wait_healthy` do switch.sh tem `PDV_HEALTH_TIMEOUT` de 120s, ou seja,
-    # o portão consumia 3/4 do orçamento só para declarar a falha.
+      - pdv-internal
+  osrm:
+    image: osrm/osrm-backend:latest
+    command: ["osrm-routed", "--algorithm", "mld", "/data/sul-261015.osrm"]
+#    ports: ["5001:5000"]
+    volumes: ["./maps/data:/data"]
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
-      interval: 3s
+      test: ["CMD-SHELL", "wget -q -O /dev/null 'http://localhost:5000/route/v1/driving/-46.63,-23.55;-46.62,-23.55?overview=false' || exit 1"]
+      interval: 30s
       timeout: 5s
-      retries: 20
-      start_period: 3s
+      retries: 3
+    networks:
+      - pdv-internal
+
+  tiles:
+    image: overv/openstreetmap-tile-server:2.3.0
+    command: run
+    ports: ["8082:80"]
+    volumes:
+      - ./maps/data:/data
+    networks:
+      - pdv-internal
+    shm_size: 1gb
+    environment:
+      - UPDATES=enabled
+    restart: unless-stopped
+
 
 volumes:
-  # Nomes explícitos (sem prefixo do projeto) para que o backup.sh e os
-  # comandos de operação não dependam do nome da pasta do compose.
-  #
-  # Os volumes `caddy_data`/`caddy_config` saíram daqui junto com o serviço:
-  # em produção os certificados vivem em `/var/lib/caddy` (copiados do
-  # `pdv_caddy_data` pelo `caddy-host.sh`, para não reemitir TLS e estourar o
-  # rate limit do Let's Encrypt) e o `down -v` do reset passa a NÃO alcançá-los.
-  # Os composes `local`/`dev` declaram os próprios `caddy_*` (mesmo nome de
-  # volume, `pdv_caddy_data`), então o stack local continua como antes.
+  caddy_data:
+    name: pdv_caddy_data
+  caddy_config:
+    name: pdv_caddy_config
   backend_uploads:
     name: pdv_backend_uploads # fotos de produto — incluir no backup junto com o banco
   redis_data:
@@ -577,34 +220,7 @@ volumes:
   postgres_data:
     name: pdv_postgres_data # dados do Postgres — NUNCA apague sem backup
 
-# ---------- Rede e IPs fixos ----------
-# Rede JÁ EXISTENTE no VPS (`deploy_default`, 172.18.0.0/16, criada pelo
-# primeiro `docker compose up` desta pasta): declará-la com `name:` + o mesmo
-# subnet faz o compose REAPROVEITAR a rede em vez de recriá-la (ele só
-# reclama se a rede existir com um subnet diferente — e aí o erro é bom:
-# significa que os `ipv4_address` abaixo estariam fora da faixa).
-#
-# Em um VPS NOVO o subnet precisa estar livre no host; se 172.18.0.0/16 já
-# for de outra rede Docker, troque a faixa AQUI e nos `ipv4_address` dos 7
-# serviços (e no bloco do `/etc/hosts` que o `caddy-host.sh` grava).
-#
-# ---------- Por que IP fixo em 7 serviços ----------
-# O proxy de produção roda no HOST (systemd, `pdv-caddy`) e não fala com a
-# DNS interna do Docker — ele resolve `backend`, `frontend-next`,
-# `pedidopublic`, `ws-gateway` e `pagarme-webhook` pelo bloco
-# `# BEGIN PDV caddy-host` do `/etc/hosts` (gravado pelo `caddy-host.sh`),
-# que precisa de um endereço PREVISÍVEL. A faixa é `.241`-`.247` porque a
-# alocação automática do Docker começa em `.2` e sobe — usar os primeiros
-# endereços colidiria com o próximo container que a rede criar.
-# (Servidor não continua sendo alcançável por nome: a DNS do Docker resolve
-# os containers entre si pelo nome, como sempre; o `/etc/hosts` é só o que o
-# host precisa.)
-#
-# Os serviços SEM linha (postgres) continuam com IP sequencial — nada fora do
-# Docker resolve o nome deles.
 networks:
-  default:
-    name: deploy_default
-    ipam:
-      config:
-        - subnet: 172.18.0.0/16
+  pdv-internal:
+    driver: bridge
+    name: pdv-internal  # <-- Isto força o nome exato sem prefixos

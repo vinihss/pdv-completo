@@ -1,0 +1,95 @@
+name: pdv-dev
+services:
+  caddy:
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=localhost
+      - PDV_WS_UPSTREAM=${PDV_WS_UPSTREAM:-backend:3000}
+    volumes:
+      - ./Caddyfile.dev:/etc/caddy/Caddyfile
+      # Mapeia as pastas dos Frontends para o Caddy servir os ficheiros diretamente em desenvolvimento
+      - ../frontend:/srv/frontend
+    depends_on:
+      - backend
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.dev
+
+    command: npm run dev # Executa com nodemon / tsx para reiniciar a API a cada alteração
+#    ports:
+#      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      #- CHOKIDAR_USEPOLLING=true # Corrige problemas de sincronização de ficheiros em alguns sistemas (ex: WSL2 / Windows)    volumes:
+    volumes:
+      - ../backend:/app         # Sincroniza o código vivo do host com o container
+      - /app/node_modules        # "Anonymous volume": impede que a pasta local mude o node_modules do Linux
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile.dev
+    environment:
+      - NODE_ENV=development
+    restart: unless-stopped
+    volumes:
+      - ../frontend/src:/app/src
+      - ../frontend/public:/app/public
+      - ../frontend/index.html:/app/index.html
+      - ../frontend/vite.config.js:/app/vite.config.js
+      - ../frontend/vendor:/app/vendor
+      - ../frontend/package.json:/app/package.json
+      - ../frontend/package-lock.json:/app/package-lock.json
+      - /app/node_modules
+
+  redis:
+#    ports:
+#      - "6379:6379"
+    volumes:
+      - redis_data_dev:/data
+
+  postgres:
+    image: postgis/postgis:16-3.5-alpine
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    ports:
+      - ":${POSTGRES_PORT:-5432}:5432"
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+#    ports:
+#      - "8082:80"
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@localhost.com
+      - PGADMIN_DEFAULT_PASSWORD=admin
+    depends_on:
+      - postgres
+    networks:
+      - pdv-internal
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+#    ports:
+#      - "8081:8081" # Abre na porta 8081 da sua máquina
+    depends_on:
+      - redis
+    networks:
+      - pdv-internal
+
+volumes:
+  redis_data_dev:
+  postgres_data_dev:
+
+networks:
+  pdv-internal:
+    name: pdv-internal

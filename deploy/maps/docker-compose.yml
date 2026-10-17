@@ -1,9 +1,9 @@
 services:
   osrm:
     image: osrm/osrm-backend:latest
-    command: ["osrm-routed", "--algorithm", "mld", "/data/${OSRM_REGION:-south-america-latest}.osrm"]
+    command: ["osrm-routed", "--algorithm", "mld", "/data/sul-261015.osrm"]
     ports: ["5001:5000"]
-    volumes: ["./data:/data:ro"]
+    volumes: ["./data:/data"]
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null 'http://localhost:5000/route/v1/driving/-46.63,-23.55;-46.62,-23.55?overview=false' || exit 1"]
@@ -15,6 +15,10 @@ services:
     image: overv/openstreetmap-tile-server:2.3.0
     command: run
     ports: ["8080:80"]
-    volumes: ["./tile-data:/data"]
+    volumes:
+      - ./data:/data
     shm_size: 1gb
+    environment:
+      - UPDATES=enabled
     restart: unless-stopped
+
