@@ -151,8 +151,8 @@ services:
     restart: unless-stopped
     networks:
       - pdv-internal
-#    ports:
-#      - "${REDIS_PORT:-6379}:6379"
+    #    ports:
+    #      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -160,6 +160,26 @@ services:
       retries: 5
     volumes:
       - redis_data:/data
+  # 1. BANCO DE DADOS GEOGRÁFICO EXCLUSIVO
+  pdv_gis_db:
+    image: postgis/postgis:15-3.3
+    container_name: pdv_gis_db
+    environment:
+      POSTGRES_USER: pdv_geo_admin
+      POSTGRES_PASSWORD: DefinaUmaSenhaSeguraAqui
+      POSTGRES_DB: pdv_delivery_geo
+    ports:
+      - "5433:5432" # Porta isolada para evitar conflito com o Postgres principal (5432)
+    volumes:
+      - gis_data:/var/lib/postgresql/data
+    networks:
+      - pdv-internal
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+
 
   postgres:
     image: postgis/postgis:16-3.5-alpine
@@ -171,8 +191,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-#    ports:
-#      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+    #    ports:
+    #      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pdv} -d ${POSTGRES_DB:-pdv}"]
       interval: 10s
@@ -180,33 +200,32 @@ services:
       retries: 5
     networks:
       - pdv-internal
-  osrm:
-    image: osrm/osrm-backend:latest
-    command: ["osrm-routed", "--algorithm", "mld", "/data/sul-261015.osrm"]
-#    ports: ["5001:5000"]
-    volumes: ["./maps/data:/data"]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null 'http://localhost:5000/route/v1/driving/-46.63,-23.55;-46.62,-23.55?overview=false' || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    networks:
-      - pdv-internal
 
-  tiles:
-    image: overv/openstreetmap-tile-server:2.3.0
-    command: run
-    ports: ["8082:80"]
+
+  # 2. MOTOR DE ROTAS AVANÇADO (Valhalla)
+  router:
+    image: valhalla/valhalla:run-latest
+    ports:
+      - "8002:8002"
     volumes:
-      - ./maps/data:/data
+      - ./map_data/valhalla:/custom_files
     networks:
       - pdv-internal
-    shm_size: 1gb
     environment:
-      - UPDATES=enabled
-    restart: unless-stopped
+      - tile_dir=/custom_files/valhalla_tiles
+      - config_file=/custom_files/valhalla.json
+    command: valhalla_route_service /custom_files/valhalla.json
+    restart: always
 
+
+  # 4. SERVIDOR DE TILES ATUALIZADO (TileServer GL)
+  tiles:
+    image: maptiler/tileserver-gl:latest
+    volumes:
+      - ./map_data/tileserver:/data
+    networks:
+      - pdv-internal
+    restart: always
 
 volumes:
   caddy_data:
@@ -219,6 +238,8 @@ volumes:
     name: pdv_redis_data
   postgres_data:
     name: pdv_postgres_data # dados do Postgres — NUNCA apague sem backup
+  gis_data:
+    name: pdv_gis_data
 
 networks:
   pdv-internal:
