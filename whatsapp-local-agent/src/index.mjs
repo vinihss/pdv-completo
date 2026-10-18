@@ -320,6 +320,12 @@ async function startBrowser() {
     const text = msg.text();
     // Aviso interno emitido pelo WhatsApp Web/Chromium; não impede o QR nem a sessão.
     if (/Permissions policy violation: unload is not allowed in this document/i.test(text)) return;
+    // O contexto isolado do Playwright pode negar storage.persist(); o próprio
+    // WhatsApp classifica essa falha como não fatal e a sessão é salva pelo agente.
+    if (/storage bucket persistence denied|persistent-storage-denied/i.test(text)) {
+      logEvent("whatsapp.console_nonfatal", { reason: "storage_persistence_denied" });
+      return;
+    }
     lastError = `WhatsApp Web: ${text.slice(0, 250)}`;
   });
   await page.goto("https://web.whatsapp.com/", { waitUntil: "domcontentloaded", timeout: 60_000 });
