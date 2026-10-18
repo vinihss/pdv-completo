@@ -26,18 +26,6 @@ while [[ $# -gt 0 ]]; do
         *) echo "Opção desconhecida: $1 (veja --help)" >&2; exit 2 ;;
     esac
 done
-
-PIDS=()
-cleanup() {
-    echo ""
-    echo "==> Derrubando os processos"
-    for pid in "${PIDS[@]:-}"; do
-        [[ -n "${pid:-}" ]] && kill "$pid" 2>/dev/null || true
-    done
-    wait 2>/dev/null || true
-}
-trap cleanup INT TERM EXIT
-
 pass() { echo "OK: $*"; }
 warn() { echo "AVISO: $*" >&2; }
 die()  { echo "ERRO: $*" >&2; exit 1; }
@@ -110,39 +98,63 @@ pass "PostgreSQL pronto"
 if [[ "$DO_SEED" -eq 1 ]]; then
     echo ""
     echo "Rodando o seed (migrations + dados de demonstração)..."
-    > /tmp/pdv-backend.log
-    > /tmp/pdv-frontend.log
-    (cd "$BACKEND_DIR" && npm run seed)
+    docker compose -f "$ROOT_DIR/deploy/docker-compose.yml" -f "$ROOT_DIR/deploy/docker-compose.override.yml" exec -T backend npm run seed
     pass "seed aplicado"
 fi
 
-
-
 # -----------------------------------------------------------------
-# 6. Backend e frontend
+# 6. Subir todo o ambiente via Docker Compose (backend, frontend)
 # -----------------------------------------------------------------
 echo ""
-echo "=== Backend e frontend ==="
-(cd "$BACKEND_DIR" && npm run dev > /tmp/pdv-backend.log 2>&1) &
-BACKEND_PID=$!
-PIDS+=("$BACKEND_PID")
+echo "=== Subindo backend e frontend via Docker Compose ==="
+echo ""
 
-(cd "$FRONTEND_DIR" && npm run dev > /tmp/pdv-frontend.log 2>&1) &
-FRONTEND_PID=$!
-PIDS+=("$FRONTEND_PID")
+echo "Subindo serviços (backend, frontend, postgres, redis, caddy)..."
+docker compose -f "$ROOT_DIR/deploy/docker-compose.yml" -f "$ROOT_DIR/deploy/docker-compose.override.yml" up -d
 
-echo "Aguardando o backend responder..."
-API_UP=0
+echo "Aguardando o PostgreSQL ficar pronto..."
+DB_READY=0
+for _ in $(seq 1 30); do
+    if docker compose -f "$ROOT_DIR/deploy/docker-compose.yml" -f "$ROOT_DIR/deploy/docker-compose.override.yml" exec -T postgres \
+        pg_isready -U pdv -d pdv >/dev/null 2>&1; then
+        DB_READY=1
+        break
+    fi
+    sleep 1
+done
+[[ "$DB_READY" -eq 1 ]] || die "PostgreSQL não ficou pronto em 30s"
+pass "PostgreSQL pronto"
+
+# Seed já foi feito acima (se solicitado)
+if [[ "$DO_SEED" -eq 1 ]]; then
+    echo ""
+    echo "Seed já aplicado anteriormente."
+fi
+
+echo "Aguardando o backend ficar pronto..."
+BACKEND_UP=0
 for _ in $(seq 1 60); do
-    if curl -sf http://localhost:3000/health >/dev/null 2>&1; then API_UP=1; break; fi
+    if docker compose -f "$ROOT_DIR/deploy/docker-compose.yml" -f "$ROOT_DIR/deploy/docker-compose.override.yml" ps -q backend | xargs -I {} docker inspect -f '{{.State.Health.Status}}' {} 2>/dev/null | grep -q healthy; then
+        BACKEND_UP=1
+        break
+    fi
+    # Alternativa: verificar se a porta está acessível via caddy (host:8081)
+    if curl -sf http://localhost:8081/health >/dev/null 2>&1; then
+        BACKEND_UP=1
+        break
+    fi
     sleep 1
 done
 
-if [[ "$API_UP" -eq 1 ]]; then
-    pass "backend no ar: http://localhost:3000"
+if [[ "$BACKEND_UP" -eq 1 ]]; then
+    pass "backend no ar (via Caddy em localhost:8081)"
 else
-    warn "o backend não respondeu em http://localhost:3000/health — veja /tmp/pdv-backend.log"
+    warn "o backend não ficou pronto — veja os logs: docker compose -f ... logs backend"
 fi
+
+# O frontend está disponível via Caddy na mesma porta
+pass "frontend disponível em http://localhost:8081 (via Caddy)"
+
 
 # -----------------------------------------------------------------
 # 7. Resumo
@@ -151,8 +163,8 @@ cat <<EOF
 
 === Tudo no ar ===
 
-  Frontend (app)     http://localhost:5173
-  Backend (API)      http://localhost:3000
+  Frontend (app)     http://localhost:8081
+  Backend (API)      http://localhost:8081
 EOF
 
 
@@ -163,11 +175,9 @@ cat <<EOF
     Gerente    Roberto Alves 9999
     Caixa      Caixa Teste   2468
 
-  Ctrl+C derruba tudo.
+  Ctrl+C para parar os containers docker compose.
 
 EOF
 
-wait
-# Nota v1.51.0+: Para testar o Go WebSocket Gateway localmente:
-# docker compose --profile ws-gateway up -d ws-gateway
-# Variaveis: WS_BACKEND=go, WS_DISPATCH=1, PDV_WS_UPSTREAM=ws-gateway:8080
+# Cleanup: derrubar os containers docker compose na saída
+trap 'docker compose -f "$ROOT_DIR/deploy/docker-compose.yml" -f "$ROOT_DIR/deploy/docker-compose.override.yml" down' EXIT INT TERM

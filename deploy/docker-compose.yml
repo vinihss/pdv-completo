@@ -160,46 +160,27 @@ services:
       retries: 5
     volumes:
       - redis_data:/data
-  # 1. BANCO DE DADOS GEOGRÁFICO EXCLUSIVO
-  pdv_gis_db:
-    image: postgis/postgis:15-3.3
-    container_name: pdv_gis_db
-    environment:
-      POSTGRES_USER: pdv_geo_admin
-      POSTGRES_PASSWORD: DefinaUmaSenhaSeguraAqui
-      POSTGRES_DB: pdv_delivery_geo
-    ports:
-      - "5433:5432" # Porta isolada para evitar conflito com o Postgres principal (5432)
-    volumes:
-      - gis_data:/var/lib/postgresql/data
-    networks:
-      - pdv-internal
-    restart: always
-    deploy:
-      resources:
-        limits:
-          memory: 2g
+#   1. BANCO DE DADOS GEOGRÁFICO EXCLUSIVO
+#  pdv_gis_db:
+#    image: postgis/postgis:15-3.3
+#    container_name: pdv_gis_db
+#    environment:
+#      POSTGRES_USER: pdv_geo_admin
+#      POSTGRES_PASSWORD: DefinaUmaSenhaSeguraAqui
+#      POSTGRES_DB: pdv_delivery_geo
+#    ports:
+#      - "5433:5432" # Porta isolada para evitar conflito com o Postgres principal (5432)
+#    volumes:
+#      - gis_data:/var/lib/postgresql/data
+#    networks:
+#      - pdv-internal
+#    restart: always
+#    deploy:
+#      resources:
+#        limits:
+#          memory: 2g
 
 
-  postgres:
-    image: postgis/postgis:16-3.5-alpine
-    restart: unless-stopped
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER:-pdv}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-pdv_password}
-      - POSTGRES_DB=${POSTGRES_DB:-pdv}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-    #    ports:
-    #      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pdv} -d ${POSTGRES_DB:-pdv}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - pdv-internal
 
 
   # 2. MOTOR DE ROTAS AVANÇADO (Valhalla)
@@ -273,8 +254,8 @@ volumes:
     name: pdv_redis_data
   postgres_data:
     name: pdv_postgres_data # dados do Postgres — NUNCA apague sem backup
-  gis_data:
-    name: pdv_gis_data
+#  gis_data:
+#    name: pdv_gis_data
 
 networks:
   pdv-internal:
