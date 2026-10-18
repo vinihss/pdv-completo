@@ -85,6 +85,16 @@ npm start
 
 Esse chat é conferido a cada 10 segundos mesmo quando a última mensagem já foi lida ou a atividade tem mais de 24 horas; o agente considera somente a última mensagem recebida e valida que o JID corresponda exatamente ao número configurado. O restante dos chats continua sujeito à regra de 24 horas. Como essa exceção pode processar mensagens antigas do contato de teste, use apenas uma conta controlada para testes. O telefone não está embutido no código nem no `.env.example`.
 
+## Sessão de teste no painel
+
+O painel inclui um chat de simulação com o contato **Teste**: escreva como se fosse a mensagem de um cliente e o bot responde na mesma janela, sem QR nem automação do WhatsApp. A sessão roda exatamente o mesmo código de atendimento do chat real (`planReply`: classificador, estados de fluxo e consultas de pedido na API); só o envio é local.
+
+- Não depende do WhatsApp: funciona antes (ou sem) ler o QR.
+- Para consultar pedidos, usa `PDV_WA_TEST_PHONE` quando definido e, caso contrário, um telefone fictício `5500000000000000`.
+- Fica só em memória: mensagens e estado de fluxo se perdem no reinício e não aparecem em "Contatos e conversas" nem no histórico cifrado.
+- Mensagens fora do escopo de pedido e fluxos que aguardam o cardápio não geram resposta; aparecem como nota central indicando o motivo. O botão **Limpar** zera a conversa e o fluxo.
+- Endpoints: `GET /api/test/messages`, `POST /api/test/messages` com `{"body":"..."}` e `POST /api/test/reset`. Os eventos no log são `test_session.replied`, `test_session.reset` e `test_session.failed`.
+
 ## Logs em tempo real
 
 Os eventos são escritos em JSON no `stdout`, sem telefone, nome ou texto das mensagens. `outbox.sent` significa que a ação de envio foi aceita pela interface do WhatsApp Web; não é confirmação de entrega ou leitura pelo destinatário. Para ver e salvar a saída ao iniciar manualmente:
