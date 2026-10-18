@@ -227,24 +227,33 @@ function stageSituation(stage) {
 }
 
 async function sendToPhone(phone, text) {
-  if (!context) throw new Error("WhatsApp não está conectado para enviar a confirmação.");
-  const sendPage = await context.newPage();
+  if (!context || !page || page.isClosed()) throw new Error("WhatsApp não está conectado para enviar a confirmação.");
+  if (processing) throw new Error("O WhatsApp está processando outra mensagem; tente enviar a notificação novamente no próximo ciclo.");
+  processing = true;
+  const activePage = page;
+  const originalUrl = activePage.url();
   try {
     const url = new URL("https://web.whatsapp.com/send");
     url.searchParams.set("phone", phone);
-    await sendPage.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: 45_000 });
-    const editor = sendPage.locator('#main footer [contenteditable="true"]').last();
+    logEvent("order.notification_using_main_tab");
+    await activePage.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: 45_000 });
+    const editor = activePage.locator('#main footer [contenteditable="true"]').last();
     await editor.waitFor({ state: "visible", timeout: 30_000 });
     await editor.fill(text);
     await editor.press("Enter");
-    await sendPage.waitForTimeout(800);
+    await activePage.waitForTimeout(800);
   } finally {
-    await sendPage.close().catch(() => {});
+    const returnUrl = originalUrl.startsWith("https://web.whatsapp.com/") ? originalUrl : "https://web.whatsapp.com/";
+    await activePage.goto(returnUrl, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch((error) => {
+      lastError = `A notificação usou a aba principal, mas não foi possível voltar ao WhatsApp Web: ${error.message}`;
+      logEvent("order.notification_return_failed", { errorName: error?.name || "Error" });
+    });
+    processing = false;
   }
 }
 
 async function watchNewOrders() {
-  if (watchingOrders || !context || connectionState !== "conectado" || !pdvApi.apiConfigured) return;
+  if (watchingOrders || processing || !context || connectionState !== "conectado" || !pdvApi.apiConfigured) return;
   watchingOrders = true;
   try {
     const pending = query(`SELECT contact_id AS contactId, phone, display_name AS displayName,
