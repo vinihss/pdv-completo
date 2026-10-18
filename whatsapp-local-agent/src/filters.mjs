@@ -46,3 +46,16 @@ export function parseChatActivityTimestamp(values, now = Date.now()) {
 export function isWithinLast24Hours(timestamp, now = Date.now()) {
   return Number.isFinite(timestamp) && timestamp <= now && timestamp >= now - 24 * 60 * 60 * 1000;
 }
+
+export function isConfiguredTestContact(identity, configuredPhone) {
+  const phone = String(configuredPhone || "").replace(/\D/g, "");
+  return Boolean(phone && identity && !identity.group && identity.phone === phone && identity.contactId === `${phone}@c.us`);
+}
+
+export function isNewVerifiedTestMessage({ identity, configuredPhone, messageKey, lastProcessedMessageKey }) {
+  return Boolean(
+    messageKey
+    && messageKey !== lastProcessedMessageKey
+    && isConfiguredTestContact(identity, configuredPhone)
+  );
+}

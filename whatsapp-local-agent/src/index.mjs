@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import initSqlJs from "sql.js";
 import { chromium } from "playwright";
-import { extractChatIdentityFromMetadata, extractDirectContactId, isWithinLast24Hours, parseChatActivityTimestamp } from "./filters.mjs";
+import { extractChatIdentityFromMetadata, extractDirectContactId, isConfiguredTestContact, isNewVerifiedTestMessage, isWithinLast24Hours, parseChatActivityTimestamp } from "./filters.mjs";
 import { classifyIntent } from "./classifier.mjs";
 import { createPdvApi } from "./pdvApi.mjs";
 
@@ -500,14 +500,14 @@ async function processTestChat(row, rowData, identity, rowIndex) {
   const message = incoming.nth(count - 1);
   const rawId = await message.getAttribute("data-id").catch(() => null);
   const idData = extractDirectContactId(rawId);
-  if (!idData || idData.group || idData.contactId !== identity.contactId || idData.phone !== testPhone) {
+  if (!idData || idData.contactId !== identity.contactId || !isConfiguredTestContact(idData, testPhone)) {
     lastScanWarning = "A última mensagem do chat de teste não confirmou o mesmo JID individual; conteúdo ignorado.";
     logEvent("scanner.test_chat_id_mismatch");
     return true;
   }
 
   const messageKey = rawId || `${idData.contactId}:${count}`;
-  if (messageKey === lastTestMessageKey) return true;
+  if (!isNewVerifiedTestMessage({ identity: idData, configuredPhone: testPhone, messageKey, lastProcessedMessageKey: lastTestMessageKey })) return true;
   if (query("SELECT message_id FROM messages WHERE message_id=?", [messageKey]).length) {
     lastTestMessageKey = messageKey;
     logEvent("scanner.test_chat_latest_already_processed");
@@ -546,7 +546,7 @@ async function processUnreadDirectChat() {
     const rowData = await inspectChatRow(row).catch(() => null);
     if (!rowData) continue;
     const rowIdentity = extractChatIdentityFromMetadata(rowData.values);
-    if (testPhone && rowIdentity && !rowIdentity.group && rowIdentity.phone === testPhone && !rowData.groupHint) {
+    if (isConfiguredTestContact(rowIdentity, testPhone) && !rowData.groupHint) {
       if (Date.now() - lastTestChatScanAt >= 10_000) {
         lastTestChatScanAt = Date.now();
         return processTestChat(row, rowData, rowIdentity, index);

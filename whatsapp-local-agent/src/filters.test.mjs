@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractChatIdentityFromMetadata, extractDirectContactId, isWithinLast24Hours, parseChatActivityTimestamp } from "./filters.mjs";
+import { extractChatIdentityFromMetadata, extractDirectContactId, isConfiguredTestContact, isNewVerifiedTestMessage, isWithinLast24Hours, parseChatActivityTimestamp } from "./filters.mjs";
+import { classifyIntent } from "./classifier.mjs";
 
 test("identifica telefone individual a partir do identificador c.us", () => {
   assert.deepEqual(extractDirectContactId("false_5511999999999@c.us_ABCD"), {
@@ -35,4 +36,20 @@ test("só considera chat se o horário de atividade puder ser confirmado dentro 
   assert.equal(isWithinLast24Hours(parseChatActivityTimestamp("Ontem", now), now), false);
   assert.equal(isWithinLast24Hours(parseChatActivityTimestamp([], now), now), false);
   assert.equal(isWithinLast24Hours(now + 60_000, now), false);
+});
+
+test("simula mensagem nova no chat de teste mesmo já lida e com atividade antiga", () => {
+  const configuredPhone = "51992237727";
+  const rowIdentity = extractChatIdentityFromMetadata(["false_51992237727@c.us_ROW"]);
+  const messageIdentity = extractDirectContactId("false_51992237727@c.us_MSG123");
+  const unread = false;
+  const activityTimestamp = Date.now() - 48 * 60 * 60 * 1000;
+
+  assert.equal(unread, false);
+  assert.equal(isWithinLast24Hours(activityTimestamp), false);
+  assert.equal(isConfiguredTestContact(rowIdentity, configuredPhone), true);
+  assert.equal(isNewVerifiedTestMessage({ identity: messageIdentity, configuredPhone, messageKey: "false_51992237727@c.us_MSG123", lastProcessedMessageKey: "" }), true);
+  assert.equal(classifyIntent("quero fazer um pedido").intent, "new_order");
+  assert.equal(isNewVerifiedTestMessage({ identity: messageIdentity, configuredPhone, messageKey: "false_51992237727@c.us_MSG123", lastProcessedMessageKey: "false_51992237727@c.us_MSG123" }), false);
+  assert.equal(isConfiguredTestContact({ group: true, phone: configuredPhone, contactId: `${configuredPhone}@c.us` }, configuredPhone), false);
 });
