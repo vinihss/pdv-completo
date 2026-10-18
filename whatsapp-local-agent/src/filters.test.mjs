@@ -38,6 +38,22 @@ test("só considera chat se o horário de atividade puder ser confirmado dentro 
   assert.equal(isWithinLast24Hours(now + 60_000, now), false);
 });
 
+test("interpreta formatos de horário usados pela interface em português e inglês", () => {
+  const now = new Date(2026, 9, 18, 1, 18, 0).getTime();
+  const yesterdayLate = parseChatActivityTimestamp("Ontem às 23:45", now, "pt-BR");
+  const yesterdayEarly = parseChatActivityTimestamp("Ontem, 00:30", now, "pt-BR");
+  const usDate = parseChatActivityTimestamp("10/17/2026, 11:45 PM", now, "en-US");
+  const todayAm = parseChatActivityTimestamp("1:10 AM", now, "en-US");
+  const iso = parseChatActivityTimestamp(new Date(now - 15 * 60_000).toISOString(), now, "en-US");
+
+  assert.equal(isWithinLast24Hours(yesterdayLate, now), true);
+  assert.equal(isWithinLast24Hours(yesterdayEarly, now), false);
+  assert.equal(isWithinLast24Hours(usDate, now), true);
+  assert.equal(isWithinLast24Hours(todayAm, now), true);
+  assert.equal(isWithinLast24Hours(iso, now), true);
+  assert.equal(parseChatActivityTimestamp("Ontem", now, "pt-BR"), null);
+});
+
 test("simula mensagem nova no chat de teste mesmo já lida e com atividade antiga", () => {
   const configuredPhone = "51992237727";
   const rowIdentity = extractChatIdentityFromMetadata(["false_51992237727@c.us_ROW"]);

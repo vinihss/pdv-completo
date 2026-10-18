@@ -483,9 +483,10 @@ async function inspectChatRow(row) {
     const titleNode = el.querySelector('[data-testid="cell-frame-title"] span[title], span[title]');
     const title = titleNode?.getAttribute("title") || "";
     const groupHint = Boolean(el.querySelector('[data-testid*="group" i], [aria-label*="group" i], [title*="group" i]'));
-    const timeNodes = [...el.querySelectorAll('time[datetime], [data-testid*="last-msg-ts" i], [data-testid*="timestamp" i], span[title]')];
-    const activityValues = timeNodes.flatMap((node) => [node.getAttribute("datetime"), node.getAttribute("title"), node.textContent]).filter(Boolean);
-    return { values, activityValues, unread, unreadCount: unread ? Math.max(1, Number(countMatch?.[1] || 1)) : 0, title, groupHint };
+    const timeNodes = [...el.querySelectorAll('time[datetime], [data-testid*="last-msg-ts" i], [data-testid*="timestamp" i], [data-timestamp], [data-time], span[title]')];
+    const activityValues = timeNodes.flatMap((node) => [node.getAttribute("datetime"), node.getAttribute("data-timestamp"), node.getAttribute("data-time"), node.getAttribute("title"), node.getAttribute("aria-label"), node.textContent]).filter(Boolean);
+    const locale = navigator.languages?.[0] || navigator.language || document.documentElement.lang || "pt-BR";
+    return { values, activityValues, locale, unread, unreadCount: unread ? Math.max(1, Number(countMatch?.[1] || 1)) : 0, title, groupHint };
   });
 }
 
@@ -565,20 +566,30 @@ async function processUnreadDirectChat() {
     if (!rowData.unread) continue;
     sawUnread = true;
     const now = Date.now();
-    if (now - (lastUnreadRowLogAt.get(index) || 0) >= 30_000) {
+    const shouldLogRow = now - (lastUnreadRowLogAt.get(index) || 0) >= 30_000;
+    if (shouldLogRow) {
       logEvent("scanner.unread_detected", { row: index + 1, unreadMessages: rowData.unreadCount });
       lastUnreadRowLogAt.set(index, now);
     }
-    const activityTimestamp = parseChatActivityTimestamp(rowData.activityValues);
+    const activityTimestamp = parseChatActivityTimestamp(rowData.activityValues, Date.now(), rowData.locale);
     if (!isWithinLast24Hours(activityTimestamp)) {
       lastScanWarning = "Há conversa não lida sem atividade confirmada nas últimas 24 horas; chats antigos ou sem horário confiável são ignorados.";
-      logEvent("scanner.skipped_outside_24h", { row: index + 1, timestampKnown: Number.isFinite(activityTimestamp) });
+      const timestampKnown = Number.isFinite(activityTimestamp);
+      if (shouldLogRow) {
+        logEvent(timestampKnown ? "scanner.skipped_outside_24h" : "scanner.activity_timestamp_unparsed", {
+          row: index + 1,
+          reason: !timestampKnown ? "no_recognized_timestamp" : activityTimestamp > Date.now() ? "timestamp_in_future" : "older_than_24h",
+          ageMinutes: timestampKnown ? Math.round((Date.now() - activityTimestamp) / 60_000) : null,
+          activityValueCount: rowData.activityValues.length,
+          locale: rowData.locale?.split("-")[0] || "unknown",
+        });
+      }
       continue;
     }
     const identity = rowIdentity;
     if (!identity || identity.group || rowData.groupHint) {
       lastScanWarning = "Há conversa não lida cuja identidade individual não foi confirmada; não abri nem li o conteúdo por segurança.";
-      logEvent("scanner.skipped_unverified_chat", { row: index + 1, reason: identity?.group || rowData.groupHint ? "group_or_group_marker" : "direct_jid_not_exposed" });
+      if (shouldLogRow) logEvent("scanner.skipped_unverified_chat", { row: index + 1, reason: identity?.group || rowData.groupHint ? "group_or_group_marker" : "direct_jid_not_exposed" });
       continue;
     }
 
