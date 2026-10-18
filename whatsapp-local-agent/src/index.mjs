@@ -336,6 +336,12 @@ async function startBrowser() {
       logEvent("whatsapp.console_nonfatal", { reason: "storage_persistence_denied" });
       return;
     }
+    // Alguns recursos de imagem externos do WhatsApp são bloqueados pela CSP
+    // da própria página; isso não indica erro de autenticação ou do agente.
+    if (/Loading the image 'https:\/\/static\.whatsapp\.net\/.*violates the following Content Security Policy directive: "img-src 'self' blob:"/i.test(text)) {
+      logEvent("whatsapp.console_nonfatal", { reason: "static_image_blocked_by_csp" });
+      return;
+    }
     lastError = `WhatsApp Web: ${text.slice(0, 250)}`;
   });
   await page.goto("https://web.whatsapp.com/", { waitUntil: "domcontentloaded", timeout: 60_000 });
