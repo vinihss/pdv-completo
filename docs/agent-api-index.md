@@ -272,9 +272,10 @@ arquivos de rota. Não existe nenhuma rota `/webhooks/*`, `/payments/*` ou
 
 Os docs `19-pagarme.md` e `20-pagarme-pendencias.md` (camada V5) foram
 removidos em `308c9977`; recupere com
-`git show 308c9977^:docs/19-pagarme.md` (idem `20-…`). Se o serviço Go `pagarme-webhook/`
-for mantido no deploy, o contrato `/internal/pagarme/*` precisa ser restaurado
-ou o serviço desligado — isso é uma pendência de deploy, não de API.
+`git show 308c9977^:docs/19-pagarme.md` (idem `20-…`).
+**Decisão (2026-10-18): Pagar.me está de lado por ora** — não mexer no serviço
+Go `pagarme-webhook/` nem em contrato algum sem decisão nova; se ele estiver no
+deploy, tratar como pendência de deploy conhecida, não de API.
 
 ## Realtime (WebSocket)
 
