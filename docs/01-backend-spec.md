@@ -310,38 +310,23 @@ venda. Ver §7.8.
 
 ```
 src/
-├── domain/                  # regras de negócio puras, sem I/O
-│   ├── order/
-│   ├── product/
-│   ├── table/
-│   └── user/
+├── domain/                  # regras de negócio puras + AppError — sem I/O
+│   └── (arquivos soltos: order-total.ts, cpf.ts, tenant.ts, errors.ts, …)
 │
-├── application/              # use cases / orquestração
-│   └── order/
-│       ├── open-order.usecase.ts
-│       ├── add-item.usecase.ts
-│       ├── update-item-status.usecase.ts
-│       └── close-order.usecase.ts
+├── application/             # use cases (regra de negócio)
+│   ├── ports/               # interfaces INJETADAS: unit-of-work, tenant-context,
+│   │                        #   effects, notifications, file-storage, …
+│   └── <dominio>/           # ex.: order/order.usecases.ts, auth/login.usecase.ts
 │
-├── infra/
-│   ├── repositories/
-│   │   ├── order.repository.ts
-│   │   └── interfaces/
-│   │       └── order.repository.interface.ts
-│   ├── db/
-│   │   ├── schema.ts
-│   │   └── client.ts
-│   ├── realtime/
-│   │   ├── [REMOVIDO - substituido pelo Go gateway ws-gateway/]
-│   │   └── outbox-dispatcher.ts
-│   └── container.ts          # composition root (DI)
+├── infra/                   # adapters + wiring
+│   ├── db/                  # client.ts (pool), migrate.ts, registry-migrate.ts, seed.ts
+│   ├── composition/         # COMPOSITION ROOT (DI): default-usecases.ts
+│   │   └── domains/*.ts     #   + re-export por domínio com nomes legados
+│   ├── cache/, storage/, mail/, realtime/, audit…
 │
-├── http/
-│   ├── routes/
-│   ├── middlewares/
-│   │   ├── auth.middleware.ts
-│   │   └── idempotency.middleware.ts
-│   └── server.ts
+├── http/                    # server.ts, plugins/ (router.plugin), middlewares/, routes/
+├── modules/                 # módulos autocontidos (delivery/GIS)
+├── integrations/            # ifood, maps, pagarme, printer
 │
 └── config/
     └── env.ts
@@ -351,15 +336,24 @@ src/
 
 | Camada | Pode importar |
 |---|---|
-| `domain` | nada externo (regras puras) |
-| `application` | interfaces de `infra` (nunca implementação concreta) |
-| `infra` | `domain`, bibliotecas externas (Drizzle, ws, etc) |
-| `http` | `container` (ponto único de acesso a `application`) |
+| `domain` | nada externo (regras puras; nem `drizzle-orm`/`fastify`/`pg`) |
+| `application` | `domain` + libs puras (zod, argon2, jwt) — **nunca** `infra`, `integrations`, `http`, `config`, `drizzle-orm`. Segredo/env chega **injetado** nos `deps` do use case |
+| `infra` | `domain`, `application` (implementa os ports e faz o wiring), libs externas (Drizzle, pg, etc) |
+| `http` | `domain`, `application` e o **composition root** (`infra/composition/domains/*`) — nunca `drizzle-orm` nem `infra/db/schema`/`infra/db/client` (só `server.ts` é isento) |
 
 Isso mantém a lógica de negócio desacoplada do banco: trocar o *destino* do
 Postgres (compose local, RDS, Neon) é só `DATABASE_URL`, sem tocar em use case.
 > **Atualização 2026**: com o SQLite removido, `infra/db/client.ts` fala só com
 > o Postgres — não há mais troca de driver, só de endpoint.
+
+**Isso é enforçado, não só documentado**: `backend/test/architecture.test.ts`
+(ratchet) varre `src/` e quebra `npm run test` em qualquer import proibido novo
+(`KNOWN_VIOLATIONS` está vazio — application e http estão 100% limpos). Não
+existe mais `infra/container.ts`: o composition root é
+`infra/composition/default-usecases.ts`, e as rotas instanciam use cases
+importando de `infra/composition/domains/*.ts` (ex.: `auth.routes.ts`). Detalhe
+prático em [`agent-backend.md`](agent-backend.md) § "Arquitetura em camadas" e
+§ "Ports, Unit-of-Work e composition root".
 
 ### 5.1 Cache Layer (`infra/cache`)
 

@@ -20,17 +20,17 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | Self-Service | `customer-address.usecases.ts` | `backend/src/application/self-service/` | `customer-admin.routes.ts` |
 | Self-Service | `menu.usecases.ts` | `backend/src/application/self-service/` | `public.routes.ts` |
 | Alert | `alert.usecases.ts` | `backend/src/application/alert/` | `alert.routes.ts` |
-| Audit | `audit-log.usecases.ts` | `backend/src/application/` | `audit.routes.ts` |
-| Report | `report.usecases.ts` | `backend/src/application/` | `report.routes.ts` |
-| User | `user.usecases.ts` | `backend/src/application/` | `user.routes.ts` |
-| Customer | `customer.usecases.ts` | `backend/src/application/` | `customer.routes.ts` |
+| Audit | `audit-log.usecases.ts` | `backend/src/application/audit-log/` | `audit.routes.ts` |
+| Report | `report.usecases.ts` | `backend/src/application/report/` | `report.routes.ts` |
+| User | `user.usecases.ts` | `backend/src/application/user/` | `user.routes.ts` |
+| Customer | `customer.usecases.ts` | `backend/src/application/customer/` | `customer.routes.ts` |
 | Customer (CPF) | `cpf.ts` | `backend/src/domain/` | `customer.routes.ts` — valida DV, devolve os 11 dígitos crus |
-| Product | `product.usecases.ts` | `backend/src/application/` | `catalog.routes.ts` |
-| Category | `category.usecases.ts` | `backend/src/application/` | `catalog.routes.ts` |
-| Kitchen Group | `kitchen-group.usecases.ts` | `backend/src/application/` | `catalog.routes.ts` |
-| Store Settings | `store-settings.usecases.ts` | `backend/src/application/` | `store-settings.routes.ts` |
-| Payment | `payment.usecases.ts` | `backend/src/application/payment/` | `payment.routes.ts`, `pagarme-webhook.routes.ts` |
-| Payment (domínio) | `payment.ts` | `backend/src/domain/` | `PaymentGateway`, transições de status, `refundableAmount` |
+| Product | `product.usecases.ts` | `backend/src/application/product/` | `catalog.routes.ts` |
+| Category | `category.usecases.ts` | `backend/src/application/category/` | `catalog.routes.ts` |
+| Kitchen Group | `kitchen-group.usecases.ts` | `backend/src/application/kitchen-group/` | `catalog.routes.ts` |
+| Store Settings | `store-settings.usecases.ts` | `backend/src/application/store-settings/` | `store-settings.routes.ts` |
+| Payment | `register-payment.usecase.ts` + `payment-lines.ts` | `backend/src/application/order/payment/` | `order.routes.ts` (`/orders/:id/payments*`) |
+| Payment (port) | `payment-gateway.port.ts` | `backend/src/application/ports/` | interface do gateway — **sem implementação no checkout** (webhook = serviço Go `pagarme-webhook/`; docs 19/20 removidos em `308c9977`) |
 
 ## Rotas (HTTP Layer)
 
@@ -41,7 +41,6 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | `cash-flow.routes.ts` | Fluxo de Caixa | `/cash-drawer/*` |
 | `courier.routes.ts` | Entregas (Entregador) | `/courier/deliveries/*` |
 | `delivery-manager.routes.ts` | Entregas (Gerente) | `/manager/deliveries/*`, `/manager/couriers` |
-| `kitchen.routes.ts` | Cozinha | `/kitchen/orders`, `/kitchen/orders/:id/items/:itemId/ready` |
 | `alert.routes.ts` | Alertas | `/alerts`, `/alerts/mark-read` |
 | `print.routes.ts` | Impressão | `/orders/:id/print`, `/printers/status`, `/printers/health` |
 | `catalog.routes.ts` | Catálogo | `/products`, `/categories`, `/kitchen-groups` |
@@ -55,10 +54,14 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | `store-settings.routes.ts` | Configurações da loja | `/store-settings`, `/store/geocode-restaurant` |
 | `public.routes.ts` | Público | `/public/menu`, `/public/orders`, `/public/orders/:id`, `/public/orders/:id/cancel`, `/public/orders/:id/status` |
 | `realtime.routes.ts` | Realtime | `/realtime` (WebSocket) |
-| `ifood.routes.ts` | iFood | `/ifood/status`, `/ifood/catalog-sync` |
-| `payment.routes.ts` | Cobrança (Pagar.me) | `/orders/:id/payments`, `/payments/:paymentId`, `/payments/:paymentId/cancel`, `/payments/:paymentId/refund` |
-| `pagarme-webhook.routes.ts` | Webhooks | `/webhooks/pagarme` (público; assinatura verificada) |
 | `uploads.routes.ts` | Storage | `/uploads/:kind/:filename` |
+
+> **Linhas removidas por não existirem no checkout**: `kitchen.routes.ts`,
+> `ifood.routes.ts`, `payment.routes.ts` e `pagarme-webhook.routes.ts` — não há
+> esses arquivos em `backend/src/http/routes/` nem registro no
+> `router.plugin.ts`. Cobrança Pagar.me V5 = use cases em
+> `application/order/payment/` + adapter via port `payment-gateway.port.ts`
+> (sem implementação aqui); o webhook é o serviço Go `pagarme-webhook/`.
 
 ## Testes (Suítes)
 
@@ -83,20 +86,34 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | `test/stock.test.ts` | Estoque |
 | `test/team-customers.test.ts` | Clientes + equipe |
 | `test/uploads.test.ts` | Storage por tenant |
+| `test/architecture.test.ts` | **Ratchet de camadas** — application/http limpos; violação nova de import quebra o teste |
+| `test/composition-compat.test.ts` | Nomes legados do composition root |
+| `test/tenant-routing.test.ts` | Resolução de tenant por Host (`TENANT_ROUTING`) |
+| `test/tenant-isolation.test.ts` | Isolamento por schema de tenant |
+
+> `test/pagarme.test.ts` e `test/printer.test.ts` **não existem** (linhas
+> removidas); a suíte tem também `tenant-cache`, `tenant-spike`, `refund`,
+> `realtime-ws`, `courier-location`, `cash-flow-category`, `factories` e
+> `caddy-on-demand-tls`.
 
 ## Infraestrutura
 
 | Componente | Arquivo |
 |---|---|
 | DB Client | `backend/src/infra/db/client.ts` |
-| Migrations | `backend/src/infra/db/migrate.ts` |
+| Migrations (por schema) | `backend/src/infra/db/migrate.ts` |
+| Migrations (registry/global em `public`) | `backend/src/infra/db/registry-migrate.ts` |
 | Seed | `backend/src/infra/db/seed.ts` |
 | Load Menu | `backend/src/infra/db/load-menu.ts` |
+| **Composition root (DI)** | `backend/src/infra/composition/default-usecases.ts` + re-export por domínio em `composition/domains/*.ts` — **único** lugar de wiring; rotas importam daqui |
+| **Ports (application)** | `backend/src/application/ports/` — unit-of-work, tenant-context, effects, notifications, file-storage, payment-gateway, … |
+| Unit-of-Work + ALS de tenant | `backend/src/infra/db/postgres-tenant-unit-of-work.ts`, `backend/src/infra/db/tenant-context.ts` |
 | Outbox Dispatcher | `backend/src/infra/realtime/outbox-dispatcher.ts` |
-| WebSocket | `backend/src/infra/realtime/ws-gateway.ts` |
 | Maintenance | `backend/src/infra/maintenance.ts` |
 | Advisory locks (dono único dos workers) | `backend/src/infra/locks.ts` |
 | Cache | `backend/src/infra/cache/` (`redis-cache-client.ts`, `warmup.ts`, `index.ts` com `initCache`) |
+| Mail (SMTP) | `backend/src/infra/mail/` (adapter do port `application/ports/notifications.port.ts`) |
+| Plugins Fastify | `backend/src/http/plugins/router.plugin.ts` (registro de rotas), `tenant-context.plugin.ts` (resolução de tenant por Host) |
 
 > **Cache layer atual:** `MemoryCache` singleton (fallback) → `RedisCacheClient` (via `ioredis`) quando `REDIS_URL` disponível. `initCache()` no `server.ts` testa conexão no boot; `warmup.ts` pré-popula por schema de tenant (`public.tenant` via registry). `tenantCache` particiona chaves por `${schema}:`. Veja `docs/01-backend-spec.md` §4.4 e `deploy/docker-compose.yml` (serviço `redis`).
 
@@ -104,7 +121,12 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 
 | Integração | Arquivos |
 |---|---|
-| iFood | `backend/src/integrations/ifood/` (10 arquivos) |
-| Google Maps | `backend/src/integrations/maps/` (3 arquivos) |
-| Printer | `backend/src/integrations/printer/` (3 arquivos) |
-| Pagar.me | `backend/src/integrations/pagarme/` (7 arquivos) |
+| Google Maps | `backend/src/integrations/maps/` (5 arquivos) |
+| Printer | `backend/src/integrations/printer/` (5 arquivos) |
+| Pagar.me | webhook = serviço Go `pagarme-webhook/` (fora do backend); no backend só a port `application/ports/payment-gateway.port.ts` (sem adapter neste checkout) |
+
+> **Linhas removidas por não existirem**: `backend/src/integrations/ifood/` e
+> `backend/src/integrations/pagarme/` não estão nesta árvore (iFood fora do
+> checkout; Pagar.me removido pela migration `0010_remove_payment_ifood.sql`).
+> Os docs `18`/`19`/`20` também foram removidos em `308c9977`
+> (`git show 308c9977^:docs/<arquivo>`).

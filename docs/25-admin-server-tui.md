@@ -29,9 +29,10 @@
   `merchant_name`, `merchant_city`, `brand_color`, `pix_key`, toggles
   (`uses_tables`, `kitchen_enabled`, `uses_delivery`, …) — ver
   `backend/migrations/0001_init.sql:724`.
-- `docs/15` §10.7 deixava em aberto: "painel de administração entra neste
+- O antigo `docs/15` §10.7 deixava em aberto: "painel de administração entra neste
   projeto ou é manual (script)? O plano assume manual." Este documento é a
-  resposta: **entra, como serviço Go separado no host**.
+  resposta: **entra, como serviço Go separado no host**. (`docs/15-multi-tenant-schema.md`
+  foi removido em `308c9977`; `git show 308c9977^:docs/15-multi-tenant-schema.md`)
 
 ## 2. Decisões tomadas (dono do produto, 2026-10-11)
 
@@ -122,9 +123,11 @@ As fases são independentes: a Fase 1 pode começar e ser entregue sozinha.
   exposição (porta interna vs. Caddy) na Fase 1.
 - **PIN do manager** só aparece no stdout do provision — capturar e mostrar
   uma vez, nunca persistir (nem em log de auditoria).
-- **Dependência pendente:** `docs/23-reavaliacao-multi-tenant.md` pode mudar
-  o modelo (schema único + `tenant_id` + RLS). O admin-server fala com o
-  registry `public.tenant`; se a decisão mudar o schema, as queries da
+- **Dependência pendente:** a reavaliação do modelo (schema único + `tenant_id`
+  + RLS) — antes `docs/23-reavaliacao-multi-tenant.md`, removido em `308c9977`
+  (`git show 308c9977^:docs/23-reavaliacao-multi-tenant.md`) — **foi decidida**:
+  ver `docs/26-identidade-centralizada.md` (§9, workstream B). O admin-server
+  fala com o registry `public.tenant`; se o modelo mudar, as queries da
   Fase 1 precisam de revisão — mas o contrato HTTP fica.
 - **`switch.sh`** precisa de acesso ao docker do host — o SSH do TUI é o
   caminho (decisão §2); o admin-server **não** tenta disparar deploy.
@@ -140,5 +143,6 @@ As fases são independentes: a Fase 1 pode começar e ser entregue sozinha.
 - `backend/migrations/0001_init.sql:724` — `store_settings` (colunas)
 - `deploy/backup.sh`, `deploy/switch.sh` — scripts de manutenção
 - `docs/15-multi-tenant-schema.md` §6 — provisionamento; §10.7 — esta
-  pendência
-- `docs/23-reavaliacao-multi-tenant.md` — decisão pendente que afeta o registry
+  pendência (removido em `308c9977`; `git show 308c9977^:docs/15-multi-tenant-schema.md`)
+- `docs/23-reavaliacao-multi-tenant.md` — decisão que afeta o registry
+  (removido em `308c9977`; a decisão vigente está em `docs/26-identidade-centralizada.md`)

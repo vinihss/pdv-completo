@@ -6,14 +6,57 @@ Guia detalhado para agentes que trabalham no backend (`backend/`).
 
 ```
 src/
-├── domain/        # erros (AppError), text, pix-key, variations
-├── application/   # use cases (regra de negócio)
-├── infra/         # db (client, migrate, seed), realtime (outbox, ws), audit
-├── http/          # server.ts, middlewares/, routes/
-└── config/        # env.ts
+├── domain/          # regras puras + erros (AppError) — sem I/O
+├── application/     # use cases + ports/ (interfaces injetadas)
+├── infra/           # adapters: db, composition/, realtime, audit, cache, mail, storage
+│   └── composition/ # composition root (DI): default-usecases.ts + domains/*.ts
+├── http/            # server.ts, plugins/, middlewares/, routes/
+├── modules/         # módulos autocontidos (delivery/GIS)
+├── integrations/    # ifood, maps, pagarme, printer
+└── config/          # env.ts
 ```
 
-**Regra de ouro**: `http → application → infra → domain`. Nunca ao contrário.
+**Regra de ouro**: `http → composition → application → domain`. Os adapters de
+`infra` implementam os **ports** de `application` e são ligados **apenas** no
+composition root. Nunca na direção contrária.
+
+**Isso é ENFORÇADO pelo teste `backend/test/architecture.test.ts` (ratchet de
+camadas, FASE 0).** `KNOWN_VIOLATIONS` está **vazio**, então as regras valem
+para 100% do código — violação nova quebra `npm run test`:
+
+- `domain/**` não importa application/infra/http/config/integrations nem os
+  pacotes `drizzle-orm`/`fastify`/`pg`;
+- `application/**` não importa infra/integrations/http/config nem `drizzle-orm`
+  — **a application não lê `config`**: segredo/env chega injetado nos `deps` do
+  use case (precedente: `login.usecase.ts`);
+- `http/**` não importa `drizzle-orm`, `infra/db/schema` nem `infra/db/client`
+  (só `server.ts` é EXEMPT) — rota não toca em dado, delega ao composition root.
+
+O ratchet também falha se uma entrada da lista ficar **obsoleta** (arquivo
+corrigido/apagado): a lista só diminui, nunca aumenta sem justificativa no diff.
+
+## Ports, Unit-of-Work e composition root
+
+Padrão vigente desde a migração "Ondas" (auth/perfil/self-service já migrados;
+o ratchet garante que o que já migrou não regrida):
+
+- **Ports ficam em `application/ports/`** (`unit-of-work.ts`, `tenant-context.ts`,
+  `effects.ts`, `notifications.port.ts`, `file-storage.port.ts`, …) — a
+  application **define** a interface; `infra/` implementa. A application nunca
+  importa a implementação.
+- **Use case puro**: sem import de `infra/`, `integrations/`, `config/` nem
+  Drizzle. Dependências chegam no `deps`/factory injetada na composition root
+  (ex.: `login.usecase.ts` recebe `uow`, `TenantScopeStore` e o segredo do JWT).
+- **Transação**: `uow.run(...)` (ou `deps.uow.run`) — todo acesso dentro da
+  transação é `await` (§Transações assíncronas) e audit/outbox entram na **mesma**
+  transação da escrita de domínio (§Audit log + outbox).
+- **Rota = zod + composition root**: a rota importa as instâncias prontas de
+  `src/infra/composition/domains/*.ts` (re-export com **nomes legados** a partir
+  de `infra/composition/default-usecases.ts` — a única fonte de wiring) e nunca
+  importa Drizzle/schema/client. Exemplo canônico: `auth.routes.ts`.
+- **Rota nova** é registrada em `src/http/plugins/router.plugin.ts` (`appRouter`);
+  o `server.ts` só faz `app.register(appRouter)` + os middlewares/globais.
+- `domains/*.ts` **não** constroi adapter — só reexporta instâncias do root.
 
 ## ESM + NodeNext
 
@@ -56,19 +99,25 @@ Ver nota completa em `src/application/order/order.usecases.ts:15-28`.
 
 A estrutura, a lista atual e as regras de compatibilidade estão em [`backend/migrations/README.md`](../backend/migrations/README.md). O runner persiste o **filename completo** em `_migrations.name`; nomes já publicados são imutáveis. Não renomeie/mova/reordene SQL aplicado.
 
-Estado do checkout (lista pode evoluir; confirme a pasta antes de criar): baseline `0001_init.sql` e incrementais `0002_pagarme.sql`, `0003_courier_location.sql`, `0004_delivery_arrival_alert_sent.sql` e `0004_device_provisioning.sql`. Os dois `0004_*` são uma colisão histórica, ordenada lexicamente; não a replique. A próxima migration deve usar prefixo novo superior (`0012_*` no estado atual).
+Estado do checkout (confirme a pasta antes de criar): baseline `0001_init.sql` e incrementais `0003_courier_location.sql`, `0004_delivery_arrival_alert_sent.sql`, `0004_device_provisioning.sql`, `0005_cash_drawer_denominations.sql`, `0006_order_refund.sql`, `0008_cash_movement_category.sql`, `0009_remove_whatsapp.sql`, `0010_remove_payment_ifood.sql` e `0011_delivery_gis.sql`. Não há `0002`/`0007` (lacunas históricas — `0002_pagarme` saiu da pasta) e os dois `0004_*` são uma colisão histórica, ordenada lexicamente; não a replique. A próxima migration deve usar prefixo novo superior (`0012_*` no estado atual).
 
 - O runner lê apenas arquivos `.sql` diretamente em `backend/migrations/`, ordena pelo filename e aplica por schema dentro de transação.
 - `archive/` é histórico não executável; `registry/` usa runner separado e aplica somente em `public`. Não misture os diretórios.
 - Escreva DDL seguro para rollout e retentativa; use `IF NOT EXISTS` quando adequado, e não use `CREATE INDEX CONCURRENTLY` no runner transacional.
 - O boot aguarda os runners e aborta se falharem. Preserve o `await` de `runMigrations()`/`runRegistryMigrations()`.
 
-### Registry do multi-tenant — `migrations/registry/` (Fase 1 do `docs/15`)
+### Registry do multi-tenant — `migrations/registry/` (Fase 1 do antigo `docs/15`)
+
+> **Nota**: `docs/15-multi-tenant-schema.md` foi removido do repo (`308c9977`);
+> histórico em `git show 308c9977^:docs/15-multi-tenant-schema.md`. A decisão
+> atual (identidade centralizada + migração futura para schema único com RLS)
+> está em `docs/26-identidade-centralizada.md`. As fases citadas abaixo são
+> históricas — valide no código antes de assumir qualquer uma.
 
 `backend/migrations/registry/` é um **diretório** e tem **runner próprio**
 (`src/infra/db/registry-migrate.ts`, `npm run db:migrate:registry`, controle em
 `public._registry_migrations`). É o índice dos schemas de tenant (`public.tenant`,
-§3.2 do doc 15), então ele **não pode** estar no glob do runner de tenant: na Fase 3
+§3.2 do antigo doc 15 — ver nota acima), então ele **não pode** estar no glob do runner de tenant: na Fase 3
 aquele runner roda o mesmo arquivo dentro de cada schema de loja, e cada uma
 criaria a sua própria lista de lojas. O `migrate.ts` filtra `*.sql` de um nível e
 tem um `statSync().isFile()` explícito por isso.
@@ -80,6 +129,11 @@ tem um `statSync().isFile()` explícito por isso.
 - **Toda referência é qualificada com `public.`** e o registry **não** entra no
   `infra/db/schema.ts` (que é o DDL replicado em cada loja — o `drizzle-kit`
   criaria `tenant` dentro de cada schema).
+- O runner é o lar de **tabelas globais que existem uma única vez em `public`**,
+  fora de qualquer schema de tenant: o índice de lojas (`0001_tenant_registry.sql`)
+  e — workstream A, `docs/26` §3 — as tabelas de identidade
+  (`0002_identity.sql`: `account`, `account_identity`, `auth_session`,
+  `password_reset`). Queries contra essas tabelas sempre qualificam `public.`.
 - Regras de resolução em `src/domain/tenant.ts` (puras), acesso em
   `src/infra/tenant/registry.ts` (cache 60 s, resultado negativo também cacheado),
   decisão em `src/application/tenant/resolve-tenant.usecase.ts` (`resolveTenant`, o
@@ -211,7 +265,8 @@ uploads/public/product/0f9c….webp
 - **Porta `FileStorage`** (`put`/`get`/`remove`/`exists`) + adapter `LocalDiskStorage`, com
   singleton `getStorage()`. Nada na interface é específico de `fs`: S3/R2 entra como troca de adapter.
 - **Seam do tenant**: `resolveTenantSchema()` (`storage/tenant.ts`) — hoje só
-  `DEFAULT_TENANT_SCHEMA ?? "public"`. A Fase 2 do doc 15 (§6) troca o **corpo** dessa função pela
+  `DEFAULT_TENANT_SCHEMA ?? "public"`. A Fase 2 do antigo doc 15 (§6 — ver a nota
+  do §Registry) troca o **corpo** dessa função pela
   leitura do ALS; **nenhum outro arquivo muda**.
 - **Serving**: `GET /uploads/:kind/:filename` em `src/http/routes/uploads.routes.ts` (substitui o
   `@fastify/static`, removido do `package.json`). Valida `kind` contra a whitelist, valida `filename`
