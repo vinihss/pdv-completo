@@ -48,6 +48,7 @@ const addAddressSchema = z.object({ correlationId: z.string(), ...addressFields 
 
 const createOrderSchema = z.object({
   correlationId: z.string(),
+  channel: z.enum(["web", "whatsapp"]).optional(),
   customerPhone: z.string().min(1),
   customerName: z.string().min(1),
   addressId: z.string().optional(),
@@ -144,7 +145,7 @@ export async function publicRoutes(app: FastifyInstance) {
     const body = createOrderSchema.parse(req.body);
     await assertDeliveryEnabled(req);
     const result = await withIdempotency("POST /public/orders", body.correlationId, body, async () => {
-      const created = await createSelfServiceOrderUsecase({ ...body, channel: "web" });
+      const created = await createSelfServiceOrderUsecase({ ...body, channel: body.channel ?? "web" });
       return { status: 201, body: created };
     });
     return reply.code(result.status).send(result.body);

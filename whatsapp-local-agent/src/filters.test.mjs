@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyChoice, extractDirectContactId, isOrderIntent } from "./filters.mjs";
+import { extractChatIdentityFromMetadata, extractDirectContactId } from "./filters.mjs";
 
 test("identifica telefone individual a partir do identificador c.us", () => {
   assert.deepEqual(extractDirectContactId("false_5511999999999@c.us_ABCD"), {
@@ -16,16 +16,12 @@ test("exclui grupos e falha fechado para identificadores não reconhecidos", () 
   assert.equal(extractDirectContactId(undefined), null);
 });
 
-test("aceita sinais de pedido e ignora conversa sem contexto de pedido", () => {
-  assert.equal(isOrderIntent("Quero acompanhar meu pedido"), true);
-  assert.equal(isOrderIntent("Tem cardápio?"), true);
-  assert.equal(isOrderIntent("Oi, tudo bem?"), false);
-  assert.equal(isOrderIntent("Me manda o status do evento"), false);
-  assert.equal(isOrderIntent("Obrigado!"), false);
-});
-
-test("classifica apenas escolhas esperadas no menu inicial", () => {
-  assert.equal(classifyChoice("1"), "new_order");
-  assert.equal(classifyChoice("acompanhar pedido"), "track_order");
-  assert.equal(classifyChoice("oi"), null);
+test("a lista só autoriza abrir um contato com JID c.us explícito", () => {
+  assert.deepEqual(extractChatIdentityFromMetadata(["row", "false_5511999999999@c.us_ABC"]), {
+    group: false,
+    phone: "5511999999999",
+    contactId: "5511999999999@c.us",
+  });
+  assert.deepEqual(extractChatIdentityFromMetadata(["120363012345678901@g.us"]), { group: true });
+  assert.equal(extractChatIdentityFromMetadata(["Ceci", "1 mensagem não lida"]), null);
 });

@@ -74,10 +74,10 @@ export class UpdateItemStatusUseCase {
         },
       });
 
-      // Só pra comanda de delivery (web) — comanda de mesa não tem
+      // Só pra comanda de delivery (web/WhatsApp) — comanda de mesa não tem
       // máquina de cliente (nobody assina order:<orderId> de mesa). O stage
       // só muda de fato quando o ÚLTIMO item ativo fica pronto.
-      const isSelfService = parentOrder?.channel === "web";
+      const isSelfService = parentOrder?.channel === "web" || parentOrder?.channel === "whatsapp";
       if (isSelfService && input.newStatus === "ready") {
         const allItems = await session.orders.listItemRows(input.orderId);
         const activeItems = allItems.filter((i) => i.status !== "cancelled");

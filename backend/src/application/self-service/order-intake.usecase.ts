@@ -157,7 +157,7 @@ export function createOrderIntakeUsecases(deps: OrderIntakeUsecasesDeps) {
      * lógica de resolver cliente/endereço ou criar o pedido.
      */
     async createSelfServiceOrderUsecase(input: {
-      channel: "web";
+      channel: "web" | "whatsapp";
       customerPhone: string;
       customerName: string;
       addressId?: string;

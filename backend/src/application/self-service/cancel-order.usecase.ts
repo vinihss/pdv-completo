@@ -53,7 +53,7 @@ export function createSelfServiceCancelUsecases(deps: SelfServiceCancelUsecasesD
         const order = await session.orders.findRow(input.orderId);
         if (!order || !customer || order.customerId !== customer.id) throw Errors.forbiddenRole();
 
-        if (order.channel !== "web") throw Errors.forbiddenRole();
+        if (order.channel !== "web" && order.channel !== "whatsapp") throw Errors.forbiddenRole();
 
         // Stage atual via máquina central — cancelável antes do entregador sair
         // em rota, ou quando a entrega falhou e o pedido continua aberto.

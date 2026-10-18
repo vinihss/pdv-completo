@@ -72,12 +72,12 @@ let seq = 0;
 const nextIp = () => `10.0.${Math.floor(seq / 250)}.${(seq % 250) + 1}`;
 const nextPhone = () => `1190000${String((seq = (seq + 1) % 10000)).padStart(4, "0")}`;
 
-async function createDeliveryOrder(phone: string, paymentMethodIntent = "cash", ip = nextIp()) {
+async function createDeliveryOrder(phone: string, paymentMethodIntent = "cash", ip = nextIp(), channel = "web") {
   return api("post", "/public/orders", {
     ip,
     body: {
       correlationId: crypto.randomUUID(),
-      channel: "web",
+      channel,
       customerPhone: phone,
       customerName: "Cliente Teste",
       newAddress: { street: "Rua A", number: "10", neighborhood: "Centro", city: "Sao Paulo" },
@@ -204,6 +204,18 @@ describe("self-service: stage público, cancelamento e continuação", () => {
 
     const events = await outboxPayloads(`order:${orderId}`, "customer.stage_changed");
     expect(events.at(-1)).toMatchObject({ stage: "received" });
+  });
+
+  it("pedido iniciado pelo link de WhatsApp conserva o canal e é encontrado pelo telefone", async () => {
+    const ip = nextIp();
+    const phone = nextPhone();
+    const created = await createDeliveryOrder(phone, "cash", ip, "whatsapp");
+    expect(created.status).toBe(201);
+    const stored = await raw.get(`SELECT channel FROM "order" WHERE id = $1`, [created.json.orderId]) as { channel: string };
+    expect(stored.channel).toBe("whatsapp");
+    const active = await api("post", "/public/orders/active", { ip, body: { phone } });
+    expect(active.status).toBe(200);
+    expect(active.json).toMatchObject({ orderId: created.json.orderId, customerStage: { stage: "received" } });
   });
 
   it("itens prontos → stage 'ready' (derivado, sem coluna própria)", async () => {

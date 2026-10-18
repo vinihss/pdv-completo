@@ -102,6 +102,13 @@ describe("texto do alerta de comanda (puro)", () => {
     });
   });
 
+  it("pedido iniciado pelo WhatsApp identifica a origem no alerta", () => {
+    expect(describeOrderAlert({ channel: "whatsapp", customerName: "Ana" })).toEqual({
+      title: "Novo pedido de Ana",
+      body: "Entrega · WhatsApp",
+    });
+  });
+
   it("a audiência da comanda é gerente, caixa e cozinha — o garçom não entra", () => {
     expect(ORDER_ALERT_AUDIENCE).toEqual(["manager", "cashier", "kitchen"]);
     expect([...ORDER_ALERT_AUDIENCE]).not.toContain("waiter");

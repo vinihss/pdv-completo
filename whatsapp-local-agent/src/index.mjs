@@ -1,13 +1,15 @@
 import http from "node:http";
 import { spawnSync } from "node:child_process";
 import { randomBytes, createCipheriv, createDecipheriv, createHmac } from "node:crypto";
-import { mkdir, readFile, writeFile, chmod, rename, unlink } from "node:fs/promises";
+import { mkdir, readFile, writeFile, chmod, rename } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import initSqlJs from "sql.js";
 import { chromium } from "playwright";
-import { classifyChoice, extractDirectContactId, isOrderIntent } from "./filters.mjs";
+import { extractChatIdentityFromMetadata, extractDirectContactId } from "./filters.mjs";
+import { classifyIntent } from "./classifier.mjs";
+import { createPdvApi } from "./pdvApi.mjs";
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.PDV_WA_PORT || 8765);
@@ -19,17 +21,29 @@ const KEY_ACCOUNT = "session-encryption-key";
 const FILE_MODE = 0o600;
 const DIR_MODE = 0o700;
 const MESSAGES = {
-  welcome: "Olá! Posso ajudar com seu pedido. Responda:\n1 - Fazer um pedido\n2 - Acompanhar um pedido",
-  newOrder: "Certo. Envie os itens e quantidades desejados em uma mensagem. Este protótipo apenas registra a conversa; ele não finaliza pedidos no PDV.",
-  tracking: "Envie o número do pedido para consulta. Este protótipo ainda não consulta pedidos no PDV.",
-  trackingReceived: "Recebi o número. A consulta automática ainda não está disponível; a equipe precisa conferir o histórico antes de responder.",
-  detailsReceived: "Recebi os detalhes do pedido. Este protótipo não finaliza nem envia o pedido ao PDV; a equipe precisa revisar a conversa.",
+  noPending: "Não encontrei pedido em andamento no momento. Quer fazer um pedido?\n1 - Sim, abrir cardápio\n2 - Não agora",
+  pendingChoice: (orderId, label, situation) => `Encontrei o pedido #${orderId.slice(0, 8)}.\nStatus: ${label}. ${situation}\n\nQuer fazer um novo pedido?\n1 - Sim, abrir cardápio\n2 - Não, acompanhar o pedido atual`,
+  clarifyIntent: "Entendi que sua mensagem é sobre pedido, mas não consegui identificar o que você precisa. Você quer fazer um novo pedido ou acompanhar um pedido existente?",
+  trackingLink: (orderId, link) => `Tudo bem. Acompanhe o pedido #${orderId.slice(0, 8)} por aqui: ${link}`,
+  noNewOrder: "Tudo bem. Quando quiser pedir, envie uma mensagem falando sobre pedido, cardápio ou entrega.",
+  orderConfirmed: (orderId, stage, situation, link) => `Pedido confirmado! O pedido #${orderId.slice(0, 8)} foi registrado.\nStatus atual: ${stage}. ${situation}\nAcompanhe as próximas etapas: ${link}`,
 };
+const STAGE_SITUATION = {
+  received: "A loja recebeu o pedido e ainda vai iniciar o preparo.",
+  preparing: "A cozinha está preparando o pedido.",
+  ready: "O pedido está pronto e aguarda a próxima etapa de retirada ou entrega.",
+  out_for_delivery: "O pedido saiu para entrega.",
+  delivered: "O sistema registra o pedido como entregue.",
+  failed: "Houve um problema na entrega; a equipe precisa verificar.",
+  cancelled: "O pedido foi cancelado.",
+};
+const pdvApi = createPdvApi({ apiBaseUrl: process.env.PDV_API_BASE_URL, publicOrderUrl: process.env.PDV_PUBLIC_ORDER_URL });
 let browser;
 let context;
 let page;
 let connectionState = "desconectado";
 let lastError = "";
+let lastScanWarning = "";
 let lastInbound = "";
 let processing = false;
 let activeChat = "";
@@ -42,7 +56,10 @@ let SQL;
 let qrCapturedAt = 0;
 let qrBuffer;
 let inboundTimer;
+let orderWatchTimer;
 let lastSaveAt = 0;
+let watchingOrders = false;
+let watchCursor = 0;
 
 function secretTool(args, input = "") {
   const result = spawnSync("secret-tool", args, { input, encoding: "utf8" });
@@ -111,7 +128,10 @@ async function initializeHistory() {
       display_name TEXT NOT NULL,
       first_seen_at TEXT NOT NULL,
       last_seen_at TEXT NOT NULL,
-      flow_state TEXT NOT NULL DEFAULT ''
+      flow_state TEXT NOT NULL DEFAULT '',
+      active_order_id TEXT,
+      baseline_order_id TEXT,
+      flow_updated_at TEXT
     );
     CREATE TABLE IF NOT EXISTS messages (
       message_id TEXT PRIMARY KEY,
@@ -122,6 +142,10 @@ async function initializeHistory() {
     );
     CREATE INDEX IF NOT EXISTS idx_messages_contact_created ON messages(contact_id, created_at);
   `);
+  const contactColumns = new Set(query("PRAGMA table_info(contacts)").map((row) => row.name));
+  for (const [name, type] of [["active_order_id", "TEXT"], ["baseline_order_id", "TEXT"], ["flow_updated_at", "TEXT"]]) {
+    if (!contactColumns.has(name)) historyDb.run(`ALTER TABLE contacts ADD COLUMN ${name} ${type}`);
+  }
   await saveHistory();
 }
 
@@ -147,20 +171,24 @@ function query(sql, params = []) {
   }
 }
 
-async function addMessage({ contactId, phone, displayName, messageId, direction, body, flowState }) {
+async function addMessage({ contactId, phone, displayName, messageId, direction, body, flowState, activeOrderId, baselineOrderId }) {
   const now = new Date().toISOString();
-  historyDb.run(`INSERT INTO contacts(contact_id, phone, display_name, first_seen_at, last_seen_at, flow_state)
-    VALUES(?, ?, ?, ?, ?, ?)
+  historyDb.run(`INSERT INTO contacts(contact_id, phone, display_name, first_seen_at, last_seen_at, flow_state, active_order_id, baseline_order_id, flow_updated_at)
+    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(contact_id) DO UPDATE SET phone=excluded.phone,
       display_name=excluded.display_name, last_seen_at=excluded.last_seen_at,
-      flow_state=CASE WHEN excluded.flow_state='' THEN contacts.flow_state ELSE excluded.flow_state END`,
-  [contactId, phone, displayName || phone, now, now, flowState || ""]);
+      flow_state=CASE WHEN excluded.flow_state='' THEN contacts.flow_state ELSE excluded.flow_state END,
+      active_order_id=CASE WHEN excluded.flow_state='' THEN contacts.active_order_id ELSE excluded.active_order_id END,
+      baseline_order_id=CASE WHEN excluded.flow_state='' THEN contacts.baseline_order_id ELSE excluded.baseline_order_id END,
+      flow_updated_at=CASE WHEN excluded.flow_state='' THEN contacts.flow_updated_at ELSE excluded.flow_updated_at END`,
+  [contactId, phone, displayName || phone, now, now, flowState || "", activeOrderId ?? null, baselineOrderId ?? null, flowState ? now : null]);
   historyDb.run("INSERT OR IGNORE INTO messages(message_id, contact_id, direction, body, created_at) VALUES(?, ?, ?, ?, ?)", [messageId, contactId, direction, body, now]);
   await saveHistory();
 }
 
-function setFlow(contactId, flowState) {
-  historyDb.run("UPDATE contacts SET flow_state=?, last_seen_at=? WHERE contact_id=?", [flowState, new Date().toISOString(), contactId]);
+function setFlow(contactId, flowState, activeOrderId = null, baselineOrderId = null) {
+  const now = new Date().toISOString();
+  historyDb.run("UPDATE contacts SET flow_state=?, active_order_id=?, baseline_order_id=?, flow_updated_at=?, last_seen_at=? WHERE contact_id=?", [flowState, activeOrderId, baselineOrderId, now, now, contactId]);
 }
 
 function getContact(contactId) {
@@ -168,7 +196,78 @@ function getContact(contactId) {
 }
 
 function getStatus() {
-  return { state: connectionState, qrAvailable: Boolean(qrBuffer) && Date.now() - qrCapturedAt < 120_000, lastError, lastInbound };
+  return {
+    state: connectionState,
+    qrAvailable: Boolean(qrBuffer) && Date.now() - qrCapturedAt < 120_000,
+    apiConfigured: pdvApi.apiConfigured,
+    menuUrlConfigured: pdvApi.orderUrlConfigured,
+    lastError: lastError || lastScanWarning || (!pdvApi.apiConfigured ? "Configure PDV_API_BASE_URL para habilitar a consulta de pedidos." : !pdvApi.orderUrlConfigured ? "Configure PDV_PUBLIC_ORDER_URL para habilitar os links de cardápio e acompanhamento." : ""),
+    lastInbound,
+  };
+}
+
+async function getActiveOrder(phone) {
+  const active = await pdvApi.getActiveOrder(phone);
+  if (!active?.orderId) return null;
+  const details = await pdvApi.getOrderStatus(active.orderId);
+  return { ...active, ...details };
+}
+
+function stageSituation(stage) {
+  return STAGE_SITUATION[stage] || "A equipe pode informar mais detalhes pelo atendimento.";
+}
+
+async function sendToPhone(phone, text) {
+  if (!context) throw new Error("WhatsApp não está conectado para enviar a confirmação.");
+  const sendPage = await context.newPage();
+  try {
+    const url = new URL("https://web.whatsapp.com/send");
+    url.searchParams.set("phone", phone);
+    await sendPage.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: 45_000 });
+    const editor = sendPage.locator('#main footer [contenteditable="true"]').last();
+    await editor.waitFor({ state: "visible", timeout: 30_000 });
+    await editor.fill(text);
+    await editor.press("Enter");
+    await sendPage.waitForTimeout(800);
+  } finally {
+    await sendPage.close().catch(() => {});
+  }
+}
+
+async function watchNewOrders() {
+  if (watchingOrders || !context || connectionState !== "conectado" || !pdvApi.apiConfigured) return;
+  watchingOrders = true;
+  try {
+    const pending = query(`SELECT contact_id AS contactId, phone, display_name AS displayName,
+      baseline_order_id AS baselineOrderId FROM contacts WHERE flow_state='awaiting_menu_order'
+      ORDER BY flow_updated_at LIMIT 100`);
+    const batchSize = Math.min(4, pending.length);
+    if (watchCursor >= pending.length) watchCursor = 0;
+    const batch = Array.from({ length: batchSize }, (_, index) => pending[(watchCursor + index) % pending.length]);
+    if (pending.length) watchCursor = (watchCursor + batchSize) % pending.length;
+    for (const contact of batch) {
+      try {
+        const active = await pdvApi.getActiveOrder(contact.phone);
+        if (!active?.orderId || active.orderId === contact.baselineOrderId) continue;
+        const details = await pdvApi.getOrderStatus(active.orderId);
+        const situation = stageSituation(details.customerStage?.stage);
+        const trackingLink = pdvApi.makeOrderUrl(contact.phone, active.orderId);
+        const message = MESSAGES.orderConfirmed(active.orderId, details.customerStage?.label || "Recebido", situation, trackingLink);
+        const notificationId = `bot:order-confirmed:${active.orderId}`;
+        if (query("SELECT message_id FROM messages WHERE message_id=?", [notificationId]).length) {
+          setFlow(contact.contactId, "order_confirmed", active.orderId, active.orderId);
+          await saveHistory();
+          continue;
+        }
+        await sendToPhone(contact.phone, message);
+        await addMessage({ contactId: contact.contactId, phone: contact.phone, displayName: contact.displayName, messageId: notificationId, direction: "out", body: message, flowState: "order_confirmed", activeOrderId: active.orderId, baselineOrderId: active.orderId });
+      } catch (error) {
+        lastError = `Falha ao conferir/avisar novo pedido: ${error.message}`;
+      }
+    }
+  } finally {
+    watchingOrders = false;
+  }
 }
 
 async function saveEncryptedSession() {
@@ -206,12 +305,19 @@ async function startBrowser() {
   const storageState = await readSavedState();
   context = await browser.newContext({ ...(storageState ? { storageState } : {}), viewport: { width: 1280, height: 900 } });
   page = await context.newPage();
-  page.on("console", (msg) => { if (msg.type() === "error") lastError = `WhatsApp Web: ${msg.text().slice(0, 250)}`; });
+  page.on("console", (msg) => {
+    if (msg.type() !== "error") return;
+    const text = msg.text();
+    // Aviso interno emitido pelo WhatsApp Web/Chromium; não impede o QR nem a sessão.
+    if (/Permissions policy violation: unload is not allowed in this document/i.test(text)) return;
+    lastError = `WhatsApp Web: ${text.slice(0, 250)}`;
+  });
   await page.goto("https://web.whatsapp.com/", { waitUntil: "domcontentloaded", timeout: 60_000 });
   connectionState = "aguardando_qr";
   await page.waitForTimeout(1_500);
   await refreshQr();
   inboundTimer = setInterval(() => pollIncoming().catch((error) => { lastError = error.message; }), 2_500);
+  orderWatchTimer = setInterval(() => watchNewOrders().catch((error) => { lastError = error.message; }), 15_000);
 }
 
 async function refreshQr() {
@@ -234,11 +340,11 @@ async function refreshQr() {
   }
 }
 
-async function sendReply({ contactId, phone, displayName, sourceMessageId, body, flowState }) {
+async function sendReply({ contactId, phone, displayName, sourceMessageId, body, flowState, activeOrderId, baselineOrderId }) {
   const editor = page.locator('#main footer [contenteditable="true"]').last();
   await editor.fill(body);
   await editor.press("Enter");
-  await addMessage({ contactId, phone, displayName, messageId: `bot:${sourceMessageId}`, direction: "out", body, flowState });
+  await addMessage({ contactId, phone, displayName, messageId: `bot:${sourceMessageId}`, direction: "out", body, flowState, activeOrderId, baselineOrderId });
 }
 
 async function handleNewMessage(message, text, chatTitle, idData) {
@@ -249,47 +355,163 @@ async function handleNewMessage(message, text, chatTitle, idData) {
   if (query("SELECT message_id FROM messages WHERE message_id=?", [sourceMessageId]).length) return;
 
   const contact = getContact(contactId);
-  if (!contact || !["awaiting_choice", "awaiting_order_details", "awaiting_tracking_number"].includes(contact.flow_state)) {
-    // A avaliação é apenas em memória: texto fora de contexto de pedido não é guardado nem respondido.
-    if (!isOrderIntent(text)) return;
-    await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: "awaiting_choice" });
-    await sendReply({ contactId, phone, displayName, sourceMessageId, body: MESSAGES.welcome, flowState: "awaiting_choice" });
+  if (!contact || !["awaiting_new_order_choice", "awaiting_choice", "awaiting_intent_clarification", "awaiting_menu_order"].includes(contact.flow_state)) {
+    // Classificador local em memória: conversa fora do escopo não é salva nem respondida.
+    const classification = classifyIntent(text);
+    if (classification.intent === "unrelated") return;
+    if (classification.intent === "unclear") {
+      await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: "awaiting_intent_clarification" });
+      await sendReply({ contactId, phone, displayName, sourceMessageId, body: MESSAGES.clarifyIntent, flowState: "awaiting_intent_clarification" });
+      lastInbound = `${displayName}: ${text.slice(0, 140)}`;
+      return;
+    }
+    const active = await getActiveOrder(phone);
+    const activeOrderId = active?.orderId ?? null;
+    const body = active
+      ? MESSAGES.pendingChoice(active.orderId, active.customerStage?.label || "Em andamento", stageSituation(active.customerStage?.stage))
+      : MESSAGES.noPending;
+    await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: "awaiting_new_order_choice", activeOrderId, baselineOrderId: activeOrderId });
+    await sendReply({ contactId, phone, displayName, sourceMessageId, body, flowState: "awaiting_new_order_choice", activeOrderId, baselineOrderId: activeOrderId });
     lastInbound = `${displayName}: ${text.slice(0, 140)}`;
     return;
   }
 
-  if (contact.flow_state === "awaiting_choice") {
-    const choice = classifyChoice(text);
-    if (!choice) return;
-    if (choice === "new_order") {
-      await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: "awaiting_order_details" });
-      await sendReply({ contactId, phone, displayName, sourceMessageId, body: MESSAGES.newOrder, flowState: "awaiting_order_details" });
+  if (["awaiting_new_order_choice", "awaiting_choice", "awaiting_intent_clarification"].includes(contact.flow_state)) {
+    const classification = classifyIntent(text);
+    if (classification.intent === "unrelated") return;
+    if (classification.intent === "unclear") {
+      await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: "awaiting_intent_clarification" });
+      await sendReply({ contactId, phone, displayName, sourceMessageId, body: MESSAGES.clarifyIntent, flowState: "awaiting_intent_clarification" });
+      lastInbound = `${displayName}: ${text.slice(0, 140)}`;
+      return;
+    }
+    if (classification.intent === "new_order") {
+      const link = pdvApi.makeOrderUrl(phone);
+      const body = `Abra o cardápio para montar seu pedido: ${link}`;
+      const latestActiveOrder = await pdvApi.getActiveOrder(phone);
+      const baselineOrderId = latestActiveOrder?.orderId ?? null;
+      await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: "awaiting_menu_order", activeOrderId: baselineOrderId, baselineOrderId });
+      await sendReply({ contactId, phone, displayName, sourceMessageId, body, flowState: "awaiting_menu_order", activeOrderId: baselineOrderId, baselineOrderId });
     } else {
-      await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: "awaiting_tracking_number" });
-      await sendReply({ contactId, phone, displayName, sourceMessageId, body: MESSAGES.tracking, flowState: "awaiting_tracking_number" });
+      const currentOrderId = contact.active_order_id ?? null;
+      const body = currentOrderId
+        ? MESSAGES.trackingLink(currentOrderId, pdvApi.makeOrderUrl(phone, currentOrderId))
+        : MESSAGES.noNewOrder;
+      await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: "tracking_link_sent", activeOrderId: currentOrderId, baselineOrderId: currentOrderId });
+      await sendReply({ contactId, phone, displayName, sourceMessageId, body, flowState: "tracking_link_sent", activeOrderId: currentOrderId, baselineOrderId: currentOrderId });
     }
     lastInbound = `${displayName}: ${text.slice(0, 140)}`;
     return;
   }
+}
 
-  if (contact.flow_state === "awaiting_order_details") {
-    await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: "order_recorded" });
-    await sendReply({ contactId, phone, displayName, sourceMessageId, body: MESSAGES.detailsReceived, flowState: "order_recorded" });
-    lastInbound = `${displayName}: ${text.slice(0, 140)}`;
-    return;
+async function inspectChatRow(row) {
+  return row.evaluate((el) => {
+    const metadataNodes = [el, ...el.querySelectorAll("[data-id], [data-jid], [data-chat-id], a[href], [title], [aria-label]")];
+    const values = [];
+    for (const node of metadataNodes) {
+      for (const name of ["data-id", "data-jid", "data-chat-id", "href", "title", "aria-label"]) {
+        const value = node.getAttribute?.(name);
+        if (value) values.push(value);
+      }
+    }
+    const unreadNodes = [...el.querySelectorAll('[data-testid="icon-unread-count"], [data-testid*="unread" i], [aria-label*="unread" i], [aria-label*="não lida" i], [aria-label*="não lidas" i]')];
+    const unreadTexts = unreadNodes.map((node) => `${node.getAttribute("aria-label") || ""} ${node.textContent || ""}`);
+    const labels = [el.getAttribute("aria-label") || "", ...unreadTexts];
+    const unread = unreadNodes.length > 0 || /(?:mensagem|message)s?\s+(?:não\s+lida|unread)|(?:não\s+lida|unread)/i.test(labels.join(" "));
+    const countMatch = unreadTexts.join(" ").match(/\b(\d{1,3})\+?\b/)
+      || labels.join(" ").match(/(?:^|[,;]\s*)(\d{1,3})\s+(?:mensagem|message)/i);
+    const titleNode = el.querySelector('[data-testid="cell-frame-title"] span[title], span[title]');
+    const title = titleNode?.getAttribute("title") || "";
+    const groupHint = Boolean(el.querySelector('[data-testid*="group" i], [aria-label*="group" i], [title*="group" i]'));
+    return { values, unread, unreadCount: unread ? Math.max(1, Number(countMatch?.[1] || 1)) : 0, title, groupHint };
+  });
+}
+
+async function processUnreadDirectChat() {
+  const rows = page.locator('#pane-side [role="listitem"], #pane-side [data-testid="cell-frame-container"]');
+  const rowCount = Math.min(await rows.count().catch(() => 0), 100);
+  let sawUnread = false;
+
+  for (let index = 0; index < rowCount; index += 1) {
+    const row = rows.nth(index);
+    const rowData = await inspectChatRow(row).catch(() => null);
+    if (!rowData?.unread) continue;
+    sawUnread = true;
+    const identity = extractChatIdentityFromMetadata(rowData.values);
+    if (!identity || identity.group || rowData.groupHint) {
+      lastScanWarning = "Há conversa não lida cuja identidade individual não foi confirmada; não abri nem li o conteúdo por segurança.";
+      continue;
+    }
+
+    try {
+      await row.click({ timeout: 4_000 });
+      await page.waitForTimeout(350);
+    } catch (error) {
+      lastScanWarning = `Não consegui abrir uma conversa individual não lida: ${error.message}`;
+      continue;
+    }
+
+    const incoming = page.locator("#main .message-in");
+    const incomingCount = await incoming.count().catch(() => 0);
+    if (!incomingCount) {
+      lastScanWarning = "Abri o chat individual, mas não encontrei uma mensagem recebida verificável; não li conteúdo.";
+      return true;
+    }
+
+    const firstUnread = Math.max(0, incomingCount - Math.min(rowData.unreadCount, incomingCount));
+    let verifiedMessage = false;
+    for (let messageIndex = firstUnread; messageIndex < incomingCount; messageIndex += 1) {
+      const message = incoming.nth(messageIndex);
+      const rawId = await message.getAttribute("data-id").catch(() => null);
+      const idData = extractDirectContactId(rawId);
+      // A identidade da linha e o JID da mensagem precisam coincidir antes de
+      // acessar .selectable-text. Grupos e @lid falham fechados.
+      if (!idData || idData.group || idData.contactId !== identity.contactId) {
+        lastScanWarning = "O ID da mensagem não confirmou o contato individual; conteúdo ignorado.";
+        continue;
+      }
+      verifiedMessage = true;
+      const messageKey = rawId || `${idData.contactId}:${messageIndex}`;
+      if (query("SELECT message_id FROM messages WHERE message_id=?", [messageKey]).length) {
+        lastProcessedMessageKey = messageKey;
+        continue;
+      }
+
+      const text = (await message.locator(".selectable-text").allTextContents().catch(() => [])).join(" ").trim();
+      if (!text) {
+        lastProcessedMessageKey = messageKey;
+        continue;
+      }
+
+      const chatTitle = await page.locator("#main header [title]").first().getAttribute("title").catch(() => "");
+      activeChat = chatTitle || rowData.title || identity.phone;
+      baselineMessageKey = "";
+      processing = true;
+      try {
+        await handleNewMessage(message, text, activeChat, idData);
+        lastProcessedMessageKey = messageKey;
+        lastInbound = `${activeChat}: ${text.slice(0, 140)}`;
+      } finally {
+        processing = false;
+      }
+    }
+    if (verifiedMessage) lastScanWarning = "";
+    else lastScanWarning = "O chat não lido foi aberto, mas não encontrei JID @c.us correspondente; não li o conteúdo.";
+    return true;
   }
 
-  if (contact.flow_state === "awaiting_tracking_number" && /\b\d{3,}\b/.test(text)) {
-    await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: "tracking_received" });
-    await sendReply({ contactId, phone, displayName, sourceMessageId, body: MESSAGES.trackingReceived, flowState: "tracking_received" });
-    lastInbound = `${displayName}: ${text.slice(0, 140)}`;
+  if (sawUnread && !lastScanWarning) {
+    lastScanWarning = "Há mensagens não lidas, mas nenhuma conversa pôde ser confirmada como contato individual.";
   }
+  return false;
 }
 
 async function pollIncoming() {
   if (!page || page.isClosed() || processing) return;
   await refreshQr();
   if (connectionState !== "conectado") return;
+  if (await processUnreadDirectChat()) return;
   const messages = page.locator("#main .message-in");
   const count = await messages.count().catch(() => 0);
   if (!count) return;
@@ -319,7 +541,9 @@ async function pollIncoming() {
 
 async function stopBrowser() {
   if (inboundTimer) clearInterval(inboundTimer);
+  if (orderWatchTimer) clearInterval(orderWatchTimer);
   inboundTimer = undefined;
+  orderWatchTimer = undefined;
   await saveEncryptedSession();
   await context?.close().catch(() => {});
   await browser?.close().catch(() => {});
@@ -344,9 +568,9 @@ function listMessages(contactId) {
 
 const html = `<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PDV · WhatsApp local (teste)</title><style>
 *{box-sizing:border-box}body{font:15px system-ui;background:#f5f1e8;color:#332820;max-width:1080px;margin:28px auto;padding:0 16px}main{background:#fff;border:1px solid #ddd3c5;border-radius:16px;padding:22px}.warn{background:#fff7db;border:1px solid #ebd58a;padding:12px;border-radius:10px}.layout{display:grid;grid-template-columns:minmax(220px,34%) 1fr;gap:14px;margin-top:18px}.card{border:1px solid #e4ddd2;border-radius:12px;overflow:hidden}.card h2{font-size:16px;margin:0;padding:14px;border-bottom:1px solid #e4ddd2}.list{max-height:520px;overflow:auto}.contact{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid #eee8df;background:white;padding:12px;cursor:pointer;color:inherit}.contact:hover,.contact:focus{background:#f6f3ee}.sub{font-size:12px;color:#777}.messages{height:440px;overflow:auto;padding:14px;background:#f8f6f2;display:flex;flex-direction:column;gap:8px}.msg{max-width:86%;padding:9px 12px;border-radius:12px;white-space:pre-wrap;overflow-wrap:anywhere}.in{align-self:flex-start;background:white;border:1px solid #e6e0d7}.out{align-self:flex-end;background:#d8f2df}.time{font-size:10px;color:#777;margin-top:4px}button.action{border:0;border-radius:9px;padding:10px 14px;background:#087c56;color:white;font-weight:700;cursor:pointer;margin:4px}button.secondary{background:#6c6258}#qr{display:none;max-width:230px;margin:12px auto;border:1px solid #ddd}.status{font-weight:700}.muted{color:#70685f;font-size:13px}.empty{padding:18px;color:#70685f}.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.hidden{display:none}@media(max-width:700px){.layout{grid-template-columns:1fr}.list{max-height:220px}}
-</style><main><h1>WhatsApp do PDV · protótipo Linux</h1><p class="warn"><b>Experimental, não oficial.</b> Teste apenas. O filtro exclui grupos e só persiste mensagens que parecem relacionadas a pedidos; o texto de outras mensagens é avaliado em memória e descartado. A automação pode parar de funcionar ou levar a restrições da conta.</p><div class="toolbar"><span>Status: <span id="status" class="status">iniciando…</span></span><button id="connect" class="action">Conectar / atualizar QR</button><button id="disconnect" class="action secondary">Desconectar</button></div><p id="error" class="muted"></p><img id="qr" alt="QR Code do WhatsApp Web"><p id="hint" class="muted"></p><section class="layout"><div class="card"><h2>Contatos e conversas</h2><div id="contacts" class="list"><p class="empty">Nenhuma conversa de pedido registrada.</p></div></div><div class="card"><h2 id="conversation-title">Histórico da conversa</h2><div id="messages" class="messages"><p class="empty">Selecione um contato. Grupos e mensagens fora de contexto de pedido não são armazenados.</p></div></div></section><p class="muted">Para detectar mensagens, o chat individual precisa estar aberto no WhatsApp Web. Este protótipo não consulta nem finaliza pedidos no PDV; a equipe deve revisar o histórico antes de confirmar algo ao cliente.</p></main><script>
+</style><main><h1>WhatsApp do PDV · protótipo Linux</h1><p class="warn"><b>Experimental, não oficial.</b> Teste apenas. O filtro exclui grupos e só persiste mensagens que parecem relacionadas a pedidos; o texto de outras mensagens é avaliado em memória e descartado. A automação pode parar de funcionar ou levar a restrições da conta.</p><div class="toolbar"><span>Status: <span id="status" class="status">iniciando…</span></span><button id="connect" class="action">Conectar / atualizar QR</button><button id="disconnect" class="action secondary">Desconectar</button></div><p id="error" class="muted"></p><img id="qr" alt="QR Code do WhatsApp Web"><p id="hint" class="muted"></p><section class="layout"><div class="card"><h2>Contatos e conversas</h2><div id="contacts" class="list"><p class="empty">Nenhuma conversa de pedido registrada.</p></div></div><div class="card"><h2 id="conversation-title">Histórico da conversa</h2><div id="messages" class="messages"><p class="empty">Selecione um contato. Grupos e mensagens fora de contexto de pedido não são armazenados.</p></div></div></section><p class="muted">O agente procura chats individuais não lidos automaticamente, mas só processa conversas confirmadas como contatos diretos. Grupos e mensagens fora do contexto de pedido são ignorados.</p></main><script>
 let selected='';
-async function refreshStatus(){try{const s=await(await fetch('/api/status')).json();document.querySelector('#status').textContent=s.state;document.querySelector('#error').textContent=s.lastError||'';const qr=document.querySelector('#qr');if(s.qrAvailable){qr.src='/api/qr?t='+Date.now();qr.style.display='block';document.querySelector('#hint').textContent='Leia o QR com o WhatsApp no celular.'}else{qr.style.display='none';document.querySelector('#hint').textContent=s.state==='conectado'?'Conectado. Deixe aberto o chat individual que deseja testar.':''}}catch{document.querySelector('#status').textContent='serviço indisponível'}}
+async function refreshStatus(){try{const s=await(await fetch('/api/status')).json();document.querySelector('#status').textContent=s.state;document.querySelector('#error').textContent=s.lastError||'';const qr=document.querySelector('#qr');if(s.qrAvailable){qr.src='/api/qr?t='+Date.now();qr.style.display='block';document.querySelector('#hint').textContent='Leia o QR com o WhatsApp no celular.'}else{qr.style.display='none';document.querySelector('#hint').textContent=s.state==='conectado'?'Conectado. Verificando chats individuais não lidos; conversas sem JID direto confiável são ignoradas.':''}}catch{document.querySelector('#status').textContent='serviço indisponível'}}
 async function loadContacts(){const list=document.querySelector('#contacts');try{const rows=await(await fetch('/api/conversations')).json();list.replaceChildren();if(!rows.length){list.innerHTML='<p class="empty">Nenhuma conversa de pedido registrada.</p>';return}for(const c of rows){const b=document.createElement('button');b.className='contact';b.onclick=()=>loadConversation(c.contactId,c.displayName,c.phone);const name=document.createElement('b');name.textContent=c.displayName||c.phone;const detail=document.createElement('div');detail.className='sub';detail.textContent=(c.phone||'')+' · '+(c.lastMessage||'').slice(0,80);b.append(name,detail);list.append(b)}}catch{list.textContent='Não foi possível carregar o histórico.'}}
 async function loadConversation(id,name,phone){selected=id;document.querySelector('#conversation-title').textContent=(name||phone)+' · '+phone;const box=document.querySelector('#messages');try{const rows=await(await fetch('/api/conversations/'+encodeURIComponent(id)+'/messages')).json();box.replaceChildren();for(const m of rows){const bubble=document.createElement('div');bubble.className='msg '+(m.direction==='in'?'in':'out');const body=document.createElement('div');body.textContent=m.body;const time=document.createElement('div');time.className='time';time.textContent=new Date(m.createdAt).toLocaleString('pt-BR');bubble.append(body,time);box.append(bubble)}box.scrollTop=box.scrollHeight}catch{box.textContent='Não foi possível carregar as mensagens.'}}
 document.querySelector('#connect').onclick=async()=>{document.querySelector('#status').textContent='abrindo…';await fetch('/api/connect',{method:'POST'});refreshStatus()};document.querySelector('#disconnect').onclick=async()=>{await fetch('/api/disconnect',{method:'POST'});refreshStatus()};setInterval(()=>{refreshStatus();loadContacts();if(selected){const title=document.querySelector('#conversation-title').textContent;const parts=title.split(' · ');loadConversation(selected,parts[0],parts[1])}},3000);refreshStatus();loadContacts();
@@ -390,6 +614,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 async function main() {
+  if (!pdvApi.apiConfigured) console.warn("PDV_API_BASE_URL não configurado; a consulta de pedidos ficará indisponível.");
+  if (!pdvApi.orderUrlConfigured) console.warn("PDV_PUBLIC_ORDER_URL não configurado; os links de cardápio e acompanhamento ficarão indisponíveis.");
   sessionKey = await loadKey();
   historyKey = createHmac("sha256", sessionKey).update("pdv-whatsapp-history-v1").digest();
   await mkdir(DATA_DIR, { recursive: true, mode: DIR_MODE });

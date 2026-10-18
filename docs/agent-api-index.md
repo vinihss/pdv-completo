@@ -223,7 +223,7 @@ em cada caso). "autenticado" ≠ "público": rota sem token nenhum é só a de
 | POST | `/public/customers/lookup` | público | Busca cliente por telefone |
 | POST | `/public/customers` | público | Criar cliente no checkout |
 | POST | `/public/customers/:id/addresses` | público | Adicionar endereço no checkout |
-| POST | `/public/orders` | público | Criar pedido (self-service) |
+| POST | `/public/orders` | público | Criar pedido (self-service); `channel` opcional (`web` ou `whatsapp`, padrão `web`) |
 | POST | `/public/orders/active` | público | Pedido em andamento por telefone (retomada) |
 | POST | `/public/orders/:id/cancel` | público | Cancelar pedido (telefone precisa bater) |
 | GET | `/public/orders/:id/status` | público | Status do pedido |

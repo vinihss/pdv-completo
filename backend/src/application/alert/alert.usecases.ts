@@ -85,6 +85,7 @@ export const ORDER_ALERT_AUDIENCE = ["manager", "cashier", "kitchen"] as const;
 const CHANNEL_LABEL: Record<string, string> = {
   balcao: "Balcão",
   web: "página",
+  whatsapp: "WhatsApp",
 };
 
 /**
@@ -95,9 +96,10 @@ const CHANNEL_LABEL: Record<string, string> = {
  *
  *   balcão  -> "Nova comanda · Mesa 3"   / corpo "Balcão"
  *   web     -> "Novo pedido de Ana"      / corpo "Entrega · página"
+ *   whatsapp -> "Novo pedido de Ana"    / corpo "Entrega · WhatsApp"
  */
 export function describeOrderAlert(input: {
-  channel: "balcao" | "web";
+  channel: "balcao" | "web" | "whatsapp";
   /** "Mesa 3" (mesa) ou o tabLabel da comanda ("Delivery - Ana"). */
   label?: string | null;
   customerName?: string | null;
@@ -105,7 +107,7 @@ export function describeOrderAlert(input: {
   const label = input.label?.trim() || null;
   const channel = CHANNEL_LABEL[input.channel] ?? input.channel;
 
-  if (input.channel === "web") {
+  if (input.channel === "web" || input.channel === "whatsapp") {
     const who = input.customerName?.trim() || label;
     return {
       title: who ? `Novo pedido de ${who}` : `Novo pedido de entrega`,

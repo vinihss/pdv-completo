@@ -20,7 +20,7 @@ export type OpenOrderInput = {
   tableId?: string;
   customerId?: string;
   tabLabel?: string;
-  channel?: "balcao" | "web"; // default "balcao" — self-service (§04) usa "web"
+  channel?: "balcao" | "web" | "whatsapp"; // default "balcao" — self-service usa web ou WhatsApp
   deliveryFee?: number; // snapshot da taxa no momento do pedido, só para channel != "balcao"
   externalRef?: string; // referência externa opcional (id do pedido na origem)
   notes?: string;
