@@ -26,7 +26,7 @@ export * from "./repositories/courier-location.repository.js";
 export * from "./repositories/customer.repository.js";
 export * from "./repositories/customer-self-service.repository.js";
 export * from "./repositories/delivery.repository.js";
-export * from "./repositories/identity.repository.js";
+export * from "./repositories/identity.repository.ts";
 export * from "./repositories/order.repository.js";
 export * from "./repositories/outbox.repository.js";
 export * from "./repositories/provisioning.repository.js";
