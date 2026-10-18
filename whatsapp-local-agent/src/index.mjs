@@ -308,7 +308,7 @@ async function startBrowser() {
   if (context) return;
   await mkdir(DATA_DIR, { recursive: true, mode: DIR_MODE });
   await chmod(DATA_DIR, DIR_MODE);
-  browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  browser = await chromium.launch({ headless: false , args: ["--no-sandbox", "--disable-dev-shm-usage"] });
   const storageState = await readSavedState();
   context = await browser.newContext({ ...(storageState ? { storageState } : {}), viewport: { width: 1280, height: 900 } });
   page = await context.newPage();
