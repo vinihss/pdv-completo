@@ -170,6 +170,12 @@ const TRANSIENT_TABLES = [
   "alert",
   "provisioning_key",
   "user_device",
+  // Identidade centralizada (docs/26 §3): as duas tabelas GLOBAIS de sessão
+  // ficam em `public` e o search_path do tenant as alcança sem qualificação.
+  // `account` NÃO entra aqui de propósito — apagá-la cascatearia vínculos de
+  // outras suítes; quem cria conta limpa o que criou (identity.test.ts).
+  "auth_session",
+  "password_reset",
   '"order"',
   "customer",
 ] as const;

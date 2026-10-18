@@ -7,7 +7,7 @@
  */
 import type { TenantUnitOfWork } from "../../ports/unit-of-work.js";
 import type { TenantContext } from "../../ports/tenant-context.js";
-import type { FileStorage } from "../../ports/effects.js";
+import type { FileStorage, Mailer } from "../../ports/effects.js";
 
 export interface UserDependencies {
   uow: TenantUnitOfWork;
@@ -15,6 +15,12 @@ export interface UserDependencies {
   tenant: () => TenantContext;
   /** Upload/remoção da foto do usuário em disco. */
   storage: FileStorage;
+  /**
+   * ADIÇÃO (Onda identidade — docs/26 §4): envio da senha temporária do convite
+   * (`POST /users`). `isConfigured()` decide o 503 ANTES de qualquer escrita —
+   * sem SMTP o convite não deixa conta nem usuário para trás (decisão 9).
+   */
+  mailer: Mailer;
   /**
    * Invalida o cache de "usuário ativo" do middleware (infra/auth) na cascata
    * de desativação — a sessão JWT aberta cai na próxima requisição.

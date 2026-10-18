@@ -12,7 +12,11 @@ vi.mock("@/pages/manager", () => ({ ManagerApp: () => <p>tela: gerente</p> }));
 vi.mock("@/pages/kitchen", () => ({ KitchenDisplay: () => <p>tela: cozinha</p> }));
 vi.mock("@/pages/courier", () => ({ CourierApp: () => <p>tela: entregador</p> }));
 vi.mock("@/pages/cashier", () => ({ CashierApp: () => <p>tela: caixa</p> }));
-vi.mock("@/pages/login", () => ({ LoginPage: () => <p>tela: login</p> }));
+vi.mock("@/pages/login", () => ({
+  LoginPage: () => <p>tela: login</p>,
+  LoginPagePin: () => <p>tela: login pin</p>,
+  ResetPasswordPage: () => <p>tela: reset</p>,
+}));
 vi.mock("@/pages/customer-menu", () => ({ CustomerMenuPage: () => <p>tela: público</p> }));
 vi.mock("@/app/providers/auth", () => ({
   AuthProvider: ({ children }) => children,
@@ -20,7 +24,7 @@ vi.mock("@/app/providers/auth", () => ({
 }));
 vi.mock("@/shared/hooks", async (orig) => ({ ...(await orig()), useRealtime: () => {} }));
 
-const { AppFrame, Root } = await import("./router.jsx");
+const { AppFrame, AppRouter, Root } = await import("./router.jsx");
 
 function session(role) {
   mocks.auth = {
@@ -35,7 +39,9 @@ describe("AppFrame", () => {
   beforeEach(() => sessionStorage.clear());
   afterEach(cleanup);
 
-  it("header com logo, nome e menu do usuário, e a tela do papel ao lado do menu", () => {
+  // As telas entram por React.lazy: o assert espera o módulo resolver
+  // (findByText) em vez de assumir render síncrono.
+  it("header com logo, nome e menu do usuário, e a tela do papel ao lado do menu", async () => {
     session("waiter");
     const { container } = render(
       <MemoryRouter>
@@ -46,7 +52,7 @@ describe("AppFrame", () => {
     // O header não tem mais a foto do usuário nem o menu flutuante:
     // o perfil e o logout agora ficam no rodapé do menu lateral.
     expect(screen.queryByLabelText("Menu do usuário")).toBeNull();
-    expect(screen.getByText("tela: garçom")).toBeTruthy();
+    expect(await screen.findByText("tela: garçom")).toBeTruthy();
     // Garçom tem 1 item de menu: o AppMenu (e o `aside`) não é desenhado —
     // só o `main` ocupa a largura (regra de menu único, veja AppMenu/router).
     expect(container.querySelector("aside")).toBeNull();
@@ -94,7 +100,7 @@ describe("AppFrame", () => {
     expect(container.querySelector("aside").className).toContain("top-14")
   });
 
-  it("botão de menu abre o painel e escolher a tela fecha", () => {
+  it("botão de menu abre o painel e escolher a tela fecha", async () => {
     session("cashier");
     render(
       <MemoryRouter>
@@ -108,10 +114,10 @@ describe("AppFrame", () => {
     expect(botao.getAttribute("aria-expanded")).toBe("true");
     fireEvent.click(painel.getByRole("button", { name: "Caixa" }));
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.getByText("tela: caixa")).toBeTruthy();
+    expect(await screen.findByText("tela: caixa")).toBeTruthy();
   });
 
-  it("cada papel cai na sua tela", () => {
+  it("cada papel cai na sua tela", async () => {
     for (const [role, texto] of [
       ["manager", "tela: gerente"],
       ["kitchen", "tela: cozinha"],
@@ -125,19 +131,19 @@ describe("AppFrame", () => {
           <Root />
         </MemoryRouter>
       );
-      expect(screen.getByText(texto)).toBeTruthy();
+      expect(await screen.findByText(texto)).toBeTruthy();
       unmount();
     }
   });
 
-  it("sem sessão, mostra o login — e nenhuma tela nem menu", () => {
+  it("sem sessão, mostra o login — e nenhuma tela nem menu", async () => {
     mocks.auth = { session: null, booting: false, storeSettings: null };
     const { container } = render(
       <MemoryRouter>
         <Root />
       </MemoryRouter>
     );
-    expect(screen.getByText("tela: login")).toBeTruthy();
+    expect(await screen.findByText("tela: login")).toBeTruthy();
     expect(container.querySelector("aside")).toBeNull();
   });
 
@@ -163,5 +169,45 @@ describe("AppFrame", () => {
     );
     expect(screen.getByText("conteúdo")).toBeTruthy();
     expect(screen.getByText("Ana Ribeiro")).toBeTruthy();
+  });
+});
+
+// Rotas públicas da identidade centralizada (docs/26 §5): o reset-password é
+// link de e-mail (não tem sessão) e o /login/pin é o fallback histórico.
+// Renderizam o AppRouter de verdade (history do jsdom), fora do AppFrame.
+describe("rotas públicas de identidade", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    localStorage.clear();
+    window.history.pushState({}, "", "/");
+  });
+  afterEach(cleanup);
+
+  it("/reset-password é pública: renderiza a tela de reset sem sessão", async () => {
+    mocks.auth = { session: null, booting: false, storeSettings: null };
+    window.history.pushState({}, "", "/reset-password?token=abc");
+    render(<AppRouter />);
+    expect(await screen.findByText("tela: reset")).toBeTruthy();
+  });
+
+  it("/login/pin sem sessão abre o fallback de PIN", async () => {
+    mocks.auth = { session: null, booting: false, storeSettings: null };
+    window.history.pushState({}, "", "/login/pin");
+    render(<AppRouter />);
+    expect(await screen.findByText("tela: login pin")).toBeTruthy();
+  });
+
+  it("/login/pin com sessão manda para a tela do papel", async () => {
+    session("waiter");
+    window.history.pushState({}, "", "/login/pin");
+    render(<AppRouter />);
+    expect(await screen.findByText("tela: garçom")).toBeTruthy();
+  });
+
+  it("rota desconhecida sem sessão cai no login novo", async () => {
+    mocks.auth = { session: null, booting: false, storeSettings: null };
+    window.history.pushState({}, "", "/qualquer-coisa");
+    render(<AppRouter />);
+    expect(await screen.findByText("tela: login")).toBeTruthy();
   });
 });

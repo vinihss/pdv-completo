@@ -51,14 +51,17 @@ import { createPurchaseUsecases } from "../../application/purchase/purchase.usec
 import { createRefundUsecases } from "../../application/refund/refund.usecases.js";
 import { createProvisioningUsecases } from "../../application/provisioning/provisioning.usecases.js";
 import { createProvisioningEmailUsecases } from "../../application/provisioning/provisioning-email.usecase.js";
-import { createTenantUsecases } from "../../application/tenant/resolve-tenant.usecase.js";
+import { createTenantUsecases, tenantRoutingEnabled } from "../../application/tenant/resolve-tenant.usecase.js";
 import { createUserUsecases } from "../../application/user/user.usecases.js";
 import { createLoginUsecase } from "../../application/auth/login.usecase.js";
+import { createIdentityUsecases } from "../../application/identity/identity.usecases.js";
 import { TenantRegistryAdapter } from "../db/tenant-registry-adapter.js";
 import { PublicTenantBrandReaderAdapter } from "../db/public-tenant-brand-reader.js";
+import { PgIdentityTenantReader } from "../db/identity-tenant-reader.js";
 import { TenantScopeAdapter } from "../db/tenant-scope-adapter.js";
 import { invalidateActiveUser } from "../auth/active-user-check.js";
 import { MailerPortAdapter } from "../mail/mailer-port-adapter.js";
+import { listActiveTenants } from "../tenant/registry.js";
 import { resolveTenantSchema } from "../storage/index.js";
 import { config } from "../../config/env.js";
 import type { TenantContext } from "../../application/ports/tenant-context.js";
@@ -256,6 +259,8 @@ export const userInstances = createUserUsecases({
   tenant,
   storage,
   invalidateActiveUser,
+  // Onda identidade: convite (`POST /users`) manda a senha temporária por email.
+  mailer: new MailerPortAdapter(),
 });
 
 // Relatórios gerenciais (Onda 3D) — leituras via `session.reports` na janela
@@ -290,8 +295,12 @@ export const provisioningEmailInstances = createProvisioningEmailUsecases({
   mailer: new MailerPortAdapter(),
   generateProvisioningKey: provisioningInstances.generateProvisioningKeyUsecase,
 });
+// Uma instância do registry para todos os consumidores (o cache de 60s é por
+// chave no MemoryCache compartilhado, mas duas instâncias seriam duas fontes de
+// verdade desnecessárias).
+const tenantRegistry = new TenantRegistryAdapter();
 export const tenantInstances = createTenantUsecases({
-  registry: new TenantRegistryAdapter(),
+  registry: tenantRegistry,
   defaultSchema: resolveTenantSchema,
   publicBrand: new PublicTenantBrandReaderAdapter(),
 });
@@ -305,6 +314,25 @@ export const loginInstances = createLoginUsecase({
   scope: new TenantScopeAdapter(),
   resolveTenant: tenantInstances.resolveTenant,
   assertDeviceForLogin: provisioningInstances.assertDeviceForLogin,
+  jwtSecret: config.jwtSecret,
+});
+
+// Identidade centralizada (docs/26): login por email/senha, seleção de empresa,
+// rotação de refresh, recuperação de senha e convite. O leitor por-tenant
+// encapsula o ALS por schema (listagem de empresas + vínculo da conta); o
+// `defaultTenant` vem do módulo de tenant para que "default" continue sendo uma
+// decisão só (`DEFAULT_TENANT_SLUG` + `DEFAULT_TENANT_SCHEMA`).
+export const identityInstances = createIdentityUsecases({
+  uow,
+  tenant,
+  tenants: new PgIdentityTenantReader({
+    brand: new PublicTenantBrandReaderAdapter(),
+    registry: tenantRegistry,
+    defaultTenant: tenantInstances.defaultTenant,
+    routingEnabled: tenantRoutingEnabled,
+    listActiveTenants,
+  }),
+  mailer: new MailerPortAdapter(),
   jwtSecret: config.jwtSecret,
 });
 

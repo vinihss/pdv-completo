@@ -17,6 +17,7 @@ function toUserRecord(u: typeof users.$inferSelect): UserRecord {
     active: u.active,
     phone: u.phone,
     email: u.email,
+    accountId: u.accountId,
     photoPath: u.photoPath,
     createdAt: u.createdAt,
     failedAttempts: u.failedAttempts,
@@ -114,6 +115,8 @@ export class PostgresUserRepository implements UserRepository {
           ...(input.active !== undefined ? { active: input.active } : {}),
           ...(input.phone !== undefined ? { phone: input.phone } : {}),
           ...(input.email !== undefined ? { email: input.email } : {}),
+          // ADIÇÃO (Onda identidade): vínculo com a conta global. `null` desvincula.
+          ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
           ...(input.photoPath !== undefined ? { photoPath: input.photoPath } : {}),
           ...(pinChanged ? { pinHash: input.pinHash, failedAttempts: 0, lockedUntil: null } : {}),
           updatedAt: new Date().toISOString(),
@@ -134,6 +137,7 @@ export class PostgresUserRepository implements UserRepository {
         active: input.active ?? true,
         phone: input.phone ?? null,
         email: input.email ?? null,
+        accountId: input.accountId ?? null,
         photoPath: input.photoPath ?? null,
       })
       .returning();

@@ -1,9 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { Errors } from "../../domain/errors.js";
-import { authMiddleware } from "../middlewares/auth.middleware.js";
-import { loginRateLimit } from "../middlewares/rate-limit.middleware.js";
+import { accountAuthMiddleware, authMiddleware } from "../middlewares/auth.middleware.js";
+import { forgotPasswordRateLimit, loginRateLimit } from "../middlewares/rate-limit.middleware.js";
 import { imageExtByMime } from "./image-ext.js";
+import { requestOrigin } from "./request-origin.js";
 // Acesso a dados via composition root (a rota não toca em Drizzle/schema/client):
 // `login`, a seleção pública de usuários e o self-service de perfil/foto.
 import {
@@ -13,6 +14,13 @@ import {
   updateOwnProfileUsecase,
   saveUserPhotoUsecase,
   clearUserPhotoUsecase,
+  startSessionUsecase,
+  changePasswordUsecase,
+  selectTenantUsecase,
+  refreshSessionUsecase,
+  logoutSessionUsecase,
+  forgotPasswordUsecase,
+  resetPasswordUsecase,
 } from "../../infra/composition/domains/auth.js";
 
 const loginSchema = z.object({
@@ -21,6 +29,25 @@ const loginSchema = z.object({
   // Aparelho provisionado (docs/21 §5.3): presente, o backend valida vínculo
   // ativo; ausente, comportamento atual preservado (PWA/tablet compartilhado).
   deviceId: z.string().optional(),
+});
+
+// ---------- Identidade centralizada (docs/26 §4) ----------
+//
+// `min(1)` em senha/token de propósito: a POLÍTICA de senha (8..128) é do use
+// case, que responde `password_too_short` com mensagem amigável — se o Zod
+// cortasse antes, a tela de troca de senha mostraria só "Payload inválido."
+const sessionSchema = z.object({
+  email: z.string().min(1),
+  password: z.string().min(1),
+});
+const selectTenantSchema = z.object({ slug: z.string().min(1) });
+const refreshTokenSchema = z.object({ refreshToken: z.string().min(1) });
+const logoutSchema = z.object({ refreshToken: z.string().min(1).optional() });
+const changePasswordSchema = z.object({ newPassword: z.string().min(1) });
+const forgotPasswordSchema = z.object({ email: z.string().min(1) });
+const resetPasswordSchema = z.object({
+  token: z.string().min(1),
+  newPassword: z.string().min(1),
 });
 
 // Self-service de perfil: o usuário logado edita os PRÓPRIOS dados de
@@ -50,6 +77,57 @@ export async function authRoutes(app: FastifyInstance) {
   app.post("/auth/login", { preHandler: loginRateLimit }, async (req) => {
     const body = loginSchema.parse(req.body);
     return loginUsecase(body.userId, body.pin, body.deviceId);
+  });
+
+  // ---------- Identidade centralizada: conta global (docs/26 §4) ----------
+  //
+  // Etapa 1 do login novo: email + senha → `accountToken` (10min) + empresas
+  // vinculadas. 401 é SEMPRE a mesma credencial genérica (senha errada, email
+  // desconhecido, conta suspensa) e o rate limit é o mesmo do login por PIN.
+  app.post("/auth/session", { preHandler: loginRateLimit }, async (req) => {
+    const body = sessionSchema.parse(req.body);
+    return startSessionUsecase(body);
+  });
+
+  // Troca (normalmente obrigatória) da senha da conta. Bearer `accountToken`.
+  app.post("/auth/password/change", { preHandler: accountAuthMiddleware }, async (req) => {
+    const body = changePasswordSchema.parse(req.body);
+    return changePasswordUsecase({ accountId: req.authAccount!.id, newPassword: body.newPassword });
+  });
+
+  // Pedido do link de recuperação. Sempre 202 quando o SMTP está configurado
+  // (não enumera contas); sem SMTP, 503 `email_not_configured`. A origem do
+  // link é montada AQUI a partir do request (a application não lê `req`).
+  app.post("/auth/password/forgot", { preHandler: forgotPasswordRateLimit }, async (req, reply) => {
+    const body = forgotPasswordSchema.parse(req.body);
+    await forgotPasswordUsecase({ email: body.email, origin: requestOrigin(req) });
+    return reply.code(202).send({ ok: true });
+  });
+
+  // Troca de senha pelo token do email (rota PÚBLICA: o token é a autorização).
+  app.post("/auth/password/reset", async (req) => {
+    const body = resetPasswordSchema.parse(req.body);
+    return resetPasswordUsecase(body);
+  });
+
+  // Etapa 2: troca o `accountToken` pela sessão de tenant da empresa escolhida.
+  app.post("/auth/select-tenant", { preHandler: accountAuthMiddleware }, async (req) => {
+    const body = selectTenantSchema.parse(req.body);
+    return selectTenantUsecase({ accountId: req.authAccount!.id, slug: body.slug });
+  });
+
+  // Rotação do refresh por dispositivo (reuso revoga a família) e logout
+  // idempotente — nenhuma das duas usa Bearer: o refresh token É a credencial.
+  app.post("/auth/refresh", async (req) => {
+    const body = refreshTokenSchema.parse(req.body);
+    return refreshSessionUsecase(body);
+  });
+
+  app.post("/auth/logout", async (req) => {
+    const body = logoutSchema.parse(req.body ?? {});
+    // Sem token não há o que revogar: o contrato é 200 sempre.
+    if (!body.refreshToken) return { ok: true };
+    return logoutSessionUsecase({ refreshToken: body.refreshToken });
   });
 
   // GET primeiro: a tela de perfil lê o perfil fresco ao abrir — o login

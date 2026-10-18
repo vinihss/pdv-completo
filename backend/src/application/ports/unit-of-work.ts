@@ -22,6 +22,7 @@ import type {
   ReportRepository,
   ProvisioningKeyRepository,
   UserDeviceRepository,
+  IdentityRepository,
 } from "./repositories.js";
 
 export interface TenantSession {
@@ -57,6 +58,13 @@ export interface TenantSession {
   provisioningKeys: ProvisioningKeyRepository;
   /** ADIÇÃO (device provisioning — docs/21): aparelhos provisionados (`user_device`). */
   userDevices: UserDeviceRepository;
+  /**
+   * ADIÇÃO (Onda identidade — docs/26 §3): tabelas GLOBAIS de identidade
+   * (`public.account`, `public.auth_session`, `public.password_reset`). Entra na
+   * sessão de tenant de propósito: é a MESMA transação que grava a conta global
+   * e a linha `user` do convite (atômico — decisão 9).
+   */
+  identity: IdentityRepository;
   audit: AuditWriter;
   outbox: OutboxWriter;
 }

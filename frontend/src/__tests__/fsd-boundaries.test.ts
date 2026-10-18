@@ -24,9 +24,26 @@ function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) walk(full, out);
-    else if (/\.(js|jsx)$/.test(entry)) out.push(full);
+    // A árvore migrou para .ts/.tsx; um filtro só de js/jsx andava cego sobre
+    // ~99% do código (as camadas, os barrels e as exceptions eram checados em
+    // um conjunto vazio — o "verde" não provava nada).
+    else if (/\.(js|jsx|ts|tsx)$/.test(entry)) out.push(full);
   }
   return out;
+}
+// Os barrels apontam para "./x.js" (convenção ESM) mas o arquivo é "./x.ts" —
+// ou "./x.jsx" quando é "./x.tsx": a resolução tenta a extensão real antes de
+// declarar "arquivo não existe".
+function resolveTarget(fromFile, target) {
+  const full = join(dirname(fromFile), target);
+  if (existsSync(full)) return full;
+  const alts = full.endsWith(".jsx")
+    ? [full.replace(/\.jsx$/, ".tsx")]
+    : full.endsWith(".js")
+      ? [full.replace(/\.js$/, ".ts"), full.replace(/\.js$/, ".tsx")]
+      : [];
+  for (const alt of alts) if (existsSync(alt)) return alt;
+  return full;
 }
 const allFiles = walk(SRC).filter((f) => !posix(f).includes("/node_modules/"));
 const importsOf = (f) =>
@@ -35,14 +52,14 @@ const layerOf = (f) => rel(f).split("/")[0];
 
 // 1. shared/api só pode conter infraestrutura — nunca API de domínio (as 14 que
 //    moravam ali viraram entities na Fase 2). A lista abaixo é a allowlist de
-//    infra: `http.js` (núcleo do PDV) e `cep.js` (ViaCEP, serviço público de
-//    terceiro — não é do PDV, por isso não passa por `http.js`). Arquivo de
+//    infra: `http.ts` (núcleo do PDV) e `cep.ts` (ViaCEP, serviço público de
+//    terceiro — não é do PDV, por isso não passa por `http.ts`). Arquivo de
 //    teste não é módulo e não entra na conta.
 describe("shared/api contém apenas infraestrutura", () => {
   const files = existsSync(join(SRC, "shared/api")) ? readdirSync(join(SRC, "shared/api")) : [];
-  const INFRA_ALLOWED = ["cep.js", "http.js"];
+  const INFRA_ALLOWED = ["cep.ts", "http.ts"];
   it("só módulos de infraestrutura", () => {
-    expect(files.filter((f) => !/\.test\.js$/.test(f)).sort()).toEqual(INFRA_ALLOWED);
+    expect(files.filter((f) => !/\.test\.[jt]sx?$/.test(f)).sort()).toEqual(INFRA_ALLOWED);
   });
 });
 
@@ -99,7 +116,7 @@ const hasDefault = (file) => /export\s+default\b/.test(readFileSync(file, "utf8"
 // 3. Todo barrel precisa declarar exports que realmente existem no arquivo
 //    apontado, e nenhum export pode ficar de fora (barrel desatualizado).
 describe("barrels declaram exatamente o que os arquivos exportam", () => {
-  for (const bar of walk(SRC).filter((f) => rel(f).endsWith("/index.js"))) {
+  for (const bar of walk(SRC).filter((f) => /\/index\.(js|jsx|ts|tsx)$/.test(rel(f)))) {
     it(rel(bar), () => {
       const src = readFileSync(bar, "utf8");
       const declared = new Set();
@@ -107,7 +124,7 @@ describe("barrels declaram exatamente o que os arquivos exportam", () => {
       const orphan = []; // nome exportado pelo alvo e não declarado
 
       for (const m of src.matchAll(/export\s*\{([^}]+)\}\s*from\s+"([^"]+)"/g)) {
-        const target = join(dirname(bar), m[2]);
+        const target = resolveTarget(bar, m[2]);
         if (!existsSync(target)) {
           missing.push(`${m[2]} (arquivo não existe)`);
           continue;
@@ -128,7 +145,7 @@ describe("barrels declaram exatamente o que os arquivos exportam", () => {
       }
 
       for (const m of src.matchAll(/export\s*\*\s*from\s+"([^"]+)"/g)) {
-        const target = join(dirname(bar), m[1]);
+        const target = resolveTarget(bar, m[1]);
         if (!existsSync(target)) {
           missing.push(`${m[1]} (arquivo não existe)`);
           continue;
@@ -145,8 +162,8 @@ describe("barrels declaram exatamente o que os arquivos exportam", () => {
         }
       }
       for (const imp of importsOf(bar)) {
-        const target = join(dirname(bar), imp);
-        if (!existsSync(target) || !/\.(js|jsx)$/.test(imp)) continue;
+        const target = resolveTarget(bar, imp);
+        if (!existsSync(target)) continue;
         for (const n of exportsOf(target)) if (!declared.has(n)) orphan.push(n);
       }
 
@@ -216,9 +233,9 @@ describe("imports de entity passam pela API pública", () => {
 //    payload numérico de API, campo 54 do BR Code e <input type="number">.
 describe("moeda tem fonte única", () => {
   const MONEY_ALLOWED = new Set([
-    "features/orders/PaymentModal.jsx", // amount/received no payload
-    "entities/payment/lib/pix.js", // campo 54 do BR Code
-    "widgets/cash-drawer/CloseCashDrawerModal.jsx", // <input type="number">
+    "features/orders/PaymentModal.tsx", // amount/received no payload
+    "entities/payment/lib/pix.ts", // campo 54 do BR Code
+    "widgets/cash-drawer/CloseCashDrawerModal.tsx", // <input type="number">
   ]);
 
   it("nenhum toFixed(2) fora das exceções documentadas", () => {
@@ -227,7 +244,7 @@ describe("moeda tem fonte única", () => {
       const relPath = rel(f);
       if (MONEY_ALLOWED.has(relPath)) continue;
       // este próprio arquivo contém o padrão que procura
-      if (relPath === "__tests__/fsd-boundaries.test.js") continue;
+      if (relPath === "__tests__/fsd-boundaries.test.ts") continue;
       if (/toFixed\(\s*2\s*\)/.test(readFileSync(f, "utf8"))) offenders.push(relPath);
     }
     expect(offenders).toEqual([]);
@@ -237,7 +254,7 @@ describe("moeda tem fonte única", () => {
     const offenders = [];
     for (const f of allFiles) {
       const relPath = rel(f);
-      if (relPath === "shared/lib/money.js" || relPath === "__tests__/fsd-boundaries.test.js")
+      if (relPath === "shared/lib/money.ts" || relPath === "__tests__/fsd-boundaries.test.ts")
         continue;
       const src = readFileSync(f, "utf8");
       if (/^\s*(const|function)\s+(money|fmtMoney|fmt)\s*[=(]/m.test(src)) offenders.push(relPath);

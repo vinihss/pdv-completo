@@ -33,9 +33,17 @@ function fetchImpl(input, init) {
   return desktopFetch.then((f) => f(input, init));
 }
 
-async function request(method, path, body) {
+// `opts` (opcional, backward-compatible):
+//   - token: usa um bearer próprio no lugar do da sessão de tenant (etapa de
+//     identidade centralizada: accountToken, ver docs/26 §4);
+//   - skipUnauthorized: o 401 NÃO aciona o handler global de logout. Quem
+//     decide o que fazer com o 401 é o chamador — o login por e-mail/senha
+//     responde 401 para senha errada, e o refresh trata a própria rotação;
+//     nesses casos derrubar a sessão seria um efeito colateral errado.
+async function request(method, path, body, opts = {}) {
   const headers = { "Content-Type": "application/json" };
-  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  const bearer = opts.token ?? authToken;
+  if (bearer) headers.Authorization = `Bearer ${bearer}`;
 
   const res = await fetchImpl(`${apiBase()}${path}`, {
     method,
@@ -43,7 +51,7 @@ async function request(method, path, body) {
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  if (res.status === 401) {
+  if (res.status === 401 && !opts.skipUnauthorized) {
     onUnauthorized?.();
   }
 

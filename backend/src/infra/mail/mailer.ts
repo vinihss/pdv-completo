@@ -28,10 +28,16 @@ export interface MailerSendResult {
 
 export interface MailerTransport {
   send(input: MailerSendInput): Promise<MailerSendResult>;
+  /** ADIÇÃO (Onda identidade): `false` = sem SMTP_HOST o envio retorna `not_configured`. */
+  isConfigured(): boolean;
 }
 
 class SmtpMailer implements MailerTransport {
   private transporter: nodemailer.Transporter | null = null;
+
+  isConfigured(): boolean {
+    return Boolean(config.smtpHost);
+  }
 
   private getTransporter(): nodemailer.Transporter | null {
     if (this.transporter) return this.transporter;

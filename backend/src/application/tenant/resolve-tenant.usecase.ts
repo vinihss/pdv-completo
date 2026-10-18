@@ -213,5 +213,5 @@ export function createTenantUsecases(deps: TenantUsecasesDeps) {
     };
   }
 
-  return { resolveTenant, getPublicTenantUsecase };
+  return { resolveTenant, getPublicTenantUsecase, defaultTenant };
 }

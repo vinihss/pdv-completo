@@ -25,13 +25,16 @@ import {
   clearUserPhotoUsecase,
 } from "../../infra/composition/domains/user.js";
 import { imageExtByMime } from "./image-ext.js";
+import { requestOrigin } from "./request-origin.js";
 
 const userRoleEnum = ["waiter", "kitchen", "manager", "courier", "cashier"] as const;
 const userCreateSchema = z.object({
   name: z.string().min(1),
   role: z.enum(userRoleEnum),
   phone: z.string().optional().nullable(),
-  email: z.string().optional().nullable(),
+  // OBRIGATÓRIO desde o login centralizado (docs/26 §4): é o email que recebe a
+  // senha temporária do convite e identifica a conta global.
+  email: z.string().min(1),
 });
 const userUpdateSchema = z.object({
   name: z.string().min(1).optional(),
@@ -51,7 +54,9 @@ export async function userRoutes(app: FastifyInstance) {
   app.get("/users", { preHandler: requireRole("manager") }, async () => listUsersUsecase());
   app.post("/users", { preHandler: requireRole("manager") }, async (req, reply) => {
     const body = userCreateSchema.parse(req.body);
-    const created = await createUserUsecase(body);
+    // `origin` montada do request (link do email de convite) — a application
+    // não lê `req`/`config`; o use case recebe o dado pronto.
+    const created = await createUserUsecase({ ...body, origin: requestOrigin(req) });
     return reply.code(201).send(created);
   });
   app.patch("/users/:id", { preHandler: requireRole("manager") }, async (req) => {
