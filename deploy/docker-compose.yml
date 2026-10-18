@@ -3,14 +3,14 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
+    # Portas publicadas só no docker-compose.override.yml (dev): o host pode
+    # já ter o Caddy de produção nas 80/443.
     environment:
       - DOMAIN=localhost
       - PDV_WS_UPSTREAM=${PDV_WS_UPSTREAM:-backend:3000}
     volumes:
       - ./Caddyfile.dev:/etc/caddy/Caddyfile:ro
+      - ./geo-test:/srv/geo-test:ro # página de smoke test (geo.localhost)
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
@@ -203,29 +203,64 @@ services:
 
 
   # 2. MOTOR DE ROTAS AVANÇADO (Valhalla)
+  # Sobe em cima dos tiles compilados por ../prepare-geo-data.sh — sem
+  # deploy/map_data/valhalla/valhalla_tiles.tar o container entra em crash loop.
   router:
-    image: valhalla/valhalla:run-latest
-    ports:
-      - "8002:8002"
+    # GHCR (não Docker Hub): o `valhalla/valhalla:run-latest` do Hub está
+    # congelado na 3.3.0 (2023) e falha com configs atuais.
+    image: ghcr.io/valhalla/valhalla:latest
+    restart: unless-stopped
+    command: valhalla_service /custom_files/valhalla.json
     volumes:
       - ./map_data/valhalla:/custom_files
     networks:
       - pdv-internal
-    environment:
-      - tile_dir=/custom_files/valhalla_tiles
-      - config_file=/custom_files/valhalla.json
-    command: valhalla_route_service /custom_files/valhalla.json
-    restart: always
+    healthcheck:
+      # A imagem não traz curl/wget; o probe abre um socket crú no serviço HTTP.
+      test: ["CMD-SHELL", "timeout 3 bash -c '</dev/tcp/127.0.0.1/8002' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    # Sem porta publicada: acesso externo é só via Caddy (routes.localhost).
 
+  # 3. OTIMIZADOR DE DELIVERY (VROOM — VRP multi-parada)
+  # Resolve a sequência ideal de entregas; usa o `router` (Valhalla) como
+  # motor de matrizes de distância/tempo (ver map_data/vroom/config.yml).
+  # A imagem oficial é `vroom-docker`: vroom-express (HTTP :3000) + vroom core.
+  optimizer:
+    image: ghcr.io/vroom-project/vroom-docker:v1.15.0
+    restart: unless-stopped
+    volumes:
+      - ./map_data/vroom:/conf
+    environment:
+      - VROOM_ROUTER=valhalla # precede o `router` do config.yml; host/port vêm do config
+    networks:
+      - pdv-internal
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok||r.status===404?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    # Sem porta publicada: acesso externo é só via Caddy (optimizer.localhost).
 
   # 4. SERVIDOR DE TILES ATUALIZADO (TileServer GL)
   tiles:
     image: maptiler/tileserver-gl:latest
+    restart: unless-stopped
     volumes:
       - ./map_data/tileserver:/data
+    command: -c /data/config.json
     networks:
       - pdv-internal
-    restart: always
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/data.json').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    # Sem porta publicada: acesso externo é só via Caddy (tiles.localhost).
 
 volumes:
   caddy_data:

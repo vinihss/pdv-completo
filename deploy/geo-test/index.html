@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Entregas simuladas — RMPA (dev)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; }
+  #map { position: absolute; inset: 0; }
+  #panel {
+    position: absolute; top: 12px; left: 12px; z-index: 1;
+    background: #fff; border-radius: 8px; padding: 12px 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.25); width: 400px;
+    max-height: calc(100vh - 24px); overflow-y: auto;
+  }
+  #panel h1 { font-size: 14px; margin: 0 0 8px; }
+  #panel .row { display: flex; gap: 6px; margin: 6px 0; align-items: center; flex-wrap: wrap; }
+  #panel button, #panel select {
+    padding: 6px 10px; cursor: pointer; font-size: 13px;
+  }
+  #panel button:disabled { opacity: .5; cursor: wait; }
+  #panel select { flex: 1; min-width: 160px; }
+  #status { font-size: 12px; color: #444; margin-top: 8px; white-space: pre-wrap; }
+  #roteiro { margin-top: 10px; font-size: 12px; }
+  #roteiro table { border-collapse: collapse; width: 100%; }
+  #roteiro th, #roteiro td {
+    border-bottom: 1px solid #e6e6e6; padding: 4px 6px; text-align: left;
+  }
+  #roteiro th { color: #666; font-weight: 600; }
+  #roteiro td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  #roteiro .tot { font-weight: 600; }
+  #roteiro .badge {
+    display: inline-block; width: 18px; height: 18px; border-radius: 50%;
+    background: #188038; color: #fff; text-align: center; line-height: 18px;
+    font-size: 11px; font-weight: 700;
+  }
+  details { margin-top: 10px; font-size: 12px; }
+  details pre {
+    background: #f5f5f5; padding: 8px; border-radius: 4px; white-space: pre-wrap;
+    word-break: break-all; user-select: all;
+  }
+  .hint { color: #777; font-size: 11px; margin-top: 4px; }
+  .stop {
+    display: flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border-radius: 50%; background: #188038;
+    color: #fff; font: 700 12px/1 system-ui; border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,.4); cursor: default;
+  }
+  .stop.store { background: #1a73e8; font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="panel">
+  <h1>Entregas simuladas — POA · São Leopoldo · Novo Hamburgo (dev)</h1>
+
+  <div class="row">
+    <button id="btn-dispatch">Simular despacho</button>
+    <button id="btn-new">Novo pedido</button>
+    <button id="btn-clear">Limpar</button>
+  </div>
+  <div class="row">
+    <select id="dest"></select>
+    <button id="btn-direct">Rota direta (loja → cliente)</button>
+  </div>
+
+  <div id="roteiro"></div>
+  <div id="status">Carregando mapa…</div>
+
+  <details>
+    <summary>Curl equivalente (testar de fora)</summary>
+    <pre id="curl">—</pre>
+    <div class="hint">
+      De fora do servidor use o IP + Host header:<br />
+      curl -H 'Host: optimizer.localhost' -X POST http://&lt;ip&gt;:8081/ -d '{…}'<br />
+      e no seu /etc/hosts: <code>179.197.74.132 geo.localhost routes.localhost tiles.localhost optimizer.localhost</code>
+    </div>
+  </details>
+</div>
+
+<script>
+// Origens derivadas do próprio host da página (geo.localhost:8081 →
+// routes.localhost:8081 etc.), herda porta automaticamente em dev/prod.
+const port = location.port ? `:${location.port}` : "";
+const host = location.hostname;
+const ROUTES = `http://routes.${host}${port}/route`;
+const OPTIMIZER = `http://optimizer.${host}${port}/`;
+const STATUS = document.getElementById("status");
+const CURL = document.getElementById("curl");
+const log = (m) => { STATUS.textContent = m; console.log(m); };
+
+// ---------------------------------------------------------------------------
+// Cenário fictício (sem backend): 1 loja no Centro de POA + pedidos em
+// POA, Canoas, Gravataí, São Leopoldo e Novo Hamburgo.
+const STORE = { name: "Loja — Centro, POA", lon: -51.2300, lat: -30.0370 };
+const SEED_JOBS = [
+  { id: 1, name: "Casa do João — Cidade Baixa", lon: -51.2330, lat: -30.0450 },
+  { id: 2, name: "Padaria Real — Menino Deus",  lon: -51.2230, lat: -30.0470 },
+  { id: 3, name: "Escritório — Higienópolis",   lon: -51.1990, lat: -30.0330 },
+  { id: 4, name: "Mercado Central — Canoas",    lon: -51.1830, lat: -29.9350 },
+  { id: 5, name: "Drogaria — Gravataí",         lon: -51.1580, lat: -29.9450 },
+  { id: 6, name: "Cliente A — São Leopoldo",    lon: -51.0940, lat: -29.6950 },
+  { id: 7, name: "Cliente B — Novo Hamburgo",   lon: -51.1340, lat: -29.7630 },
+];
+// Entram pelo botão "Novo pedido" (reotimiza com a sequência mudando).
+const EXTRA_JOBS = [
+  { id: 8, name: "Condomínio — Directional (NH)", lon: -51.1960, lat: -29.7680 },
+  { id: 9, name: "Loja parceira — Sapucaia do Sul", lon: -51.1550, lat: -29.8380 },
+];
+let jobs = [...SEED_JOBS];
+let extraIdx = 0;
+let busy = false;
+
+const map = new maplibregl.Map({
+  container: "map",
+  style: `http://tiles.${host}${port}/styles/metropole-poa/style.json`,
+  center: [-51.17, -29.95],
+  zoom: 10,
+});
+map.addControl(new maplibregl.NavigationControl());
+
+// VROOM/Valhalla retornam geometria como polyline6 (precisão 6) codificada.
+function decodePolyline6(str) {
+  const coords = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < str.length) {
+    let result = 1, shift = 0, b;
+    do { b = str.charCodeAt(index++) - 63 - 1; result <<= shift; result |= b & 0x1f; shift += 5; } while (b >= 0x1f);
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+    result = 1; shift = 0;
+    do { b = str.charCodeAt(index++) - 63 - 1; result <<= shift; result |= b & 0x1f; shift += 5; } while (b >= 0x1f);
+    lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+    coords.push([lng / 1e6, lat / 1e6]);
+  }
+  return coords;
+}
+
+// ---------------------------------------------------------------------------
+// Camadas e marcadores (com limpeza entre execuções)
+const markers = [];
+
+function addLine(id, coords, color) {
+  if (map.getLayer(id)) map.removeLayer(id);
+  if (map.getSource(id)) map.removeSource(id);
+  map.addSource(id, { type: "geojson", data: {
+    type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: {},
+  }});
+  map.addLayer({
+    id, type: "line", source: id,
+    paint: { "line-color": color, "line-width": 4, "line-opacity": 0.85 },
+  });
+}
+
+function addMarker(lonlat, cls, text, color) {
+  const el = document.createElement("div");
+  el.className = "stop" + (cls ? " " + cls : "");
+  if (color) el.style.background = color;
+  if (text != null) el.textContent = text;
+  markers.push(new maplibregl.Marker({ element: el }).setLngLat(lonlat).addTo(map));
+}
+
+function clearArtifacts(keepDirect) {
+  for (const id of ["rota-otimizada", keepDirect ? null : "rota-direta"]) {
+    if (!id) continue;
+    if (map.getLayer(id)) map.removeLayer(id);
+    if (map.getSource(id)) map.removeSource(id);
+  }
+  if (!keepDirect) {
+    while (markers.length) markers.pop().remove();
+    document.getElementById("roteiro").innerHTML = "";
+  } else {
+    // marcadores vermelhos da rota direta são os 2 últimos adicionados
+    const direct = markers.splice(-directMarkerCount);
+    while (direct.length) direct.pop().remove();
+    directMarkerCount = 0;
+  }
+}
+let directMarkerCount = 0;
+
+function fitTo(points, padding = 60) {
+  const lons = points.map((p) => p[0]), lats = points.map((p) => p[1]);
+  map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding });
+}
+
+function setBusy(v) {
+  busy = v;
+  for (const b of ["btn-dispatch", "btn-new", "btn-direct"]) {
+    document.getElementById(b).disabled = v;
+  }
+}
+
+function setCurl(cmd) { CURL.textContent = cmd; }
+
+function fillSelect() {
+  const sel = document.getElementById("dest");
+  sel.innerHTML = jobs.map((j) => `<option value="${j.id}">${j.name}</option>`).join("");
+}
+
+// ---------------------------------------------------------------------------
+// 1) Despacho: VROOM otimiza a rota da loja com todos os pedidos ativos
+//    (ida e volta — start e end na loja).
+async function dispatch() {
+  if (busy) return;
+  setBusy(true);
+  const payload = {
+    vehicles: [{ id: 1, profile: "auto",
+                 start: [STORE.lon, STORE.lat], end: [STORE.lon, STORE.lat] }],
+    jobs: jobs.map((j) => ({ id: j.id, location: [j.lon, j.lat] })),
+  };
+  setCurl(`curl -X POST ${OPTIMIZER} -H 'Content-Type: application/json' \\\n  -d '${JSON.stringify(payload)}'`);
+  log(`Otimizando ${jobs.length} entregas via VROOM…`);
+  try {
+    const res = await fetch(OPTIMIZER, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    const data = await res.json();
+    const route = data.routes?.[0];
+    if (!route) throw new Error("sem rota na resposta");
+    const unassigned = data.unassigned?.length ?? "?";
+
+    clearArtifacts(false);
+    addLine("rota-otimizada", decodePolyline6(route.geometry), "#188038");
+
+    renderRoteiro(route, unassigned);
+    fitTo(decodePolyline6(route.geometry));
+
+    log(`Despacho ok — ${route.steps.filter((s) => s.type === "job").length} paradas, ` +
+        `${(route.distance / 1000).toFixed(1)} km, ~${Math.round(route.duration / 60)} min. ` +
+        `Não alocados: ${unassigned}.`);
+  } catch (e) { log("ERRO VROOM: " + e.message); }
+  finally { setBusy(false); }
+}
+
+// Painel com o roteiro: ordem, cliente, km acumulado e ETA por parada.
+// Detecta se os steps do VROOM vêm cumulativos ou por trecho (varia por versão).
+function renderRoteiro(route, unassigned) {
+  const byId = new Map(jobs.map((j) => [j.id, j]));
+  const steps = route.steps.filter((s) => s.type === "job");
+  const last = route.steps[route.steps.length - 1];
+  const cumulative = Math.abs((last.distance ?? 0) - route.distance) < 1.5;
+  const out = document.getElementById("roteiro");
+  const start = Date.now();
+  let km = 0, sec = 0, n = 0;
+
+  const rows = steps.map((s) => {
+    if (cumulative) { km = s.distance; sec = s.duration; }
+    else { km += s.distance || 0; sec += s.duration || 0; }
+    if (s.service) sec += s.service;
+    n += 1;
+    const eta = new Date(start + sec * 1000).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    return `<tr>
+      <td><span class="badge">${n}</span></td>
+      <td>${byId.get(s.job)?.name ?? "pedido " + s.job}</td>
+      <td class="num">${(km / 1000).toFixed(1)}</td>
+      <td class="num">${eta}</td>
+    </tr>`;
+  }).join("");
+
+  out.innerHTML = `
+    <table>
+      <tr><th>#</th><th>Parada</th><th>km</th><th>ETA</th></tr>
+      ${rows}
+      <tr class="tot"><td></td><td>Total</td>
+        <td class="num">${(route.distance / 1000).toFixed(1)}</td>
+        <td class="num">${Math.round(route.duration / 60)} min</td></tr>
+      <tr><td></td><td colspan="3">não alocados: ${unassigned}</td></tr>
+    </table>`;
+
+  // Marcadores numerados na ordem da rota (loja em azul no início/fim).
+  addMarker([STORE.lon, STORE.lat], "store", "L");
+  n = 0;
+  for (const s of steps) { n += 1; addMarker(s.location, "", n); }
+}
+
+// ---------------------------------------------------------------------------
+// 2) Rota direta loja → cliente escolhido (Valhalla), em vermelho, para
+//    comparar a rota bruta contra a otimizada do despacho.
+async function directRoute() {
+  if (busy) return;
+  const dest = jobs.find((j) => String(j.id) === document.getElementById("dest").value);
+  if (!dest) return;
+  setBusy(true);
+  const payload = {
+    locations: [
+      { lat: STORE.lat, lon: STORE.lon, type: "break" },
+      { lat: dest.lat, lon: dest.lon, type: "break" },
+    ],
+    costing: "auto",
+    directions_options: { units: "kilometers" },
+  };
+  setCurl(`curl '${ROUTES}?json=${encodeURIComponent(JSON.stringify(payload))}'`);
+  log(`Consultando Valhalla: loja → ${dest.name}…`);
+  try {
+    const res = await fetch(`${ROUTES}?json=${encodeURIComponent(JSON.stringify(payload))}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const leg = data.trip?.legs?.[0];
+    if (!leg) throw new Error("sem leg na resposta: " + JSON.stringify(data).slice(0, 200));
+    const coords = decodePolyline6(leg.shape);
+
+    clearArtifacts(true);
+    addLine("rota-direta", coords, "#d93025");
+    directMarkerCount = 2;
+    addMarker([STORE.lon, STORE.lat], "store", "L", "#d93025");
+    addMarker([dest.lon, dest.lat], "", "→", "#d93025");
+
+    const km = (leg.summary?.length / 1000).toFixed(1);
+    const min = Math.round(leg.summary?.time / 60);
+    const opt = document.querySelector("#roteiro .tot");
+    const cmp = opt ? ` | otimizada (despacho completo): ${opt.children[2].textContent} km` : "";
+    log(`Rota direta loja → ${dest.name}: ${km} km, ~${min} min (auto)${cmp}.`);
+  } catch (e) { log("ERRO Valhalla: " + e.message); }
+  finally { setBusy(false); }
+}
+
+// ---------------------------------------------------------------------------
+// 3) Novo pedido: adiciona um endereço extra e reotimiza (a sequência muda).
+function addNewJob() {
+  if (extraIdx >= EXTRA_JOBS.length) { log("Sem pedidos extras no cenário."); return; }
+  const j = EXTRA_JOBS[extraIdx++];
+  jobs.push(j);
+  fillSelect();
+  if (extraIdx >= EXTRA_JOBS.length) document.getElementById("btn-new").disabled = true;
+  log(`Novo pedido: ${j.name} — reotimizando…`);
+  dispatch();
+}
+
+function clearAll() {
+  clearArtifacts(false);
+  jobs = [...SEED_JOBS];
+  extraIdx = 0;
+  fillSelect();
+  document.getElementById("btn-new").disabled = false;
+  setCurl("—");
+  log("Limpo. Cenário de volta ao inicial (7 pedidos).");
+}
+
+// ---------------------------------------------------------------------------
+document.getElementById("btn-dispatch").addEventListener("click", dispatch);
+document.getElementById("btn-direct").addEventListener("click", directRoute);
+document.getElementById("btn-new").addEventListener("click", addNewJob);
+document.getElementById("btn-clear").addEventListener("click", clearAll);
+fillSelect();
+
+map.on("load", () => {
+  fitTo([[STORE.lon, STORE.lat], ...jobs.map((j) => [j.lon, j.lat])], 80);
+  log("Mapa carregado. Clique em “Simular despacho” para otimizar as 7 entregas com o VROOM.");
+});
+map.on("error", (e) => log("Erro MapLibre: " + (e.error?.message ?? "desconhecido")));
+</script>
+</body>
+</html>

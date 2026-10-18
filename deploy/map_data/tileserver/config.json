@@ -1,0 +1,29 @@
+{
+  "options": {
+    "paths": {
+      "root": "",
+      "styles": "",
+      "fonts": "",
+      "sprites": "",
+      "mbtiles": "."
+    }
+  },
+  "data": {
+    "metropole-poa": {
+      "mbtiles": "metropole-poa.mbtiles"
+    }
+  },
+  "styles": {
+    "metropole-poa": {
+      "style": "metropole-poa-style.json",
+      "tilejson": {
+        "type": "baselayer",
+        "description": "Mapa vetorial da região metropolitana de Porto Alegre (dev)",
+        "format": "pbf"
+      }
+    }
+  },
+  "server": {
+    "port": 8080
+  }
+}

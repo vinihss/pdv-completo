@@ -1,0 +1,52 @@
+# Configuração do vroom-express (container `optimizer`).
+# Formato da imagem oficial ghcr.io/vroom-project/vroom-docker (v0.12.x).
+# Documentação: https://github.com/VROOM-Project/vroom-express
+cliArgs:
+  geometry: true # retorna o traçado (polyline6) para o front-end desenhar
+  planmode: false
+  threads: 4
+  explore: 5
+  limit: '1mb'
+  logdir: '/..'
+  logsize: '100M'
+  maxlocations: 1000
+  maxvehicles: 200
+  override: true
+  path: ''
+  port: 3000
+  router: 'valhalla' # motor de rotas/matrizes (também via env VROOM_ROUTER)
+  timeout: 300000
+  baseurl: '/'
+
+# Hosts dos motores de rotas na rede interna do compose.
+# `VROOM_ROUTER=valhalla` (docker-compose) seleciona o bloco `valhalla`.
+# Os perfis precisam apontar para o container `router` na porta 8002.
+routingServers:
+  valhalla:
+    auto:
+      host: 'router'
+      port: '8002'
+    bicycle:
+      host: 'router'
+      port: '8002'
+    pedestrian:
+      host: 'router'
+      port: '8002'
+    motorcycle:
+      host: 'router'
+      port: '8002'
+    motor_scooter:
+      host: 'router'
+      port: '8002'
+    taxi:
+      host: 'router'
+      port: '8002'
+    hov:
+      host: 'router'
+      port: '8002'
+    truck:
+      host: 'router'
+      port: '8002'
+    bus:
+      host: 'router'
+      port: '8002'

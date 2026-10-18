@@ -2,8 +2,10 @@ name: pdv-dev
 services:
   caddy:
     ports:
-      - "80:80"
-      - "443:443"
+      # Portas alternativas de dev: o host já tem o Caddy de produção
+      # (systemd `pdv-caddy`) nas 80/443. Acesso dev via <host>:8081.
+      - "8081:80"
+      - "8443:443"
     environment:
       - DOMAIN=localhost
       - PDV_WS_UPSTREAM=${PDV_WS_UPSTREAM:-backend:3000}
@@ -11,6 +13,7 @@ services:
       - ./Caddyfile.dev:/etc/caddy/Caddyfile
       # Mapeia as pastas dos Frontends para o Caddy servir os ficheiros diretamente em desenvolvimento
       - ../frontend:/srv/frontend
+      - ./geo-test:/srv/geo-test:ro
     depends_on:
       - backend
 
