@@ -42,6 +42,8 @@ const STAGE_SITUATION = {
 };
 const pdvApi = createPdvApi({ apiBaseUrl: process.env.PDV_API_BASE_URL, publicOrderUrl: process.env.PDV_PUBLIC_ORDER_URL });
 const testPhone = String(process.env.PDV_WA_TEST_PHONE || "").replace(/\D/g, "");
+// Telefone consultado na API pela sessão de teste do painel quando não há número de teste configurado.
+const simPhone = testPhone || "5500000000000000";
 let browser;
 let context;
 let page;
@@ -550,6 +552,61 @@ async function sendReply({ contactId, phone, displayName, sourceMessageId, body,
   else if (delivery.status === "failed") lastError = "Não foi possível enviar a resposta após tentativas seguras. Confira o WhatsApp e os logs.";
 }
 
+const ACTIVE_FLOWS = ["awaiting_new_order_choice", "awaiting_choice", "awaiting_intent_clarification", "awaiting_menu_order"];
+const CHOICE_FLOWS = ["awaiting_new_order_choice", "awaiting_choice", "awaiting_intent_clarification"];
+
+/**
+ * Decide a resposta do bot para `text`, sem tocar no WhatsApp nem no histórico.
+ * É o mesmo caminho usado pelo chat real e pela sessão de teste do painel.
+ * Devolve `null` quando a mensagem é ignorada (fora do escopo de pedido),
+ * `{ wait: true }` quando o fluxo só está aguardando (ex.: pedido pelo cardápio)
+ * ou o plano `{ body, flowState, activeOrderId, baselineOrderId }` a persistir.
+ */
+async function planReply({ text, contact, phone }) {
+  const flowState = contact?.flow_state || "";
+  if (!contact || !ACTIVE_FLOWS.includes(flowState)) {
+    // Classificador local em memória: conversa fora do escopo de pedido não é salva nem respondida.
+    const classification = classifyIntent(text);
+    logEvent("message.classified", { intent: classification.intent, confidence: Number(classification.confidence.toFixed(3)), inScope: classification.inScope });
+    if (classification.intent === "unrelated") {
+      logEvent("message.ignored", { reason: "outside_order_scope" });
+      return null;
+    }
+    if (classification.intent === "unclear") {
+      return { body: MESSAGES.clarifyIntent, flowState: "awaiting_intent_clarification", activeOrderId: null, baselineOrderId: null };
+    }
+    const active = await getActiveOrder(phone);
+    const activeOrderId = active?.orderId ?? null;
+    const body = active
+      ? MESSAGES.pendingChoice(active.orderId, active.customerStage?.label || "Em andamento", stageSituation(active.customerStage?.stage))
+      : MESSAGES.noPending;
+    return { body, flowState: "awaiting_new_order_choice", activeOrderId, baselineOrderId: activeOrderId };
+  }
+
+  if (!CHOICE_FLOWS.includes(flowState)) return { wait: true };
+
+  const classification = classifyIntent(text);
+  logEvent("message.classified", { intent: classification.intent, confidence: Number(classification.confidence.toFixed(3)), inScope: classification.inScope, flow: flowState });
+  if (classification.intent === "unrelated") {
+    logEvent("message.ignored", { reason: "outside_order_scope" });
+    return null;
+  }
+  if (classification.intent === "unclear") {
+    return { body: MESSAGES.clarifyIntent, flowState: "awaiting_intent_clarification", activeOrderId: null, baselineOrderId: null };
+  }
+  if (classification.intent === "new_order") {
+    const link = pdvApi.makeOrderUrl(phone);
+    const latestActiveOrder = await pdvApi.getActiveOrder(phone);
+    const baselineOrderId = latestActiveOrder?.orderId ?? null;
+    return { body: `Abra o cardápio para montar seu pedido: ${link}`, flowState: "awaiting_menu_order", activeOrderId: baselineOrderId, baselineOrderId };
+  }
+  const currentOrderId = contact.active_order_id ?? null;
+  const body = currentOrderId
+    ? MESSAGES.trackingLink(currentOrderId, pdvApi.makeOrderUrl(phone, currentOrderId))
+    : MESSAGES.noNewOrder;
+  return { body, flowState: "tracking_link_sent", activeOrderId: currentOrderId, baselineOrderId: currentOrderId };
+}
+
 async function handleNewMessage(message, text, chatTitle, idData) {
   const { contactId, phone } = idData;
   const displayName = chatTitle && chatTitle !== phone ? chatTitle : phone;
@@ -557,63 +614,11 @@ async function handleNewMessage(message, text, chatTitle, idData) {
   const sourceMessageId = rawId || `${contactId}:${Date.now()}`;
   if (query("SELECT message_id FROM messages WHERE message_id=?", [sourceMessageId]).length) return;
 
-  const contact = getContact(contactId);
-  if (!contact || !["awaiting_new_order_choice", "awaiting_choice", "awaiting_intent_clarification", "awaiting_menu_order"].includes(contact.flow_state)) {
-    // Classificador local em memória: conversa fora do escopo de pedido não é salva nem respondida.
-    const classification = classifyIntent(text);
-    logEvent("message.classified", { intent: classification.intent, confidence: Number(classification.confidence.toFixed(3)), inScope: classification.inScope });
-    if (classification.intent === "unrelated") {
-      logEvent("message.ignored", { reason: "outside_order_scope" });
-      return;
-    }
-    if (classification.intent === "unclear") {
-      await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: "awaiting_intent_clarification" });
-      await sendReply({ contactId, phone, displayName, sourceMessageId, body: MESSAGES.clarifyIntent, flowState: "awaiting_intent_clarification" });
-      lastInbound = `${displayName}: ${text.slice(0, 140)}`;
-      return;
-    }
-    const active = await getActiveOrder(phone);
-    const activeOrderId = active?.orderId ?? null;
-    const body = active
-      ? MESSAGES.pendingChoice(active.orderId, active.customerStage?.label || "Em andamento", stageSituation(active.customerStage?.stage))
-      : MESSAGES.noPending;
-    await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: "awaiting_new_order_choice", activeOrderId, baselineOrderId: activeOrderId });
-    await sendReply({ contactId, phone, displayName, sourceMessageId, body, flowState: "awaiting_new_order_choice", activeOrderId, baselineOrderId: activeOrderId });
-    lastInbound = `${displayName}: ${text.slice(0, 140)}`;
-    return;
-  }
-
-  if (["awaiting_new_order_choice", "awaiting_choice", "awaiting_intent_clarification"].includes(contact.flow_state)) {
-    const classification = classifyIntent(text);
-    logEvent("message.classified", { intent: classification.intent, confidence: Number(classification.confidence.toFixed(3)), inScope: classification.inScope, flow: contact.flow_state });
-    if (classification.intent === "unrelated") {
-      logEvent("message.ignored", { reason: "outside_order_scope" });
-      return;
-    }
-    if (classification.intent === "unclear") {
-      await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: "awaiting_intent_clarification" });
-      await sendReply({ contactId, phone, displayName, sourceMessageId, body: MESSAGES.clarifyIntent, flowState: "awaiting_intent_clarification" });
-      lastInbound = `${displayName}: ${text.slice(0, 140)}`;
-      return;
-    }
-    if (classification.intent === "new_order") {
-      const link = pdvApi.makeOrderUrl(phone);
-      const body = `Abra o cardápio para montar seu pedido: ${link}`;
-      const latestActiveOrder = await pdvApi.getActiveOrder(phone);
-      const baselineOrderId = latestActiveOrder?.orderId ?? null;
-      await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: "awaiting_menu_order", activeOrderId: baselineOrderId, baselineOrderId });
-      await sendReply({ contactId, phone, displayName, sourceMessageId, body, flowState: "awaiting_menu_order", activeOrderId: baselineOrderId, baselineOrderId });
-    } else {
-      const currentOrderId = contact.active_order_id ?? null;
-      const body = currentOrderId
-        ? MESSAGES.trackingLink(currentOrderId, pdvApi.makeOrderUrl(phone, currentOrderId))
-        : MESSAGES.noNewOrder;
-      await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: "tracking_link_sent", activeOrderId: currentOrderId, baselineOrderId: currentOrderId });
-      await sendReply({ contactId, phone, displayName, sourceMessageId, body, flowState: "tracking_link_sent", activeOrderId: currentOrderId, baselineOrderId: currentOrderId });
-    }
-    lastInbound = `${displayName}: ${text.slice(0, 140)}`;
-    return;
-  }
+  const plan = await planReply({ text, contact: getContact(contactId), phone });
+  if (!plan || plan.wait) return;
+  await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: plan.flowState, activeOrderId: plan.activeOrderId, baselineOrderId: plan.baselineOrderId });
+  await sendReply({ contactId, phone, displayName, sourceMessageId, body: plan.body, flowState: plan.flowState, activeOrderId: plan.activeOrderId, baselineOrderId: plan.baselineOrderId });
+  lastInbound = `${displayName}: ${text.slice(0, 140)}`;
 }
 
 async function inspectChatRow(row) {
@@ -876,19 +881,103 @@ function listMessages(contactId) {
   return query("SELECT message_id AS id, direction, body, created_at AS createdAt FROM messages WHERE contact_id=? ORDER BY created_at ASC LIMIT 500", [contactId]);
 }
 
+// Sessão de teste do painel: simula o cliente "Teste" sem tocar no WhatsApp e
+// sem gravar no histórico cifrado. Vive só em memória (some no reinício).
+const TEST_USER_NAME = "Teste";
+const emptyTestContact = () => ({ flow_state: "", active_order_id: null, baseline_order_id: null });
+const testSession = { contact: emptyTestContact(), messages: [] };
+let testChain = Promise.resolve();
+
+function pushTestMessage(direction, body) {
+  testSession.messages.push({ direction, body, createdAt: new Date().toISOString() });
+}
+
+function testSnapshot() {
+  return { user: TEST_USER_NAME, phone: simPhone, flowState: testSession.contact.flow_state || "", messages: [...testSession.messages] };
+}
+
+function resetTestSession() {
+  testSession.contact = emptyTestContact();
+  testSession.messages = [];
+  logEvent("test_session.reset");
+  return testSnapshot();
+}
+
+async function handleTestMessage(text) {
+  const body = String(text ?? "").trim().slice(0, 2000);
+  if (!body) return { ...testSnapshot(), error: "Escreva uma mensagem antes de enviar." };
+  pushTestMessage("in", body);
+  let plan;
+  try {
+    plan = await planReply({ text: body, contact: testSession.contact, phone: simPhone });
+  } catch (error) {
+    logEvent("test_session.failed", { errorName: error?.name || "Error" });
+    pushTestMessage("note", `O bot não conseguiu responder: ${error.message}`);
+    return { ...testSnapshot(), error: error.message };
+  }
+  if (!plan) {
+    pushTestMessage("note", "O bot não respondeu: mensagem fora do escopo de pedido.");
+    return testSnapshot();
+  }
+  if (plan.wait) {
+    pushTestMessage("note", "O bot não respondeu: o fluxo está aguardando o pedido pelo cardápio.");
+    return testSnapshot();
+  }
+  testSession.contact = { flow_state: plan.flowState, active_order_id: plan.activeOrderId ?? null, baseline_order_id: plan.baselineOrderId ?? null };
+  pushTestMessage("out", plan.body);
+  logEvent("test_session.replied", { flowState: plan.flowState });
+  return testSnapshot();
+}
+
+// Serializa os envios para o estado de fluxo da sessão não ser sobrescrito por respostas concorrentes.
+function queueTestMessage(text) {
+  const run = testChain.then(() => handleTestMessage(text));
+  testChain = run.then(() => undefined, () => undefined);
+  return run;
+}
+
 const html = `<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PDV · WhatsApp local (teste)</title><style>
 *{box-sizing:border-box}body{font:15px system-ui;background:#f5f1e8;color:#332820;max-width:1080px;margin:28px auto;padding:0 16px}main{background:#fff;border:1px solid #ddd3c5;border-radius:16px;padding:22px}.warn{background:#fff7db;border:1px solid #ebd58a;padding:12px;border-radius:10px}.layout{display:grid;grid-template-columns:minmax(220px,34%) 1fr;gap:14px;margin-top:18px}.card{border:1px solid #e4ddd2;border-radius:12px;overflow:hidden}.card h2{font-size:16px;margin:0;padding:14px;border-bottom:1px solid #e4ddd2}.list{max-height:520px;overflow:auto}.contact{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid #eee8df;background:white;padding:12px;cursor:pointer;color:inherit}.contact:hover,.contact:focus{background:#f6f3ee}.sub{font-size:12px;color:#777}.messages{height:440px;overflow:auto;padding:14px;background:#f8f6f2;display:flex;flex-direction:column;gap:8px}.msg{max-width:86%;padding:9px 12px;border-radius:12px;white-space:pre-wrap;overflow-wrap:anywhere}.in{align-self:flex-start;background:white;border:1px solid #e6e0d7}.out{align-self:flex-end;background:#d8f2df}.time{font-size:10px;color:#777;margin-top:4px}button.action{border:0;border-radius:9px;padding:10px 14px;background:#087c56;color:white;font-weight:700;cursor:pointer;margin:4px}button.secondary{background:#6c6258}#qr{display:none;max-width:230px;margin:12px auto;border:1px solid #ddd}.status{font-weight:700}.muted{color:#70685f;font-size:13px}.empty{padding:18px;color:#70685f}.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.hidden{display:none}@media(max-width:700px){.layout{grid-template-columns:1fr}.list{max-height:220px}}
-</style><main><h1>WhatsApp do PDV · protótipo Linux</h1><p class="warn"><b>Experimental, não oficial.</b> Teste apenas. O filtro exclui grupos e só persiste mensagens que parecem relacionadas a pedidos; o texto de outras mensagens é avaliado em memória e descartado. A automação pode parar de funcionar ou levar a restrições da conta.</p><div class="toolbar"><span>Status: <span id="status" class="status">iniciando…</span></span><button id="connect" class="action">Conectar / atualizar QR</button><button id="disconnect" class="action secondary">Desconectar</button></div><p id="error" class="muted"></p><img id="qr" alt="QR Code do WhatsApp Web"><p id="hint" class="muted"></p><section class="layout"><div class="card"><h2>Contatos e conversas</h2><div id="contacts" class="list"><p class="empty">Nenhuma conversa de pedido registrada.</p></div></div><div class="card"><h2 id="conversation-title">Histórico da conversa</h2><div id="messages" class="messages"><p class="empty">Selecione um contato. Grupos e mensagens fora de contexto de pedido não são armazenados.</p></div></div></section><p class="muted">O agente procura chats individuais não lidos automaticamente, mas só processa conversas confirmadas como contatos diretos. Grupos e mensagens fora do contexto de pedido são ignorados.</p></main><script>
+.test-card{margin-top:14px}.test-header{display:flex;align-items:center;gap:10px;padding:14px;border-bottom:1px solid #e4ddd2}.avatar{width:32px;height:32px;flex:0 0 32px;border-radius:50%;background:#087c56;color:#fff;display:grid;place-items:center;font-weight:700}.test-messages{height:300px;background:#efeae2}.test-composer{display:flex;gap:8px;padding:10px;background:#f5f1e8;border-top:1px solid #e4ddd2}.test-composer input{flex:1;min-width:0;border:1px solid #d9d1c5;border-radius:20px;padding:10px 14px;font:inherit;background:#fff;color:inherit}.msg.note{align-self:center;max-width:92%;background:#fff7db;border:1px dashed #ebd58a;color:#7a6437;font-size:12px;text-align:center}.msg.typing{align-self:flex-end;background:#d8f2df;font-style:italic;color:#4b6b57}
+</style><main><h1>WhatsApp do PDV · protótipo Linux</h1><p class="warn"><b>Experimental, não oficial.</b> Teste apenas. O filtro exclui grupos e só persiste mensagens que parecem relacionadas a pedidos; o texto de outras mensagens é avaliado em memória e descartado. A automação pode parar de funcionar ou levar a restrições da conta.</p><div class="toolbar"><span>Status: <span id="status" class="status">iniciando…</span></span><button id="connect" class="action">Conectar / atualizar QR</button><button id="disconnect" class="action secondary">Desconectar</button></div><p id="error" class="muted"></p><img id="qr" alt="QR Code do WhatsApp Web"><p id="hint" class="muted"></p><section class="layout"><div class="card"><h2>Contatos e conversas</h2><div id="contacts" class="list"><p class="empty">Nenhuma conversa de pedido registrada.</p></div></div><div class="card"><h2 id="conversation-title">Histórico da conversa</h2><div id="messages" class="messages"><p class="empty">Selecione um contato. Grupos e mensagens fora de contexto de pedido não são armazenados.</p></div></div></section><section class="card test-card"><div class="test-header"><span class="avatar">T</span><div><b>Teste</b><div class="sub" id="test-flow">fluxo: parado (nenhuma conversa ainda)</div></div></div><div id="test-messages" class="messages test-messages"><p class="empty">Simule o cliente <b>Teste</b>: escreva uma mensagem como se fosse no WhatsApp e o bot responde aqui mesmo.</p></div><form id="test-form" class="test-composer"><input id="test-input" type="text" placeholder="Mensagem do cliente Teste…" autocomplete="off" maxlength="2000" aria-label="Mensagem do cliente Teste"><button class="action" type="submit">Enviar</button><button class="action secondary" type="button" id="test-clear">Limpar</button></form></section><p class="muted">A sessão de teste roda o mesmo classificador, o mesmo fluxo e as mesmas consultas de pedido do bot, mas sem WhatsApp e sem gravar no histórico: a conversa vive só em memória e some quando o agente reinicia.</p><p class="muted">O agente procura chats individuais não lidos automaticamente, mas só processa conversas confirmadas como contatos diretos. Grupos e mensagens fora do contexto de pedido são ignorados.</p></main><script>
 let selected='';
 async function refreshStatus(){try{const s=await(await fetch('/api/status')).json();document.querySelector('#status').textContent=s.state;document.querySelector('#error').textContent=s.lastError||'';const qr=document.querySelector('#qr');if(s.qrAvailable){qr.src='/api/qr?t='+Date.now();qr.style.display='block';document.querySelector('#hint').textContent='Leia o QR com o WhatsApp no celular.'}else{qr.style.display='none';document.querySelector('#hint').textContent=s.state==='conectado'?'Conectado. Verificando chats individuais não lidos; conversas sem JID direto confiável são ignoradas.':''}}catch{document.querySelector('#status').textContent='serviço indisponível'}}
 async function loadContacts(){const list=document.querySelector('#contacts');try{const rows=await(await fetch('/api/conversations')).json();list.replaceChildren();if(!rows.length){list.innerHTML='<p class="empty">Nenhuma conversa de pedido registrada.</p>';return}for(const c of rows){const b=document.createElement('button');b.className='contact';b.onclick=()=>loadConversation(c.contactId,c.displayName,c.phone);const name=document.createElement('b');name.textContent=c.displayName||c.phone;const detail=document.createElement('div');detail.className='sub';detail.textContent=(c.phone||'')+' · '+(c.lastMessage||'').slice(0,80);b.append(name,detail);list.append(b)}}catch{list.textContent='Não foi possível carregar o histórico.'}}
 async function loadConversation(id,name,phone){selected=id;document.querySelector('#conversation-title').textContent=(name||phone)+' · '+phone;const box=document.querySelector('#messages');try{const rows=await(await fetch('/api/conversations/'+encodeURIComponent(id)+'/messages')).json();box.replaceChildren();for(const m of rows){const bubble=document.createElement('div');bubble.className='msg '+(m.direction==='in'?'in':'out');const body=document.createElement('div');body.textContent=m.body;const time=document.createElement('div');time.className='time';time.textContent=new Date(m.createdAt).toLocaleString('pt-BR');bubble.append(body,time);box.append(bubble)}box.scrollTop=box.scrollHeight}catch{box.textContent='Não foi possível carregar as mensagens.'}}
-document.querySelector('#connect').onclick=async()=>{document.querySelector('#status').textContent='abrindo…';await fetch('/api/connect',{method:'POST'});refreshStatus()};document.querySelector('#disconnect').onclick=async()=>{await fetch('/api/disconnect',{method:'POST'});refreshStatus()};setInterval(()=>{refreshStatus();loadContacts();if(selected){const title=document.querySelector('#conversation-title').textContent;const parts=title.split(' · ');loadConversation(selected,parts[0],parts[1])}},3000);refreshStatus();loadContacts();
+const testBox=document.querySelector('#test-messages');const testInput=document.querySelector('#test-input');const testFlowLabel=document.querySelector('#test-flow');const FLOW_LABELS={'':'parado (nenhuma conversa ainda)',awaiting_new_order_choice:'aguardando a escolha do cliente',awaiting_choice:'aguardando a escolha do cliente',awaiting_intent_clarification:'aguardando o cliente esclarecer a intenção',awaiting_menu_order:'aguardando o pedido pelo cardápio',tracking_link_sent:'link de acompanhamento enviado',order_confirmed:'pedido confirmado'};let testSignature='';let testBusy=false;
+function testBubble(m){const bubble=document.createElement('div');bubble.className='msg '+(m.direction==='note'?'note':m.direction==='in'?'in':'out');const body=document.createElement('div');body.textContent=m.body;bubble.append(body);if(m.direction!=='note'){const time=document.createElement('div');time.className='time';time.textContent=new Date(m.createdAt).toLocaleString('pt-BR');bubble.append(time)}return bubble}
+function renderTest(snapshot,force){const messages=Array.isArray(snapshot.messages)?snapshot.messages:[];const signature=JSON.stringify([messages.length,messages.length?messages[messages.length-1].createdAt:'',snapshot.flowState]);if(!force&&signature===testSignature)return;testSignature=signature;testFlowLabel.textContent='fluxo: '+(FLOW_LABELS[snapshot.flowState]||snapshot.flowState||FLOW_LABELS['']);testBox.replaceChildren();if(!messages.length){const empty=document.createElement('p');empty.className='empty';empty.textContent='Simule o cliente Teste: escreva uma mensagem como se fosse no WhatsApp e o bot responde aqui mesmo.';testBox.append(empty)}else{for(const m of messages)testBox.append(testBubble(m))}testBox.scrollTop=testBox.scrollHeight}
+async function refreshTest(){if(testBusy)return;try{renderTest(await(await fetch('/api/test/messages')).json())}catch{}}
+document.querySelector('#test-form').onsubmit=async(event)=>{event.preventDefault();const text=testInput.value.trim();if(!text||testBusy)return;testBusy=true;testInput.value='';if(testBox.querySelector('.empty'))testBox.replaceChildren();testBox.append(testBubble({direction:'in',body:text,createdAt:new Date().toISOString()}));const typing=document.createElement('div');typing.className='msg out typing';typing.textContent='digitando…';testBox.append(typing);testBox.scrollTop=testBox.scrollHeight;try{const res=await fetch('/api/test/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({body:text})});renderTest(await res.json(),true)}catch{typing.textContent='Falha ao falar com o agente local.'}finally{testBusy=false;refreshTest()}};
+document.querySelector('#test-clear').onclick=async()=>{testSignature='';try{renderTest(await(await fetch('/api/test/reset',{method:'POST'})).json(),true)}catch{}};
+document.querySelector('#connect').onclick=async()=>{document.querySelector('#status').textContent='abrindo…';await fetch('/api/connect',{method:'POST'});refreshStatus()};document.querySelector('#disconnect').onclick=async()=>{await fetch('/api/disconnect',{method:'POST'});refreshStatus()};setInterval(()=>{refreshStatus();loadContacts();refreshTest();if(selected){const title=document.querySelector('#conversation-title').textContent;const parts=title.split(' · ');loadConversation(selected,parts[0],parts[1])}},3000);refreshStatus();loadContacts();refreshTest();
 </script></html>`;
 const dashboardHtml = html.replace(
   "document.querySelector('#status').textContent=s.state;",
   "document.querySelector('#status').textContent=s.state+(s.dryRun?' · SIMULAÇÃO — envio desativado':'')+(s.uncertainDeliveries?' · '+s.uncertainDeliveries+' envio(s) para revisão':'');",
 );
+
+function sendJson(res, status, payload) {
+  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" }).end(JSON.stringify(payload));
+}
+
+function readJsonBody(req, limit = 8 * 1024) {
+  return new Promise((resolve, reject) => {
+    let data = "";
+    req.on("data", (chunk) => {
+      data += chunk;
+      if (data.length > limit) {
+        reject(new Error("Corpo da requisição muito grande."));
+        req.destroy();
+      }
+    });
+    req.on("end", () => {
+      if (!data) return resolve({});
+      try { resolve(JSON.parse(data)); } catch { reject(new Error("JSON inválido.")); }
+    });
+    req.on("error", reject);
+  });
+}
 
 const server = http.createServer(async (req, res) => {
   const origin = req.headers.origin;
@@ -906,6 +995,16 @@ const server = http.createServer(async (req, res) => {
       return res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(listMessages(contactId)));
     } catch { return res.writeHead(400).end("Contato inválido"); }
   }
+  if (req.method === "GET" && req.url === "/api/test/messages") return sendJson(res, 200, testSnapshot());
+  if (req.method === "POST" && req.url === "/api/test/messages") {
+    try {
+      const payload = await readJsonBody(req);
+      return sendJson(res, 200, await queueTestMessage(payload.body));
+    } catch (error) {
+      return sendJson(res, 400, { ...testSnapshot(), error: error.message });
+    }
+  }
+  if (req.method === "POST" && req.url === "/api/test/reset") return sendJson(res, 200, resetTestSession());
   if (req.method === "GET" && req.url?.startsWith("/api/qr")) {
     if (!qrBuffer) return res.writeHead(404).end("QR indisponível");
     return res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "no-store" }).end(qrBuffer);
