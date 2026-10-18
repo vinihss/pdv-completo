@@ -63,6 +63,24 @@ Em desenvolvimento local, use por exemplo `http://127.0.0.1:3000/api` e `http://
 
 Acesse `http://127.0.0.1:8765`, clique **Conectar / atualizar QR** e leia o QR com o WhatsApp no celular. Depois da conexão, o processo varre periodicamente a lista lateral do WhatsApp Web para encontrar chats individuais não lidos.
 
+## Logs em tempo real
+
+Os eventos são escritos em JSON no `stdout`, sem telefone, nome ou texto das mensagens. Para ver e salvar a saída ao iniciar manualmente:
+
+```bash
+cd whatsapp-local-agent
+mkdir -p ~/.local/state
+npm start 2>&1 | tee -a ~/.local/state/pdv-whatsapp-agent.log
+```
+
+Em outro terminal, acompanhe o arquivo ao vivo e filtre os eventos de varredura/atendimento:
+
+```bash
+tail -F ~/.local/state/pdv-whatsapp-agent.log | grep --line-buffered -E '"event":"(scanner[.]|message[.])'
+```
+
+Para uma unidade `systemd` de usuário, use `journalctl --user -u NOME.service -f -o cat`; para uma unidade de sistema, use `sudo journalctl -u NOME.service -f -o cat`. Os eventos principais são `scanner.idle` (registrado a cada 30 s sem chats não lidos), `scanner.unread_detected`, `scanner.skipped_unverified_chat`, `scanner.opening_direct_chat`, `scanner.message_id_verified`, `message.classified`, `message.ignored`, `reply.sent` e `scanner.failed`.
+
 ## Fluxo de atendimento
 
 1. **Filtro e classificação local:** grupos e IDs não reconhecidos são rejeitados. Um classificador Naive Bayes multinomial, pequeno e executado em Node.js, compara o texto com exemplos locais de três classes: `novo pedido`, `acompanhar pedido` e `fora de escopo`. Não usa rede, API paga nem envia o texto a terceiros. Mensagens fora de escopo só são avaliadas em memória e descartadas.

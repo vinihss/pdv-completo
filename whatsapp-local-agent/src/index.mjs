@@ -60,6 +60,12 @@ let orderWatchTimer;
 let lastSaveAt = 0;
 let watchingOrders = false;
 let watchCursor = 0;
+let lastIdleScanLogAt = 0;
+const lastUnreadRowLogAt = new Map();
+
+function logEvent(event, details = {}) {
+  console.log(JSON.stringify({ timestamp: new Date().toISOString(), component: "pdv-whatsapp-agent", event, ...details }));
+}
 
 function secretTool(args, input = "") {
   const result = spawnSync("secret-tool", args, { input, encoding: "utf8" });
@@ -263,6 +269,7 @@ async function watchNewOrders() {
         await addMessage({ contactId: contact.contactId, phone: contact.phone, displayName: contact.displayName, messageId: notificationId, direction: "out", body: message, flowState: "order_confirmed", activeOrderId: active.orderId, baselineOrderId: active.orderId });
       } catch (error) {
         lastError = `Falha ao conferir/avisar novo pedido: ${error.message}`;
+        logEvent("order_watch.failed", { errorName: error?.name || "Error" });
       }
     }
   } finally {
@@ -316,8 +323,14 @@ async function startBrowser() {
   connectionState = "aguardando_qr";
   await page.waitForTimeout(1_500);
   await refreshQr();
-  inboundTimer = setInterval(() => pollIncoming().catch((error) => { lastError = error.message; }), 2_500);
-  orderWatchTimer = setInterval(() => watchNewOrders().catch((error) => { lastError = error.message; }), 15_000);
+  inboundTimer = setInterval(() => pollIncoming().catch((error) => {
+    lastError = error.message;
+    logEvent("scanner.failed", { errorName: error?.name || "Error" });
+  }), 2_500);
+  orderWatchTimer = setInterval(() => watchNewOrders().catch((error) => {
+    lastError = error.message;
+    logEvent("order_watch.failed", { errorName: error?.name || "Error" });
+  }), 15_000);
 }
 
 async function refreshQr() {
@@ -327,15 +340,18 @@ async function refreshQr() {
     const justConnected = connectionState !== "conectado";
     connectionState = "conectado";
     qrBuffer = undefined;
+    if (justConnected) logEvent("whatsapp.connected");
     if (justConnected || Date.now() - lastSaveAt > 30_000) await saveEncryptedSession();
     return;
   }
   const qr = page.locator("canvas").first();
   if (await qr.count().catch(() => 0)) {
+    const qrWasAvailable = Boolean(qrBuffer);
     qrBuffer = await qr.screenshot().catch(() => undefined);
     if (qrBuffer) {
       qrCapturedAt = Date.now();
       connectionState = "aguardando_qr";
+      if (!qrWasAvailable) logEvent("whatsapp.qr_available");
     }
   }
 }
@@ -345,6 +361,7 @@ async function sendReply({ contactId, phone, displayName, sourceMessageId, body,
   await editor.fill(body);
   await editor.press("Enter");
   await addMessage({ contactId, phone, displayName, messageId: `bot:${sourceMessageId}`, direction: "out", body, flowState, activeOrderId, baselineOrderId });
+  logEvent("reply.sent", { flowState });
 }
 
 async function handleNewMessage(message, text, chatTitle, idData) {
@@ -356,9 +373,13 @@ async function handleNewMessage(message, text, chatTitle, idData) {
 
   const contact = getContact(contactId);
   if (!contact || !["awaiting_new_order_choice", "awaiting_choice", "awaiting_intent_clarification", "awaiting_menu_order"].includes(contact.flow_state)) {
-    // Classificador local em memória: conversa fora do escopo não é salva nem respondida.
+    // Classificador local em memória: conversa fora do escopo de pedido não é salva nem respondida.
     const classification = classifyIntent(text);
-    if (classification.intent === "unrelated") return;
+    logEvent("message.classified", { intent: classification.intent, confidence: Number(classification.confidence.toFixed(3)), inScope: classification.inScope });
+    if (classification.intent === "unrelated") {
+      logEvent("message.ignored", { reason: "outside_order_scope" });
+      return;
+    }
     if (classification.intent === "unclear") {
       await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: "awaiting_intent_clarification" });
       await sendReply({ contactId, phone, displayName, sourceMessageId, body: MESSAGES.clarifyIntent, flowState: "awaiting_intent_clarification" });
@@ -378,7 +399,11 @@ async function handleNewMessage(message, text, chatTitle, idData) {
 
   if (["awaiting_new_order_choice", "awaiting_choice", "awaiting_intent_clarification"].includes(contact.flow_state)) {
     const classification = classifyIntent(text);
-    if (classification.intent === "unrelated") return;
+    logEvent("message.classified", { intent: classification.intent, confidence: Number(classification.confidence.toFixed(3)), inScope: classification.inScope, flow: contact.flow_state });
+    if (classification.intent === "unrelated") {
+      logEvent("message.ignored", { reason: "outside_order_scope" });
+      return;
+    }
     if (classification.intent === "unclear") {
       await addMessage({ contactId, phone, displayName, messageId: sourceMessageId, direction: "in", body: text, flowState: "awaiting_intent_clarification" });
       await sendReply({ contactId, phone, displayName, sourceMessageId, body: MESSAGES.clarifyIntent, flowState: "awaiting_intent_clarification" });
@@ -438,17 +463,25 @@ async function processUnreadDirectChat() {
     const rowData = await inspectChatRow(row).catch(() => null);
     if (!rowData?.unread) continue;
     sawUnread = true;
+    const now = Date.now();
+    if (now - (lastUnreadRowLogAt.get(index) || 0) >= 30_000) {
+      logEvent("scanner.unread_detected", { row: index + 1, unreadMessages: rowData.unreadCount });
+      lastUnreadRowLogAt.set(index, now);
+    }
     const identity = extractChatIdentityFromMetadata(rowData.values);
     if (!identity || identity.group || rowData.groupHint) {
       lastScanWarning = "Há conversa não lida cuja identidade individual não foi confirmada; não abri nem li o conteúdo por segurança.";
+      logEvent("scanner.skipped_unverified_chat", { row: index + 1, reason: identity?.group || rowData.groupHint ? "group_or_group_marker" : "direct_jid_not_exposed" });
       continue;
     }
 
     try {
+      logEvent("scanner.opening_direct_chat", { row: index + 1, unreadMessages: rowData.unreadCount });
       await row.click({ timeout: 4_000 });
       await page.waitForTimeout(350);
     } catch (error) {
       lastScanWarning = `Não consegui abrir uma conversa individual não lida: ${error.message}`;
+      logEvent("scanner.open_failed", { row: index + 1, errorName: error?.name || "Error" });
       continue;
     }
 
@@ -456,6 +489,7 @@ async function processUnreadDirectChat() {
     const incomingCount = await incoming.count().catch(() => 0);
     if (!incomingCount) {
       lastScanWarning = "Abri o chat individual, mas não encontrei uma mensagem recebida verificável; não li conteúdo.";
+      logEvent("scanner.no_incoming_message", { row: index + 1 });
       return true;
     }
 
@@ -472,6 +506,7 @@ async function processUnreadDirectChat() {
         continue;
       }
       verifiedMessage = true;
+      logEvent("scanner.message_id_verified", { row: index + 1 });
       const messageKey = rawId || `${idData.contactId}:${messageIndex}`;
       if (query("SELECT message_id FROM messages WHERE message_id=?", [messageKey]).length) {
         lastProcessedMessageKey = messageKey;
@@ -498,11 +533,16 @@ async function processUnreadDirectChat() {
     }
     if (verifiedMessage) lastScanWarning = "";
     else lastScanWarning = "O chat não lido foi aberto, mas não encontrei JID @c.us correspondente; não li o conteúdo.";
+    logEvent("scanner.chat_scan_finished", { row: index + 1, idVerified: verifiedMessage, unreadMessages: rowData.unreadCount });
     return true;
   }
 
   if (sawUnread && !lastScanWarning) {
     lastScanWarning = "Há mensagens não lidas, mas nenhuma conversa pôde ser confirmada como contato individual.";
+  }
+  if (!sawUnread && Date.now() - lastIdleScanLogAt >= 30_000) {
+    logEvent("scanner.idle", { sidebarRowsChecked: rowCount });
+    lastIdleScanLogAt = Date.now();
   }
   return false;
 }
@@ -621,7 +661,7 @@ async function main() {
   await mkdir(DATA_DIR, { recursive: true, mode: DIR_MODE });
   await chmod(DATA_DIR, DIR_MODE);
   await initializeHistory();
-  server.listen(PORT, HOST, () => console.log(`Protótipo local pronto: http://${HOST}:${PORT}`));
+  server.listen(PORT, HOST, () => logEvent("agent.ready", { host: HOST, port: PORT }));
 }
 
 process.on("SIGINT", async () => { await stopBrowser(); await saveHistory(); server.close(() => process.exit(0)); });
