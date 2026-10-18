@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import initSqlJs from "sql.js";
 import { chromium } from "playwright";
-import { extractChatIdentityFromMetadata, extractDirectContactId } from "./filters.mjs";
+import { extractChatIdentityFromMetadata, extractDirectContactId, isWithinLast24Hours, parseChatActivityTimestamp } from "./filters.mjs";
 import { classifyIntent } from "./classifier.mjs";
 import { createPdvApi } from "./pdvApi.mjs";
 
@@ -449,7 +449,9 @@ async function inspectChatRow(row) {
     const titleNode = el.querySelector('[data-testid="cell-frame-title"] span[title], span[title]');
     const title = titleNode?.getAttribute("title") || "";
     const groupHint = Boolean(el.querySelector('[data-testid*="group" i], [aria-label*="group" i], [title*="group" i]'));
-    return { values, unread, unreadCount: unread ? Math.max(1, Number(countMatch?.[1] || 1)) : 0, title, groupHint };
+    const timeNodes = [...el.querySelectorAll('time[datetime], [data-testid*="last-msg-ts" i], [data-testid*="timestamp" i], span[title]')];
+    const activityValues = timeNodes.flatMap((node) => [node.getAttribute("datetime"), node.getAttribute("title"), node.textContent]).filter(Boolean);
+    return { values, activityValues, unread, unreadCount: unread ? Math.max(1, Number(countMatch?.[1] || 1)) : 0, title, groupHint };
   });
 }
 
@@ -467,6 +469,12 @@ async function processUnreadDirectChat() {
     if (now - (lastUnreadRowLogAt.get(index) || 0) >= 30_000) {
       logEvent("scanner.unread_detected", { row: index + 1, unreadMessages: rowData.unreadCount });
       lastUnreadRowLogAt.set(index, now);
+    }
+    const activityTimestamp = parseChatActivityTimestamp(rowData.activityValues);
+    if (!isWithinLast24Hours(activityTimestamp)) {
+      lastScanWarning = "Há conversa não lida sem atividade confirmada nas últimas 24 horas; chats antigos ou sem horário confiável são ignorados.";
+      logEvent("scanner.skipped_outside_24h", { row: index + 1, timestampKnown: Number.isFinite(activityTimestamp) });
+      continue;
     }
     const identity = extractChatIdentityFromMetadata(rowData.values);
     if (!identity || identity.group || rowData.groupHint) {
