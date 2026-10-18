@@ -54,6 +54,7 @@ NODE_MAJOR="$(node -v | cut -d'v' -f2 | cut -d'.' -f1)"
 pass "Node.js $(node -v)"
 
 command -v docker >/dev/null || die "Docker não encontrado. Instale o Docker e tente novamente."
+command -v docker compose >/dev/null || die "docker-compose plugin não encontrado. Instale a extensão 'docker-compose' ou use o compose v2."
 pass "Docker $(docker --version | cut -d' ' -f3 | tr -d ',')"
 
 # -----------------------------------------------------------------
@@ -62,6 +63,7 @@ pass "Docker $(docker --version | cut -d' ' -f3 | tr -d ',')"
 if [[ ! -f "$BACKEND_DIR/.env" ]]; then
     cp "$BACKEND_DIR/.env.example" "$BACKEND_DIR/.env"
     pass "backend/.env criado a partir do .env.example"
+    warn "Lembre-se de ajustar DATABASE_URL, JWT_SECRET e outras variáveis críticas em backend/.env antes de rodar o seed ou o backend."
 else
     pass "backend/.env já existe (preservado)"
 fi
@@ -71,31 +73,28 @@ fi
 # -----------------------------------------------------------------
 echo ""
 echo "Instalando dependências do backend..."
-(cd "$BACKEND_DIR" && npm install --silent)
+(cd "$BACKEND_DIR" && npm install)
 pass "backend: dependências instaladas"
 
 echo ""
 echo "Instalando dependências do frontend..."
-(cd "$FRONTEND_DIR" && npm install --silent)
+(cd "$FRONTEND_DIR" && npm install)
 pass "frontend: dependências instaladas"
 
 # -----------------------------------------------------------------
 # 4. Postgres
 # -----------------------------------------------------------------
-# O compose publica a porta do host a partir de POSTGRES_PORT (default 5432).
-# Atenção: a suíte de testes do repo sobe o PRÓPRIO Postgres em 55432
-# (container pdv-test-db) — são dois bancos diferentes e as portas não podem
-# colidir. Se o `up` reclamar "address already in use" em 5432, provavelmente
-# já existe um Postgres do host nessa porta, e o jeito é apontar o
-# DATABASE_URL do backend/.env para ele em vez de subir outro.
+# O compose sobe o Postgres pela override (ports 5432:5432 visíveis no host).
+# A suíte de testes do repo usa um container pdv-test-db em 55432 — porta
+# diferente, portanto não há conflito na dev machine.
 echo ""
 echo "Subindo o PostgreSQL via Docker..."
-docker compose -f "$ROOT_DIR/deploy/docker-compose.dev.yml" up -d postgres
+docker compose -f "$ROOT_DIR/deploy/docker-compose.yml" -f "$ROOT_DIR/deploy/docker-compose.override.yml" up -d postgres
 
 echo "Aguardando o PostgreSQL ficar pronto..."
 DB_READY=0
 for _ in $(seq 1 30); do
-    if docker compose -f "$ROOT_DIR/deploy/docker-compose.dev.yml" exec -T postgres \
+    if docker compose -f "$ROOT_DIR/deploy/docker-compose.yml" -f "$ROOT_DIR/deploy/docker-compose.override.yml" exec -T postgres \
         pg_isready -U pdv -d pdv >/dev/null 2>&1; then
         DB_READY=1
         break
@@ -111,6 +110,8 @@ pass "PostgreSQL pronto"
 if [[ "$DO_SEED" -eq 1 ]]; then
     echo ""
     echo "Rodando o seed (migrations + dados de demonstração)..."
+    > /tmp/pdv-backend.log
+    > /tmp/pdv-frontend.log
     (cd "$BACKEND_DIR" && npm run seed)
     pass "seed aplicado"
 fi
