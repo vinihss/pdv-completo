@@ -53,6 +53,7 @@ frontend/src-tauri/gen/
 standalone-*/target/
 standalone-*/binaries/
 standalone-*/gen/
+cmd/pdv/target/
 # Exceção: o `gen/android/` do Garçom é FONTE, não artefato — é ele que carrega
 # o AndroidManifest, a liberação de cleartext para o plano local, o signing do
 # release e a correção do BuildTask (o template chama `node tauri`, que não
@@ -74,8 +75,8 @@ standalone-*/.local-signing.key.pub
 /admin-server/admin-server
 /admin-server/*.exe
 
-# CLI Go (`cmd/pdv`). O binário é compilado e instalado por
-# `scripts/build/install-cli.sh` em `$PREFIX/bin`; a cópia solta na raiz do
+# CLI Rust (`cmd/pdv`). O binário é compilado e instalado por
+# `scripts/dev/install-pdv-cli.sh` em `$PREFIX/bin`; a cópia solta na raiz do
 # repo é artefato de build, nunca versionada.
 /pdv
 /pdv-cli
