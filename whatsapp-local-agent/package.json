@@ -6,11 +6,12 @@
   "description": "Protótipo local experimental de atendimento WhatsApp Web para testes Linux.",
   "scripts": {
     "start": "node src/index.mjs",
-    "check": "node --check src/index.mjs && node --check src/filters.mjs && node --check src/classifier.mjs && node --check src/pdvApi.mjs",
+    "check": "node --check src/index.mjs && node --check src/filters.mjs && node --check src/classifier.mjs && node --check src/pdvApi.mjs && node --check src/outbox-policy.mjs",
     "test": "node --test src/*.test.mjs"
   },
   "dependencies": {
     "playwright": "^1.63.0",
+    "proper-lockfile": "^4.1.2",
     "sql.js": "^1.15.0"
   }
 }

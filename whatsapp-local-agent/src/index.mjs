@@ -7,9 +7,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import initSqlJs from "sql.js";
 import { chromium } from "playwright";
+import lockfile from "proper-lockfile";
 import { extractChatIdentityFromMetadata, extractDirectContactId, isConfiguredTestContact, isNewVerifiedTestMessage, isWithinLast24Hours, parseChatActivityTimestamp } from "./filters.mjs";
 import { classifyIntent } from "./classifier.mjs";
 import { createPdvApi } from "./pdvApi.mjs";
+import { isDryRunEnabled, outboxOutcomeAfterError, planOutboxDispatch, recoverOutboxStatus } from "./outbox-policy.mjs";
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.PDV_WA_PORT || 8765);
@@ -20,6 +22,7 @@ const KEY_SERVICE = "pdv-whatsapp-local-prototype";
 const KEY_ACCOUNT = "session-encryption-key";
 const FILE_MODE = 0o600;
 const DIR_MODE = 0o700;
+const DRY_RUN = isDryRunEnabled(process.env.PDV_WA_DRY_RUN);
 const MESSAGES = {
   noPending: "Não encontrei pedido em andamento no momento. Quer fazer um pedido?\n1 - Sim, abrir cardápio\n2 - Não agora",
   pendingChoice: (orderId, label, situation) => `Encontrei o pedido #${orderId.slice(0, 8)}.\nStatus: ${label}. ${situation}\n\nQuer fazer um novo pedido?\n1 - Sim, abrir cardápio\n2 - Não, acompanhar o pedido atual`,
@@ -42,11 +45,13 @@ const testPhone = String(process.env.PDV_WA_TEST_PHONE || "").replace(/\D/g, "")
 let browser;
 let context;
 let page;
+let browserStartPromise;
 let connectionState = "desconectado";
 let lastError = "";
 let lastScanWarning = "";
 let lastInbound = "";
 let processing = false;
+let browserNavigationInProgress = false;
 let activeChat = "";
 let baselineMessageKey = "";
 let lastProcessedMessageKey = "";
@@ -64,10 +69,32 @@ let watchCursor = 0;
 let lastIdleScanLogAt = 0;
 let lastTestMessageKey = "";
 let lastTestChatScanAt = 0;
+let releaseProcessLock;
 const lastUnreadRowLogAt = new Map();
 
 function logEvent(event, details = {}) {
   console.log(JSON.stringify({ timestamp: new Date().toISOString(), component: "pdv-whatsapp-agent", event, ...details }));
+}
+
+async function acquireProcessLock() {
+  await mkdir(DATA_DIR, { recursive: true, mode: DIR_MODE });
+  await chmod(DATA_DIR, DIR_MODE);
+  try {
+    releaseProcessLock = await lockfile.lock(DATA_DIR, {
+      realpath: false,
+      stale: 120_000,
+      update: 30_000,
+      retries: 0,
+      onCompromised(error) {
+        logEvent("agent.lock_compromised", { errorName: error?.name || "Error" });
+        process.kill(process.pid, "SIGTERM");
+      },
+    });
+  } catch (error) {
+    if (error.code === "ELOCKED") throw new Error("Outra instância do agente já está em execução para este usuário/diretório de dados.");
+    throw error;
+  }
+  logEvent("agent.lock_acquired", { pid: process.pid });
 }
 
 function secretTool(args, input = "") {
@@ -149,12 +176,32 @@ async function initializeHistory() {
       body TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS outbox (
+      message_id TEXT PRIMARY KEY,
+      contact_id TEXT NOT NULL REFERENCES contacts(contact_id) ON DELETE CASCADE,
+      phone TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      body TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      status TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error_name TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_messages_contact_created ON messages(contact_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_outbox_status_updated ON outbox(status, updated_at);
   `);
   const contactColumns = new Set(query("PRAGMA table_info(contacts)").map((row) => row.name));
   for (const [name, type] of [["active_order_id", "TEXT"], ["baseline_order_id", "TEXT"], ["flow_updated_at", "TEXT"]]) {
     if (!contactColumns.has(name)) historyDb.run(`ALTER TABLE contacts ADD COLUMN ${name} ${type}`);
   }
+  const interruptedAt = new Date().toISOString();
+  const interruptedOutbox = query("SELECT message_id, status FROM outbox WHERE status='sending'");
+  for (const item of interruptedOutbox) {
+    historyDb.run("UPDATE outbox SET status=?, updated_at=? WHERE message_id=?", [recoverOutboxStatus(item.status), interruptedAt, item.message_id]);
+  }
+  if (interruptedOutbox.length) logEvent("outbox.recovered_uncertain", { count: interruptedOutbox.length });
   await saveHistory();
 }
 
@@ -208,6 +255,8 @@ function getStatus() {
   return {
     state: connectionState,
     qrAvailable: Boolean(qrBuffer) && Date.now() - qrCapturedAt < 120_000,
+    dryRun: DRY_RUN,
+    uncertainDeliveries: query("SELECT COUNT(*) AS count FROM outbox WHERE status='uncertain'")[0]?.count || 0,
     apiConfigured: pdvApi.apiConfigured,
     menuUrlConfigured: pdvApi.orderUrlConfigured,
     lastError: lastError || lastScanWarning || (!pdvApi.apiConfigured ? "Configure PDV_API_BASE_URL para habilitar a consulta de pedidos." : !pdvApi.orderUrlConfigured ? "Configure PDV_PUBLIC_ORDER_URL para habilitar os links de cardápio e acompanhamento." : ""),
@@ -226,34 +275,114 @@ function stageSituation(stage) {
   return STAGE_SITUATION[stage] || "A equipe pode informar mais detalhes pelo atendimento.";
 }
 
-async function sendToPhone(phone, text) {
+async function sendToPhone(phone, text, channel, onDispatchStart) {
   if (!context || !page || page.isClosed()) throw new Error("WhatsApp não está conectado para enviar a confirmação.");
-  if (processing) throw new Error("O WhatsApp está processando outra mensagem; tente enviar a notificação novamente no próximo ciclo.");
+  if (browserNavigationInProgress) throw new Error("A aba principal do WhatsApp está ocupada por outro envio.");
+  const wasProcessing = processing;
   processing = true;
+  browserNavigationInProgress = true;
   const activePage = page;
-  const originalUrl = activePage.url();
+  let originalUrl = "https://web.whatsapp.com/";
   try {
+    originalUrl = activePage.url() || originalUrl;
     const url = new URL("https://web.whatsapp.com/send");
     url.searchParams.set("phone", phone);
-    logEvent("order.notification_using_main_tab");
+    logEvent("outbox.using_main_tab", { channel });
     await activePage.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: 45_000 });
     const editor = activePage.locator('#main footer [contenteditable="true"]').last();
     await editor.waitFor({ state: "visible", timeout: 30_000 });
     await editor.fill(text);
+    onDispatchStart();
     await editor.press("Enter");
     await activePage.waitForTimeout(800);
   } finally {
     const returnUrl = originalUrl.startsWith("https://web.whatsapp.com/") ? originalUrl : "https://web.whatsapp.com/";
     await activePage.goto(returnUrl, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch((error) => {
-      lastError = `A notificação usou a aba principal, mas não foi possível voltar ao WhatsApp Web: ${error.message}`;
-      logEvent("order.notification_return_failed", { errorName: error?.name || "Error" });
+      lastError = `O envio usou a aba principal, mas não foi possível voltar ao WhatsApp Web: ${error.message}`;
+      logEvent("outbox.return_to_main_failed", { errorName: error?.name || "Error" });
     });
-    processing = false;
+    browserNavigationInProgress = false;
+    processing = wasProcessing;
+  }
+}
+
+async function dispatchOutbound({ messageId, contactId, phone, displayName, body, channel }) {
+  const item = { messageId, contactId, phone, displayName, body, channel };
+  let existing = query("SELECT status, attempts FROM outbox WHERE message_id=?", [messageId])[0];
+  const plan = planOutboxDispatch(existing, DRY_RUN);
+  if (plan === "suppress") {
+    logEvent("outbox.duplicate_suppressed", { channel, status: existing.status });
+    return { status: existing.status };
+  }
+  if (plan === "attempt_limit") {
+    logEvent("outbox.attempt_limit", { channel });
+    return { status: "failed", exhausted: true };
+  }
+
+  const now = new Date().toISOString();
+  if (plan === "dry_run") {
+    if (existing) {
+      historyDb.run("UPDATE outbox SET status='dry_run', updated_at=? WHERE message_id=? AND status='failed'", [now, messageId]);
+    } else {
+      historyDb.run("INSERT INTO outbox(message_id, contact_id, phone, display_name, body, channel, status, attempts, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, 'dry_run', 0, ?, ?)", [messageId, contactId, phone, displayName || phone, body, channel, now, now]);
+    }
+    await saveHistory();
+    logEvent("message.dry_run", { channel });
+    return { status: "dry_run" };
+  }
+
+  if (existing) {
+    historyDb.run("UPDATE outbox SET status='sending', attempts=attempts+1, last_error_name=NULL, updated_at=? WHERE message_id=? AND status='failed' AND attempts=?", [now, messageId, Number(existing.attempts || 0)]);
+    if (historyDb.getRowsModified() !== 1) {
+      existing = query("SELECT status FROM outbox WHERE message_id=?", [messageId])[0];
+      return { status: existing?.status || "uncertain" };
+    }
+  } else {
+    historyDb.run("INSERT INTO outbox(message_id, contact_id, phone, display_name, body, channel, status, attempts, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, 'sending', 1, ?, ?)", [messageId, contactId, phone, displayName || phone, body, channel, now, now]);
+  }
+  try {
+    await saveHistory();
+  } catch (error) {
+    historyDb.run("UPDATE outbox SET status='failed', last_error_name=?, updated_at=? WHERE message_id=? AND status='sending'", [error?.name || "Error", new Date().toISOString(), messageId]);
+    await saveHistory().catch(() => {});
+    logEvent("outbox.persist_before_dispatch_failed", { channel, errorName: error?.name || "Error" });
+    return { status: "failed", exhausted: Number(query("SELECT attempts FROM outbox WHERE message_id=?", [messageId])[0]?.attempts || 0) >= 3 };
+  }
+
+  let dispatchStarted = false;
+  try {
+    await sendToPhone(phone, body, channel, () => { dispatchStarted = true; });
+  } catch (error) {
+    const outcome = outboxOutcomeAfterError(dispatchStarted);
+    historyDb.run("UPDATE outbox SET status=?, last_error_name=?, updated_at=? WHERE message_id=? AND status='sending'", [outcome, error?.name || "Error", new Date().toISOString(), messageId]);
+    await saveHistory().catch(() => {});
+    logEvent("outbox.dispatch_failed", { channel, outcome, errorName: error?.name || "Error" });
+    if (outcome === "uncertain") return { status: "uncertain" };
+    const attempts = Number(query("SELECT attempts FROM outbox WHERE message_id=?", [messageId])[0]?.attempts || 0);
+    if (attempts < 3) return dispatchOutbound(item);
+    return { status: "failed", exhausted: true };
+  }
+
+  const sentAt = new Date().toISOString();
+  try {
+    historyDb.run("BEGIN");
+    historyDb.run("UPDATE outbox SET status='sent', updated_at=? WHERE message_id=? AND status='sending'", [sentAt, messageId]);
+    historyDb.run("INSERT OR IGNORE INTO messages(message_id, contact_id, direction, body, created_at) VALUES(?, ?, 'out', ?, ?)", [messageId, contactId, body, sentAt]);
+    historyDb.run("COMMIT");
+    await saveHistory();
+    logEvent("outbox.sent", { channel });
+    return { status: "sent" };
+  } catch (error) {
+    try { historyDb.run("ROLLBACK"); } catch {}
+    historyDb.run("UPDATE outbox SET status='uncertain', last_error_name=?, updated_at=? WHERE message_id=?", [error?.name || "Error", new Date().toISOString(), messageId]);
+    await saveHistory().catch(() => {});
+    logEvent("outbox.persist_after_dispatch_failed", { channel, errorName: error?.name || "Error" });
+    return { status: "uncertain" };
   }
 }
 
 async function watchNewOrders() {
-  if (watchingOrders || processing || !context || connectionState !== "conectado" || !pdvApi.apiConfigured) return;
+  if (watchingOrders || processing || browserNavigationInProgress || !context || connectionState !== "conectado" || !pdvApi.apiConfigured) return;
   watchingOrders = true;
   try {
     const pending = query(`SELECT contact_id AS contactId, phone, display_name AS displayName,
@@ -277,8 +406,12 @@ async function watchNewOrders() {
           await saveHistory();
           continue;
         }
-        await sendToPhone(contact.phone, message);
-        await addMessage({ contactId: contact.contactId, phone: contact.phone, displayName: contact.displayName, messageId: notificationId, direction: "out", body: message, flowState: "order_confirmed", activeOrderId: active.orderId, baselineOrderId: active.orderId });
+        const delivery = await dispatchOutbound({ messageId: notificationId, contactId: contact.contactId, phone: contact.phone, displayName: contact.displayName, body: message, channel: "order_confirmation" });
+        if (delivery.status === "sent") setFlow(contact.contactId, "order_confirmed", active.orderId, active.orderId);
+        else if (delivery.status === "dry_run") setFlow(contact.contactId, "order_notification_simulated", active.orderId, active.orderId);
+        else if (delivery.status === "uncertain") setFlow(contact.contactId, "order_notification_review", active.orderId, active.orderId);
+        else if (delivery.exhausted) setFlow(contact.contactId, "order_notification_failed", active.orderId, active.orderId);
+        if (["sent", "dry_run", "uncertain"].includes(delivery.status) || delivery.exhausted) await saveHistory();
       } catch (error) {
         lastError = `Falha ao conferir/avisar novo pedido: ${error.message}`;
         logEvent("order_watch.failed", { errorName: error?.name || "Error" });
@@ -328,6 +461,17 @@ async function readSavedState() {
 
 async function startBrowser() {
   if (context) return;
+  if (browserStartPromise) return browserStartPromise;
+  browserStartPromise = startBrowserOnce();
+  try {
+    await browserStartPromise;
+  } finally {
+    browserStartPromise = undefined;
+  }
+}
+
+async function startBrowserOnce() {
+  try {
   await mkdir(DATA_DIR, { recursive: true, mode: DIR_MODE });
   await chmod(DATA_DIR, DIR_MODE);
   browser = await chromium.launch({ headless: false , args: ["--no-sandbox", "--disable-dev-shm-usage"] });
@@ -365,6 +509,15 @@ async function startBrowser() {
     lastError = error.message;
     logEvent("order_watch.failed", { errorName: error?.name || "Error" });
   }), 15_000);
+  } catch (error) {
+    await context?.close().catch(() => {});
+    await browser?.close().catch(() => {});
+    context = undefined;
+    browser = undefined;
+    page = undefined;
+    connectionState = "erro";
+    throw error;
+  }
 }
 
 async function refreshQr() {
@@ -391,11 +544,10 @@ async function refreshQr() {
 }
 
 async function sendReply({ contactId, phone, displayName, sourceMessageId, body, flowState, activeOrderId, baselineOrderId }) {
-  const editor = page.locator('#main footer [contenteditable="true"]').last();
-  await editor.fill(body);
-  await editor.press("Enter");
-  await addMessage({ contactId, phone, displayName, messageId: `bot:${sourceMessageId}`, direction: "out", body, flowState, activeOrderId, baselineOrderId });
-  logEvent("reply.sent", { flowState });
+  const delivery = await dispatchOutbound({ messageId: `bot:${sourceMessageId}`, contactId, phone, displayName, body, channel: "customer_reply" });
+  if (delivery.status === "sent") logEvent("reply.sent", { flowState });
+  else if (delivery.status === "uncertain") lastError = "Uma resposta teve resultado incerto. Confira o WhatsApp antes de responder manualmente; o agente não repetirá esse envio.";
+  else if (delivery.status === "failed") lastError = "Não foi possível enviar a resposta após tentativas seguras. Confira o WhatsApp e os logs.";
 }
 
 async function handleNewMessage(message, text, chatTitle, idData) {
@@ -666,7 +818,7 @@ async function processUnreadDirectChat() {
 }
 
 async function pollIncoming() {
-  if (!page || page.isClosed() || processing) return;
+  if (!page || page.isClosed() || processing || browserNavigationInProgress) return;
   await refreshQr();
   if (connectionState !== "conectado") return;
   if (await processUnreadDirectChat()) return;
@@ -733,6 +885,10 @@ async function loadContacts(){const list=document.querySelector('#contacts');try
 async function loadConversation(id,name,phone){selected=id;document.querySelector('#conversation-title').textContent=(name||phone)+' · '+phone;const box=document.querySelector('#messages');try{const rows=await(await fetch('/api/conversations/'+encodeURIComponent(id)+'/messages')).json();box.replaceChildren();for(const m of rows){const bubble=document.createElement('div');bubble.className='msg '+(m.direction==='in'?'in':'out');const body=document.createElement('div');body.textContent=m.body;const time=document.createElement('div');time.className='time';time.textContent=new Date(m.createdAt).toLocaleString('pt-BR');bubble.append(body,time);box.append(bubble)}box.scrollTop=box.scrollHeight}catch{box.textContent='Não foi possível carregar as mensagens.'}}
 document.querySelector('#connect').onclick=async()=>{document.querySelector('#status').textContent='abrindo…';await fetch('/api/connect',{method:'POST'});refreshStatus()};document.querySelector('#disconnect').onclick=async()=>{await fetch('/api/disconnect',{method:'POST'});refreshStatus()};setInterval(()=>{refreshStatus();loadContacts();if(selected){const title=document.querySelector('#conversation-title').textContent;const parts=title.split(' · ');loadConversation(selected,parts[0],parts[1])}},3000);refreshStatus();loadContacts();
 </script></html>`;
+const dashboardHtml = html.replace(
+  "document.querySelector('#status').textContent=s.state;",
+  "document.querySelector('#status').textContent=s.state+(s.dryRun?' · SIMULAÇÃO — envio desativado':'')+(s.uncertainDeliveries?' · '+s.uncertainDeliveries+' envio(s) para revisão':'');",
+);
 
 const server = http.createServer(async (req, res) => {
   const origin = req.headers.origin;
@@ -741,7 +897,7 @@ const server = http.createServer(async (req, res) => {
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.writeHead(204).end();
-  if (req.method === "GET" && req.url === "/") return res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(html);
+  if (req.method === "GET" && req.url === "/") return res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(dashboardHtml);
   if (req.method === "GET" && req.url === "/api/status") return res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(getStatus()));
   if (req.method === "GET" && req.url === "/api/conversations") return res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(listConversations()));
   if (req.method === "GET" && req.url?.startsWith("/api/conversations/") && req.url.endsWith("/messages")) {
@@ -772,16 +928,57 @@ const server = http.createServer(async (req, res) => {
 });
 
 async function main() {
+  await acquireProcessLock();
   if (!pdvApi.apiConfigured) console.warn("PDV_API_BASE_URL não configurado; a consulta de pedidos ficará indisponível.");
   if (!pdvApi.orderUrlConfigured) console.warn("PDV_PUBLIC_ORDER_URL não configurado; os links de cardápio e acompanhamento ficarão indisponíveis.");
+  if (DRY_RUN) logEvent("agent.dry_run_enabled", { outboundDisabled: true });
   sessionKey = await loadKey();
   historyKey = createHmac("sha256", sessionKey).update("pdv-whatsapp-history-v1").digest();
   await mkdir(DATA_DIR, { recursive: true, mode: DIR_MODE });
   await chmod(DATA_DIR, DIR_MODE);
   await initializeHistory();
-  server.listen(PORT, HOST, () => logEvent("agent.ready", { host: HOST, port: PORT }));
+  server.listen(PORT, HOST, () => logEvent("agent.ready", { host: HOST, port: PORT, dryRun: DRY_RUN, pid: process.pid }));
 }
 
-process.on("SIGINT", async () => { await stopBrowser(); await saveHistory(); server.close(() => process.exit(0)); });
-process.on("SIGTERM", async () => { await stopBrowser(); await saveHistory(); server.close(() => process.exit(0)); });
-main().catch((error) => { console.error(error.message); process.exit(1); });
+let shutdownPromise;
+async function shutdown(signal) {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = (async () => {
+    logEvent("agent.shutdown_started", { signal });
+    await stopBrowser().catch((error) => logEvent("agent.shutdown_browser_failed", { errorName: error?.name || "Error" }));
+    await saveHistory().catch((error) => logEvent("agent.shutdown_history_failed", { errorName: error?.name || "Error" }));
+    if (server.listening) await new Promise((resolve) => server.close(resolve));
+    try {
+      if (releaseProcessLock) {
+        const release = releaseProcessLock;
+        releaseProcessLock = undefined;
+        await release();
+      }
+    } catch (error) {
+      logEvent("agent.lock_release_failed", { errorName: error?.name || "Error" });
+    }
+    logEvent("agent.shutdown_complete", { signal });
+  })();
+  return shutdownPromise;
+}
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    shutdown(signal).then(() => process.exit(0)).catch((error) => {
+      console.error(error.message);
+      process.exit(1);
+    });
+  });
+}
+
+server.on("error", async (error) => {
+  console.error(error.message);
+  try { await releaseProcessLock?.(); } catch {}
+  process.exit(1);
+});
+
+main().catch(async (error) => {
+  console.error(error.message);
+  try { await releaseProcessLock?.(); } catch {}
+  process.exit(1);
+});

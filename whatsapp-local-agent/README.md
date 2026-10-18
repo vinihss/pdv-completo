@@ -61,6 +61,19 @@ npm start
 
 Em desenvolvimento local, use por exemplo `http://127.0.0.1:3000/api` e `http://127.0.0.1:5173/pedido`. Para execução por systemd, defina as mesmas variáveis na unidade/arquivo de ambiente, sem gravar tokens ou cookies em texto claro.
 
+### Validar sem enviar mensagens
+
+O modo simulação fica ligado por padrão — inclusive sem definir a variável —, por segurança. O painel mostrará `SIMULAÇÃO — envio desativado` e o agente registrará `message.dry_run`; nenhum texto será enviado pelo WhatsApp. O modo ainda conecta ao WhatsApp Web e pode ler/processar mensagens recebidas e consultar a API do PDV; não é um simulador de mensagens sintéticas. Entregas marcadas como `dry_run` não serão enviadas retroativamente quando o modo for desligado. Depois de revisar os resultados no painel/log, habilite envios reais somente com `PDV_WA_DRY_RUN=0` e reinicie.
+
+```bash
+export PDV_WA_DRY_RUN=1 # opcional: simulação já é o padrão
+npm start
+```
+
+Para permitir envio real depois da revisão, use `export PDV_WA_DRY_RUN=0` antes de `npm start`.
+
+O agente mantém um lock exclusivo no diretório de dados. Se já houver outra instância (por exemplo, uma unidade systemd e um `npm start` manual), a segunda encerra sem abrir Chromium. Lock obsoleto após encerramento abrupto é recuperado pelo lockfile após detectar ausência de heartbeat.
+
 Acesse `http://127.0.0.1:8765`, clique **Conectar / atualizar QR** e leia o QR com o WhatsApp no celular. Depois da conexão, o processo varre periodicamente a lista lateral do WhatsApp Web para encontrar chats individuais não lidos.
 
 Para configurar um chat individual exclusivo de teste, defina `PDV_WA_TEST_PHONE` com o telefone completo incluindo DDI, apenas dígitos, antes de iniciar o agente. Exemplo no terminal (substitua pelo número de teste desejado):
@@ -74,7 +87,7 @@ Esse chat é conferido a cada 10 segundos mesmo quando a última mensagem já fo
 
 ## Logs em tempo real
 
-Os eventos são escritos em JSON no `stdout`, sem telefone, nome ou texto das mensagens. Para ver e salvar a saída ao iniciar manualmente:
+Os eventos são escritos em JSON no `stdout`, sem telefone, nome ou texto das mensagens. `outbox.sent` significa que a ação de envio foi aceita pela interface do WhatsApp Web; não é confirmação de entrega ou leitura pelo destinatário. Para ver e salvar a saída ao iniciar manualmente:
 
 ```bash
 cd whatsapp-local-agent
@@ -88,7 +101,7 @@ Em outro terminal, acompanhe o arquivo ao vivo e filtre os eventos de varredura/
 tail -F ~/.local/state/pdv-whatsapp-agent.log | grep --line-buffered -E '"event":"(scanner[.]|message[.])'
 ```
 
-Para uma unidade `systemd` de usuário, use `journalctl --user -u NOME.service -f -o cat`; para uma unidade de sistema, use `sudo journalctl -u NOME.service -f -o cat`. Os eventos principais são `scanner.idle` (registrado a cada 30 s sem chats não lidos), `scanner.unread_detected`, `scanner.skipped_unverified_chat`, `scanner.skipped_outside_24h`, `scanner.activity_timestamp_unparsed`, `scanner.test_chat_latest_verified`, `scanner.opening_direct_chat`, `scanner.message_id_verified`, `message.classified`, `message.ignored`, `order.notification_using_main_tab`, `reply.sent` e `scanner.failed`. O evento `scanner.activity_timestamp_unparsed` inclui apenas a quantidade de candidatos e o idioma detectado, nunca os valores ou mensagens.
+Para uma unidade `systemd` de usuário, use `journalctl --user -u NOME.service -f -o cat`; para uma unidade de sistema, use `sudo journalctl -u NOME.service -f -o cat`. Os eventos principais são `agent.lock_acquired`, `agent.dry_run_enabled`, `agent.lock_compromised`, `scanner.idle` (registrado a cada 30 s sem chats não lidos), `scanner.unread_detected`, `scanner.skipped_unverified_chat`, `scanner.skipped_outside_24h`, `scanner.activity_timestamp_unparsed`, `scanner.test_chat_latest_verified`, `scanner.opening_direct_chat`, `scanner.message_id_verified`, `message.classified`, `message.ignored`, `message.dry_run`, `outbox.sent`, `outbox.duplicate_suppressed`, `outbox.dispatch_failed`, `outbox.persist_before_dispatch_failed`, `outbox.persist_after_dispatch_failed`, `outbox.attempt_limit`, `outbox.recovered_uncertain`, `reply.sent` e `scanner.failed`. O evento `scanner.activity_timestamp_unparsed` inclui apenas a quantidade de candidatos e o idioma detectado, nunca os valores ou mensagens.
 
 Para diagnosticar a sessão entre execuções, acompanhe também `session.saved`, `session.loaded`, `session.not_found`, `session.save_failed` e `session.load_failed`. Após autenticar, espere pelo evento `session.saved`; encerre com `Ctrl+C` e reinicie como o mesmo usuário Linux, com o mesmo `$HOME`, `XDG_DATA_HOME` e keyring desbloqueado. A sessão cifrada fica em `~/.local/share/pdv-whatsapp-test/session.enc`, ou em `$XDG_DATA_HOME/pdv-whatsapp-test/session.enc` quando `XDG_DATA_HOME` está definido. Verifique que o arquivo existe com `ls -l` e que só há uma instância do agente em execução. Não use `kill -9` nem inicie o agente com `sudo`, pois isso pode impedir a gravação ou selecionar outro keyring/diretório.
 
@@ -107,6 +120,8 @@ O telefone enviado pelo link é uma referência de associação, não uma prova 
 
 - O painel local lista contatos e mensagens de pedidos.
 - O SQLite fica em memória durante a execução. Em disco, apenas o snapshot cifrado `history.sqlite.enc` é persistido com AES-256-GCM; a sessão do navegador também é cifrada.
+- A outbox cifrada grava a chave idempotente e o estado antes do envio. Falhas detectadas antes de pressionar Enter podem ser tentadas novamente no máximo três vezes; depois que o envio começa, qualquer resultado ambíguo fica como `uncertain` e nunca é repetido automaticamente. Confira o WhatsApp antes de enviar manualmente; o painel informa quantos envios precisam de revisão.
+- O lock garante uma única instância do agente por diretório de dados/usuário. Não execute em paralelo via systemd e terminal usando o mesmo perfil.
 - A chave AES-256 é criada e guardada no keyring Linux por `secret-tool`. Sem Secret Service, o programa falha fechado e não grava a chave em arquivo.
 - Os arquivos ficam em `~/.local/share/pdv-whatsapp-test/` (ou `$XDG_DATA_HOME/pdv-whatsapp-test/`), com diretório `0700` e arquivos `0600`. O histórico, incluindo telefones e links enviados, permanece até ser apagado manualmente; ainda não há expiração automática nem botão de exclusão no painel.
 - A cifragem em repouso não protege contra malware ou contra uma pessoa com acesso à sessão desktop enquanto o programa está em execução.
