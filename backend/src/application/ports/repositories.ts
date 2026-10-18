@@ -54,4 +54,4 @@ export * from "../store-settings/ports/store-settings-repository.js";
 export * from "../alert/ports/alert-repository.js";
 export * from "../provisioning/ports/provisioning-repository.js";
 export * from "../report/ports/report-repository.js";
-export * from "../identity/ports/identity-repository.js";
+export * from "../identity/ports/identity-repository.ts";

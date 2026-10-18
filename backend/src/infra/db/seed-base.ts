@@ -13,7 +13,7 @@ import { eq } from "drizzle-orm";
 import { runRegistryMigrations } from "./registry-migrate.js";
 import { runMigrations } from "./migrate.js";
 import { db } from "./client.js";
-import { PostgresIdentityRepository } from "./repositories/identity.repository.js";
+import { PostgresIdentityRepository } from "./repositories/identity.repository.ts";
 import { newId } from "../../application/identity/identity-helpers.js";
 import { users, categories, products, restaurantTables, storeSettings, kitchenGroups, stockMovements } from "./schema.js";
 
