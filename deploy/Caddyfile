@@ -1,28 +1,4 @@
-# ============================================================
-# Caddy — proxy reverso com HTTPS automático (Let's Encrypt).
-#
-# Domínios:
-#   umamisushiarte.com.br      → pedido público do tenant umami (sem login)
-#   app.umamisushiarte.com.br  → aplicação interna (backend + frontend PDV)
-#   api.umamisushiarte.com.br  → API pública (com header X-Tenant-Host)
-#   *.seudominio.com.br        → pedido público multi-tenant (subdomínio)
-#
-# Os três blocos do meio saem de `{$ROOT_DOMAIN}` (ver `environment` do
-# serviço `caddy` e `ROOT_DOMAIN` no .env.example), que vale
-# `umamisushiarte.com.br`: com esse valor `app.{$ROOT_DOMAIN}` É o
-# `app.umamisushiarte.com.br` que está no ar hoje, e o wildcard
-# `*.{$ROOT_DOMAIN}` não colide com o `*.labolabe.tech` do fim do arquivo.
-#
-# A sintaxe de variável do Caddy é `{$VAR}` — `${VAR}` NÃO é env: no
-# Caddyfile o `${...}` é substituição de ARGUMENTO de placeholder em
-# diretiva, e o resultado é o erro `subject does not qualify for
-# certificate: 'app.{$ROOT_DOMAIN}'` no `caddy validate`.
-#
-# Todos precisam de registro DNS tipo A apontando para o IP do
-# servidor, senão o Let's Encrypt não consegue validar o desafio
-# HTTP-01 e nenhum certificado é emitido (o Caddy fica servindo
-# apenas HTTP). Ver a seção "DNS obrigatório" do deploy/README.md.
-# ============================================================
+
 
 {
 	on_demand_tls {

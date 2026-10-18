@@ -9,6 +9,7 @@ node_modules
 dist/
 frontend/storybook-static/
 deploy/state
+deploy/maps/data
 # Cache incremental do `tsc -b`. O app público (apps/pedido-public/) roda
 # `tsc -b` no build, e sem `incremental`/`tsBuildInfoFile` o compilador deixa o
 # `tsconfig.tsbuildinfo` na raiz do projeto — que é fonte, não lockfile, e

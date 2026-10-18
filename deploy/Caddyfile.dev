@@ -1,66 +1,37 @@
-# ============================================================
-# Caddyfile DEV (sem HTTPS) — usado pelo docker-compose.dev.yml
-# (~/umami-utils/docker-up.sh dev, hot reload).
-#
-# Diferença pro Caddyfile.local: o frontend dev roda o Vite (HMR)
-# na porta 5173 do container, e o reverse_proxy precisa apontar
-# pra lá — não pra porta 80 (nginx de produção).
-# ============================================================
+# Frontend Principal
+localhost {
+	reverse_proxy frontend:80
+}
 
-:80 {
-	# API REST
-	handle /api/* {
-		uri strip_prefix /api
-		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
-	}
+# API Backend
+api.localhost {
+	reverse_proxy backend:3000
+}
 
-	# WebSocket em tempo real
-	#
-	# Upstream próprio (`PDV_WS_UPSTREAM`) para poder apontar para o gateway
-	# em Go (`ws-gateway/`). A diferença do resto dos stacks: aqui o Caddy
-	# NÃO roda o `caddy-assemble.sh` (ver docker-compose.dev.yml), então a
-	# flag `WS_BACKEND` do `.env` NÃO é interpretada — defina
-	# `PDV_WS_UPSTREAM=ws-gateway:8080` direto no `.env` para testar o
-	# gateway aqui, senão este bloco fica no backend Node.
-	handle /realtime* {
-		reverse_proxy {$PDV_WS_UPSTREAM:backend:3000} {
-			# ---------- Deploy sem downtime ----------
-			# O Caddy fecha TODOS os WebSockets em qualquer reload de config,
-			# inclusive em rota que não mudou (limitação documentada em
-			# caddyserver/caddy#6420 e #7222). O `stream_close_delay` adia esse
-			# fechamento: quem já estava conectado continua na instância antiga
-			# durante o drain e só se reconecta — com resync via REST — quando
-			# ela é de fato parada. Sem esta linha, todo reload derrubaria
-			# todas as telas do salão.
-			# Não há `lb_retries` aqui nem em /api: o gap de HTTP zero vem da
-			# ordem do switch (a instância nova só entra no proxy depois do
-			# healthcheck), não de retentativa — e repetir POST repetiria
-			# pagamento.
-			stream_close_delay 5m
-		}
-	}
+# Interface do Redis (Redis Commander)
+redis.localhost {
+	reverse_proxy redis-commander:8081
+}
 
-	# Fotos de produto servidas pelo backend
-	handle /uploads/* {
-		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
-	}
+# Motor de Rotas (OSRM)
+http://routes.localhost {
+	# Permite que qualquer frontend (Vite, Leaflet, etc.) consulte as rotas
+	header Access-Control-Allow-Origin "*"
+	header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+	header Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept"
 
-	# Webhooks da Meta (WhatsApp Cloud API). Fora de /api de propósito: a
-	# URL de callback é cadastrada no painel da Meta e não pode depender do
-	# prefixo que o backend usa na API REST.
-	handle /webhooks/* {
-		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
-	}
+	reverse_proxy osrm:5000
+}
 
-	# Health check
-	handle /health {
-		reverse_proxy {$PDV_BACKEND_UPSTREAM:backend:3000}
-	}
+# Servidor de Mosaicos de Mapas (Tiles)
+http://tiles.localhost {
+	# Permite que o Leaflet/OpenLayers descarregue as imagens do mapa sem bloqueio
+	header Access-Control-Allow-Origin "*"
+	header Access-Control-Allow-Methods "GET, OPTIONS"
 
-	# Resto: Vite dev server (HMR)
-	handle {
-		reverse_proxy frontend:5173
-	}
-
-	encode gzip
+	reverse_proxy tiles:80
+}
+# Interface do Postgres (pgAdmin)
+pgadmin.localhost {
+	reverse_proxy pgadmin:80
 }
