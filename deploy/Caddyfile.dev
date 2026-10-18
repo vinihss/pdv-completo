@@ -13,23 +13,45 @@ redis.localhost {
 	reverse_proxy redis-commander:8081
 }
 
-# Motor de Rotas (OSRM)
+# Motor de Rotas (Valhalla) — rota ponto-a-ponto e matrizes
 http://routes.localhost {
-	# Permite que qualquer frontend (Vite, Leaflet, etc.) consulte as rotas
+	# Permite que qualquer frontend (Vite, MapLibre, etc.) consulte as rotas
 	header Access-Control-Allow-Origin "*"
 	header Access-Control-Allow-Methods "GET, POST, OPTIONS"
 	header Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept"
+	# Preflight do navegador: respondido aqui, sem ir ao serviço
+	@cors_preflight method OPTIONS
+	respond @cors_preflight 204
 
-	reverse_proxy osrm:5000
+	reverse_proxy router:8002
 }
 
-# Servidor de Mosaicos de Mapas (Tiles)
+# Otimizador de Delivery (VROOM) — VRP multi-parada
+http://optimizer.localhost {
+	header Access-Control-Allow-Origin "*"
+	header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+	header Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept"
+	@cors_preflight method OPTIONS
+	respond @cors_preflight 204
+
+	reverse_proxy optimizer:3000
+}
+
+# Servidor de Mosaicos de Mapas (TileServer GL)
 http://tiles.localhost {
-	# Permite que o Leaflet/OpenLayers descarregue as imagens do mapa sem bloqueio
+	# Permite que o MapLibre/Leaflet descarregue as imagens do mapa sem bloqueio
 	header Access-Control-Allow-Origin "*"
 	header Access-Control-Allow-Methods "GET, OPTIONS"
+	@cors_preflight method OPTIONS
+	respond @cors_preflight 204
 
-	reverse_proxy tiles:80
+	reverse_proxy tiles:8080
+}
+
+# Página de teste da stack geográfica (MapLibre + rota desenhada)
+http://geo.localhost {
+	root * /srv/geo-test
+	file_server
 }
 # Interface do Postgres (pgAdmin)
 pgadmin.localhost {
