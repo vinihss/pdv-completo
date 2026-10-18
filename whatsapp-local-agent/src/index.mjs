@@ -291,18 +291,28 @@ async function saveEncryptedSession() {
     await chmod(temp, FILE_MODE);
     await rename(temp, STATE_FILE);
     lastSaveAt = Date.now();
+    logEvent("session.saved", { cookies: storage.cookies?.length || 0, origins: storage.origins?.length || 0, indexedDbOrigins: storage.origins?.filter((origin) => origin.indexedDB?.length).length || 0 });
   } catch (error) {
     lastError = `Não foi possível cifrar/salvar a sessão: ${error.message}`;
+    logEvent("session.save_failed", { errorName: error?.name || "Error" });
   }
 }
 
 async function readSavedState() {
   try {
     const state = decryptJson(await readFile(STATE_FILE, "utf8"));
+    if (!state?.storage || !Array.isArray(state.storage.cookies) || !Array.isArray(state.storage.origins)) {
+      throw new Error("O arquivo não contém um storageState válido do Playwright.");
+    }
+    logEvent("session.loaded", { cookies: state.storage.cookies.length, origins: state.storage.origins.length, indexedDbOrigins: state.storage.origins.filter((origin) => origin.indexedDB?.length).length });
     return state.storage;
   } catch (error) {
-    if (error.code === "ENOENT") return undefined;
+    if (error.code === "ENOENT") {
+      logEvent("session.not_found", { configuredDataHome: Boolean(process.env.XDG_DATA_HOME) });
+      return undefined;
+    }
     lastError = `Sessão local inválida; conecte novamente. (${error.message})`;
+    logEvent("session.load_failed", { errorName: error?.name || "Error" });
     return undefined;
   }
 }

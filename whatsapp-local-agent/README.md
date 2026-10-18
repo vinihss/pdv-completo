@@ -90,6 +90,8 @@ tail -F ~/.local/state/pdv-whatsapp-agent.log | grep --line-buffered -E '"event"
 
 Para uma unidade `systemd` de usuário, use `journalctl --user -u NOME.service -f -o cat`; para uma unidade de sistema, use `sudo journalctl -u NOME.service -f -o cat`. Os eventos principais são `scanner.idle` (registrado a cada 30 s sem chats não lidos), `scanner.unread_detected`, `scanner.skipped_unverified_chat`, `scanner.skipped_outside_24h`, `scanner.test_chat_latest_verified`, `scanner.opening_direct_chat`, `scanner.message_id_verified`, `message.classified`, `message.ignored`, `reply.sent` e `scanner.failed`.
 
+Para diagnosticar a sessão entre execuções, acompanhe também `session.saved`, `session.loaded`, `session.not_found`, `session.save_failed` e `session.load_failed`. Após autenticar, espere pelo evento `session.saved`; encerre com `Ctrl+C` e reinicie como o mesmo usuário Linux, com o mesmo `$HOME`, `XDG_DATA_HOME` e keyring desbloqueado. A sessão cifrada fica em `~/.local/share/pdv-whatsapp-test/session.enc`, ou em `$XDG_DATA_HOME/pdv-whatsapp-test/session.enc` quando `XDG_DATA_HOME` está definido. Verifique que o arquivo existe com `ls -l` e que só há uma instância do agente em execução. Não use `kill -9` nem inicie o agente com `sudo`, pois isso pode impedir a gravação ou selecionar outro keyring/diretório.
+
 ## Fluxo de atendimento
 
 1. **Filtro e classificação local:** grupos e IDs não reconhecidos são rejeitados. Um classificador Naive Bayes multinomial, pequeno e executado em Node.js, compara o texto com exemplos locais de três classes: `novo pedido`, `acompanhar pedido` e `fora de escopo`. Não usa rede, API paga nem envia o texto a terceiros. Mensagens fora de escopo só são avaliadas em memória e descartadas.
