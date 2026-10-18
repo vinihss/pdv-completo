@@ -63,6 +63,15 @@ Em desenvolvimento local, use por exemplo `http://127.0.0.1:3000/api` e `http://
 
 Acesse `http://127.0.0.1:8765`, clique **Conectar / atualizar QR** e leia o QR com o WhatsApp no celular. Depois da conexão, o processo varre periodicamente a lista lateral do WhatsApp Web para encontrar chats individuais não lidos.
 
+Para configurar um chat individual exclusivo de teste, defina `PDV_WA_TEST_PHONE` com o telefone completo incluindo DDI, apenas dígitos, antes de iniciar o agente. Exemplo no terminal (substitua pelo número de teste desejado):
+
+```bash
+export PDV_WA_TEST_PHONE=SEU_NUMERO_COM_DDI
+npm start
+```
+
+Esse chat é conferido a cada 10 segundos mesmo quando a última mensagem já foi lida ou a atividade tem mais de 24 horas; o agente considera somente a última mensagem recebida e valida que o JID corresponda exatamente ao número configurado. O restante dos chats continua sujeito à regra de 24 horas. Como essa exceção pode processar mensagens antigas do contato de teste, use apenas uma conta controlada para testes. O telefone não está embutido no código nem no `.env.example`.
+
 ## Logs em tempo real
 
 Os eventos são escritos em JSON no `stdout`, sem telefone, nome ou texto das mensagens. Para ver e salvar a saída ao iniciar manualmente:
@@ -79,7 +88,7 @@ Em outro terminal, acompanhe o arquivo ao vivo e filtre os eventos de varredura/
 tail -F ~/.local/state/pdv-whatsapp-agent.log | grep --line-buffered -E '"event":"(scanner[.]|message[.])'
 ```
 
-Para uma unidade `systemd` de usuário, use `journalctl --user -u NOME.service -f -o cat`; para uma unidade de sistema, use `sudo journalctl -u NOME.service -f -o cat`. Os eventos principais são `scanner.idle` (registrado a cada 30 s sem chats não lidos), `scanner.unread_detected`, `scanner.skipped_unverified_chat`, `scanner.opening_direct_chat`, `scanner.message_id_verified`, `message.classified`, `message.ignored`, `reply.sent` e `scanner.failed`.
+Para uma unidade `systemd` de usuário, use `journalctl --user -u NOME.service -f -o cat`; para uma unidade de sistema, use `sudo journalctl -u NOME.service -f -o cat`. Os eventos principais são `scanner.idle` (registrado a cada 30 s sem chats não lidos), `scanner.unread_detected`, `scanner.skipped_unverified_chat`, `scanner.skipped_outside_24h`, `scanner.test_chat_latest_verified`, `scanner.opening_direct_chat`, `scanner.message_id_verified`, `message.classified`, `message.ignored`, `reply.sent` e `scanner.failed`.
 
 ## Fluxo de atendimento
 

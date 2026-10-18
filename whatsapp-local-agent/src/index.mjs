@@ -38,6 +38,7 @@ const STAGE_SITUATION = {
   cancelled: "O pedido foi cancelado.",
 };
 const pdvApi = createPdvApi({ apiBaseUrl: process.env.PDV_API_BASE_URL, publicOrderUrl: process.env.PDV_PUBLIC_ORDER_URL });
+const testPhone = String(process.env.PDV_WA_TEST_PHONE || "").replace(/\D/g, "");
 let browser;
 let context;
 let page;
@@ -61,6 +62,8 @@ let lastSaveAt = 0;
 let watchingOrders = false;
 let watchCursor = 0;
 let lastIdleScanLogAt = 0;
+let lastTestMessageKey = "";
+let lastTestChatScanAt = 0;
 const lastUnreadRowLogAt = new Map();
 
 function logEvent(event, details = {}) {
@@ -455,6 +458,62 @@ async function inspectChatRow(row) {
   });
 }
 
+async function processTestChat(row, rowData, identity, rowIndex) {
+  logEvent("scanner.test_chat_opening", { row: rowIndex + 1 });
+  try {
+    await row.click({ timeout: 4_000 });
+    await page.waitForTimeout(350);
+  } catch (error) {
+    lastScanWarning = `Não consegui abrir o chat de teste: ${error.message}`;
+    logEvent("scanner.test_chat_open_failed", { errorName: error?.name || "Error" });
+    return true;
+  }
+
+  const incoming = page.locator("#main .message-in");
+  const count = await incoming.count().catch(() => 0);
+  if (!count) {
+    logEvent("scanner.test_chat_no_incoming");
+    return true;
+  }
+  const message = incoming.nth(count - 1);
+  const rawId = await message.getAttribute("data-id").catch(() => null);
+  const idData = extractDirectContactId(rawId);
+  if (!idData || idData.group || idData.contactId !== identity.contactId || idData.phone !== testPhone) {
+    lastScanWarning = "A última mensagem do chat de teste não confirmou o mesmo JID individual; conteúdo ignorado.";
+    logEvent("scanner.test_chat_id_mismatch");
+    return true;
+  }
+
+  const messageKey = rawId || `${idData.contactId}:${count}`;
+  if (messageKey === lastTestMessageKey) return true;
+  if (query("SELECT message_id FROM messages WHERE message_id=?", [messageKey]).length) {
+    lastTestMessageKey = messageKey;
+    logEvent("scanner.test_chat_latest_already_processed");
+    return true;
+  }
+
+  const text = (await message.locator(".selectable-text").allTextContents().catch(() => [])).join(" ").trim();
+  if (!text) {
+    lastTestMessageKey = messageKey;
+    logEvent("scanner.test_chat_latest_has_no_text");
+    return true;
+  }
+  const chatTitle = await page.locator("#main header [title]").first().getAttribute("title").catch(() => "");
+  activeChat = chatTitle || rowData.title || testPhone;
+  baselineMessageKey = "";
+  logEvent("scanner.test_chat_latest_verified");
+  processing = true;
+  try {
+    await handleNewMessage(message, text, activeChat, idData);
+    lastTestMessageKey = messageKey;
+    lastProcessedMessageKey = messageKey;
+    lastInbound = `${activeChat}: ${text.slice(0, 140)}`;
+  } finally {
+    processing = false;
+  }
+  return true;
+}
+
 async function processUnreadDirectChat() {
   const rows = page.locator('#pane-side [role="listitem"], #pane-side [data-testid="cell-frame-container"]');
   const rowCount = Math.min(await rows.count().catch(() => 0), 100);
@@ -463,7 +522,16 @@ async function processUnreadDirectChat() {
   for (let index = 0; index < rowCount; index += 1) {
     const row = rows.nth(index);
     const rowData = await inspectChatRow(row).catch(() => null);
-    if (!rowData?.unread) continue;
+    if (!rowData) continue;
+    const rowIdentity = extractChatIdentityFromMetadata(rowData.values);
+    if (testPhone && rowIdentity && !rowIdentity.group && rowIdentity.phone === testPhone && !rowData.groupHint) {
+      if (Date.now() - lastTestChatScanAt >= 10_000) {
+        lastTestChatScanAt = Date.now();
+        return processTestChat(row, rowData, rowIdentity, index);
+      }
+      if (!rowData.unread) continue;
+    }
+    if (!rowData.unread) continue;
     sawUnread = true;
     const now = Date.now();
     if (now - (lastUnreadRowLogAt.get(index) || 0) >= 30_000) {
@@ -476,7 +544,7 @@ async function processUnreadDirectChat() {
       logEvent("scanner.skipped_outside_24h", { row: index + 1, timestampKnown: Number.isFinite(activityTimestamp) });
       continue;
     }
-    const identity = extractChatIdentityFromMetadata(rowData.values);
+    const identity = rowIdentity;
     if (!identity || identity.group || rowData.groupHint) {
       lastScanWarning = "Há conversa não lida cuja identidade individual não foi confirmada; não abri nem li o conteúdo por segurança.";
       logEvent("scanner.skipped_unverified_chat", { row: index + 1, reason: identity?.group || rowData.groupHint ? "group_or_group_marker" : "direct_jid_not_exposed" });
