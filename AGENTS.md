@@ -25,7 +25,7 @@ PDV (ponto de venda) para restaurante/pub: abrir comanda → lançar itens → (
 | `standalone-pdv/`, `standalone-kds/`, `standalone-garcon/`, `standalone-entregador/`, `standalone-shared/` | Crates Tauri/Rust e biblioteca compartilhada presentes neste checkout |
 | `ws-gateway/` | Gateway WebSocket Go; ativação depende da configuração de deploy |
 | `pagarme-webhook/` | Serviço Go para webhooks Pagar.me |
-| `cmd/pdv/` | Código-fonte da CLI Go |
+| `cmd/pdv/` | Código-fonte da CLI Rust (`pdv`); veja [`docs/26-cli-pdv-rust.md`](docs/26-cli-pdv-rust.md) |
 | `deploy/`, `scripts/` | Compose, Caddy, deploy e automações de desenvolvimento/build |
 | `docs/` | Specs, contratos, guias e índice por tarefa |
 | `backend/migrations/` | Baseline, migrations ativas, registry e arquivo histórico; veja o [guia dedicado](backend/migrations/README.md) |
@@ -178,7 +178,7 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 
 | Comando | Onde | O que faz |
 |---|---|---|
-| `pdv --help` | CLI instalada | ajuda da CLI Go compilada de `cmd/pdv/` |
+| `pdv --help` | CLI instalada | ajuda da CLI Rust compilada de `cmd/pdv/` (veja [`docs/26-cli-pdv-rust.md`](docs/26-cli-pdv-rust.md)) |
 | `npm run dev` | backend | roda com `tsx watch` |
 | `npm run build` | backend | `tsc` → `dist/` |
 | `npm run start` | backend | roda `dist/http/server.js` |

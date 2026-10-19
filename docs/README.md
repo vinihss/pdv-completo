@@ -8,6 +8,7 @@ Este índice é a porta de entrada para pessoas e agentes. Comece pelo objetivo 
 |---|---|---|
 | Entender produto e critérios | [Visão geral](00-overview.md) | [Critérios de aceite](03-acceptance-criteria.md), specs de produto abaixo |
 | Rodar/contribuir | [README](../README.md), [CONTRIBUTING](../CONTRIBUTING.md) | [Scripts](../scripts/README.md) |
+| CLI local e TUI de status | [CLI `pdv`](26-cli-pdv-rust.md) | [Scripts](../scripts/README.md) |
 | Alterar API/backend | [Guia backend](agent-backend.md) | [Mapa backend](agent-backend-map.md), [índice da API](agent-api-index.md), [guia de migrations](../backend/migrations/README.md) |
 | Alterar interface React | [Guia frontend](../frontend/docs/agent-frontend.md) | [Mapa frontend](agent-frontend-map.md), [testes frontend](../frontend/docs/agent-testing.md) |
 | Testes e validação | [Guia de testes](agent-testing.md) | scripts e workflows do componente |
@@ -52,6 +53,7 @@ Este índice é a porta de entrada para pessoas e agentes. Comece pelo objetivo 
 | [`21-device-provisioning.md`](21-device-provisioning.md) | Provisionamento de dispositivos |
 | [`22-mobile-react-native.md`](22-mobile-react-native.md) | Plano/histórico de migração RN/Expo; afirmações sobre `mobile/` e estado de branch precisam ser conferidas contra o checkout |
 | [`25-admin-server-tui.md`](25-admin-server-tui.md) | Plano do admin server (Go, no host) + TUI remota de administração — **plano, não implementado** |
+| [`26-cli-pdv-rust.md`](26-cli-pdv-rust.md) | CLI local `pdv` (Rust): comandos, TUI de status, instalação — **implementado (fase 1)** |
 
 `dicionario-japones.md`, `lista-produtos-*` e `alteracoes-produtos-*` são materiais de referência/dados de produto, não guias de implementação. Confira data e contexto antes de usá-los como fonte vigente.
 
