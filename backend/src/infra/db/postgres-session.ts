@@ -12,6 +12,7 @@ import {
   PostgresCourierLocationRepository,
   PostgresDeliveryRepository,
   PostgresGeocodingCacheRepository,
+  PostgresIdentityRepository,
   PostgresOrderRepository,
   PostgresOutboxWriter,
   PostgresProvisioningKeyRepository,
@@ -58,6 +59,9 @@ export function createPostgresTenantSession(tx: Tx): TenantSession {
     reports: new PostgresReportRepository(tx),
     provisioningKeys: new PostgresProvisioningKeyRepository(tx),
     userDevices: new PostgresUserDeviceRepository(tx),
+    // Identidade centralizada (docs/26 §3): tabelas GLOBAIS em `public.*`, na
+    // MESMA transação da escrita de tenant (convite atômico).
+    identity: new PostgresIdentityRepository(tx),
     audit: new PostgresAuditWriter(tx),
     outbox: new PostgresOutboxWriter(tx),
   };

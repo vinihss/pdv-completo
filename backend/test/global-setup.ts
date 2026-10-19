@@ -136,8 +136,14 @@ export default async function globalSetup() {
 
   await recreateSchema(TEST_DATABASE_URL);
 
+  const { runRegistryMigrations } = await import("../src/infra/db/registry-migrate.js");
   const { runMigrations } = await import("../src/infra/db/migrate.js");
   const { closeDatabase } = await import("../src/infra/db/client.js");
+  // ORDEM DO BOOT (server.ts): registry ANTES das migrations de tenant. As
+  // tabelas globais de identidade (`public.account`, docs/26 §3) precisam
+  // existir antes da `0012_user_account_id.sql`, que cria a FK do `user` para
+  // `public.account` — invertida, a migration de tenant falha em banco novo.
+  await runRegistryMigrations();
   await runMigrations();
   await closeDatabase();
 

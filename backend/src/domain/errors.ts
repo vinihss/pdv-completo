@@ -225,4 +225,59 @@ export const Errors = {
       `Estorno de R$ ${requested.toFixed(2)} excede o valor disponível (R$ ${available.toFixed(2)}).`,
       { requested, available },
     ),
+  // ---------- Identidade centralizada (docs/26-identidade-centralizada.md) ----------
+  //
+  // Códigos do fluxo novo de login (email/senha + seleção de empresa).
+  //
+  // `account_invalid_credentials`: MESMO code HTTP do `invalidCredentials` do PIN
+  // (`invalid_credentials`, 401), mensagem diferente — o login por email/senha
+  // diz "E-mail ou senha incorretos." e o fallback por PIN continua dizendo "PIN
+  // incorreto." (o contrato preserva a rota `/login/pin`). É a resposta ÚNICA
+  // para senha errada, email desconhecido, conta suspensa e convite pendente
+  // (anti-enumeração: corpo e tempo idênticos, via argon2 dummy).
+  accountInvalidCredentials: () =>
+    new AppError("invalid_credentials", 401, "E-mail ou senha incorretos."),
+  // `password_too_short` (400): política mínima de senha (8..128). A tela de
+  // troca de senha exibe a `message` do backend.
+  passwordTooShort: (min: number, max: number) =>
+    new AppError(
+      "password_too_short",
+      400,
+      `A senha precisa ter entre ${min} e ${max} caracteres.`,
+      { min, max },
+    ),
+  // `password_change_required` (401): conta com `must_change_password=true`
+  // tentou `select-tenant` antes de trocar a senha — o accountToken vale só
+  // para `password/change` nesse estado (§4 do doc 26).
+  passwordChangeRequired: () =>
+    new AppError(
+      "password_change_required",
+      401,
+      "É necessário trocar a senha antes de continuar.",
+    ),
+  // `tenant_not_linked` (403): conta válida, mas sem linha `user` ativa naquele
+  // tenant. 403 e não 404 para não revelar existência/estado do tenant além do
+  // que o `companies` já mostra.
+  tenantNotLinked: (slug: string) =>
+    new AppError(
+      "tenant_not_linked",
+      403,
+      "Esta conta não está vinculada a esta empresa.",
+      { slug },
+    ),
+  // `email_not_configured` (503): SMTP_HOST ausente — forgot-password e
+  // `POST /users` (convite) falham com erro claro e NADA é gravado (decisão 9).
+  emailNotConfigured: () =>
+    new AppError(
+      "email_not_configured",
+      503,
+      "Serviço de e-mail não configurado. Contate o administrador.",
+    ),
+  // `password_token_invalid` (400): token de reset inválido, expirado ou já usado.
+  passwordTokenInvalid: () =>
+    new AppError(
+      "password_token_invalid",
+      400,
+      "Token de recuperação inválido ou expirado.",
+    ),
 };

@@ -1,5 +1,12 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
 import { api, seedFixture, resetState, closeTestApp, testApp, manager, cashier, waiter, kitchen, raw, FIXTURE } from "./helpers.js";
+import { installTestMailer } from "./helpers/test-mailer.js";
+
+// `POST /users` é convite desde a identidade centralizada (docs/26 §4): ele
+// exige email e MANDA a senha temporária por SMTP — sem um mailer fake
+// configurado a rota responderia 503 `email_not_configured` em todos os testes
+// deste arquivo. O fake não sai para a rede (infra/mail/mailer.ts).
+installTestMailer();
 
 // Manutenção de clientes (gerente e caixa) e perfil completo de equipe:
 // telefone, email, foto e PIN manual — além da busca por nome ignorando
@@ -601,7 +608,10 @@ describe("perfil completo de equipe (telefone, email, PIN manual)", () => {
   });
 
   it("PIN manual definido no update permite login; PIN fora do tamanho é rejeitado", async () => {
-    const criado = await api("post", "/users", { token: manager, body: { name: "Pin Manual", role: "waiter" } });
+    const criado = await api("post", "/users", {
+      token: manager,
+      body: { name: "Pin Manual", role: "waiter", email: "pin.manual@exemplo.com" },
+    });
 
     const fixado = await api("patch", `/users/${criado.json.id}`, { token: manager, body: { pin: "4321" } });
     expect(fixado.status).toBe(200);
@@ -621,7 +631,10 @@ describe("perfil completo de equipe (telefone, email, PIN manual)", () => {
   });
 
   it("foto: upload grava photo_path e delete remove", async () => {
-    const criado = await api("post", "/users", { token: manager, body: { name: "Com Foto", role: "waiter" } });
+    const criado = await api("post", "/users", {
+      token: manager,
+      body: { name: "Com Foto", role: "waiter", email: "com.foto.equipe@exemplo.com" },
+    });
     const png = Buffer.from(
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
       "base64"

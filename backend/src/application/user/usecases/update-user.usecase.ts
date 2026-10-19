@@ -11,6 +11,7 @@ import {
   serializeUser,
   type UserRole,
 } from "../shared/user-helpers.js";
+import { newId, nowIso } from "../../identity/identity-helpers.js";
 
 export type UpdateUserInput = {
   name?: string;
@@ -43,6 +44,25 @@ export class UpdateUserUseCase {
       if (!existing) throw Errors.notFound("Usuário");
       if (input.email !== undefined) await assertEmailAvailable(session, email, id);
 
+      // ADIÇÃO (Onda identidade — docs/26 §4): email informado VINCULA a conta
+      // global (encontrada ou criada DORMANT, sem senha — quem define credencial
+      // é o convite). Email apagado (`null`) DESVINCULA. Aqui NÃO se envia email
+      // nenhum: `PATCH /users/:id` só liga/desliga o vínculo.
+      let accountId: string | null | undefined;
+      if (input.email !== undefined) {
+        if (!email) {
+          accountId = null;
+        } else {
+          const account = await session.identity.ensureAccount({
+            id: newId(),
+            email,
+            name: input.name ?? existing.name,
+            now: nowIso(),
+          });
+          accountId = account.id;
+        }
+      }
+
       // Desativar usuário é a lacuna fechada do docs/21 §5.4: além do login
       // negar, os aparelhos provisionados do usuário são revogados NA MESMA
       // transação (+ audit + evento pro gerente) e o cache de sessão aberta do
@@ -57,6 +77,7 @@ export class UpdateUserUseCase {
         ...(input.active !== undefined ? { active: input.active } : {}),
         ...(phoneDigits !== undefined ? { phone: phoneDigits } : {}),
         ...(email !== undefined ? { email } : {}),
+        ...(accountId !== undefined ? { accountId } : {}),
         ...(pinHash !== undefined ? { pinHash } : {}),
       });
 

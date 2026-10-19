@@ -82,3 +82,11 @@ standalone-*/.local-signing.key.pub
 /pdv-cli
 data.db*
 .idea/
+
+# Dados geográficos gerados por deploy/prepare-geo-data.sh (grande demais
+# para o repo). As configs (valhalla.json, vroom/config.yml, tileserver/*.json)
+# continuam versionadas.
+deploy/map_data/osm/
+deploy/map_data/valhalla/valhalla_tiles/
+deploy/map_data/valhalla/valhalla_tiles.tar
+deploy/map_data/tileserver/*.mbtiles

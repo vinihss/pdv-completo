@@ -7,16 +7,18 @@ import { LogOut, Menu } from "lucide-react";
  * Router principal do app com Code-Splitting (React.lazy).
  *
  * Rotas:
- *   /login     — LoginPage (todos os perfis)
- *   /pdv       — PdvPage (waiter)
- *   /manager   — ManagerApp (manager)
- *   /kitchen   — KitchenDisplay (kitchen)
- *   /cashier   — CashierApp (cashier)
- *   /courier   — CourierApp (courier)
- *   /pedido    — CustomerMenuPage (público)
+ *   /login         — LoginPage (identidade centralizada: e-mail + senha)
+ *   /login/pin     — LoginPagePin (rota fallback da tela antiga, docs/26 §2 decisão 5)
+ *   /reset-password— ResetPasswordPage (pública, chega por link de e-mail)
+ *   /pdv           — PdvPage (waiter)
+ *   /manager       — ManagerApp (manager)
+ *   /kitchen       — KitchenDisplay (kitchen)
+ *   /cashier       — CashierApp (cashier)
+ *   /courier       — CourierApp (courier)
+ *   /pedido        — CustomerMenuPage (público)
  */
 import React, { Suspense } from "react";
-import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 import { ThemeToggle } from "@/shared/components";
 import { AlertBell } from "@/widgets/alert-bell";
@@ -43,6 +45,14 @@ const CustomerMenuPage = React.lazy(() =>
   import("@/pages/customer-menu").then((m) => ({ default: m.CustomerMenuPage }))
 );
 const LoginPage = React.lazy(() => import("@/pages/login").then((m) => ({ default: m.LoginPage })));
+// Fallback da identidade centralizada (docs/26 §2, decisão 5): a tela de PIN
+// anterior vira rota funcional de emergência, fora do AppFrame como o login.
+const LoginPagePin = React.lazy(() =>
+  import("@/pages/login").then((m) => ({ default: m.LoginPagePin }))
+);
+const ResetPasswordPage = React.lazy(() =>
+  import("@/pages/login").then((m) => ({ default: m.ResetPasswordPage }))
+);
 const ProfilePage = React.lazy(() => import("@/pages/manager/tabs/profile/ProfilePage"));
 
 // Feedback visual simples enquanto o pedaço do app está a ser descarregado
@@ -131,6 +141,19 @@ const SCREENS_BY_ROLE = {
   cashier: <CashierApp />,
 };
 
+// /login/pin: fallback da tela antiga de PIN. Com sessão ativa não faz sentido
+// pedir PIN de novo — manda para a tela do papel (o "trocar de empresa" é logout).
+function PinLoginRoute() {
+  const { session, booting } = useAuth();
+  if (booting) return <div className="min-h-screen bg-background" />;
+  if (session) return <Navigate to="/" replace />;
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <LoginPagePin />
+    </Suspense>
+  );
+}
+
 export function Root() {
   const { session, booting } = useAuth();
   const location = useLocation();
@@ -173,6 +196,25 @@ export function AppRouter() {
         <Routes>
           {/* Pública, sem login */}
           <Route path="/pedido/*" element={<CustomerMenuPage />} />
+          {/* Identidade centralizada (docs/26): o reset chega por link de e-mail,
+              então é pública e não passa pelo AuthProvider. */}
+          <Route
+            path="/reset-password"
+            element={
+              <Suspense fallback={<LoadingFallback />}>
+                <ResetPasswordPage />
+              </Suspense>
+            }
+          />
+          {/* Fallback histórico: login por PIN (docs/26 §2, decisão 5) */}
+          <Route
+            path="/login/pin"
+            element={
+              <AuthProvider>
+                <PinLoginRoute />
+              </AuthProvider>
+            }
+          />
           {/* Tudo mais: exige login, roteado por papel */}
           <Route
             path="/*"

@@ -8,7 +8,7 @@ Este índice é a porta de entrada para pessoas e agentes. Comece pelo objetivo 
 |---|---|---|
 | Entender produto e critérios | [Visão geral](00-overview.md) | [Critérios de aceite](03-acceptance-criteria.md), specs de produto abaixo |
 | Rodar/contribuir | [README](../README.md), [CONTRIBUTING](../CONTRIBUTING.md) | [Scripts](../scripts/README.md) |
-| CLI local e TUI de status | [CLI `pdv`](26-cli-pdv-rust.md) | [Scripts](../scripts/README.md) |
+| CLI local e TUI interativa | [CLI `pdv`](27-cli-pdv-rust.md) | [Scripts](../scripts/README.md) |
 | Alterar API/backend | [Guia backend](agent-backend.md) | [Mapa backend](agent-backend-map.md), [índice da API](agent-api-index.md), [guia de migrations](../backend/migrations/README.md) |
 | Alterar interface React | [Guia frontend](../frontend/docs/agent-frontend.md) | [Mapa frontend](agent-frontend-map.md), [testes frontend](../frontend/docs/agent-testing.md) |
 | Testes e validação | [Guia de testes](agent-testing.md) | scripts e workflows do componente |
@@ -37,25 +37,29 @@ Este índice é a porta de entrada para pessoas e agentes. Comece pelo objetivo 
 | [`01-backend-spec.md`](01-backend-spec.md), [`02-frontend-spec.md`](02-frontend-spec.md) | Specs de backend e interface |
 | [`03-acceptance-criteria.md`](03-acceptance-criteria.md) | Critérios verificáveis de aceite |
 | [`04-cash-flow.md`](04-cash-flow.md) | Fluxo de caixa |
-| [`04-delivery-self-service-integration.md`](04-delivery-self-service-integration.md), [`05-delivery-api-contracts.md`](05-delivery-api-contracts.md) | Self-service e contratos de delivery |
-| [`06-ifood-integration.md`](06-ifood-integration.md), [`18-ifood-por-loja.md`](18-ifood-por-loja.md) | Integração iFood |
 | [`07-estoque.md`](07-estoque.md), [`08-estoque-profissional.md`](08-estoque-profissional.md) | Estoque, compras e custos |
-| [`09-frontend-fsd.md`](09-frontend-fsd.md) | Histórico da migração FSD; práticas atuais ficam no guia frontend |
 | [`11-desktop-instalador.md`](11-desktop-instalador.md) | Instalador e atualização desktop |
-| [`11-pix-pendencias.md`](11-pix-pendencias.md) | Pendências Pix |
-| [`12-n-plus-one-list-orders.md`](12-n-plus-one-list-orders.md) | Plano/diagnóstico de N+1 |
-| [`13-deploy-workflow-melhoras.md`](13-deploy-workflow-melhoras.md) | Propostas para workflow de deploy |
-| [`14-usabilidade-e-processos.md`](14-usabilidade-e-processos.md) | Usabilidade e processos |
-| [`15-multi-tenant-schema.md`](15-multi-tenant-schema.md) | Arquitetura multi-tenant (schema por loja — vigente) |
-| [`23-reavaliacao-multi-tenant.md`](23-reavaliacao-multi-tenant.md) | Reavaliação da estratégia (schema único + `tenant_id` + RLS vs. vigente) — **decisão pendente, não implementado** |
 | [`17-runbook-unificacao-migrations.md`](17-runbook-unificacao-migrations.md) | Runbook de migrations |
-| [`19-pagarme.md`](19-pagarme.md), [`20-pagarme-pendencias.md`](20-pagarme-pendencias.md) | Pagar.me e pendências |
-| [`21-device-provisioning.md`](21-device-provisioning.md) | Provisionamento de dispositivos |
-| [`22-mobile-react-native.md`](22-mobile-react-native.md) | Plano/histórico de migração RN/Expo; afirmações sobre `mobile/` e estado de branch precisam ser conferidas contra o checkout |
 | [`25-admin-server-tui.md`](25-admin-server-tui.md) | Plano do admin server (Go, no host) + TUI remota de administração — **plano, não implementado** |
-| [`26-cli-pdv-rust.md`](26-cli-pdv-rust.md) | CLI local `pdv` (Rust): comandos, TUI de status, instalação — **implementado (fase 1)** |
+| [`26-identidade-centralizada.md`](26-identidade-centralizada.md) | Identidade centralizada: novo login (email/senha), seleção de empresa, invite — **plano aprovado em implementação**; registra a decisão por schema único + RLS (workstream B) |
+| [`27-cli-pdv-rust.md`](27-cli-pdv-rust.md) | CLI local `pdv` (Rust): comandos, TUI interativa, instalação — **implementado (fase 1)** |
 
-`dicionario-japones.md`, `lista-produtos-*` e `alteracoes-produtos-*` são materiais de referência/dados de produto, não guias de implementação. Confira data e contexto antes de usá-los como fonte vigente.
+### Documentos removidos em `308c9977` (recuperar com `git show 308c9977^:docs/<arquivo>`)
+
+`04-delivery-self-service-integration.md`, `05-delivery-api-contracts.md`,
+`06-ifood-integration.md`, `09-frontend-fsd.md`, `11-pix-pendencias.md`,
+`12-n-plus-one-list-orders.md`, `13-deploy-workflow-melhoras.md`,
+`14-usabilidade-e-processos.md`, `15-multi-tenant-schema.md`,
+`18-ifood-por-loja.md`, `19-pagarme.md`, `20-pagarme-pendencias.md`,
+`21-device-provisioning.md`, `22-mobile-react-native.md`,
+`23-reavaliacao-multi-tenant.md`, `dicionario-japones.md`,
+`lista-produtos-*`, `alteracoes-produtos-*`, `multi-tenant-login-correcao.md`
+e outros planos/históricos.
+
+Antes de citar qualquer um deles em doc ou código, confira se o conteúdo ainda
+vale: são contexto histórico. A direção vigente de identidade/multi-tenant está
+em `26-identidade-centralizada.md`; convenções atuais de backend/frontend nos
+guias `agent-*`.
 
 ## Planejamento e histórico não são estado implementado
 

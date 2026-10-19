@@ -1,419 +1,327 @@
 import { useAuth } from "@/app/providers/auth";
-import { listLoginUsers } from "@/entities/session";
-import { getStoreInfo } from "@/entities/store";
-import { Modal, ThemeToggle, UserAvatar } from "@/shared/components";
-import { Spinner } from "@/shared/components";
-import { applyBrandPrimary } from "@/shared/lib";
-import {
-  assetUrl,
-  currentServerLabel,
-  fetchTag,
-  getServerBase,
-  serverDefault,
-  setServerBase,
-} from "@/shared/lib/server";
-import {
-  ChefHat,
-  ClipboardList,
-  Delete,
-  Loader2,
-  Lock,
-  Server,
-  UtensilsCrossed,
-  Wallet,
-} from "lucide-react";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import { forgotPassword, getDeviceTenantSlug } from "@/entities/session";
+import { Button, Input } from "@/shared/components";
+import { Loader2 } from "lucide-react";
+import React, { useCallback, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import ChangePasswordScreen from "./ChangePasswordScreen.jsx";
+import CompanySelectScreen from "./CompanySelectScreen.jsx";
+import ForgotPasswordScreen from "./ForgotPasswordScreen.jsx";
+import LoginShell from "./LoginShell.jsx";
+import PasswordInput from "./PasswordInput.jsx";
 
-const ROLE_META = {
-  waiter: { label: "Garçom", icon: ClipboardList },
-  kitchen: { label: "Cozinha", icon: ChefHat },
-  manager: { label: "Gerente", icon: UtensilsCrossed },
-  courier: { label: "Entregador", icon: UtensilsCrossed },
-  cashier: { label: "Caixa", icon: Wallet },
-  system: { label: "System", icon: UtensilsCrossed },
-};
-
-const MAX_PIN = 6;
-const MIN_PIN = 4;
-
-// Só dígitos, no máximo MAX_PIN: mesma regra para o keypad, para o teclado
-// físico e para o input transparente (teclado nativo do celular).
-function onlyDigits(value) {
-  return (value ?? "").replace(/\D/g, "").slice(0, MAX_PIN);
+// Erro de login é GENÉRICO de propósito: não distinguir "senha errada" de
+// "conta inexistente" (docs/26 §4 — o backend já responde 401 genérico e o
+// frontend não pode vazar enumeração por outro caminho).
+function loginErrorMessage(error) {
+  if (error?.code === "too_many_attempts") return "Muitas tentativas. Aguarde um minuto e tente de novo.";
+  if (!error?.status) return "Não foi possível conectar ao servidor. Tente novamente.";
+  return "E-mail ou senha incorretos.";
 }
 
-export default function Login() {
-  const { login } = useAuth();
-  const [screen, setScreen] = useState("select"); // select | pin
-  const [users, setUsers] = useState([]);
-  const [storeName, setStoreName] = useState("");
-  const [logoUrl, setLogoUrl] = useState("");
-  const [loadingUsers, setLoadingUsers] = useState(true);
-  const [loadError, setLoadError] = useState(null);
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [pin, setPin] = useState("");
-  const [error, setError] = useState(null);
-  const [shake, setShake] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [serverTag, setServerTag] = useState(null);
-  // App desktop: o servidor é configuração (a origem do app é tauri://localhost).
-  // No navegador o campo aparece preenchido com a origem atual, mas o app
-  // funciona sem tocar nele.
-  const [serverOpen, setServerOpen] = useState(false);
-  const [serverDraft, setServerDraft] = useState(getServerBase());
-  const [serverError, setServerError] = useState(null);
-  const errorTimer = useRef(null);
+function changePasswordErrorMessage(error) {
+  if (error?.status === 401) return "Sua sessão expirou. Entre novamente para trocar a senha.";
+  if (!error?.status) return "Não foi possível conectar ao servidor. Tente novamente.";
+  return error?.message || "Não foi possível salvar a nova senha. Tente novamente.";
+}
 
-  function saveServer() {
-    const result = setServerBase(serverDraft);
-    if (!result.ok) {
-      setServerError(result.error);
+/**
+ * Login da identidade centralizada (docs/26 §5): e-mail + senha → troca de
+ * senha obrigatória (quando vier temporária) → seleção de empresa (só se houver
+ * mais de uma) → sessão. Sem lista de usuários e sem escolha de papel: o papel
+ * vem do vínculo da conta com a empresa escolhida.
+ */
+export default function LoginPage() {
+  const { loginNovo, changeAccountPassword, completeTenantSelection, cancelAccountStage } =
+    useAuth();
+  const [searchParams] = useSearchParams();
+  // /login?forgot=1 é o destino do link "esqueci de novo" vindo da tela de reset.
+  const [stage, setStage] = useState(() => (searchParams.get("forgot") ? "forgot" : "credentials"));
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [companies, setCompanies] = useState([]);
+  const [forgotSent, setForgotSent] = useState(false);
+
+  // Docs/26 §5: 1 empresa → direto; N com preferência do dispositivo → direto;
+  // N sem preferência → seletor; nenhum vínculo → aviso. A preferência é só
+  // atalho: o backend revalida o vínculo em select-tenant.
+  const resolveCompanies = useCallback(
+    async (lista) => {
+      if (!lista.length) {
+        setStage("none");
+        return;
+      }
+      if (lista.length === 1) {
+        await completeTenantSelection(lista[0].slug);
+        return;
+      }
+      const preferred = getDeviceTenantSlug();
+      const saved = preferred ? lista.find((c) => c.slug === preferred) : null;
+      if (saved) {
+        await completeTenantSelection(saved.slug);
+        return;
+      }
+      setCompanies(lista);
+      setStage("company");
+    },
+    [completeTenantSelection]
+  );
+
+  const handleCredentialsSubmit = useCallback(
+    async (event) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      const email = String(data.get("email") ?? "").trim();
+      const password = String(data.get("password") ?? "");
+      const remember = Boolean(data.get("remember"));
+      if (!email || !password) {
+        setError("Informe e-mail e senha para continuar.");
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await loginNovo(email, password, remember);
+        if (result.mustChangePassword) {
+          setStage("change");
+          return;
+        }
+        await resolveCompanies(result.companies);
+      } catch (e) {
+        setError(loginErrorMessage(e));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loginNovo, resolveCompanies]
+  );
+
+  const handleChangePasswordSubmit = useCallback(
+    async (nova, confirmacao) => {
+      if (!nova || !confirmacao) {
+        setError("Preencha e confirme a nova senha.");
+        return;
+      }
+      if (nova !== confirmacao) {
+        setError("As senhas não coincidem. Digite a mesma senha nos dois campos.");
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      try {
+        const next = await changeAccountPassword(nova);
+        await resolveCompanies(next.companies);
+      } catch (e) {
+        setError(changePasswordErrorMessage(e));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [changeAccountPassword, resolveCompanies]
+  );
+
+  const handleSelectCompany = useCallback(
+    async (slug) => {
+      setLoading(true);
+      setError(null);
+      try {
+        await completeTenantSelection(slug);
+      } catch (e) {
+        // 403 = vínculo recusado pelo backend (ex.: removido da loja entre o
+        // login e a escolha); 401 = accountToken de 10min venceu no seletor.
+        setError(
+          e?.code === "tenant_not_linked"
+            ? "Você não tem mais acesso a esta empresa. Fale com o gerente."
+            : e?.status === 401
+              ? "Sua sessão expirou. Entre novamente."
+              : "Não foi possível entrar agora. Tente novamente."
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [completeTenantSelection]
+  );
+
+  const handleForgotSubmit = useCallback(async (email) => {
+    if (!email) {
+      setError("Informe o e-mail da sua conta.");
       return;
     }
-    // Recarrega para que login, logo e store info venham do servidor novo.
-    window.location.reload();
-  }
-
-  // Carregamento inicial de dados da loja
-  useEffect(() => {
-    listLoginUsers()
-      .then(setUsers)
-      .catch((e) => setLoadError(e.message))
-      .finally(() => setLoadingUsers(false));
-    getStoreInfo()
-      .then((s) => {
-        setStoreName(s?.merchantName || "");
-        setLogoUrl(s?.logoUrl || "");
-        applyBrandPrimary(s?.brandColor);
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    fetchTag().then(setServerTag);
-  }, []);
-
-  function openPinScreen(user) {
-    setSelectedUser(user);
-    setPin("");
+    setLoading(true);
     setError(null);
-    setScreen("pin");
-  }
-
-  function backToSelect() {
-    setScreen("select");
-    setSelectedUser(null);
-    setPin("");
-    setError(null);
-  }
-
-  const pressDigit = useCallback(
-    (d) => {
-      if (checking) return;
-      setPin((p) => (p.length >= MAX_PIN ? p : p + d));
-      setError(null);
-    },
-    [checking]
-  );
-
-  const backspace = useCallback(() => {
-    if (checking) return;
-    setPin((p) => p.slice(0, -1));
-    setError(null);
-  }, [checking]);
-
-  const attemptLogin = useCallback(
-    async (candidatePin) => {
-      setChecking(true);
-      try {
-        await login(selectedUser.id, candidatePin);
-      } catch (e) {
-        setChecking(false);
-        setError(
-          e.code === "too_many_attempts"
-            ? "Muitas tentativas. Aguarde um minuto."
-            : "PIN incorreto. Tente novamente."
-        );
-        setPin("");
-        setShake(true);
-        clearTimeout(errorTimer.current);
-        errorTimer.current = setTimeout(() => setShake(false), 420);
-      }
-    },
-    [login, selectedUser]
-  );
-
-  // Só entra com 4+ dígitos: o PIN do cadastro vai de 4 a 6, e completar a
-  // sequência não pode ser o gatilho — o envio é explícito (Enter ou "Entrar").
-  const confirmPin = useCallback(() => {
-    if (checking) return;
-    if (pin.length >= MIN_PIN) attemptLogin(pin);
-  }, [checking, pin, attemptLogin]);
-
-  // Teclado físico. Dígitos e backspace são ignorados quando o evento veio do
-  // input de PIN (data-pin-input): quem corta em MAX_PIN é o onChange dele.
-  // Enter e Esc valem nos dois caminhos.
-  useEffect(() => {
-    function loginNumericPadHelper(evento) {
-      // Só escuta o teclado se estiver na tela de PIN
-      if (screen !== "pin") return;
-
-      const fromPinInput = evento.target?.dataset?.pinInput === "true";
-
-      // Se for um número de 0 a 9 (teclado normal ou numérico)
-      if (!fromPinInput && /^[0-9]$/.test(evento.key)) {
-        evento.preventDefault();
-        pressDigit(evento.key);
-      }
-      // Se for a tecla para apagar
-      else if (!fromPinInput && evento.key === "Backspace") {
-        evento.preventDefault();
-        backspace();
-      }
-      // Se for a tecla Enter, confirma o PIN
-      else if (evento.key === "Enter") {
-        evento.preventDefault();
-        confirmPin();
-      }
-      // Se for a tecla Esc, volta para a seleção de usuário
-      else if (evento.key === "Escape") {
-        evento.preventDefault();
-        backToSelect();
-      }
+    try {
+      await forgotPassword(email);
+      setForgotSent(true);
+    } catch (e) {
+      setError(
+        e?.code === "email_not_configured" || e?.status === 503
+          ? "A recuperação de senha por e-mail ainda não está configurada nesta loja. Procure o gerente da sua equipe."
+          : "Não foi possível enviar agora. Aguarde alguns minutos e tente de novo."
+      );
+    } finally {
+      setLoading(false);
     }
+  }, []);
 
-    window.addEventListener("keydown", loginNumericPadHelper);
+  const backToCredentials = useCallback(() => {
+    cancelAccountStage();
+    setError(null);
+    setForgotSent(false);
+    setStage("credentials");
+  }, [cancelAccountStage]);
 
-    // Remove o evento ao desmontar ou atualizar estados para evitar bugs
-    return () => {
-      window.removeEventListener("keydown", loginNumericPadHelper);
-    };
-  }, [screen, pressDigit, backspace, confirmPin]); // Dependências necessárias para ler os estados corretos
+  if (stage === "change") {
+    return (
+      <LoginShell
+        title="Crie sua senha"
+        subtitle="Você está entrando com a senha temporária enviada por e-mail. Defina uma senha própria para continuar."
+      >
+        <ChangePasswordScreen
+          onSubmit={handleChangePasswordSubmit}
+          loading={loading}
+          error={error}
+        />
+      </LoginShell>
+    );
+  }
 
-  useEffect(() => () => clearTimeout(errorTimer.current), []);
+  if (stage === "company") {
+    return (
+      <LoginShell
+        title="Escolha a empresa"
+        subtitle={`Você está vinculado a ${companies.length} empresas. Qual é a do seu turno de hoje?`}
+      >
+        <CompanySelectScreen
+          companies={companies}
+          onSelect={handleSelectCompany}
+          loading={loading}
+          error={error}
+          onBack={backToCredentials}
+        />
+      </LoginShell>
+    );
+  }
+
+  if (stage === "none") {
+    return (
+      <LoginShell
+        title="Sem empresa vinculada"
+        subtitle="Sua conta ainda não foi adicionada a nenhuma loja."
+      >
+        <div className="flex flex-col gap-5 text-center">
+          <p role="alert" className="text-sm text-destructive text-pretty">
+            Nenhuma empresa vinculada a esta conta. Contate o gerente.
+          </p>
+          <Button type="button" variant="secondary" onClick={backToCredentials} className="w-full">
+            Entrar com outra conta
+          </Button>
+        </div>
+      </LoginShell>
+    );
+  }
+
+  if (stage === "forgot") {
+    return (
+      <LoginShell
+        title="Recuperar senha"
+        subtitle="Enviaremos as instruções de recuperação para o e-mail da sua conta."
+      >
+        <ForgotPasswordScreen
+          onSubmit={handleForgotSubmit}
+          loading={loading}
+          error={error}
+          sent={forgotSent}
+          onBack={backToCredentials}
+        />
+      </LoginShell>
+    );
+  }
 
   return (
-    <div className="relative min-h-screen bg-background text-foreground flex flex-col items-center justify-center p-6">
-      <ThemeToggle className="absolute right-4 top-4" />
-      {screen === "select" && (
-        <div className="w-full max-w-md fade-up">
-          <div className="text-center mb-10">
-            {logoUrl ? (
-              <img
-                src={assetUrl(logoUrl)}
-                alt="Logo do restaurante"
-                className="w-32 h-32 rounded-full object-contain mx-auto mb-5"
-              />
-            ) : (
-              <div className="w-14 h-14 rounded-full bg-primary flex items-center justify-center mx-auto mb-4">
-                <Lock size={26} className="text-primary-foreground" strokeWidth={2.5} />
-              </div>
-            )}
-            <h1 className="font-display text-2xl font-bold">{storeName || "PDV"}</h1>
-            <p className="text-text-muted text-sm mt-1">Selecione seu nome para continuar</p>
-          </div>
-
-          {loadingUsers && <Spinner visible={true} onFadeComplete={() => {}} />}
-
-          {loadError && (
-            <div className="text-center text-destructive text-sm py-10">
-              Não foi possível conectar ao servidor. Verifique se o backend está rodando.
-            </div>
-          )}
-
-          {!loadingUsers && !loadError && (
-            <div className="grid grid-cols-2 gap-3">
-              {users.map((u) => {
-                const meta = ROLE_META[u.role];
-                const Icon = meta.icon;
-                return (
-                  <button
-                    key={u.id}
-                    onClick={() => openPinScreen(u)}
-                    className="flex flex-col items-center gap-2.5 bg-surface border border-border hover:border-ring/50 hover:bg-surface-overlay rounded-2xl p-5 transition-colors active:scale-95"
-                  >
-                    <UserAvatar
-                      name={u.name}
-                      photoPath={u.photoPath}
-                      className="w-14 h-14 text-lg"
-                    />
-                    <div className="text-center">
-                      <div className="font-semibold text-sm leading-tight">{u.name}</div>
-                      <div className="flex items-center justify-center gap-1 text-text-muted text-xs mt-1">
-                        <Icon size={11} /> {meta.label}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          <div className="mt-8 flex justify-center">
-            <button
-              type="button"
-              onClick={() => {
-                setServerDraft(getServerBase());
-                setServerError(null);
-                setServerOpen(true);
-              }}
-              className="inline-flex items-center gap-2 text-text-muted hover:text-text-secondary text-xs transition-colors max-w-full"
-            >
-              <Server size={12} className="shrink-0" />
-              <span className="truncate">
-                Servidor: {currentServerLabel()}
-                {serverTag ? ` v${serverTag}` : ""}
-              </span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {serverOpen && (
-        <Modal
-          title="Servidor"
-          subtitle="Endereço do backend (vazio = servidor padrão do app)"
-          onClose={() => setServerOpen(false)}
-          footer={
-            <div className="flex gap-2 w-full">
-              <button
-                type="button"
-                onClick={() => setServerOpen(false)}
-                className="flex-1 py-3 rounded-xl bg-surface-overlay hover:bg-surface-overlay transition-colors text-sm font-medium"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={saveServer}
-                className="flex-1 py-3 rounded-xl bg-primary hover:bg-primary-strong transition-colors text-primary-foreground text-sm font-semibold"
-              >
-                Salvar
-              </button>
-            </div>
-          }
-        >
-          <input
-            type="url"
-            inputMode="url"
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            value={serverDraft}
-            onChange={(e) => {
-              setServerDraft(e.target.value);
-              setServerError(null);
-            }}
-            placeholder="https://app.seudominio.com.br"
-            aria-label="Endereço do servidor"
-            className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-ring"
+    <LoginShell
+      title="Bem-vindo de volta"
+      subtitle="Entre com sua conta para começar o turno."
+    >
+      <form onSubmit={handleCredentialsSubmit} className="flex flex-col gap-5" noValidate aria-busy={loading}>
+        <div>
+          <label htmlFor="login-email" className="text-text-secondary text-sm font-medium mb-1.5 block">
+            E-mail
+          </label>
+          <Input
+            id="login-email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            required
+            placeholder="voce@restaurante.com.br"
+            disabled={loading}
+            className="h-11"
           />
-          {serverError && <p className="text-destructive text-xs mt-2">{serverError}</p>}
-          <p className="text-text-muted text-xs mt-3">
-            O app recarrega ao salvar. Vazio volta ao servidor padrão
-            {serverDefault() ? ` (${serverDefault()})` : " desta instalação"}.
+        </div>
+
+        <div>
+          <label
+            htmlFor="login-password"
+            className="text-text-secondary text-sm font-medium mb-1.5 block"
+          >
+            Senha
+          </label>
+          <PasswordInput
+            id="login-password"
+            name="password"
+            autoComplete="current-password"
+            required
+            placeholder="••••••••"
+            disabled={loading}
+            className="h-11"
+          />
+        </div>
+
+        {error && (
+          <p
+            role="alert"
+            className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
+            {error}
           </p>
-        </Modal>
-      )}
+        )}
 
-      {screen === "pin" && selectedUser && (
-        <div className={`w-full max-w-xs fade-up ${shake ? "shake-anim" : ""}`}>
-          <div className="text-center mb-6">
-            <UserAvatar
-              name={selectedUser.name}
-              photoPath={selectedUser.photoPath}
-              className="w-16 h-16 text-xl mx-auto mb-3"
-            />
-            <h2 className="font-display text-xl font-bold">{selectedUser.name}</h2>
-            <p className="text-text-muted text-sm mt-1">Digite seu PIN</p>
-          </div>
-
-          {/* Input real (transparente) sobre os pontos: tocar na linha abre o
-              teclado numérico do celular, e o PIN digitado passa pelos mesmos
-              cortes do keypad. Os pontos continuam sendo a leitura visual. */}
-          <div className="relative">
-            <div className="flex items-center justify-center gap-3 h-10">
-              {Array.from({ length: Math.max(pin.length, MIN_PIN) }).map((_, i) => (
-                <span
-                  key={i}
-                  className={`w-3 h-3 rounded-full dot-pop ${
-                    i < pin.length
-                      ? error
-                        ? "bg-destructive"
-                        : "bg-primary-strong"
-                      : "bg-surface-overlay"
-                  }`}
-                />
-              ))}
-            </div>
+        <div className="flex items-center justify-between text-sm">
+          <label className="flex items-center gap-2 text-text-secondary">
             <input
-              data-pin-input="true"
-              type="password"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              autoFocus={false}
-              maxLength={MAX_PIN}
-              value={pin}
-              onChange={(e) => {
-                setPin(onlyDigits(e.target.value));
-                setError(null);
-              }}
-              aria-label="PIN"
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              type="checkbox"
+              name="remember"
+              defaultChecked
+              disabled={loading}
+              className="size-4 rounded accent-primary"
             />
-          </div>
-          <div className="h-5 text-center mb-4">
-            {error && <span className="text-destructive text-xs font-medium">{error}</span>}
-            {checking && !error && <span className="text-text-muted text-xs">Verificando…</span>}
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
-              <button
-                key={d}
-                type="button"
-                onClick={() => pressDigit(d)}
-                disabled={checking}
-                className="font-display text-2xl font-bold bg-surface border border-border hover:bg-surface-overlay active:scale-95 disabled:opacity-40 rounded-2xl py-5 transition-transform"
-              >
-                {d}
-              </button>
-            ))}
-            <button
-              onClick={backToSelect}
-              className="text-text-muted hover:text-text-secondary text-xs font-semibold rounded-2xl py-5"
-            >
-              Voltar (Esc)
-            </button>
-            <button
-              type="button"
-              onClick={() => pressDigit("0")}
-              disabled={checking}
-              className="font-display text-2xl font-bold bg-surface border border-border hover:bg-surface-overlay active:scale-95 disabled:opacity-40 rounded-2xl py-5 transition-transform"
-            >
-              0
-            </button>
-            <button
-              type="button"
-              onClick={backspace}
-              disabled={checking || pin.length === 0}
-              className="flex items-center justify-center text-text-muted hover:text-destructive disabled:opacity-40 rounded-2xl py-5 transition-colors"
-            >
-              <Delete size={22} />
-            </button>
-          </div>
-
+            Lembrar de mim
+          </label>
           <button
             type="button"
-            onClick={confirmPin}
-            disabled={checking || pin.length < MIN_PIN}
-            className="w-full mt-4 bg-primary hover:bg-primary-strong disabled:opacity-40 text-primary-foreground font-semibold py-4 rounded-2xl flex items-center justify-center gap-2 transition-colors"
+            onClick={() => {
+              setError(null);
+              setStage("forgot");
+            }}
+            disabled={loading}
+            className="font-medium text-primary-strong underline-offset-4 hover:underline disabled:opacity-50"
           >
-            {checking ? <Loader2 size={18} className="animate-spin" /> : null}
-            {checking ? "Verificando…" : "Entrar"}
+            Esqueci a senha
           </button>
         </div>
-      )}
-    </div>
+
+        <Button type="submit" size="lg" disabled={loading} className="w-full">
+          {loading ? (
+            <>
+              <Loader2 className="animate-spin" aria-hidden="true" />
+              Entrando…
+            </>
+          ) : (
+            "Entrar"
+          )}
+        </Button>
+      </form>
+    </LoginShell>
   );
 }

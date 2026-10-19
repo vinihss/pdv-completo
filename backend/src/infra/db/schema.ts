@@ -82,6 +82,13 @@ export const users = pgTable("user", {
   active: boolean("active").notNull().default(true),
   phone: text("phone"),
   email: text("email"),
+  /**
+   * ADIÇÃO (Onda identidade — docs/26 §3): vínculo com a conta GLOBAL
+   * (`public.account`). `null` = usuário criado antes do backfill (o PIN ainda
+   * funciona; o login por email não). A FK é criada pela migration por schema
+   * (`0012_user_account_id.sql`) — a tabela `account` não é do schema da loja.
+   */
+  accountId: text("account_id"),
   photoPath: text("photo_path"),
   createdAt: text("created_at").notNull().default(isoNow),
   updatedAt: text("updated_at").notNull().default(isoNow),

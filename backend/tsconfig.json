@@ -18,7 +18,8 @@
     "types": ["node"],
     "paths": {
       "domain/*": ["./src/domain/*"]
-    }
+    },
+    "allowImportingTsExtensions": true
   },
   "include": ["src"]
 }

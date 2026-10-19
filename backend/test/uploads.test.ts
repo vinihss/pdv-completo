@@ -5,6 +5,11 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { api, closeTestApp, FIXTURE, manager, raw, resetState, seedFixture, testApp, upload as uploadHelper } from "./helpers.js";
+import { installTestMailer } from "./helpers/test-mailer.js";
+
+// `POST /users` virou convite (docs/26 §4): exige email e envia a senha
+// temporária por SMTP — o fake configurado evita o 503 no meio do teste.
+installTestMailer();
 
 const run = promisify(execFile);
 
@@ -240,7 +245,12 @@ describe("scripts/migrate-uploads-layout", () => {
       body: { name: "Mig Product", price: 1, categoryId: FIXTURE.category },
     });
     const cliente = await api("post", "/customers", { token: manager, body: { name: "Mig Customer" } });
-    const usuario = await api("post", "/users", { token: manager, body: { name: "Mig User", role: "waiter" } });
+    const usuario = await api("post", "/users", {
+      token: manager,
+      // Email único: o `beforeEach` deste bloco cria um usuário por teste e
+      // `assertEmailAvailable` é por loja (um email fixo daria 400 no segundo).
+      body: { name: "Mig User", role: "waiter", email: `mig-user-${crypto.randomUUID()}@exemplo.com` },
+    });
     files = {
       produto: `${produto.json.id}.jpg`,
       cliente: `${cliente.json.id}.png`,

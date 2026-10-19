@@ -25,12 +25,16 @@ PDV (ponto de venda) para restaurante/pub: abrir comanda → lançar itens → (
 | `standalone-pdv/`, `standalone-kds/`, `standalone-garcon/`, `standalone-entregador/`, `standalone-shared/` | Crates Tauri/Rust e biblioteca compartilhada presentes neste checkout |
 | `ws-gateway/` | Gateway WebSocket Go; ativação depende da configuração de deploy |
 | `pagarme-webhook/` | Serviço Go para webhooks Pagar.me |
-| `cmd/pdv/` | Código-fonte da CLI Rust (`pdv`); veja [`docs/26-cli-pdv-rust.md`](docs/26-cli-pdv-rust.md) |
+| `cmd/pdv/` | Código-fonte da CLI Rust (`pdv`); veja [`docs/27-cli-pdv-rust.md`](docs/27-cli-pdv-rust.md) |
 | `deploy/`, `scripts/` | Compose, Caddy, deploy e automações de desenvolvimento/build |
 | `docs/` | Specs, contratos, guias e índice por tarefa |
 | `backend/migrations/` | Baseline, migrations ativas, registry e arquivo histórico; veja o [guia dedicado](backend/migrations/README.md) |
 
-O código React Native/Expo não está neste checkout. `docs/22-mobile-react-native.md` registra um plano de migração de uma branch e descreve uma pasta `mobile/` que não existe nesta árvore; trate-o como contexto histórico, não como prova de implementação atual.
+O código React Native/Expo não está neste checkout. O plano de migração
+(`docs/22-mobile-react-native.md`, **removido em `308c9977`** —
+`git show 308c9977^:docs/22-mobile-react-native.md`) descreve uma pasta `mobile/`
+que não existe nesta árvore; trate-o como contexto histórico, não como prova de
+implementação atual.
 
 ## Documentos de referência
 
@@ -44,19 +48,19 @@ O código React Native/Expo não está neste checkout. `docs/22-mobile-react-nat
 | `docs/03-acceptance-criteria.md` | Critérios de aceite em formato Dado/Quando/Então |
 | `docs/07-estoque.md` | Controle de estoque: ledger, flags, endpoints, regras |
 | `docs/08-estoque-profissional.md` | Estoque profissional: fornecedores, compras, custo médio móvel |
-| `docs/09-frontend-fsd.md` | Histórico das fases da migração para FSD no frontend |
 | `docs/11-desktop-instalador.md` | App Windows (Tauri): instalador, boot/update, daemon |
-| `docs/11-pix-pendencias.md` | BR Code do Pix: por que o QR era recusado (GUI minúscula, txid, teto de 99 bytes) e o que ficou pendente |
-| `docs/12-n-plus-one-list-orders.md` | Roadmap: eliminar N+1 em `listOrders` |
-| `docs/13-deploy-workflow-melhoras.md` | Melhoras no workflow de deploy (versão, artefatos, publicação) |
-| `docs/14-usabilidade-e-processos.md` | Backlog priorizado: fluxo de pedido, gestão e caixa (8 bugs de confiabilidade + 40 propostas em 8 camadas, roadmap P0-P5) |
-| `docs/15-multi-tenant-schema.md` | Multi-tenant por **schema PostgreSQL** (subdomínio → tenant): arquitetura, decisões, fases e riscos |
+| `docs/26-identidade-centralizada.md` | Identidade centralizada (novo login email/senha, seleção de empresa, invite) e a decisão por **schema único + RLS** (workstream B). Substitui os docs 15/23, removidos do repo (`git show 308c9977^:docs/15-multi-tenant-schema.md`) |
 | `docs/17-runbook-unificacao-migrations.md` | Runbook do cutover para o baseline único de migrations (com validação de backup) |
-| `docs/18-ifood-por-loja.md` | iFood por tenant: estado atual, delta necessário, riscos (sem implementação) |
-| `docs/19-pagarme.md` | Camada de pagamentos Pagar.me V5: arquitetura, webhook, reconciliação, decisões e pendências |
-| `docs/20-pagarme-pendencias.md` | Pendências da integração Pagar.me V5: o que falta, risco e prioridade |
-| `docs/21-device-provisioning.md` | Spec de provisionamento; confira `docs/22-mobile-react-native.md` e os clientes atuais antes de assumir qual implementação a utiliza. |
 | `ws-gateway/GO-GATEWAY-PLAN.md` | Gateway WebSocket em Go: arquitetura, rooms, outbox, fases de migração e o checklist de implantação. Mora junto do código (fora de `docs/`) porque é spec de um componente, não do produto inteiro |
+
+**Documentos removidos em `308c9977`** (recuperar com
+`git show 308c9977^:docs/<arquivo>` — são contexto histórico, confira antes de
+citar): `09-frontend-fsd`, `11-pix-pendencias`, `12-n-plus-one-list-orders`,
+`13-deploy-workflow-melhoras`, `14-usabilidade-e-processos`,
+`15-multi-tenant-schema`, `18-ifood-por-loja`, `19-pagarme`,
+`20-pagarme-pendencias`, `21-device-provisioning`, `22-mobile-react-native`,
+`23-reavaliacao-multi-tenant`, `dicionario-japones`, `lista-produtos-*`,
+`alteracoes-produtos-*` (lista completa em `docs/README.md`).
 
 ### Guias para agentes
 
@@ -127,8 +131,9 @@ O Vite já proxeia `/api` e `/realtime` para `localhost:3000` (`vite.config.js`)
 O código mobile não está nesta cópia do repositório. Este checkout contém
 contratos e documentação de planejamento; não dependa de um caminho local para
 o repo mobile. Confirme a localização e o estado do código antes de coordenar
-mudanças entre repositórios. [`docs/22-mobile-react-native.md`](docs/22-mobile-react-native.md)
-é um plano/histórico e menciona uma branch/código `mobile/` que não está presente
+mudanças entre repositórios. O plano antigo `docs/22-mobile-react-native.md`
+(removido em `308c9977`; `git show 308c9977^:docs/22-mobile-react-native.md`)
+menciona uma branch/código `mobile/` que não está presente
 na árvore atual — não o trate como implementação vigente.
 
 ### App desktop (Tauri)
@@ -178,7 +183,7 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 
 | Comando | Onde | O que faz |
 |---|---|---|
-| `pdv --help` | CLI instalada | ajuda da CLI Rust compilada de `cmd/pdv/` (veja [`docs/26-cli-pdv-rust.md`](docs/26-cli-pdv-rust.md)) |
+| `pdv --help` | CLI instalada | ajuda da CLI Rust compilada de `cmd/pdv/` (veja [`docs/27-cli-pdv-rust.md`](docs/27-cli-pdv-rust.md)) |
 | `npm run dev` | backend | roda com `tsx watch` |
 | `npm run build` | backend | `tsc` → `dist/` |
 | `npm run start` | backend | roda `dist/http/server.js` |

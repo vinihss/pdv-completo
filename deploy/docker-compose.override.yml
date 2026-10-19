@@ -2,8 +2,10 @@ name: pdv-dev
 services:
   caddy:
     ports:
-      - "80:80"
-      - "443:443"
+      # Portas alternativas de dev: o host já tem o Caddy de produção
+      # (systemd `pdv-caddy`) nas 80/443. Acesso dev via <host>:8081.
+      - "8081:80"
+      - "8443:443"
     environment:
       - DOMAIN=localhost
       - PDV_WS_UPSTREAM=${PDV_WS_UPSTREAM:-backend:3000}
@@ -11,6 +13,7 @@ services:
       - ./Caddyfile.dev:/etc/caddy/Caddyfile
       # Mapeia as pastas dos Frontends para o Caddy servir os ficheiros diretamente em desenvolvimento
       - ../frontend:/srv/frontend
+      - ./geo-test:/srv/geo-test:ro
     depends_on:
       - backend
 
@@ -57,11 +60,11 @@ services:
       - redis_data_dev:/data
 
   postgres:
-    image: postgis/postgis:16-3.5-alpine
+    image: postgres:16-alpine
     volumes:
       - postgres_data_dev:/var/lib/postgresql/data
     ports:
-      - ":${POSTGRES_PORT:-5432}:5432"
+      - "5432:5432"
 
   pgadmin:
     image: dpage/pgadmin4:latest

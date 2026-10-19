@@ -19,4 +19,8 @@ export class MailerPortAdapter implements Mailer {
   async send(input: MailerSendInput): Promise<MailerSendResult> {
     return (this.transport ?? getMailer()).send(input);
   }
+
+  isConfigured(): boolean {
+    return (this.transport ?? getMailer()).isConfigured();
+  }
 }

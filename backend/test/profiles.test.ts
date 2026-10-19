@@ -13,6 +13,11 @@ import {
   FIXTURE,
   raw,
 } from "./helpers.js";
+import { installTestMailer } from "./helpers/test-mailer.js";
+
+// `POST /users` é convite (docs/26 §4): exige email e envia a senha temporária
+// por SMTP. Sem o fake configurado, os testes que criam equipe levariam 503.
+installTestMailer();
 
 // Perfis caixa e entregador ("implementar perfis de usuário: caixa, entregador"):
 // - tela de login respeita os toggles de rollout (kitchen_enabled / uses_delivery);
@@ -92,7 +97,10 @@ describe("tela de login por perfil (GET /auth/users)", () => {
   });
 
   it("foto da equipe aparece na grade do login e na sessão", async () => {
-    const criado = await api("post", "/users", { token: manager, body: { name: "Com Foto", role: "waiter" } });
+    const criado = await api("post", "/users", {
+      token: manager,
+      body: { name: "Com Foto", role: "waiter", email: "com.foto.login@exemplo.com" },
+    });
     expect(criado.status).toBe(201);
 
     // Upload de verdade (não um UPDATE em photo_path): o que se quer garantido
@@ -183,7 +191,10 @@ describe("gerente cadastra entregador", () => {
   beforeEach(() => resetState());
 
   it("POST /users (role courier) devolve o PIN uma vez e o entregador consegue logar", async () => {
-    const created = await api("post", "/users", { token: manager, body: { name: "Entregador Novo", role: "courier" } });
+    const created = await api("post", "/users", {
+      token: manager,
+      body: { name: "Entregador Novo", role: "courier", email: "entregador.novo@exemplo.com" },
+    });
     expect(created.status).toBe(201);
     expect(created.json.pin).toMatch(/^\d{4}$/);
 
@@ -223,7 +234,10 @@ describe("perfil self-service (GET/PATCH/POST/DELETE /auth/me)", () => {
   async function novoFuncionario() {
     const created = await api("post", "/users", {
       token: manager,
-      body: { name: "Perfil Original", role: "waiter" },
+      // Email único por chamada: a rota agora EXIGE email (identidade
+      // centralizada, docs/26 §4) e `assertEmailAvailable` é por loja — um
+      // email fixo colidiria com o mesmo teste rodando de novo no mesmo banco.
+      body: { name: "Perfil Original", role: "waiter", email: `perfil-${crypto.randomUUID()}@exemplo.com` },
     });
     expect(created.status).toBe(201);
     criados.push(created.json.id);

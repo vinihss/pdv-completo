@@ -24,7 +24,10 @@ export default defineConfig({
     // `vite/` entra porque é onde mora a config de build por profile (as 4
     // entries), que o `npm run build` só exercita de raspão — o teste é o
     // lugar de provar que o app padrão continua byte a byte igual.
-    include: ["src/**/*.test.{js,jsx}", "vite/**/*.test.js"],
+    // `.ts`/`.tsx` NÃO são opcionais: a migração para TypeScript moveu quase
+    // toda a suíte para `.test.tsx` e, com o include só de js/jsx, `npm run
+    // test` rodava 1 arquivo em 60 — o verde não cobria nada do app.
+    include: ["src/**/*.test.{js,jsx,ts,tsx}", "vite/**/*.test.js"],
     // Um jsdom por arquivo consumia ~12s e 7+ instâncias, e a suíte chegou a
     // reportar arquivos inteiros falhando sob pressão de memória da máquina
     // (2,5GB livres de 19,8GB, com ~7GB em chromium de outras apps), sem

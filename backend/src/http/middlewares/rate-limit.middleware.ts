@@ -79,3 +79,15 @@ export async function publicOrderRateLimit(req: FastifyRequest, reply: FastifyRe
 // brute force já é inviável; o limite apertado (5/min/IP) é a segunda barreira
 // no exchange (código digitado) e no refresh do device token.
 export const provisioningRateLimit = createRateLimit({ windowMs: 60_000, max: 5, keyPrefix: "prov-ip", keyFn: (req) => req.ip });
+
+// ---------- Identidade centralizada (docs/26 §4) ----------
+// `POST /auth/password/forgot` dispara email de verdade: 5 pedidos por hora por
+// IP é folgado para o uso real (quem pediu errado normalmente tenta 2-3x) e
+// caro para quem quer usar o endpoint como bomba de email. O `/auth/session`
+// reaproveita o `loginRateLimit` (10/min/IP) das rotas de login.
+export const forgotPasswordRateLimit = createRateLimit({
+  windowMs: 60 * 60_000,
+  max: 5,
+  keyPrefix: "forgot-ip",
+  keyFn: (req) => req.ip,
+});

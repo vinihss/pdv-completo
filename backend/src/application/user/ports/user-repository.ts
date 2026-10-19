@@ -15,6 +15,12 @@ export interface UserRecord {
   active: boolean;
   phone: string | null;
   email: string | null;
+  /**
+   * ADIÇÃO (Onda identidade — docs/26 §3): id da conta GLOBAL deste usuário
+   * (`public.account`). `null` = criado antes do backfill. NÃO vai para a
+   * apresentação (`serializeUser` não o expõe) — é vínculo interno.
+   */
+  accountId: string | null;
   photoPath: string | null;
   createdAt: string;
   /**

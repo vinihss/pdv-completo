@@ -4,9 +4,11 @@ Todos os endpoints do backend, agrupados por domínio. Para detalhes completos, 
 
 **Critério desta lista:** só entra aqui o que está registrado no código, em
 `backend/src/http/routes/*.ts` e módulos de rotas explicitamente registrados pelo router (mais `/health`, registrado em `http/server.ts`).
-Endpoint planejado ou apenas especificado **não entra aqui** — vai para
-`docs/14-usabilidade-e-processos.md` (§ *Endpoints documentados e ainda não
-implementados*). Se uma linha desta tabela não tiver rota no código, ela está
+Endpoint planejado ou apenas especificado **não entra aqui** — anote no doc de
+planejamento vigente. O antigo `docs/14-usabilidade-e-processos.md` (§ *Endpoints
+documentados e ainda não implementados*) foi removido em `308c9977`; recupere com
+`git show 308c9977^:docs/14-usabilidade-e-processos.md`. Se uma linha desta
+tabela não tiver rota no código, ela está
 errada: corrija o doc ou a rota, não deixe as duas coisas divergirem em
 silêncio.
 
@@ -44,6 +46,7 @@ perl -0777 -ne 'while (/app\.(get|post|patch|put|delete)\s*\(\s*"([^"]*)"/g) {
 | PUT | `/orders/:id/payments` | waiter, manager | Registrar pagamento |
 | PATCH | `/orders/:id/payments/:paymentId` | waiter, manager | Confirmar pagamento |
 | DELETE | `/orders/:id/payments/:paymentId` | waiter, manager | Remover pagamento |
+| POST | `/orders/:id/payments/:paymentId/refunds` | manager | Criar estorno (idempotente por `correlationId`; `refund.routes.ts`) |
 | PATCH | `/orders/:id/payment` | waiter, manager | Legado: pagamento de intenção única |
 
 ## Mesas (Tables)
@@ -209,10 +212,10 @@ em cada caso). "autenticado" ≠ "público": rota sem token nenhum é só a de
 
 ## iFood
 
-| Método | Path | Papel | Descrição |
-|---|---|---|---|
-| GET | `/ifood/status` | manager | Status da integração |
-| POST | `/ifood/catalog-sync` | manager | Sincronizar catálogo |
+> **Sem rotas no backend atual.** Não existe `backend/src/http/routes/ifood.routes.ts`
+> nem integração em `src/integrations/ifood/` — o iFood está fora deste checkout
+> (plano em `docs/18-ifood-por-loja.md`, **removido em `308c9977`**;
+> `git show 308c9977^:docs/18-ifood-por-loja.md`).
 
 ## Público (Self-Service)
 
@@ -236,7 +239,9 @@ em cada caso). "autenticado" ≠ "público": rota sem token nenhum é só a de
 
 Único endpoint do multi-tenant (schema-por-tenant) que existe hoje: a vitrine de
 pedidos (`apps/pedido-public`) pergunta **em qual loja** está antes de qualquer
-outra chamada. Detalhe em `docs/15-multi-tenant-schema.md` §6 (Fase 1).
+outra chamada. Detalhe no antigo `docs/15-multi-tenant-schema.md` §6 (Fase 1) —
+removido em `308c9977`; recupere com
+`git show 308c9977^:docs/15-multi-tenant-schema.md`.
 
 - **Sem autenticação** e com o rate limit de lookup público (20/min por IP).
 - O host vem de `?host=`, de `X-Tenant-Host` (que o Caddy injeta em `api.*`) ou
@@ -251,41 +256,26 @@ outra chamada. Detalhe em `docs/15-multi-tenant-schema.md` §6 (Fase 1).
 - Com `TENANT_ROUTING=false` (o default) **nenhum** endereço dá 404: todo host
   resolve para o tenant default, que é o comportamento de antes do multi-tenant.
 
-## Webhooks
+## Webhooks e camada Pagar.me — fora da API do backend
 
-| Método | Path | Papel | Descrição |
-|---|---|---|---|
-| POST | `/webhooks/pagarme` | público | Webhook do Pagar.me V5 (assinatura verificada; grava a inbox antes do 200) |
+Tudo abaixo foi **removido do backend Node** pela migration
+`0010_remove_payment_ifood.sql` (tabelas `payment`, `payment_event`,
+`payment_refund`, colunas `ifood_*`/`pagarme_enabled`) e pelo apagamento dos
+arquivos de rota. Não existe nenhuma rota `/webhooks/*`, `/payments/*` ou
+`/internal/pagarme/*` em `backend/src/http/routes/` hoje:
 
-## Cobrança no Pagar.me (`payment`)
+| O que a doc antiga listava | Estado atual |
+|---|---|
+| `POST /webhooks/pagarme` | removido — o webhook Pagar.me é recebido pelo serviço Go `pagarme-webhook/` (fora do backend); o serviço **ainda chama** `POST /internal/pagarme/...` no Node, que não existe mais (ver riscos abaixo) |
+| `POST/GET /orders/:id/payments` como "cobrança no gateway", `GET/POST /payments/:paymentId*` | removidos — o que existe hoje são as **linhas de pagamento da comanda** em §Comandas (`order_payment`) + estorno em `POST /orders/:id/payments/:paymentId/refunds` |
+| `POST /internal/pagarme/events/:id/apply`, `POST /internal/pagarme/charges/apply` | removidos do Node (sem tabela `payment_event` para gravar) |
 
-Cobrança no gateway — tabela `payment`, distinta de `order_payment` (que é a
-linha registrada pela pessoa). Detalhe em `docs/19-pagarme.md`.
-
-| Método | Path | Papel | Descrição |
-|---|---|---|---|
-| POST | `/orders/:id/payments` | cashier, manager | Criar cobrança (`pix`/`credit_card`; idempotente por `correlationId`) |
-| GET | `/orders/:id/payments` | cashier, manager, waiter | Listar tentativas da comanda |
-| GET | `/payments/:paymentId` | cashier, manager, waiter | Detalhe da cobrança |
-| POST | `/payments/:paymentId/cancel` | cashier, manager | Cancelar cobrança pendente |
-| POST | `/payments/:paymentId/refund` | manager | Estorno parcial ou integral |
-
-### Canal interno (`pagarme-webhook/`)
-
-Não é API de produto: é o único sentido de comunicação entre o backend Node e o
-serviço Go que drena a inbox. O Go **pergunta**; o Node faz a transação
-(`applyCharge`, `bridgePaidToOrder`, `audit_log`, `outbox_event`). Auth por token
-opaco no header `X-Internal-Token` (alias: `Authorization: Bearer`), comparado em
-tempo constante. Sem `PAGARME_INTERNAL_TOKEN` no servidor, tudo é recusado com 401.
-
-O Caddy **não** expõe `/internal/*` (responde 404): o Go chega pela rede interna,
-via `NODE_INTERNAL_URL`. Os status são contrato — o drainer Go decide entre
-reenviar, `ignored` e DLQ a partir deles (200/401/404/422/5xx).
-
-| Método | Path | Auth | Descrição |
-|---|---|---|---|
-| POST | `/internal/pagarme/events/:eventRowId/apply` | token | Aplica o evento da inbox (`:eventRowId` = `payment_event.id` local) |
-| POST | `/internal/pagarme/charges/apply` | token | Aplica a cobrança relida do gateway (reconciliação) |
+Os docs `19-pagarme.md` e `20-pagarme-pendencias.md` (camada V5) foram
+removidos em `308c9977`; recupere com
+`git show 308c9977^:docs/19-pagarme.md` (idem `20-…`).
+**Decisão (2026-10-18): Pagar.me está de lado por ora** — não mexer no serviço
+Go `pagarme-webhook/` nem em contrato algum sem decisão nova; se ele estiver no
+deploy, tratar como pendência de deploy conhecida, não de API.
 
 ## Realtime (WebSocket)
 

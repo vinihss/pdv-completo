@@ -30,7 +30,10 @@ REDIS_PORT=6379
 REDIS_URL=redis://redis:6379
 
 # --- Mapas & Rotas ---
-OSRM_REGION=sul-261015
+# Região metropolitana norte (POA + São Leopoldo + Novo Hamburgo...),
+# recortada do Geofabrik Sul por GEO_BBOX (ver deploy/prepare-geo-data.sh).
+GEO_NAME=metropole-poa
+GEO_BBOX=-51.40,-30.20,-50.95,-29.55
 EOF
 fi
 

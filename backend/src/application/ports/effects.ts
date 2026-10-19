@@ -163,6 +163,13 @@ export interface MailerSendResult {
 
 export interface Mailer {
   send(input: MailerSendInput): Promise<MailerSendResult>;
+  /**
+   * ADIÇÃO (Onda identidade): o SMTP está configurado? O convite (`POST /users`)
+   * e o `forgot-password` precisam decidir `503 email_not_configured` ANTES de
+   * gravar/responder — sem isso a criação falharia só depois do trabalho todo, e
+   * a resposta variaria conforme o email existir ou não (enumeração).
+   */
+  isConfigured(): boolean;
 }
 
 // ---------- idempotência de endpoints (espelha `withIdempotency` do middleware) ----------
