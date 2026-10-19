@@ -21,7 +21,7 @@ Sistema de ponto de venda para restaurantes e pubs. Este repositório é um mono
 | `standalone-*`, `standalone-shared/` | Aplicativos e código compartilhado Tauri/Rust |
 | `ws-gateway/` | Gateway realtime em Go |
 | `pagarme-webhook/` | Serviço Go de webhook Pagar.me |
-| `cmd/pdv/` | Código-fonte da CLI Go |
+| `cmd/pdv/` | Código-fonte da CLI Rust (`pdv`) |
 | `deploy/`, `scripts/` | Deploy, build e ferramentas de desenvolvimento |
 | `docs/` | Specs, contratos, guias por área e índice de documentação |
 

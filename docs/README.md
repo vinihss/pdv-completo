@@ -8,6 +8,7 @@ Este índice é a porta de entrada para pessoas e agentes. Comece pelo objetivo 
 |---|---|---|
 | Entender produto e critérios | [Visão geral](00-overview.md) | [Critérios de aceite](03-acceptance-criteria.md), specs de produto abaixo |
 | Rodar/contribuir | [README](../README.md), [CONTRIBUTING](../CONTRIBUTING.md) | [Scripts](../scripts/README.md) |
+| CLI local e TUI interativa | [CLI `pdv`](27-cli-pdv-rust.md) | [Scripts](../scripts/README.md) |
 | Alterar API/backend | [Guia backend](agent-backend.md) | [Mapa backend](agent-backend-map.md), [índice da API](agent-api-index.md), [guia de migrations](../backend/migrations/README.md) |
 | Alterar interface React | [Guia frontend](../frontend/docs/agent-frontend.md) | [Mapa frontend](agent-frontend-map.md), [testes frontend](../frontend/docs/agent-testing.md) |
 | Testes e validação | [Guia de testes](agent-testing.md) | scripts e workflows do componente |
@@ -41,6 +42,7 @@ Este índice é a porta de entrada para pessoas e agentes. Comece pelo objetivo 
 | [`17-runbook-unificacao-migrations.md`](17-runbook-unificacao-migrations.md) | Runbook de migrations |
 | [`25-admin-server-tui.md`](25-admin-server-tui.md) | Plano do admin server (Go, no host) + TUI remota de administração — **plano, não implementado** |
 | [`26-identidade-centralizada.md`](26-identidade-centralizada.md) | Identidade centralizada: novo login (email/senha), seleção de empresa, invite — **plano aprovado em implementação**; registra a decisão por schema único + RLS (workstream B) |
+| [`27-cli-pdv-rust.md`](27-cli-pdv-rust.md) | CLI local `pdv` (Rust): comandos, TUI interativa, instalação — **implementado (fase 1)** |
 
 ### Documentos removidos em `308c9977` (recuperar com `git show 308c9977^:docs/<arquivo>`)
 
