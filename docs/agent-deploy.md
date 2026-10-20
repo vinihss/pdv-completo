@@ -10,12 +10,12 @@ Deploy azul/verde com gap HTTP zero usando Docker Compose + Caddy (HTTPS automá
 
 ```
 deploy/
-├── docker-compose.yml         # produção (postgres + backend + frontend + caddy + ws-gateway[profile])
-├── docker-compose.dev.yml     # desenvolvimento (postgres + backend + frontend)
-├── docker-compose.local.yml   # stack local completo
+├── docker-compose.yml          # base do stack (postgres + backend + frontend + caddy + ws-gateway[profile])
+├── docker-compose.override.yml # override de DESENVOLVIMENTO (projeto `pdv-dev`): imagem, rede, volume e portas próprios
+├── docker-compose.prod.yml     # stack específico da VPS de produção
 ├── Caddyfile                  # config do proxy (upstream por variável)
-├── Caddyfile.dev
-├── Caddyfile.local
+├── Caddyfile.dev              # Caddy do stack base (frontend nginx na 80)
+├── Caddyfile.devstack         # Caddy do stack de DEV (frontend Vite na 5173, HTTP puro)
 ├── caddy-assemble.sh          # resolve o upstream ativo e valida antes de aplicar
 ├── switch.sh                  # deploy sem downtime (switch/install/rollback/status)
 ├── deploy-pedido-public.sh    # republica SÓ o app público (npm run deploy:pedido)
@@ -107,8 +107,8 @@ o healthcheck no passo 3. Regras que não podem quebrar:
 - `--no-deps` é obrigatório: o serviço declara `depends_on: caddy`, e sem o
   `--no-deps` o compose recriaria o PROXY para trocar um nginx de estático
   (derrubando `caddy reload` e as conexões WS do salão por causa de um cardápio)
-- O `COMPOSE` usado é perguntado antes: os stacks `local`/`dev`
-  (`docker-compose.local.yml`, `docker-compose.dev.yml`) **não** declaram o
+- O `COMPOSE` usado é perguntado antes: o stack de **desenvolvimento**
+  (`docker-compose.yml` + `docker-compose.override.yml`) **não** declara o
   serviço, e `compose build pedidopublic` lá morre com "no such service". É o
   `has_service` (via `config --services`), não um `|| true` — que esconderia
   um erro de verdade
@@ -366,15 +366,19 @@ Node. Comandos no README §"Como desligar".
   uma falha do gateway não pode reprovar um deploy em que o backend está
   perfeitamente saudável.
 
-### Dev e local
+### Dev e produção
 
-- **local** (`docker-compose.local.yml`): igual à produção, roda o mesmo
-  `caddy-assemble.sh`, então `WS_BACKEND=go` funciona igual. É onde se testa um
-  switch com o gateway no ar antes do VPS.
-- **dev** (`docker-compose.dev.yml`): o Caddy **não** roda o
-  `caddy-assemble.sh` (a config é montada direto do `Caddyfile.dev`), então
-  `WS_BACKEND` **não** é traduzida lá — defina `PDV_WS_UPSTREAM` direto no
-  `.env` e suba o gateway com `--profile ws-gateway`.
+- **dev** (`docker-compose.yml` + `docker-compose.override.yml`, projeto
+  `pdv-dev`, levantado pelo `scripts/dev/setup-dev.sh`): o Caddy **não** roda o
+  `caddy-assemble.sh` (a config é montada direto do `Caddyfile.devstack`), então
+  `WS_BACKEND` **não** é traduzida lá — o override define `PDV_WS_UPSTREAM`
+  direto no serviço `caddy` e o gateway sobe com `--profile ws-gateway`.
+  `PDV_COMPOSE_OVERRIDE` existe para quem precisar apontar o `switch.sh` para
+  outro par de compose.
+- **VPS** (`docker-compose.prod.yml` + o proxy do host): o stack específico da
+  VPS de produção; o proxy do host é quem roda o `caddy-assemble.sh`, então
+  `WS_BACKEND=go` funciona igual. É onde se testa um switch com o gateway no ar
+  antes do VPS.
 
 ### O que este guia não cobre (e o gate fecha)
 
