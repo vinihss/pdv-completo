@@ -14,6 +14,9 @@ pub struct Cli {
 pub enum Commands {
   Status,
   Tui,
+  /// Sobe o ambiente de dev INTEIRO em containers Docker (docker compose:
+  /// postgres, redis, backend, frontend e caddy), roda o seed de demonstração
+  /// e imprime as URLs do ambiente. O host só precisa do Docker.
   Setup {
     #[arg(long)]
     no_seed: bool,
@@ -157,7 +160,7 @@ fn print_usage() {
   print!("{}", USAGE);
 }
 
-const USAGE: &str = "Uso: ./pdv <domínio> <comando> [args...]\n\nDomínios:\n  status\n  setup\n  worktree <new|list|rm>\n  dev <backend|frontend|all> [--profile <pdv|kds|garcon|entregador>]\n  build <standalone|app|backend|frontend>\n  test <backend|frontend|gateway|all>\n  lint <frontend|all>\n  db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo|provision|reset-pin|add-user|list>\n  tui\n  check [backend|frontend|all]\n  deploy <switch|backup|backup-fetch|probe|install|reset|caddy|run-cloud|pedido> [opções]\n  -h|--help\n\nSem argumentos, ./pdv imprime esta ajuda e sai com 0.\nCada domínio com argumento inválido imprime o uso e sai com != 0.\n";
+const USAGE: &str = "Uso: ./pdv <domínio> <comando> [args...]\n\nDomínios:\n  status\n  setup [--no-seed]  (ambiente de dev em containers)\n  worktree <new|list|rm>\n  dev <backend|frontend|all> [--profile <pdv|kds|garcon|entregador>]\n  build <standalone|app|backend|frontend>\n  test <backend|frontend|gateway|all>\n  lint <frontend|all>\n  db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo|provision|reset-pin|add-user|list>\n  tui\n  check [backend|frontend|all]\n  deploy <switch|backup|backup-fetch|probe|install|reset|caddy|run-cloud|pedido> [opções]\n  -h|--help\n\nSem argumentos, ./pdv imprime esta ajuda e sai com 0.\nCada domínio com argumento inválido imprime o uso e sai com != 0.\n";
 
 fn handle_status() -> i32 {
   use crate::config::root_path;

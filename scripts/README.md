@@ -77,7 +77,7 @@ Para deployment, use [`../deploy/README.md`](../deploy/README.md). Para validar 
 
 | Caminho | O que faz | Como invocar | Dependências |
 |---|---|---|---|
-| `setup-dev.sh` | Sobe o ambiente de desenvolvimento: Node 20+, Docker/Postgres, `.env`, `npm install`, backend e frontend juntos | `./pdv setup` ou `bash scripts/dev/setup-dev.sh` | Node 20+, Docker, npm |
+| `setup-dev.sh` | Sobe o ambiente de desenvolvimento **em containers** (docker compose: postgres, redis, backend, frontend e caddy), cria o env de dev (`deploy/.env.dev`), roda o seed de demonstração e imprime as URLs do ambiente. O código entra por bind mount: editar no host reflete no container | `pdv setup` ou `bash scripts/dev/setup-dev.sh` (`--no-seed` pula o seed) | Docker + plugin `docker compose` |
 | `dev-worktree.sh` | Convenção de worktree por branch: `new`/`list`/`rm` de `~/pdv/<branch>` | `./pdv worktree list` ou `bash scripts/dev/dev-worktree.sh list` | git, `gh` (opcional, no `rm`) |
 
 ## `scripts/build/`

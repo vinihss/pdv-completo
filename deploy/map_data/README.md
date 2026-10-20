@@ -66,10 +66,17 @@ GEO_OSM_URL=<url-do-pbf> GEO_NAME=<cidade> ./prepare-geo-data.sh
 | `optimizer`| ghcr.io/vroom-project/vroom-docker | http://optimizer.localhost:8081 |
 | `tiles`    | maptiler/tileserver-gl            | http://tiles.localhost:8081 |
 
-> **Porta do Caddy em dev:** 8081 (8443 para HTTPS). O host deste ambiente já
-> roda o Caddy de produção (systemd `pdv-caddy`) nas 80/443 — por isso o
-> override publica 8081/8443. Em máquina limpa, troque de volta no
-> `docker-compose.override.yml`.
+> **Porta do Caddy em dev:** 8081 por padrão e **só HTTP** — o
+> `Caddyfile.devstack` (o Caddyfile do stack de dev) não liga TLS, então não
+> há porta 8443. O `scripts/dev/setup-dev.sh` escolhe uma porta livre e grava a
+> escolha em `deploy/.env.dev` (`DEV_CADDY_HTTP_PORT`): se a máquina já roda o
+> Caddy de produção (systemd `pdv-caddy`) nas 80/443, o Caddy de dev migra
+> para a próxima porta livre em vez de falhar.
+>
+> As rotas `routes.localhost`/`optimizer.localhost`/`tiles.localhost` ficam no
+> `Caddyfile.dev` (stack base). O `pdv setup` **não** sobe
+> router/optimizer/tiles — eles dependem dos dados de mapa que o
+> `prepare-geo-data.sh` baixa.
 
 Smoke test manual (sem mapa) — formatos validados:
 

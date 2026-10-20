@@ -7,6 +7,13 @@ import { ALL, appProfilePlugin, resolveAppProfile } from './vite/app-profiles.js
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+// Alvo do proxy de dev (ver `server.proxy` abaixo). No dev local o backend
+// roda no mesmo host (127.0.0.1:3000). No dev em container (compose), o
+// backend é outro container — o scripts/dev/setup-dev.sh exporta
+// VITE_BACKEND_TARGET=http://backend:3000 no serviço frontend.
+const backendTarget = process.env.VITE_BACKEND_TARGET || 'http://127.0.0.1:3000'
+const backendWsTarget = backendTarget.replace(/^http/, 'ws')
+
 // Um build, N apps: o MESMO bundle React sobe nas 4 entries, o que muda é o
 // outDir e o que o plugin escreve por cima (manifest + sw).
 //
@@ -46,11 +53,19 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     proxy: {
-      '/api': { target: 'http://127.0.0.1:3000', changeOrigin: true, rewrite: (p) => p.replace(/^\/api/, '') },
-      '/uploads': { target: 'http://127.0.0.1:3000', changeOrigin: true },
+      // Alvo do backend em dev. No dev local (vite no host) é o próprio host:
+      // 127.0.0.1:3000. Quando o vite sobe DENTRO do compose (stack dev via
+      // scripts/dev/setup-dev.sh / docker compose up), o backend é outro
+      // container na rede do projeto — o compose seta
+      // VITE_BACKEND_TARGET=http://backend:3000 no serviço frontend.
+      // changeOrigin muda o Host header para o do alvo; o Origin do browser
+      // continua sendo o do vite, mas como o browser enxerga same-origin
+      // (mesma origem http://localhost:5173), CORS não entra no fluxo de dev.
+      '/api': { target: backendTarget, changeOrigin: true, rewrite: (p) => p.replace(/^\/api/, '') },
+      '/uploads': { target: backendTarget, changeOrigin: true },
       // Webhook da Meta: path do backend, sem o prefixo /api do dev.
-      '/webhooks': { target: 'http://127.0.0.1:3000', changeOrigin: true },
-      '/realtime': { target: 'ws://127.0.0.1:3000', ws: true },
+      '/webhooks': { target: backendTarget, changeOrigin: true },
+      '/realtime': { target: backendWsTarget, ws: true },
     },
   },
   define: {

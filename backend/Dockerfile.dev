@@ -3,11 +3,19 @@
 # ============================================================
 FROM node:22-slim
 
+# Toolchain de build: o `better-sqlite3` (peer dependency OPCIONAL do
+# drizzle-orm, marcado `devOptional` no lockfile) tem install script — o npm
+# roda o node-gyp e o build estoura sem python3/make/g++. Mesma razão pela
+# qual o `backend/Dockerfile` (produção) instala a toolchain. Sem esta linha
+# o `npm install` abaixo falha e a imagem de dev não existe.
 RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Instalar dependências
+# `npm ci` (e não `npm install`): o lockfile é o contrato da imagem — sem ele
+# a mesma tag pode sair com dependências diferentes em cada build. Testado
+# dentro do node:22-slim com a toolchain acima: o `better-sqlite3` compila.
 COPY package*.json ./
 RUN npm ci
 

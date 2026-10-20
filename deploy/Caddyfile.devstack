@@ -1,0 +1,40 @@
+# ============================================================================
+# Caddyfile do STACK DE DEV (projeto compose `pdv-dev`).
+#
+# POR QUE ESTE ARQUIVO EXISTE
+#   O `deploy/Caddyfile.dev` é o Caddyfile do stack de PRODUÇÃO: a rota
+#   `localhost` dele faz `reverse_proxy frontend:80` — o nginx que serve o
+#   build estático em produção. No stack de DEV o container `frontend` roda
+#   o Vite na 5173 (não existe nada escutando na 80 dele), então usar o
+#   `Caddyfile.dev` aqui daria 502 na rota do app.
+#
+# POR QUE O `Caddyfile.dev` NÃO PODE SER ALTERADO
+#   Ele é o Caddyfile do stack de PRODUÇÃO (app + redis/router/optimizer/
+#   tiles/pgadmin). Apontá-lo para o Vite quebraria a produção. Por isso o
+#   dev tem o seu próprio arquivo, e o `docker-compose.override.yml` monta
+#   ESTE no container do caddy do stack de dev.
+#
+# HTTP PURO (sem `https://` implícito, sem redirect 308, sem certificado)
+#   Em dev não há TLS: o Caddy escuta SÓ na porta 80 do container. O
+#   `http://` explícito é o que garante isso — sem ele o Caddy ligaria o
+#   HTTPS automático (porta 443 + CA interno) e o navegador pediria
+#   exceção de certificado a cada acesso.
+#
+# ROTAS
+#   localhost      -> o app (Vite do container do frontend), na 5173
+#   api.localhost  -> a API (backend), na 3000
+#   geo.localhost  -> a página de teste da stack geográfica (estático)
+# ============================================================================
+
+http://localhost {
+	reverse_proxy frontend:5173
+}
+
+http://api.localhost {
+	reverse_proxy backend:3000
+}
+
+http://geo.localhost {
+	root * /srv/geo-test
+	file_server
+}

@@ -65,7 +65,7 @@ próprio argumento e sai com código `!= 0` em uso inválido.
 |---|---|
 | `pdv status` | Bloco git, worktrees, versões de ferramentas e presença de dependências locais |
 | `pdv tui` | Interface interativa (ver §4) |
-| `pdv setup [--no-seed]` | Executa `scripts/dev/setup-dev.sh` |
+| `pdv setup [--no-seed]` | Executa `scripts/dev/setup-dev.sh`, que sobe o ambiente de dev **inteiro em containers** (docker compose: postgres, redis, backend, frontend e caddy), roda o seed e imprime as URLs |
 | `pdv dev <backend\|frontend\|all> [--profile <pdv\|kds\|garcon\|entregador>]` | Sobe `npm run dev` no alvo; `--profile` só é válido em `frontend`/`all` |
 | `pdv build <standalone\|app\|backend\|frontend> [opções]` | `standalone`/`app` → `scripts/build/build-app.sh`; os demais → `npm run build` |
 | `pdv test [backend\|frontend\|gateway\|all]` | Backend/frontend via npm; `gateway` via `scripts/test/test-gateway.sh`. Default `all` |

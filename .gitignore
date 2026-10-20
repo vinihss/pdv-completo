@@ -20,6 +20,11 @@ deploy/maps/data
 .env
 .env.local
 .env.*.local
+# Env do stack de DEV (projeto compose `pdv-dev`) — gerado por
+# scripts/dev/setup-dev.sh. Não é a config de produção (deploy/.env): o dev
+# usa --env-file para não ler/escrever aquele arquivo, e o JWT_SECRET gerado
+# aqui é local. Nunca versionado.
+deploy/.env.dev
 
 # Fotos de produto (uploads) — produção em volume Docker (pdv_backend_uploads)
 backend/uploads/
