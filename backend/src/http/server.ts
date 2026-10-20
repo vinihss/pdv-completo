@@ -30,6 +30,51 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * `true` quando a falha das migrations no boot tem que ABORTAR o processo.
+ *
+ * Em produção (container de deploy com `NODE_ENV=production`, ou modo cloud)
+ * subir com o schema quebrado é pior do que não subir: o `/health` só checa
+ * a CONEXÃO com o banco — não o schema —, então o healthcheck ficaria VERDE
+ * e o portão do deploy aprovaria um app que quebra em toda query. Abortar
+ * deixa o healthcheck vermelho e o deploy parado.
+ *
+ * Em dev o comportamento é o de sempre: avisar e seguir, porque o banco pode
+ * estar subindo junto com o app (as migrations entram na próxima reinicialização).
+ *
+ * O predicado é uma função separada (e recebe o `deploymentMode` por
+ * parâmetro) para ser testável sem subir o app nem derrubar um banco.
+ */
+export function deveAbortarBootPorMigration(
+  deploymentMode: "local" | "cloud" = config.deploymentMode,
+): boolean {
+  return process.env.NODE_ENV === "production" || deploymentMode === "cloud";
+}
+
+/**
+ * O que fazer quando as migrations do boot falham.
+ *
+ * Em produção/cloud o boot ABORTA (relança): o `/health` só checa a conexão
+ * com o banco — não o schema —, então subir com o schema quebrado deixaria
+ * o healthcheck VERDE e o portão do deploy aprovaria um app que quebra em
+ * toda query.
+ *
+ * Em dev o comportamento é o de sempre: só avisar, porque o banco pode estar
+ * subindo junto com o app (as migrations entram na próxima reinicialização).
+ *
+ * Fora do `main()` para o teste cobrir o comportamento sem subir o app.
+ */
+export function tratarFalhaDeMigrationNoBoot(
+  err: unknown,
+  deploymentMode: "local" | "cloud" = config.deploymentMode,
+): void {
+  const mensagem = (err as Error).message;
+  if (deveAbortarBootPorMigration(deploymentMode)) {
+    throw new Error(`[boot] migrations falharam: ${mensagem}`, { cause: err });
+  }
+  console.warn(`[boot] migrations falharam: ${mensagem} — migrations serão aplicadas na próxima reinicialização`);
+}
+
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: { level: config.logLevel }, trustProxy: true });
 
@@ -119,7 +164,9 @@ async function main() {
         await runMigrations({ schema: tenant.schemaName });
       }
     } catch (err) {
-      throw new Error(`[boot] migrations falharam: ${(err as Error).message}`, { cause: err });
+      // Dev: só avisa. Produção/cloud: relança e o boot morre (o healthcheck
+      // fica vermelho e o portão do deploy bloqueia).
+      tratarFalhaDeMigrationNoBoot(err);
     }
   }
 

@@ -22,9 +22,13 @@ public` e não encontra migration nenhuma para reaplicar. É um sintoma que
 parece bug de código e não é.
 
 ```bash
+# Imagem com POSTGIS: a migration `0011_delivery_gis.sql` faz `CREATE EXTENSION
+# postgis`, e `CREATE EXTENSION` NÃO instala o pacote do SO — a imagem
+# `postgres:16` não o traz e o global setup morre com `extension "postgis" is
+# not available`. É a mesma imagem que o CI usa (job `test-backend`).
 docker run -d --name pdv-test-db -p 127.0.0.1:55432:5432 \
   -e POSTGRES_USER=pdv -e POSTGRES_PASSWORD=pdv_test_pw -e POSTGRES_DB=pdv_test \
-  postgres:16
+  postgis/postgis:16-3.5-alpine
 
 cd backend && npm run db:migrate   # aplica migrations/*.sql; o global setup
                                   # também aplica, mas exige o schema legível
