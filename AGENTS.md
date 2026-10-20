@@ -92,6 +92,17 @@ ficou pendente. Os dois conjuntos se complementam, não se substituem.
 
 Requer Node.js 20+ e PostgreSQL 16.
 
+### Ambiente de dev (tudo em containers)
+
+```bash
+pdv setup                   # sobe postgres, redis, backend, frontend e caddy via docker compose
+```
+
+O script cria o env de dev (`deploy/.env.dev`), aplica o seed de demonstração
+dentro do container do backend e imprime as URLs do ambiente. O código do
+backend e do frontend entra por bind mount: editar no host reflete no container
+(hot reload). `pdv setup --no-seed` preserva os dados do banco.
+
 ### Backend
 
 ```bash
@@ -114,6 +125,11 @@ Usuários de teste (seed de dev — nunca rode em produção):
 | Marcos Entrega | Entregador | 2222 |
 | Júlia Entrega | Entregador | 3333 |
 | Estação Cozinha | Cozinha | 0000 |
+
+O login atual é **e-mail + senha** (identidade centralizada, `docs/26`): as
+contas de dev usam a senha `pdv1234` e o e-mail `<slug>@pdv.local` (ex.:
+`ana.ribeiro@pdv.local`, `cozinha@pdv.local`). O PIN da tabela continua válido
+na tela de fallback (`/login/pin`).
 
 Health check: `GET http://localhost:3000/health`
 
@@ -184,6 +200,7 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | Comando | Onde | O que faz |
 |---|---|---|
 | `pdv --help` | CLI instalada | ajuda da CLI Rust compilada de `cmd/pdv/` (veja [`docs/27-cli-pdv-rust.md`](docs/27-cli-pdv-rust.md)) |
+| `pdv setup` | CLI instalada | sobe o ambiente de dev **em containers** (docker compose: postgres, redis, backend, frontend, caddy), roda o seed e imprime as URLs; `--no-seed` preserva o banco |
 | `npm run dev` | backend | roda com `tsx watch` |
 | `npm run build` | backend | `tsc` → `dist/` |
 | `npm run start` | backend | roda `dist/http/server.js` |

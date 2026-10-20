@@ -211,10 +211,10 @@ FRONTEND_SERVICES=(frontend frontend-next)
 # O app público de pedidos entra no switch junto com o backend e o frontend
 # (ver a seção do cabeçalho). O nome fica numa variável — e não espalhado em
 # três comandos — porque o serviço NÃO existe em todo compose deste repositório:
-# `docker-compose.local.yml` e `docker-compose.dev.yml` (os stacks de
-# `--profile local`) não o declaram, e um `compose build pedidopublic` lá
-# morre com "no such service". `has_service` é o que decide, uma vez, em vez de
-# o switch inteiro carregar `|| true` que esconderia um erro de verdade.
+# o stack de DESENVOLVIMENTO (`docker-compose.yml` + `docker-compose.override.yml`)
+# não o declara, e um `compose build pedidopublic` lá morre com "no such
+# service". `has_service` é o que decide, uma vez, em vez de o switch inteiro
+# carregar `|| true` que esconderia um erro de verdade.
 PEDIDO_SERVICE="pedidopublic"
 
 # Um serviço existe neste compose? Pergunta ao próprio compose (`config

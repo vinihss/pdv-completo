@@ -1,19 +1,51 @@
+# ============================================================================
+# Override de DESENVOLVIMENTO — projeto compose `pdv-dev`.
+#
+# Aplicado em cima de `deploy/docker-compose.yml`:
+#   docker compose --env-file deploy/.env.dev \
+#     -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml up -d
+#
+# Regras deste arquivo:
+#   * o projeto compose é `pdv-dev` (separado do `pdv` de produção);
+#   * TODO recurso que o compose base nomeia de forma fixa (imagem, rede,
+#     volume) é re-apontado aqui — senão o dev escreve por cima da produção;
+#   * as portas publicadas são variáveis: o host pode já ter o Postgres
+#     nativo, o Caddy de produção em 80/443/8081 etc.
+#     `scripts/dev/setup-dev.sh` escolhe portas livres e grava a escolha
+#     em `deploy/.env.dev` (os valores abaixo são os defaults).
+#
+# Duas mudanças deste arquivo (stack de dev):
+#   1. o `caddy` monta o `Caddyfile.devstack` (o seu próprio Caddyfile de
+#      dev) em vez do `Caddyfile.dev`, que é o do stack de PRODUÇÃO;
+#   2. o `postgres` publica a porta por variável (`DEV_POSTGRES_PORT`),
+#      para o host poder falar com o banco mesmo com a 5432 ocupada.
+# ============================================================================
 name: pdv-dev
+
 services:
   caddy:
     ports:
-      # Portas alternativas de dev: o host já tem o Caddy de produção
-      # (systemd `pdv-caddy`) nas 80/443. Acesso dev via <host>:8081.
-      - "8081:80"
-      - "8443:443"
+      # Só a porta 80: o `Caddyfile.devstack` é HTTP PURO (sem TLS, sem
+      # redirect 308) — o Caddy do dev escuta apenas na 80 do container.
+      - "${DEV_CADDY_HTTP_PORT:-8081}:80"
     environment:
       - DOMAIN=localhost
       - PDV_WS_UPSTREAM=${PDV_WS_UPSTREAM:-backend:3000}
     volumes:
-      - ./Caddyfile.dev:/etc/caddy/Caddyfile
-      # Mapeia as pastas dos Frontends para o Caddy servir os ficheiros diretamente em desenvolvimento
+      # Caddyfile PRÓPRIO do dev. O `Caddyfile.dev` é o do stack de
+      # PRODUÇÃO (a rota `localhost` dele faz proxy para `frontend:80`, o
+      # nginx de produção) e NÃO pode ser alterado: em dev o container
+      # `frontend` é o Vite na 5173, então o proxy para a 80 daria 502.
+      # O `Caddyfile.devstack` faz proxy para `frontend:5173` e serve só
+      # HTTP. O `geo-test` continua montado (rota `geo.localhost`).
+      - ./Caddyfile.devstack:/etc/caddy/Caddyfile
       - ../frontend:/srv/frontend
       - ./geo-test:/srv/geo-test:ro
+      # O compose base fixa `name: pdv_caddy_data` / `pdv_caddy_config` (os
+      # volumes do Caddy de PRODUÇÃO, com o CA interno e o autosave). Sem
+      # estas linhas o Caddy de dev escreveria nos volumes de produção.
+      - caddy_data_dev:/data
+      - caddy_config_dev:/config
     depends_on:
       - backend
 
@@ -21,78 +53,115 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile.dev
-
-    command: npm run dev # Executa com nodemon / tsx para reiniciar a API a cada alteração
-#    ports:
-#      - "3000:3000"
+    # Tag PRÓPRIA de dev: o compose base usa `pdv-backend:local`, exatamente a
+    # mesma tag do stack de produção. Sem esta linha, `up --build` de dev
+    # sobrescreveria a imagem que a produção está usando.
+    image: pdv-backend-dev:local
     environment:
       - NODE_ENV=development
-      #- CHOKIDAR_USEPOLLING=true # Corrige problemas de sincronização de ficheiros em alguns sistemas (ex: WSL2 / Windows)    volumes:
     volumes:
       - ../backend:/app         # Sincroniza o código vivo do host com o container
       - /app/node_modules        # "Anonymous volume": impede que a pasta local mude o node_modules do Linux
+      # Uploads de dev: o compose base monta `backend_uploads` (nome fixo
+      # `pdv_backend_uploads`, o de produção). O merge de volumes é por caminho
+      # de destino, então /app/uploads precisa ser remapeado aqui.
+      - backend_uploads_dev:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
+
   frontend:
     build:
       context: ../frontend
       dockerfile: Dockerfile.dev
+    # Mesma razão do backend: tag própria de dev, para não sobrescrever
+    # `pdv-frontend:local` (produção).
+    image: pdv-frontend-dev:local
     environment:
       - NODE_ENV=development
+      # O Vite roda DENTRO do compose: o proxy de /api, /uploads, /webhooks e
+      # /realtime aponta para o container do backend (mesma rede do projeto).
+      - VITE_BACKEND_TARGET=http://backend:3000
     restart: unless-stopped
+    ports:
+      - "${DEV_FRONTEND_PORT:-5173}:5173"
     volumes:
       - ../frontend/src:/app/src
       - ../frontend/public:/app/public
       - ../frontend/index.html:/app/index.html
       - ../frontend/vite.config.js:/app/vite.config.js
-      - ../frontend/vendor:/app/vendor
       - ../frontend/package.json:/app/package.json
       - ../frontend/package-lock.json:/app/package-lock.json
       - /app/node_modules
+    healthcheck:
+      # O healthcheck do compose base é do nginx de PRODUÇÃO: porta 80 e
+      # `wget` — que não existe na imagem node:22-slim. Em dev o container
+      # roda o Vite na 5173, então o probe é por node na 5173 (mesmo estilo do
+      # healthcheck do backend no compose base).
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:5173/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    depends_on:
+      - backend
 
   redis:
-#    ports:
-#      - "6379:6379"
+    image: redis:7-alpine
     volumes:
       - redis_data_dev:/data
+    networks:
+      - pdv-internal
 
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-pdv}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-pdv_password}
+      - POSTGRES_DB=${POSTGRES_DB:-pdv}
     volumes:
       - postgres_data_dev:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
-
-  pgadmin:
-    image: dpage/pgadmin4:latest
-#    ports:
-#      - "8082:80"
-    environment:
-      - PGADMIN_DEFAULT_EMAIL=admin@localhost.com
-      - PGADMIN_DEFAULT_PASSWORD=admin
-    depends_on:
-      - postgres
+      # Porta do Postgres PUBLICADA no host — é só para o host falar com o
+      # banco (psql/DBeaver). O `DATABASE_URL` do backend é INTERNO
+      # (`postgres:5432` na rede do projeto) e não muda com ela.
+      #
+      # A porta é variável: `scripts/dev/setup-dev.sh` escolhe a primeira
+      # livre a partir da configurada (5432 -> 5433 -> ...) e grava a
+      # escolha em `deploy/.env.dev`. A 5432 deixou de ser requisito duro
+      # (o Postgres nativo do host pode estar nela).
+      - "${DEV_POSTGRES_PORT:-5432}:5432"
     networks:
       - pdv-internal
-
-  redis-commander:
-    image: rediscommander/redis-commander:latest
-    environment:
-      - REDIS_HOSTS=local:redis:6379
-#    ports:
-#      - "8081:8081" # Abre na porta 8081 da sua máquina
-    depends_on:
-      - redis
-    networks:
-      - pdv-internal
+    # O `postgres` só existe no override (o compose base não o declara), então
+    # o healthcheck também é do override — e é obrigatório: o `backend`
+    # depende dele com `condition: service_healthy`.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-pdv} -d $${POSTGRES_DB:-pdv}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
 
 volumes:
+  backend_uploads_dev:
+  caddy_config_dev:
+  caddy_data_dev:
   redis_data_dev:
   postgres_data_dev:
 
 networks:
   pdv-internal:
-    name: pdv-internal
+    driver: bridge
+    # Rede PRÓPRIA do dev. O compose base fixa `name: pdv-internal`, a mesma
+    # da produção: com os dois stacks no ar, o backend de dev resolveria
+    # `postgres` para o banco de PRODUÇÃO (os dois serviços ganham o alias
+    # DNS `postgres` na rede compartilhada).
+    name: pdv-dev-internal

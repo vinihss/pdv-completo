@@ -11,7 +11,7 @@ services:
       - "${PDV_PORT:-80}:80"
     environment:
       - DOMAIN=localhost
-      # O Caddy deste stack NÃO roda o caddy-assemble.sh (a config é
+      # O Caddy deste stack NÃO roda o caddy-assemble.sh
       # montada direto de Caddyfile.dev), então a flag `WS_BACKEND` do .env
       # não é traduzida aqui: quem aponta o /realtime* para o gateway em Go
       # é PDV_WS_UPSTREAM, direto.

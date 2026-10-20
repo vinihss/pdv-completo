@@ -228,9 +228,9 @@ echo "[caddy] upstream ativo — backend: ${PDV_BACKEND_UPSTREAM:-backend:3000 (
 # passo 0); aqui a única regra é: vazio é erro, e o erro diz como resolver.
 #
 # A condição é o próprio arquivo de config, e não "a variável existe": o
-# `Caddyfile.local` (stack de `--profile local`) e o `Caddyfile.dev` não usam
-# `{$ROOT_DOMAIN}` em lugar nenhum, então exigir a variável lá quebraria a
-# instalação local sem motivo.
+# `Caddyfile.dev` (stack base) e o `Caddyfile.devstack` (stack de
+# desenvolvimento) não usam `{$ROOT_DOMAIN}` em lugar nenhum, então exigir a
+# variável lá quebraria a instalação local sem motivo.
 #
 # O `sed` tira as linhas de COMENTÁRIO antes do `grep` porque a Caddyfile
 # documenta a variável (o cabeçalho dela, e a seção "os três blocos do meio")
