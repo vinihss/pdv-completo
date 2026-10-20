@@ -78,13 +78,29 @@ function createPool(schemaName: string): Pool {
     throw new Error(`[tenant-db] schema_name inválido para pool: ${JSON.stringify(schemaName)}`);
   }
 
-  return new Pool({
+  const pool = new Pool({
     connectionString: config.databaseUrl,
     max: tenantPoolMax(),
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
     options: `-c search_path=${schemaName},public,pg_temp`,
   });
+
+  // Sem este listener, o Node mata o PROCESSO (não só a requisição) quando a
+  // conexão OCIOSA do pool morre — o `pg` emite 'error' no pool e, sem
+  // ninguém ouvindo, o EventEmitter transforma em "Unhandled 'error' event"
+  // (`pg-pool/index.js:62` → `pool.emit('error', err, client)`). Foi o que
+  // derrubou o servidor inteiro quando o Postgres caiu com um cliente
+  // parado no pool.
+  //
+  // Log-only de propósito: perder uma conexão não é fatal — a próxima
+  // query abre outra. O que NÃO pode é derrubar o servidor por causa disso
+  // (mesmo precedente do Redis em `infra/cache/redis-cache-client.ts`).
+  pool.on("error", (err) => {
+    console.warn(`[tenant-db] erro de conexão no pool de ${schemaName}:`, err?.message ?? String(err));
+  });
+
+  return pool;
 }
 
 /**
