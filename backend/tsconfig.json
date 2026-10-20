@@ -19,7 +19,18 @@
     "paths": {
       "domain/*": ["./src/domain/*"]
     },
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    // `allowImportingTsExtensions` (com os imports `.ts` do código de
+    // identidade) só vale junto com `noEmit` OU com
+    // `rewriteRelativeImportExtensions` — o TypeScript 7 exige um dos dois,
+    // senão o `tsc` morre com TS5096 e NENHUMA imagem do backend é construída
+    // (o `backend/Dockerfile` faz `npm run build`).
+    //
+    // `rewriteRelativeImportExtensions` é o que serve aqui: o build PRECISA
+    // emitir (o `npm run start` roda `dist/http/server.js`), então `noEmit`
+    // não serve. A opção reescreve no emit os `.ts` para `.js` — o output
+    // continua ESM válido para o Node.
+    "rewriteRelativeImportExtensions": true
   },
   "include": ["src"]
 }
