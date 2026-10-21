@@ -573,7 +573,6 @@ impl App {
                 Field::boolean("Impressão habilitada", s.printer_enabled),
                 Field::boolean("Impressão automática", s.printer_auto_print),
                 Field::boolean("Entrega habilitada", s.uses_delivery),
-                Field::boolean("WhatsApp habilitado", s.whatsapp_integration_enabled),
               ],
               active: 0,
             };
@@ -1181,14 +1180,12 @@ impl App {
           (2, "Impressão habilitada"),
           (3, "Impressão automática"),
           (4, "Entrega habilitada"),
-          (5, "WhatsApp habilitado"),
         ] {
           match parse_bool(&self.form.value(idx)) {
             Some(v) => match idx {
               2 => settings.printer_enabled = v,
               3 => settings.printer_auto_print = v,
-              4 => settings.uses_delivery = v,
-              _ => settings.whatsapp_integration_enabled = v,
+              _ => settings.uses_delivery = v,
             },
             None => {
               self.set_status(format!("{key}: use true/false"), StatusKind::Error);

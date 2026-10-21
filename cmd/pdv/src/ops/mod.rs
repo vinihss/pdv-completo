@@ -56,15 +56,44 @@ pub struct StoreSettings {
   pub printer_enabled: bool,
   pub printer_auto_print: bool,
   pub uses_delivery: bool,
-  pub whatsapp_integration_enabled: bool,
 }
 
 fn backend_dir() -> PathBuf {
   root_path().join("backend")
 }
 
-/// Nome de schema aceito: `tenant_<minúsculas/números/underscore>`.
+/// Slug reservado do tenant IMPLÍCITO (ambiente single-tenant).
+///
+/// Em single-tenant o app roda no schema default (`public`) e o registry
+/// `public.tenant` fica vazio — ninguém provisiona tenant lá. Sem esta peça,
+/// os fluxos que operam sobre um tenant (reset de PIN, adicionar usuário,
+/// editar configurações, dump) ficavam sem alvo no dev, mesmo existindo um
+/// `store_settings` de verdade (que vive em `public`).
+pub const DEFAULT_TENANT_SLUG: &str = "default";
+
+/// Schema default: `DEFAULT_TENANT_SCHEMA` do ambiente quando válido
+/// (`^[a-z_][a-z0-9_]*$`, o mesmo padrão do pool dedicado do backend),
+/// senão `public`.
+pub fn default_schema() -> String {
+  std::env::var("DEFAULT_TENANT_SCHEMA")
+    .ok()
+    .map(|v| v.trim().to_string())
+    .filter(|v| {
+      !v.is_empty()
+        && !v.starts_with(|c: char| c.is_ascii_digit())
+        && v
+          .chars()
+          .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    })
+    .unwrap_or_else(|| "public".to_string())
+}
+
+/// Nome de schema aceito: `tenant_<minúsculas/números/underscore>` ou o
+/// schema default (o tenant implícito).
 fn valid_schema(schema: &str) -> bool {
+  if schema == default_schema() {
+    return true;
+  }
   let Some(rest) = schema.strip_prefix("tenant_") else {
     return false;
   };
@@ -88,6 +117,12 @@ fn bool_lit(b: bool) -> &'static str {
 }
 
 /// Lista os tenants do registry `public.tenant`.
+///
+/// Registry VAZIO = ambiente single-tenant (o dev padrão): o app inteiro roda
+/// no schema default (`public`) e ninguém insere linha no registry. Nesse
+/// caso a lista traz o **tenant implícito** — o alvo real das operações de
+/// banco — em vez de uma lista vazia que deixa a TUI sem nada para
+/// selecionar.
 pub fn list_tenants() -> Result<Vec<TenantInfo>, String> {
   let query = "SELECT slug, schema_name, display_name, status, \
                  coalesce(custom_domain, ''), created_at::text \
@@ -112,7 +147,22 @@ pub fn list_tenants() -> Result<Vec<TenantInfo>, String> {
       created_at: parts[5].to_string(),
     });
   }
+  if res.is_empty() {
+    res.push(default_tenant());
+  }
   Ok(res)
+}
+
+/// O tenant implícito — o schema default em ambiente single-tenant.
+fn default_tenant() -> TenantInfo {
+  TenantInfo {
+    slug: DEFAULT_TENANT_SLUG.to_string(),
+    schema_name: default_schema(),
+    display_name: "Padrão (default)".to_string(),
+    status: "active".to_string(),
+    custom_domain: String::new(),
+    created_at: String::new(),
+  }
 }
 
 /// Lê a linha singleton de `store_settings` do schema do tenant.
@@ -122,7 +172,7 @@ pub fn get_store_settings(schema: &str) -> Result<StoreSettings, String> {
   }
   let query = format!(
     "SELECT merchant_name, merchant_city, printer_enabled, printer_auto_print, \
-         uses_delivery, whatsapp_integration_enabled \
+         uses_delivery \
          FROM {schema}.store_settings WHERE id = 'singleton'"
   );
   let out = psql(&query, true)?;
@@ -133,7 +183,7 @@ pub fn get_store_settings(schema: &str) -> Result<StoreSettings, String> {
     ));
   };
   let parts: Vec<&str> = line.trim_end().split('|').collect();
-  if parts.len() != 6 {
+  if parts.len() != 5 {
     return Err(format!("resposta inesperada de store_settings: {line}"));
   }
   let bt = |s: &str| s == "t" || s == "true";
@@ -143,7 +193,6 @@ pub fn get_store_settings(schema: &str) -> Result<StoreSettings, String> {
     printer_enabled: bt(parts[2]),
     printer_auto_print: bt(parts[3]),
     uses_delivery: bt(parts[4]),
-    whatsapp_integration_enabled: bt(parts[5]),
   })
 }
 
@@ -155,14 +204,13 @@ pub fn update_store_settings(schema: &str, s: &StoreSettings) -> Result<(), Stri
   let query = format!(
     "UPDATE {schema}.store_settings SET \
          merchant_name = {}, merchant_city = {}, printer_enabled = {}, \
-         printer_auto_print = {}, uses_delivery = {}, whatsapp_integration_enabled = {} \
+         printer_auto_print = {}, uses_delivery = {} \
          WHERE id = 'singleton'",
     sql_lit(&s.merchant_name),
     sql_lit(&s.merchant_city),
     bool_lit(s.printer_enabled),
     bool_lit(s.printer_auto_print),
     bool_lit(s.uses_delivery),
-    bool_lit(s.whatsapp_integration_enabled),
   );
   psql(&query, false)?;
   Ok(())
@@ -268,7 +316,7 @@ pub fn install_dependencies() -> (bool, String) {
   let mut log = String::new();
   let mut ok = true;
   for dir in ["backend", "frontend"] {
-    let (code, out) = capture_npm_run(dir, "install", &[]);
+    let (code, out) = capture_npm_install(dir);
     log.push_str(&format!("=== npm install ({dir}) — código {code} ===\n"));
     log.push_str(out.trim_end());
     log.push('\n');
@@ -278,6 +326,16 @@ pub fn install_dependencies() -> (bool, String) {
     }
   }
   (ok, log)
+}
+
+/// `npm install` no diretório.
+///
+/// NÃO é `npm run install`: o `package.json` não tem script "install" (o npm
+/// trata `npm install` como comando próprio), então `npm run install` morre
+/// com `Missing script: "install"` — foi o que a tela de Setup mostrava.
+fn capture_npm_install(rel_dir: &str) -> (i32, String) {
+  let dir = root_path().join(rel_dir);
+  capture_cmd_in_dir(&dir, &[], "npm", &["install"])
 }
 
 /// Garante `backend/.env` (copia de `.env.example` quando ausente).
@@ -385,4 +443,34 @@ pub fn setup_full() -> (bool, String) {
     out.trim_end()
   ));
   (code == 0, log)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn tenant_implicito_aponta_para_o_schema_default() {
+    let t = default_tenant();
+    assert_eq!(t.slug, DEFAULT_TENANT_SLUG);
+    assert_eq!(t.schema_name, default_schema());
+    assert_eq!(t.status, "active");
+    assert_eq!(t.display_name, "Padrão (default)");
+  }
+
+  #[test]
+  fn schema_default_e_public_quando_o_ambiente_nao_manda() {
+    // O ambiente do teste não define DEFAULT_TENANT_SCHEMA.
+    assert_eq!(default_schema(), "public");
+    assert!(valid_schema("public"));
+  }
+
+  #[test]
+  fn schema_de_tenant_continua_valendo_e_o_lixo_nao_passa() {
+    assert!(valid_schema("tenant_umami"));
+    assert!(!valid_schema("umami"));
+    assert!(!valid_schema("tenant_UMAMI"));
+    assert!(!valid_schema("public; DROP TABLE store_settings"));
+    assert!(!valid_schema(""));
+  }
 }
