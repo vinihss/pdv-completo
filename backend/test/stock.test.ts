@@ -56,7 +56,7 @@ describe("estoque por produto (0016)", () => {
       UPDATE store_settings SET inventory_enabled = true;
       INSERT INTO product (id, name, price, category_id, kitchen_group_id, track_stock, low_stock_threshold, cost_price)
         VALUES ('${TRACKED.id}', '${TRACKED.name}', ${TRACKED.price}, '${FIXTURE.category}', '${FIXTURE.kitchenGroup}', true, ${TRACKED.threshold}, 7)
-        ON CONFLICT (id) DO NOTHING;
+        ON CONFLICT (tenant_id, id) DO NOTHING;
     `);
   });
   afterAll(() => closeTestApp());

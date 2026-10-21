@@ -52,7 +52,7 @@ export async function saveRegion(input: { id?: string; name: string; geometry: {
   const { rows } = await db().query(
     `INSERT INTO delivery_region(id, name, area_geografica)
      VALUES ($1, $2, ST_SetSRID(ST_GeomFromGeoJSON($3), 4326))
-     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, area_geografica = EXCLUDED.area_geografica
+     ON CONFLICT (tenant_id, id) DO UPDATE SET name = EXCLUDED.name, area_geografica = EXCLUDED.area_geografica
      RETURNING id, name, ST_AsGeoJSON(area_geografica)::json AS geometry`,
     [id, input.name.trim(), JSON.stringify(input.geometry)],
   );

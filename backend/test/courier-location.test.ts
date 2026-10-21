@@ -21,7 +21,7 @@ async function seedCouriers() {
     INSERT INTO "user" (id, name, role, pin_hash, photo_path) VALUES
       ('${COURIER}', 'Entregador Um', 'courier', 'x', 'u-courier.png'),
       ('${COURIER2}', 'Entregador Dois', 'courier', 'x', NULL)
-    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, pin_hash = EXCLUDED.pin_hash, photo_path = EXCLUDED.photo_path;
+    ON CONFLICT (tenant_id, id) DO UPDATE SET name = EXCLUDED.name, pin_hash = EXCLUDED.pin_hash, photo_path = EXCLUDED.photo_path;
     UPDATE "user" SET photo_path = 'u-courier.png' WHERE id = '${COURIER}';
     UPDATE "user" SET photo_path = NULL WHERE id = '${COURIER2}';
   `);
@@ -29,14 +29,14 @@ async function seedCouriers() {
 
 async function seedCustomerWithAddress(addressId: string | null, withCoords: boolean) {
   await raw.exec(`
-    INSERT INTO customer (id, name) VALUES ('c-geo', 'Cliente Geo') ON CONFLICT (id) DO NOTHING;
+    INSERT INTO customer (id, name) VALUES ('c-geo', 'Cliente Geo') ON CONFLICT (tenant_id, id) DO NOTHING;
   `);
   if (addressId) {
     await raw.exec(`
       INSERT INTO customer_address (id, customer_id, street, number, neighborhood, city, latitude, longitude, is_default)
       VALUES ('${addressId}', 'c-geo', 'Rua Geo', '10', 'Centro', 'Cidade',
               ${withCoords ? "-29.75" : "NULL"}, ${withCoords ? "-51.15" : "NULL"}, true)
-      ON CONFLICT (id) DO NOTHING;
+      ON CONFLICT (tenant_id, id) DO NOTHING;
     `);
   }
 }
@@ -45,10 +45,10 @@ async function seedDelivery(orderId: string, courierId: string, status: string, 
   await raw.exec(`
     INSERT INTO "order" (id, status, waiter_id, tab_label, customer_id)
     VALUES ('${orderId}', 'open', '${FIXTURE.waiter}', 'Delivery - Teste', ${customerId ? `'${customerId}'` : "NULL"})
-    ON CONFLICT (id) DO NOTHING;
+    ON CONFLICT (tenant_id, id) DO NOTHING;
     INSERT INTO delivery (id, order_id, courier_id, address, status)
     VALUES ('d-${orderId}', '${orderId}', '${courierId}', 'Rua Teste, 1', '${status}')
-    ON CONFLICT (id) DO UPDATE SET status = '${status}';
+    ON CONFLICT (tenant_id, id) DO UPDATE SET status = '${status}';
   `);
 }
 

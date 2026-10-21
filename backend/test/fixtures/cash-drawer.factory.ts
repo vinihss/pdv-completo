@@ -27,7 +27,7 @@ export async function createCashDrawer(overrides: Partial<InsertCashDrawer> = {}
     .insert(cashDrawers)
     .values(drawer)
     .onConflictDoUpdate({
-      target: cashDrawers.id,
+      target: [cashDrawers.tenantId, cashDrawers.id],
       set: drawer,
     });
 

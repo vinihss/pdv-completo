@@ -29,7 +29,7 @@ export async function createUser(overrides: Partial<InsertUser> = {}): Promise<T
     .insert(users)
     .values(user)
     .onConflictDoUpdate({
-      target: users.id,
+      target: [users.tenantId, users.id],
       set: user,
     });
 

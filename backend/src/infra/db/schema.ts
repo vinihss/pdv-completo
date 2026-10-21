@@ -7,6 +7,7 @@ import {
   real,
   boolean,
   bigserial,
+  uuid,
   index,
   uniqueIndex,
   check,
@@ -73,6 +74,10 @@ const id = () =>
 
 // ---------- pessoas ----------
 export const users = pgTable("user", {
+  // `tenant_id`: a loja da linha. A policy de RLS compara a coluna com o
+  // `app.tenant_id` da conexão, e o TRIGGER preenche a coluna na escrita —
+  // por isso ela é OPCIONAL aqui: o app nunca escreve o tenant.
+  tenantId: uuid("tenant_id"),
   id: id(),
   name: text("name").notNull(),
   role: userRole("role").notNull(),
@@ -97,6 +102,9 @@ export const users = pgTable("user", {
 export const customers = pgTable(
   "customer",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     id: id(),
     name: text("name").notNull(),
     phone: text("phone"),
@@ -123,6 +131,10 @@ export const customers = pgTable(
 );
 
 export const restaurantTables = pgTable("restaurant_table", {
+  // `tenant_id`: a loja da linha. A policy de RLS compara a coluna com o
+  // `app.tenant_id` da conexão, e o TRIGGER preenche a coluna na escrita —
+  // por isso ela é OPCIONAL aqui: o app nunca escreve o tenant.
+  tenantId: uuid("tenant_id"),
   id: id(),
   number: text("number").notNull().unique(),
   status: tableStatus("status").notNull().default("free"),
@@ -131,6 +143,10 @@ export const restaurantTables = pgTable("restaurant_table", {
 
 // ---------- catálogo ----------
 export const categories = pgTable("category", {
+  // `tenant_id`: a loja da linha. A policy de RLS compara a coluna com o
+  // `app.tenant_id` da conexão, e o TRIGGER preenche a coluna na escrita —
+  // por isso ela é OPCIONAL aqui: o app nunca escreve o tenant.
+  tenantId: uuid("tenant_id"),
   id: id(),
   name: text("name").notNull(),
   displayOrder: integer("display_order").notNull().default(0),
@@ -139,6 +155,10 @@ export const categories = pgTable("category", {
 });
 
 export const kitchenGroups = pgTable("kitchen_group", {
+  // `tenant_id`: a loja da linha. A policy de RLS compara a coluna com o
+  // `app.tenant_id` da conexão, e o TRIGGER preenche a coluna na escrita —
+  // por isso ela é OPCIONAL aqui: o app nunca escreve o tenant.
+  tenantId: uuid("tenant_id"),
   id: id(),
   name: text("name").notNull(),
   displayOrder: integer("display_order").notNull().default(0),
@@ -149,6 +169,9 @@ export const kitchenGroups = pgTable("kitchen_group", {
 export const products = pgTable(
   "product",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     id: id(),
     categoryId: text("category_id").references(() => categories.id, { onDelete: "set null" }),
     kitchenGroupId: text("kitchen_group_id").references(() => kitchenGroups.id, { onDelete: "set null" }),
@@ -181,6 +204,9 @@ export const products = pgTable(
 export const orders = pgTable(
   "order",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     id: id(),
     tableId: text("table_id").references(() => restaurantTables.id, { onDelete: "restrict" }),
     customerId: text("customer_id").references(() => customers.id, { onDelete: "set null" }),
@@ -218,6 +244,9 @@ export const orders = pgTable(
 export const orderPayments = pgTable(
   "order_payment",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     id: id(),
     orderId: text("order_id")
       .notNull()
@@ -240,6 +269,9 @@ export const orderPayments = pgTable(
 export const orderItems = pgTable(
   "order_item",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     id: id(),
     orderId: text("order_id")
       .notNull()
@@ -265,6 +297,10 @@ export const orderItems = pgTable(
 
 // ---------- compras / estoque ----------
 export const suppliers = pgTable("supplier", {
+  // `tenant_id`: a loja da linha. A policy de RLS compara a coluna com o
+  // `app.tenant_id` da conexão, e o TRIGGER preenche a coluna na escrita —
+  // por isso ela é OPCIONAL aqui: o app nunca escreve o tenant.
+  tenantId: uuid("tenant_id"),
   id: id(),
   name: text("name").notNull(),
   phone: text("phone"),
@@ -277,6 +313,10 @@ export const suppliers = pgTable("supplier", {
 // Documento de entrada de mercadoria (baseline 0001) — multi-item, com fornecedor,
 // nº de nota (informativo, sem integração fiscal), data e total.
 export const purchases = pgTable("purchase", {
+  // `tenant_id`: a loja da linha. A policy de RLS compara a coluna com o
+  // `app.tenant_id` da conexão, e o TRIGGER preenche a coluna na escrita —
+  // por isso ela é OPCIONAL aqui: o app nunca escreve o tenant.
+  tenantId: uuid("tenant_id"),
   id: id(),
   supplierId: text("supplier_id").references(() => suppliers.id, { onDelete: "set null" }),
   invoiceNumber: text("invoice_number"),
@@ -295,6 +335,9 @@ export const purchases = pgTable("purchase", {
 export const purchaseItems = pgTable(
   "purchase_item",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     id: id(),
     // Ordem de inserção da linha no documento. O `rowid` do SQLite dava isso
     // de graça; no Postgres a sequência é explícita — sem ela, duas linhas do
@@ -331,6 +374,9 @@ export const purchaseItems = pgTable(
 export const stockMovements = pgTable(
   "stock_movement",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     id: id(),
     // mode "number" devolve number (e não bigint) pro app — o replay da
     // média móvel compara/ordena seq em JS e não quer BigInt.
@@ -372,6 +418,9 @@ export const stockMovements = pgTable(
 export const alerts = pgTable(
   "alert",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     id: id(),
     // Ordem de inserção: `created_at` é texto com precisão de milissegundo, e
     // dois alertas no mesmo ms empatariam num ORDER BY só por ele (mesma razão
@@ -399,6 +448,9 @@ export const alerts = pgTable(
 export const cashDrawers = pgTable(
   "cash_drawer",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     id: id(),
     status: cashDrawerStatus("status").notNull().default("open"),
     openedAt: text("opened_at").notNull().default(isoNow),
@@ -429,6 +481,9 @@ export const cashDrawers = pgTable(
 export const cashDrawerMovements = pgTable(
   "cash_drawer_movement",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     id: id(),
     drawerId: text("drawer_id")
       .notNull()
@@ -447,6 +502,10 @@ export const cashDrawerMovements = pgTable(
 );
 
 export const storeSettings = pgTable("store_settings", {
+  // `tenant_id`: a loja da linha. A policy de RLS compara a coluna com o
+  // `app.tenant_id` da conexão, e o TRIGGER preenche a coluna na escrita —
+  // por isso ela é OPCIONAL aqui: o app nunca escreve o tenant.
+  tenantId: uuid("tenant_id"),
   // Singleton: exatamente uma linha, com id 'singleton'.
   id: text("id").primaryKey().default("singleton"),
   merchantName: text("merchant_name").notNull(),
@@ -488,6 +547,9 @@ export const storeSettings = pgTable("store_settings", {
 export const auditLog = pgTable(
   "audit_log",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     id: id(),
     userId: text("user_id")
       .notNull()
@@ -503,6 +565,9 @@ export const auditLog = pgTable(
 export const idempotencyKeys = pgTable(
   "idempotency_key",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     correlationId: text("correlation_id").primaryKey(),
     endpoint: text("endpoint").notNull(),
     requestHash: text("request_hash").notNull(),
@@ -518,6 +583,9 @@ export const idempotencyKeys = pgTable(
 export const outboxEvents = pgTable(
   "outbox_event",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     id: id(),
     // `seq` (bigserial) é a ordem de inserção. Sem isso, dois eventos com o
     // mesmo `created_at` (mesma milissegundo) teriam ordem indefinida — no
@@ -540,6 +608,9 @@ export const outboxEvents = pgTable(
 export const customerAddresses = pgTable(
   "customer_address",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     id: id(),
     customerId: text("customer_id")
       .notNull()
@@ -569,6 +640,9 @@ export const customerAddresses = pgTable(
 export const deliveries = pgTable(
   "delivery",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     id: id(),
     orderId: text("order_id")
       .notNull()
@@ -593,6 +667,10 @@ export const deliveries = pgTable(
 // courier (upsert), alimentada por POST /courier/location enquanto ele tem
 // entrega em rota. Não é trilha: o histórico não existe de propósito.
 export const courierLocations = pgTable("courier_location", {
+  // `tenant_id`: a loja da linha. A policy de RLS compara a coluna com o
+  // `app.tenant_id` da conexão, e o TRIGGER preenche a coluna na escrita —
+  // por isso ela é OPCIONAL aqui: o app nunca escreve o tenant.
+  tenantId: uuid("tenant_id"),
   courierId: text("courier_id")
     .primaryKey()
     .references(() => users.id, { onDelete: "cascade" }),
@@ -607,6 +685,9 @@ export const courierLocations = pgTable("courier_location", {
 export const customerCarts = pgTable(
   "customer_cart",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     phone: text("phone").primaryKey(),
     items: text("items").notNull().default("[]"), // JSON string
     updatedAt: text("updated_at").notNull().default(isoNow),
@@ -618,6 +699,9 @@ export const customerCarts = pgTable(
 export const geocodingCache = pgTable(
   "geocoding_cache",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     cacheKey: text("cache_key").primaryKey(),
     response: text("response").notNull(),
     createdAt: text("created_at").notNull().default(isoNow),
@@ -644,6 +728,9 @@ export const geocodingCache = pgTable(
 export const provisioningKeys = pgTable(
   "provisioning_key",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     id: id(),
     userId: text("user_id")
       .notNull()
@@ -667,6 +754,9 @@ export const provisioningKeys = pgTable(
 export const userDevices = pgTable(
   "user_device",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     id: id(),
     userId: text("user_id")
       .notNull()
@@ -698,6 +788,9 @@ export const userDevices = pgTable(
 export const orderRefunds = pgTable(
   "order_refund",
   {
+    // `tenant_id`: a loja da linha (a Fase 2 — a policy de RLS compara
+    // a coluna com o `app.tenant_id` da conexão; o trigger preenche na escrita).
+    tenantId: uuid("tenant_id"),
     id: id(),
     orderId: text("order_id")
       .notNull()

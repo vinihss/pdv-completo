@@ -103,7 +103,7 @@ export async function seedFixture() {
       usesDelivery: false,
     })
     .onConflictDoUpdate({
-      target: storeSettings.id,
+      target: [storeSettings.tenantId, storeSettings.id],
       set: {
         merchantName: "Teste Café",
         merchantCity: "Sao Paulo",

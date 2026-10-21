@@ -118,7 +118,8 @@ o tenant **do pai** para as demais (na ordem topológica) — é isso que garant
 que a FK composta fecha logo após o backfill.
 
 `store_settings` (o singleton) continua com a PK `id` — no modelo por linha
-ela vira `(tenant_id, id)`, e isso é da Fase 3.
+ela vira `(tenant_id, id)`, e isso é da **Fase 3** (migration `0016`, entregue:
+as PKs das 30 tabelas passaram a ser compostas).
 
 ### 3.3 RLS (FASE 2 — entregue)
 
@@ -177,6 +178,33 @@ pools) e o `SET` de sessão gruda na conexão (→ `set_config(…, true)`).
 pools); as migrations passam a ser aplicadas uma vez (o `_migrations` global);
 `provision-tenant.ts` vira um `INSERT` no registry; o storage
 (`<uploadsDir>/<schema>/`) passa a ser por tenant.
+
+**A FASE 3 é o "expand/contract" do schema.** A ordem é a que permite
+rollback em minutos:
+
+| PR | O quê | Por que é seguro sozinho |
+|---|---|---|
+| **F3a** (`0016`) | as PKs das 30 tabelas viram `(tenant_id, id)` + o dado dos schemas de loja é COPIADO para `public` | o schema `public` passa a aceitar duas lojas; o runtime ainda lê o schema da loja (que segue de pé, com o original) |
+| **F3b** (código) | o runtime lê `public`; a chave do cache passa a ser o `tenant_id`; o storage é por tenant; o provisionamento é um `INSERT` | o dado já está em `public` (a cópia da F3a) — o schema antigo segue de pé, como redundância |
+| **F3c** (`0017`) | os schemas de loja são dropados; a coluna `schema_name` sai | só quando ninguém mais lê schema |
+
+**Por que a PK precisa ser composta (e não só a coluna).** No schema
+único, o `id` deixa de ser globalmente único: o `store_settings` é o
+singleton `'singleton'` em **toda** loja, e o seed usa ids fixos (`system`, as
+categorias, as mesas...). Com a PK em `id` sozinho, a segunda loja colide com
+a primeira — e o `ON CONFLICT` do seed **sobrescreve** a marca da loja anterior
+em vez de falhar. Com `(tenant_id, id)`, o id é único dentro da loja e a
+identidade global do dado passa a ser o par.
+
+**O efeito colateral no código:** todo `ON CONFLICT (id)` passa a ser
+`ON CONFLICT (tenant_id, id)` — no app, nos seeds, no cardápio em SQL e nos
+fixtures da suíte. E o `tenant_id` no schema do Drizzle é **opcional**: o
+trigger preenche a coluna na escrita, o app nunca escreve o tenant.
+
+**A chave do cache precisa sair do schema.** Hoje o cache é particionado
+por schema (`${schema}:${chave}`) e o cache de `user.active` também. Com um
+schema só, as duas chaves passariam a misturar as lojas — o `active` de uma
+loja vazaria para a outra. A chave passa a ser o `tenant_id`.
 
 ### 3.5 Dados e consumidores (FASE 4)
 
@@ -239,7 +267,7 @@ rollback:
 | **F0** | role `pdv_app` + `public.tenant.id` + linha do default | sim (a DSN) — e é a parte de maior risco de infra, então vem primeiro, com o schema-por-tenant ainda no ar (rollback em minutos) — **entregue** |
 | **F1** | `tenant_id` nas 30 tabelas + trigger + backfill + FKs compostas | não — **entregue** |
 | **F2** | policies + `FORCE RLS` + `app.tenant_id` no pool + suíte de isolamento | sim — **a barreira passa a existir aqui** — **entregue** |
-| **F3** | fim do schema-por-tenant (pool único, migrations 1x, provisionamento, storage) | sim |
+| **F3** | fim do schema-por-tenant (pool único, migrations 1x, provisionamento, storage) | sim — em 3 PRs (expand/contract): **F3a** (PK composta, `0016`) entregue, F3b (runtime) e F3c (limpeza) pendentes |
 | **F4** | dado de produção, gateway Go, CLI/TUI, docs | — |
 
 ## 7. Decisões em aberto (dono do produto)

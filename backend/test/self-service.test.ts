@@ -27,7 +27,7 @@ async function enableDelivery() {
     UPDATE store_settings SET uses_delivery = true, kitchen_enabled = true, delivery_fee = 5 WHERE id = 'singleton';
     INSERT INTO "user" (id, name, role, pin_hash)
       VALUES ('${COURIER}', '${COURIER_FIXTURE.name}', '${COURIER_FIXTURE.role}', '${COURIER_FIXTURE.pin_hash}')
-      ON CONFLICT (id) DO NOTHING;
+      ON CONFLICT (tenant_id, id) DO NOTHING;
   `);
 }
 
@@ -41,7 +41,7 @@ async function seedVariedProduct() {
     INSERT INTO product (id, name, price, category_id, variations)
       VALUES ('${VARIED_PRODUCT}', 'X-Burger', 28, '${FIXTURE.category}',
               '[{"name":"Ponto da carne","options":["Mal passado","Ao ponto"],"required":true}]')
-      ON CONFLICT (id) DO NOTHING;
+      ON CONFLICT (tenant_id, id) DO NOTHING;
   `);
 }
 
@@ -634,7 +634,7 @@ describe("fila do entregador: a falha não some e a atribuição é avisada", ()
     await raw.exec(`
       INSERT INTO "user" (id, name, role, pin_hash)
         VALUES ('${OUTRO_COURIER}', 'Outro Entregador', 'courier', 'x')
-        ON CONFLICT (id) DO NOTHING;
+        ON CONFLICT (tenant_id, id) DO NOTHING;
     `);
   });
   afterAll(async () => {

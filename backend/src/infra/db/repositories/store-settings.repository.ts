@@ -145,7 +145,7 @@ export class PostgresGeocodingCacheRepository implements GeocodingCacheRepositor
         expiresAt: input.expiresAt,
       })
       .onConflictDoUpdate({
-        target: geocodingCache.cacheKey,
+        target: [geocodingCache.tenantId, geocodingCache.cacheKey],
         set: { response: input.response, expiresAt: input.expiresAt },
       });
   }

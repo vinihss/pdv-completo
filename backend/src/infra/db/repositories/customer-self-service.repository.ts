@@ -37,7 +37,7 @@ export class PostgresCustomerCartRepository implements CustomerCartRepository {
         expiresAt: input.expiresAt,
       })
       .onConflictDoUpdate({
-        target: customerCarts.phone,
+        target: [customerCarts.tenantId, customerCarts.phone],
         set: { items: input.items, updatedAt: input.updatedAt, expiresAt: input.expiresAt },
       });
   }

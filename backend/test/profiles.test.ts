@@ -64,7 +64,7 @@ async function createDeliveryOrder() {
 describe("tela de login por perfil (GET /auth/users)", () => {
   beforeAll(async () => {
     await seedFixture();
-    await raw.all(`INSERT INTO "user" (id, name, role, pin_hash) VALUES ($1, 'Entregador Teste', 'courier', 'x') ON CONFLICT (id) DO NOTHING`, [COURIER_ID]);
+    await raw.all(`INSERT INTO "user" (id, name, role, pin_hash) VALUES ($1, 'Entregador Teste', 'courier', 'x') ON CONFLICT (tenant_id, id) DO NOTHING`, [COURIER_ID]);
   });
   // Restaura os toggles de rollout: sem isso os arquivos seguintes herdam
   // kitchen_enabled/uses_delivery zerados (em modo sem cozinha os itens
@@ -161,7 +161,7 @@ describe("acesso por papel — caixa (cashier)", () => {
 describe("acesso por papel — entregador (courier)", () => {
   beforeAll(async () => {
     await seedFixture();
-    await raw.all(`INSERT INTO "user" (id, name, role, pin_hash) VALUES ($1, 'Entregador Teste', 'courier', 'x') ON CONFLICT (id) DO NOTHING`, [COURIER_ID]);
+    await raw.all(`INSERT INTO "user" (id, name, role, pin_hash) VALUES ($1, 'Entregador Teste', 'courier', 'x') ON CONFLICT (tenant_id, id) DO NOTHING`, [COURIER_ID]);
   });
   afterAll(() => closeTestApp());
   beforeEach(() => resetState());
@@ -525,7 +525,7 @@ describe("perfil self-service (GET/PATCH/POST/DELETE /auth/me)", () => {
 describe("fluxo completo de entrega — assign → dispatch → deliver", () => {
   beforeAll(async () => {
     await seedFixture();
-    await raw.all(`INSERT INTO "user" (id, name, role, pin_hash) VALUES ($1, 'Entregador Teste', 'courier', 'x') ON CONFLICT (id) DO NOTHING`, [COURIER_ID]);
+    await raw.all(`INSERT INTO "user" (id, name, role, pin_hash) VALUES ($1, 'Entregador Teste', 'courier', 'x') ON CONFLICT (tenant_id, id) DO NOTHING`, [COURIER_ID]);
   });
   afterAll(() => closeTestApp());
   beforeEach(() => resetState());

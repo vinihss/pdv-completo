@@ -777,7 +777,7 @@ describe("identidade: conta com duas empresas", () => {
        INSERT INTO ${TENANT_B_SCHEMA}.store_settings
          (id, merchant_name, merchant_city, brand_color, uses_delivery, kitchen_enabled)
        VALUES ('singleton', 'Loja B', 'Cidade B', '#654321', false, false)
-       ON CONFLICT (id) DO UPDATE SET brand_color = EXCLUDED.brand_color`,
+       ON CONFLICT (tenant_id, id) DO UPDATE SET brand_color = EXCLUDED.brand_color`,
     );
     invalidateTenantRegistryCache();
   });

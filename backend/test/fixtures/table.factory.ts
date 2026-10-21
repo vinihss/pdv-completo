@@ -19,7 +19,7 @@ export async function createTable(overrides: Partial<InsertTable> = {}): Promise
     .insert(restaurantTables)
     .values(table)
     .onConflictDoUpdate({
-      target: restaurantTables.id,
+      target: [restaurantTables.tenantId, restaurantTables.id],
       set: table,
     });
 

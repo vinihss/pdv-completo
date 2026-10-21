@@ -86,13 +86,13 @@ beforeAll(async () => {
     SELECT set_config('app.tenant_id', '${TENANT_A_ID}', true);
     INSERT INTO ${TENANT_A_SCHEMA}.store_settings (id, merchant_name, merchant_city, enabled_payment_methods, uses_delivery, kitchen_enabled)
     VALUES ('singleton', 'Tenant A', 'Cidade A', '["cash"]', false, false)
-    ON CONFLICT (id) DO NOTHING
+    ON CONFLICT (tenant_id, id) DO NOTHING
   `);
   await raw.exec(`
     SELECT set_config('app.tenant_id', '${TENANT_A_ID}', true);
     INSERT INTO ${TENANT_A_SCHEMA}."user" (id, name, role, pin_hash, active, failed_attempts)
     VALUES ('user-a', 'Usuário A', 'waiter', '${pinHashA}', true, 0)
-    ON CONFLICT (id) DO NOTHING
+    ON CONFLICT (tenant_id, id) DO NOTHING
   `);
   userIdA = "user-a";
 
@@ -102,13 +102,13 @@ beforeAll(async () => {
     SELECT set_config('app.tenant_id', '${TENANT_B_ID}', true);
     INSERT INTO ${TENANT_B_SCHEMA}.store_settings (id, merchant_name, merchant_city, enabled_payment_methods, uses_delivery, kitchen_enabled)
     VALUES ('singleton', 'Tenant B', 'Cidade B', '["cash"]', false, false)
-    ON CONFLICT (id) DO NOTHING
+    ON CONFLICT (tenant_id, id) DO NOTHING
   `);
   await raw.exec(`
     SELECT set_config('app.tenant_id', '${TENANT_B_ID}', true);
     INSERT INTO ${TENANT_B_SCHEMA}."user" (id, name, role, pin_hash, active, failed_attempts)
     VALUES ('user-b', 'Usuário B', 'waiter', '${pinHashB}', true, 0)
-    ON CONFLICT (id) DO NOTHING
+    ON CONFLICT (tenant_id, id) DO NOTHING
   `);
   userIdB = "user-b";
 

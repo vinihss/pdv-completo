@@ -38,7 +38,7 @@ export async function createProduct(overrides: Partial<InsertProduct> = {}): Pro
     .insert(products)
     .values(product)
     .onConflictDoUpdate({
-      target: products.id,
+      target: [products.tenantId, products.id],
       set: product,
     });
 

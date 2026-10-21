@@ -38,7 +38,7 @@ export async function createOrder(overrides: Partial<InsertOrder> = {}): Promise
     .insert(orders)
     .values(order)
     .onConflictDoUpdate({
-      target: orders.id,
+      target: [orders.tenantId, orders.id],
       set: order,
     });
 
@@ -87,7 +87,7 @@ export async function createOrderItem(
     .insert(orderItems)
     .values(item)
     .onConflictDoUpdate({
-      target: orderItems.id,
+      target: [orderItems.tenantId, orderItems.id],
       set: item,
     });
 
@@ -124,7 +124,7 @@ export async function createOrderPayment(
     .insert(orderPayments)
     .values(payment)
     .onConflictDoUpdate({
-      target: orderPayments.id,
+      target: [orderPayments.tenantId, orderPayments.id],
       set: payment,
     });
 

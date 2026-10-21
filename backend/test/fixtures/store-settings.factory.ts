@@ -27,7 +27,7 @@ export async function createStoreSettings(
     .insert(storeSettings)
     .values(settings)
     .onConflictDoUpdate({
-      target: storeSettings.id,
+      target: [storeSettings.tenantId, storeSettings.id],
       set: settings,
     });
 

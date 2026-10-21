@@ -44,7 +44,7 @@ INSERT INTO kitchen_group (id, name, display_order, active) VALUES
     ('kg-unami-sushi',   'Sushi',   1, true),
     ('kg-unami-cozinha', 'Cozinha', 2, true),
     ('kg-unami-bar',     'Bar',     3, true)
-ON CONFLICT (id) DO UPDATE SET
+ON CONFLICT (tenant_id, id) DO UPDATE SET
     name          = excluded.name,
     display_order = excluded.display_order;
 
@@ -63,7 +63,7 @@ INSERT INTO category (id, name, display_order, active) VALUES
     ('cat-unami-combinados', 'Combinados', 9, true),
     ('cat-unami-entradas-especiais', 'Entradas e Especiais', 10, true),
     ('cat-unami-especiarias', 'Especiarias 2 Peças', 11, true)
-ON CONFLICT (id) DO UPDATE SET
+ON CONFLICT (tenant_id, id) DO UPDATE SET
     name          = excluded.name,
     display_order = excluded.display_order;
 
@@ -136,7 +136,7 @@ INSERT INTO product (id, category_id, kitchen_group_id, name, description, price
     ('p-unami-061', 'cat-unami-entradas-especiais', 'kg-unami-cozinha', 'Tira de Peixe Branco', 'Lâminas de peixe branco, molho de maracujá, azeite, cebolete, raspas de limão siciliano', 0, '[]', false),
     ('p-unami-062', 'cat-unami-especiarias', 'kg-unami-sushi', 'Salmão Hara', 'Azeite Trufado, flor de sol, ovos, Limão siciliano e cebolete', 19.9, '[]', true),
     ('p-unami-063', 'cat-unami-especiarias', 'kg-unami-sushi', 'Atum Shimeji Tamago', 'Atum, Shimeji, Tamago e layu', 18.9, '[]', true)
-ON CONFLICT (id) DO UPDATE SET
+ON CONFLICT (tenant_id, id) DO UPDATE SET
     category_id      = excluded.category_id,
     kitchen_group_id = excluded.kitchen_group_id,
     name             = excluded.name,

@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { api, closeTestApp, raw, rawOwner, resetState, seedFixture, testApp } from "./helpers.js";
 import { pool } from "../src/infra/db/client.js";
 import { runRegistryMigrations } from "../src/infra/db/registry-migrate.js";
@@ -419,6 +419,20 @@ describe("tenant: resolução por Host", () => {
 // 2. O endpoint que a SPA consome
 // ---------------------------------------------------------------------------
 describe("GET /public/tenants/resolve", () => {
+  // O teste abaixo mexe na marca da loja DEFAULT (a vitrine precisa de uma
+  // marca própria para provar que responde a dela, e não da plataforma). A
+  // marca é GLOBAL (o `store_settings` é o singleton da loja) — sem
+  // restaurar, o teste seguinte herda `kitchen_enabled = false` e o outbox da
+  // cozinha vai para o room da mesa em vez de `kitchen-display`.
+  afterEach(async () => {
+    await raw.all(
+      `UPDATE store_settings
+          SET merchant_name = 'Teste Café', brand_color = '#f59e0b',
+              uses_delivery = false, kitchen_enabled = true
+        WHERE id = 'singleton'`,
+    );
+  });
+
   it("devolve exatamente o contrato do TenantProvider, sem o `schema`", async () => {
     await raw.all(
       `UPDATE store_settings SET merchant_name = 'Umami Sushi Arte', brand_color = '#0f766e',
@@ -610,7 +624,8 @@ describe("registry: migrations, isolamento de schema e cache", () => {
       "0012_user_account_id.sql",
       "0013_tenant_id.sql",
       "0014_tenant_id_composite_fks.sql",
-      "0015_rls_policies.sql"
+      "0015_rls_policies.sql",
+      "0016_tenant_composite_pk.sql"
     ]);
     // E o diretório existe de verdade — a exclusão não é por pasta vazia.
     expect(fs.existsSync(path.dirname(REGISTRY_SQL))).toBe(true);
