@@ -27,11 +27,38 @@ function databaseUrl(): string {
   return v;
 }
 
+/**
+ * DSN do DONO (o papel que tem direito de DDL).
+ *
+ * O app conecta com um papel RESTRITO (sem superuser, sem BYPASSRLS) — é o
+ * pré-requisito do RLS, que sem papel restrito é fachada (superuser burla row
+ * security). Quem aplica migration, porém, precisa ser o DONO das tabelas.
+ * Por isso as duas DSNs são separadas: `DATABASE_URL` (runtime) e
+ * `MIGRATION_DATABASE_URL` (DDL).
+ *
+ * Ausente → cai no `DATABASE_URL`, que é o comportamento de hoje (o app é o
+ * próprio dono). A troca de papel é opt-in por env.
+ */
+function migrationDatabaseUrl(): string {
+  return process.env.MIGRATION_DATABASE_URL ?? databaseUrl();
+}
+
 export const config = {
   // "local" (mini-PC/NUC via Docker) ou "cloud" (Postgres gerenciado).
   // Controla as flags de operação e o JWT_SECRET — o banco é Postgres nos dois.
   deploymentMode,
   databaseUrl: databaseUrl(),
+  /** DSN do dono (DDL) — o papel do app não tem direito de mudar schema. */
+  migrationDatabaseUrl: migrationDatabaseUrl(),
+  /**
+   * Papel do app (sem superuser e sem BYPASSRLS) e a senha dele.
+   *
+   * `appDbPassword` vazio = **nada muda**: o role não é criado/ajustado e o
+   * app segue com o papel que a `DATABASE_URL` apontar. É o que mantém a
+   * troca opt-in e reversível.
+   */
+  appDbRole: process.env.APP_DB_ROLE ?? "pdv_app",
+  appDbPassword: process.env.APP_DB_PASSWORD ?? "",
   // Conexões simultâneas no pool. O PDV é transacional e concorre em
   // regime baixo, mas o número precisa acompanhar o número de cores da
   // máquina (o backend segura 1 conexão por transação + queries avulsas).

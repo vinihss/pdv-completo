@@ -1,10 +1,12 @@
 # 28 — Multi-tenant por linha (`tenant_id` + RLS)
 
-> **Status: FASE 0 (identidade do tenant) em andamento.** A decisão do modelo
-> está tomada; a barreira no Postgres (RLS) ainda **não** existe.
+> **Status: FASE 0 concluída** (identidade do tenant + papel do app). A
+> decisão do modelo está tomada; a barreira no Postgres (RLS) **ainda não**
+> existe — mas o que ela exige (o app sem superuser) já está no ar.
 >
 > **Data:** 2026-10-21 · **Decisor:** dono do produto · **Estado do código:**
-> `cmd/pdv/`, `backend/src/`, `backend/migrations/registry/0003_tenant_id.sql`.
+> `cmd/pdv/`, `backend/src/`, `backend/migrations/registry/0003_tenant_id.sql`,
+> `deploy/docker-compose*.yml`, `scripts/dev/setup-dev.sh`.
 
 ---
 
@@ -67,6 +69,29 @@ Daqui em diante, **todo escopo de tenant carrega o id**: o ALS
 (`TenantScope.tenantId`), o port `TenantContext`, o `TenantRegistryRecord` e o
 `Tenant` do gateway Go. O `app.tenant_id` gravado na transação passa a ser o
 **uuid** (antes era o slug) — é o mesmo contrato dos dois lados da aplicação.
+
+### 3.1b O papel do app (FASE 0 — entregue)
+
+O app passa a conectar com um papel **próprio, sem superuser e sem
+BYPASSRLS** (`pdv_app`), criado e ajustado no boot (`ensure-app-role.ts`).
+Enquanto o app conecta como superuser, RLS é decoração — superuser sempre
+burla row security, inclusive com `FORCE ROW LEVEL SECURITY`.
+
+As duas DSNs são separadas:
+
+| env | papel | quem usa |
+|---|---|---|
+| `DATABASE_URL` | o **papel do app** (restrito) | o runtime (queries, UoW, workers) |
+| `MIGRATION_DATABASE_URL` | o **dono** (quem tem DDL) | o runner de migrations e o bootstrap do papel |
+
+O `deploy/backup.sh` continua usando o dono (o `pg_dump` precisa de privilégio
+de leitura de tudo). O gateway Go também passa a poder usar o papel restrito —
+e ele já tinha a **auditoria** que avisa (e, com `DB_REQUIRE_RESTRICTED=1`,
+recusa subir) quando a conexão é superuser: `ws-gateway/internal/db/role.go`.
+
+**É opt-in e reversível**: sem `APP_DB_PASSWORD` no ambiente, o papel não é
+criado/ajustado e o app segue com o papel que a `DATABASE_URL` apontar — ou
+seja, desfazer a troca é trocar a env de volta.
 
 ### 3.2 Coluna `tenant_id` (FASE 1)
 
@@ -152,7 +177,7 @@ rollback:
 
 | Fase | Entrega | Quebra algo? |
 |---|---|---|
-| **F0** | role `pdv_app` + `public.tenant.id` + linha do default | sim (a DSN) — e é a parte de maior risco de infra, então vem primeiro, com o schema-por-tenant ainda no ar (rollback em minutos) |
+| **F0** | role `pdv_app` + `public.tenant.id` + linha do default | sim (a DSN) — e é a parte de maior risco de infra, então vem primeiro, com o schema-por-tenant ainda no ar (rollback em minutos) — **entregue** |
 | **F1** | `tenant_id` nas 38 tabelas + backfill | não |
 | **F2** | policies + `FORCE RLS` + `db` fail-closed + suíte de isolamento | sim — **a barreira passa a existir aqui** |
 | **F3** | fim do schema-por-tenant (pool único, migrations 1x, provisionamento, storage) | sim |
@@ -164,7 +189,9 @@ rollback:
    disso. (O `docs/23` §2 registra a contradição: o mesmo documento afirmava
    "sem clientes reais" e citava `umamisushitarte.com.br` como cliente.)
 2. **A troca da `DATABASE_URL` de produção (superuser → role restrita) é
-   aceitável operacionalmente?**
+   aceitável operacionalmente?** — a mecânica está pronta e validada no dev;
+   falta a decisão de operação (e o `MIGRATION_DATABASE_URL` + o
+   `APP_DB_PASSWORD` no `deploy/.env`).
 3. **O dump por loja sai ou vira export lógico por `COPY`?** Com RLS, o
    `pg_dump --schema=` da CLI não isola.
 

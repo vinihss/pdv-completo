@@ -17,7 +17,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { getTenantPool } from "./tenant-db.js";
+import { withMigrationPool } from "./migration-db.js";
 import { resolveTenantSchemaInScope } from "./tenant-context.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -39,53 +39,57 @@ export type RunMigrationsOptions = {
 
 export async function runMigrations(options: RunMigrationsOptions = {}): Promise<void> {
   const schemaName = options.schema ?? resolveTenantSchemaInScope();
-  const pool = getTenantPool(schemaName);
-  const client = await pool.connect();
-  try {
-    await client.query("SELECT pg_advisory_lock($1, $2)", [LOCK_KEY, advisoryKeyForSchema(schemaName)]);
+  // O pool de MIGRAÇÃO (o dono), não o pool de runtime (o papel do app): quem
+  // aplica DDL precisa ter direito de DDL — e o papel do app, por desenho,
+  // não tem.
+  await withMigrationPool(schemaName, async (pool) => {
+    const client = await pool.connect();
+    try {
+      await client.query("SELECT pg_advisory_lock($1, $2)", [LOCK_KEY, advisoryKeyForSchema(schemaName)]);
 
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS _migrations (
-        name       TEXT PRIMARY KEY,
-        applied_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
-      )
-    `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS _migrations (
+          name       TEXT PRIMARY KEY,
+          applied_at TEXT NOT NULL DEFAULT to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        )
+      `);
 
-    const { rows } = await client.query<{ name: string }>("SELECT name FROM _migrations");
-    const applied = new Set(rows.map((r) => r.name));
+      const { rows } = await client.query<{ name: string }>("SELECT name FROM _migrations");
+      const applied = new Set(rows.map((r) => r.name));
 
-    const files = fs.existsSync(migrationsDir)
-      ? fs.readdirSync(migrationsDir)
-          // Só arquivo `.sql` no PRÓPRIO diretório. A pasta `registry/` mora
-          // dentro de `migrations/` de propósito e precisa ficar de fora: ela é
-          // o índice dos schemas de tenant (`public.tenant`), e se este runner
-          // a lesse, a Fase 3 a aplicaria dentro de CADA schema de loja. O
-          // filtro `endsWith(".sql")` já a exclui (diretório não termina em
-          // `.sql`); o `statSync` é a segunda barreira, para o dia em que
-          // alguém criar um diretório que termine em `.sql`.
-          .filter((f) => f.endsWith(".sql") && fs.statSync(path.join(migrationsDir, f)).isFile())
-          .sort()
-      : [];
+      const files = fs.existsSync(migrationsDir)
+        ? fs.readdirSync(migrationsDir)
+            // Só arquivo `.sql` no PRÓPRIO diretório. A pasta `registry/` mora
+            // dentro de `migrations/` de propósito e precisa ficar de fora: ela é
+            // o índice dos schemas de tenant (`public.tenant`), e se este runner
+            // a lesse, a Fase 3 a aplicaria dentro de CADA schema de loja. O
+            // filtro `endsWith(".sql")` já a exclui (diretório não termina em
+            // `.sql`); o `statSync` é a segunda barreira, para o dia em que
+            // alguém criar um diretório que termine em `.sql`.
+            .filter((f) => f.endsWith(".sql") && fs.statSync(path.join(migrationsDir, f)).isFile())
+            .sort()
+        : [];
 
-    for (const file of files) {
-      if (applied.has(file)) continue;
-      const sql = fs.readFileSync(path.join(migrationsDir, file), "utf8");
-      try {
-        await client.query("BEGIN");
-        await client.query(sql);
-        await client.query("INSERT INTO _migrations (name) VALUES ($1)", [file]);
-        await client.query("COMMIT");
-      } catch (err) {
-        await client.query("ROLLBACK");
-        throw new Error(`[migrate] falhou ao aplicar ${file} em ${schemaName}: ${(err as Error).message}`, { cause: err });
+      for (const file of files) {
+        if (applied.has(file)) continue;
+        const sql = fs.readFileSync(path.join(migrationsDir, file), "utf8");
+        try {
+          await client.query("BEGIN");
+          await client.query(sql);
+          await client.query("INSERT INTO _migrations (name) VALUES ($1)", [file]);
+          await client.query("COMMIT");
+        } catch (err) {
+          await client.query("ROLLBACK");
+          throw new Error(`[migrate] falhou ao aplicar ${file} em ${schemaName}: ${(err as Error).message}`, { cause: err });
+        }
+        console.log(`[migrate] applied ${file} (${schemaName})`);
       }
-      console.log(`[migrate] applied ${file} (${schemaName})`);
+    } finally {
+      // Solta o lock e devolve a conexão ao pool mesmo em caso de erro.
+      await client.query("SELECT pg_advisory_unlock($1, $2)", [LOCK_KEY, advisoryKeyForSchema(schemaName)]).catch(() => {});
+      client.release();
     }
-  } finally {
-    // Solta o lock e devolve a conexão ao pool mesmo em caso de erro.
-    await client.query("SELECT pg_advisory_unlock($1, $2)", [LOCK_KEY, advisoryKeyForSchema(schemaName)]).catch(() => {});
-    client.release();
-  }
+  });
 }
 
 // Segundo arg do `pg_advisory_lock(int, int)`: um int32 estável derivado do

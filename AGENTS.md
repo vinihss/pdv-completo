@@ -214,6 +214,7 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | CLI `pdv db seed <id>` | CLI instalada | aplica o seed `<id>`; roda no host (com `backend/node_modules`) ou dentro do container do backend |
 | CLI `pdv db list` | CLI instalada | tenants do registry `public.tenant`; em single-tenant (dev) mostra o **tenant implícito** (slug `default` → schema `public`), que é o alvo das operações de banco |
 | `npm run db:migrate` | backend | aplica `migrations/*.sql` (também roda no boot em modo local) |
+| `npm run db:ensure-app-role` | backend | cria/ajusta o **papel do app** (`pdv_app`, sem superuser e sem BYPASSRLS) e dá os grants — o pré-requisito do RLS; sem `APP_DB_PASSWORD` no ambiente, não faz nada |
 | `npm run db:migrate:registry` | backend | aplica `migrations/registry/*.sql` no schema `public` (registry de tenant; roda no boot antes do `db:migrate`) |
 | `npm run db:provision -- <slug> "<nome>"` | backend | provisiona um tenant novo: cria o schema `tenant_<slug>`, aplica as migrations dentro dele, registra em `public.tenant` e roda o bootstrap (`store_settings` + manager com PIN no log). `SEED=0` pula o bootstrap |
 | CLI `pdv db provision <slug> "<nome>"` | CLI instalada | mesmo provisionamento pelo dispatcher (confira `pdv --help`) |

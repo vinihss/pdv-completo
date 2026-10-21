@@ -239,6 +239,10 @@ pass "docker compose $(docker compose version --short 2>/dev/null | head -1)"
 if [[ -f "$ENV_DEV" ]]; then
     pass "deploy/.env.dev já existe (preservado)"
 else
+    # A senha do PAPEL do app: uma só, usada no `APP_DB_PASSWORD` e na URL —
+    # são o mesmo papel (o `ensure-app-role` define a senha a partir do
+    # `APP_DB_PASSWORD`).
+    APP_DB_PASSWORD_VALUE="$(random_secret)"
     cat > "$ENV_DEV" <<EOF
 # Env do stack de DEV (projeto compose '${PROJECT}').
 # Gerado por scripts/dev/setup-dev.sh.
@@ -247,6 +251,15 @@ DEPLOYMENT_MODE=local
 POSTGRES_USER=pdv
 POSTGRES_PASSWORD=pdv_password
 POSTGRES_DB=pdv
+# O PAPEL do app: sem superuser e sem BYPASSRLS — é o pré-requisito do RLS
+# (superuser sempre burla row security, mesmo com FORCE ROW LEVEL SECURITY).
+# O `DATABASE_URL` do app aponta para ELE; o `MIGRATION_DATABASE_URL` aponta
+# para o DONO (quem aplica DDL). A senha é gerada aqui e o papel é criado no
+# boot do backend (`ensure-app-role`).
+APP_DB_ROLE=pdv_app
+APP_DB_PASSWORD=${APP_DB_PASSWORD_VALUE}
+DATABASE_URL=postgres://pdv_app:${APP_DB_PASSWORD_VALUE}@postgres:5432/pdv
+MIGRATION_DATABASE_URL=postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}
 JWT_SECRET=$(random_secret)
 CORS_ORIGIN=http://localhost:5173,http://127.0.0.1:5173
 LOG_LEVEL=info
@@ -262,6 +275,33 @@ fi
 FRONTEND_PORT="$(env_get DEV_FRONTEND_PORT 5173)"
 POSTGRES_PORT="$(env_get DEV_POSTGRES_PORT 5432)"
 CADDY_HTTP_PORT="$(env_get DEV_CADDY_HTTP_PORT 8081)"
+
+# -----------------------------------------------------------------
+# 2b. O PAPEL do app (restrito, sem superuser e sem BYPASSRLS)
+#
+#     O dev é onde a barreira do RLS vai ser testada de verdade: com o app
+#     conectando como superuser, policy é decoração (superuser sempre burla
+#     row security, mesmo com FORCE ROW LEVEL SECURITY). Por isso o dev
+#     roda com o papel restrito desde já — e o papel é criado no boot do
+#     backend (`ensure-app-role`), com o dono fazendo os grants.
+#
+#     Um env já existente (de uma versão anterior do script) não tem essas
+#     chaves: é este bloco que as acrescenta, sem tocar no resto.
+# -----------------------------------------------------------------
+PG_USER="$(env_get POSTGRES_USER pdv)"
+PG_PASSWORD="$(env_get POSTGRES_PASSWORD pdv_password)"
+PG_DB="$(env_get POSTGRES_DB pdv)"
+APP_DB_ROLE_NAME="$(env_get APP_DB_ROLE pdv_app)"
+if [[ -z "$(env_get APP_DB_PASSWORD "")" ]]; then
+    APP_DB_PASSWORD_VALUE="$(random_secret)"
+    env_set APP_DB_ROLE "$APP_DB_ROLE_NAME"
+    env_set APP_DB_PASSWORD "$APP_DB_PASSWORD_VALUE"
+    env_set DATABASE_URL "postgres://${APP_DB_ROLE_NAME}:${APP_DB_PASSWORD_VALUE}@postgres:5432/${PG_DB}"
+    env_set MIGRATION_DATABASE_URL "postgres://${PG_USER}:${PG_PASSWORD}@postgres:5432/${PG_DB}"
+    pass "papel do app (${APP_DB_ROLE_NAME}, sem superuser) configurado no env do dev"
+else
+    pass "papel do app (${APP_DB_ROLE_NAME}) já configurado no env do dev"
+fi
 
 # -----------------------------------------------------------------
 # 3. Limpeza do que a versão ANTERIOR deste script deixou
