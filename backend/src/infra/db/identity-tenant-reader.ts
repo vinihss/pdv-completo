@@ -32,6 +32,8 @@ import { runInTenantScope, type TenantScope } from "./tenant-context.js";
 
 /** Linha do registry que este adapter consome (subconjunto do record do port). */
 export interface ActiveTenantRow {
+  /** Id do tenant (uuid) — a identidade estável que o escopo ALS carrega. */
+  id: string;
   slug: string;
   schemaName: string;
   status: string;
@@ -101,7 +103,12 @@ export class PgIdentityTenantReader implements IdentityTenantReader {
     for (const tenant of await this.deps.listActiveTenants()) {
       if (bySlug.has(tenant.slug)) continue;
       if (!isSafeSchemaName(tenant.schemaName)) continue;
-      bySlug.set(tenant.slug, { slug: tenant.slug, schemaName: tenant.schemaName, isDefault: false });
+      bySlug.set(tenant.slug, {
+        tenantId: tenant.id,
+        slug: tenant.slug,
+        schemaName: tenant.schemaName,
+        isDefault: false,
+      });
     }
     return [...bySlug.values()];
   }
@@ -116,7 +123,12 @@ export class PgIdentityTenantReader implements IdentityTenantReader {
     const record = await this.deps.registry.findBySlug(slug);
     if (!record || record.status !== "active") return null;
     if (!isSafeSchemaName(record.schemaName)) return null;
-    return { slug: record.slug, schemaName: record.schemaName, isDefault: false };
+    return {
+      tenantId: record.id,
+      slug: record.slug,
+      schemaName: record.schemaName,
+      isDefault: false,
+    };
   }
 
   private async findLinkedUserInTenant(scope: TenantScope, accountId: string): Promise<LinkedUserRecord | null> {

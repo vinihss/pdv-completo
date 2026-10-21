@@ -46,7 +46,7 @@ export async function resetManagerPin(slug: string, pin?: string): Promise<strin
     lookupError = err;
   }
   const scope = tenant
-    ? { schemaName: tenant.schemaName, slug, isDefault: false }
+    ? { tenantId: tenant.id, schemaName: tenant.schemaName, slug, isDefault: false }
     : defaultTenantScope(slug);
   if (!scope) {
     throw new Error(

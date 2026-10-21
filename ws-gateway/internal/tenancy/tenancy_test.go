@@ -17,7 +17,8 @@ import (
 // =============================================================================
 
 func TestStatementsPoeOSDoisConfigs(t *testing.T) {
-	stmts, err := Statements(Tenant{Slug: "umami", Schema: "tenant_umami"})
+	const id = "11111111-2222-3333-4444-555555555555"
+	stmts, err := Statements(Tenant{ID: id, Slug: "umami", Schema: "tenant_umami"})
 	if err != nil {
 		t.Fatalf("Statements devolveu erro para escopo válido: %v", err)
 	}
@@ -25,8 +26,10 @@ func TestStatementsPoeOSDoisConfigs(t *testing.T) {
 		t.Fatalf("Statements devolveu %d instrução(ões), quer 2 (app.tenant_id + search_path)", len(stmts))
 	}
 
-	if stmts[0].Args[0] != "app.tenant_id" || stmts[0].Args[1] != "umami" {
-		t.Errorf("primeira instrução = %v, quer app.tenant_id=umami", stmts[0].Args)
+	// O `app.tenant_id` leva o ID (uuid), não o slug: é o que a policy do
+	// Postgres vai comparar com a coluna `tenant_id`.
+	if stmts[0].Args[0] != "app.tenant_id" || stmts[0].Args[1] != id {
+		t.Errorf("primeira instrução = %v, quer app.tenant_id=%s", stmts[0].Args, id)
 	}
 	if stmts[1].Args[0] != "search_path" || stmts[1].Args[1] != "tenant_umami, public" {
 		t.Errorf("segunda instrução = %v, quer search_path='tenant_umami, public'", stmts[1].Args)
@@ -84,7 +87,7 @@ func TestStatementsRejeitaEscopoInconfiavel(t *testing.T) {
 func TestStatementsAceitaSchemaDoAmbiente(t *testing.T) {
 	seguros := []string{"public", "tenant_main", "tenant_loja_norte_2", "information_schema"}
 	for _, schema := range seguros {
-		if _, err := Statements(Tenant{Slug: "default", Schema: schema}); err != nil {
+		if _, err := Statements(Tenant{ID: DefaultID, Slug: "default", Schema: schema}); err != nil {
 			t.Errorf("Statements rejeitou %q: %v", schema, err)
 		}
 	}
@@ -343,5 +346,23 @@ func TestNormalizeHost(t *testing.T) {
 				t.Errorf("NormalizeHost(%q) = (%q, %v), quer (%q, %v)", c.raw, got, ok, c.want, c.ok)
 			}
 		})
+	}
+}
+
+// Fail-closed do ID: sem id não há contexto de LINHA, e sem contexto o RLS
+// não tem como filtrar — o `app.tenant_id` ficaria vazio e a policy
+// (quando existir) rejeitaria tudo. Melhor um erro explícito aqui do que um
+// `app.tenant_id` vazio silencioso.
+func TestStatementsSemIdERro(t *testing.T) {
+	if _, err := Statements(Tenant{Slug: "umami", Schema: "tenant_umami"}); err == nil {
+		t.Fatal("Statements aceitou tenant sem id — o app.tenant_id ficaria vazio")
+	}
+}
+
+// O default tem id FIXO: é o mesmo da linha do registry e o mesmo do backend
+// Node, para que o `app.tenant_id` gravado seja o mesmo nos dois lados.
+func TestDefaultTemIdFixo(t *testing.T) {
+	if Default().ID != DefaultID {
+		t.Errorf("default sem id = %q, quer %q", Default().ID, DefaultID)
 	}
 }

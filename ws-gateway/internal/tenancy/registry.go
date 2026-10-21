@@ -16,7 +16,7 @@ import (
 // próprio (`umamisushiarte.com.br`) não tem subdomínio nenhum que a delate:
 // sem esta coluna, o Host resolveria no default e o `order:<uuid>` daquela
 // loja ficaria mudo.
-const registrySQL = `SELECT slug, schema_name, COALESCE(custom_domain, '')
+const registrySQL = `SELECT id, slug, schema_name, COALESCE(custom_domain, '')
 	FROM public.tenant
 	WHERE status = 'active'
 	ORDER BY slug`
@@ -35,6 +35,7 @@ const registryTTL = 60 * time.Second
 const registryTimeout = 2 * time.Second
 
 type registryRow struct {
+	id           string
 	slug         string
 	schema       string
 	customDomain string
@@ -106,7 +107,7 @@ func (r *Registry) ler(ctx context.Context) ([]registryRow, error) {
 	var out []registryRow
 	for dbRows.Next() {
 		var row registryRow
-		if err := dbRows.Scan(&row.slug, &row.schema, &row.customDomain); err != nil {
+		if err := dbRows.Scan(&row.id, &row.slug, &row.schema, &row.customDomain); err != nil {
 			return nil, err
 		}
 		if !ValidSlug(row.slug) || !ValidSchema(row.schema) {
@@ -131,7 +132,7 @@ func (r *Registry) Tenants(ctx context.Context) ([]Tenant, error) {
 	for _, row := range rows {
 		if row.slug == DefaultSlug {
 			temDefault = true
-			out = append(out, Tenant{Slug: row.slug, Schema: row.schema})
+			out = append(out, Tenant{ID: row.id, Slug: row.slug, Schema: row.schema})
 		}
 	}
 	if !temDefault {
@@ -139,7 +140,7 @@ func (r *Registry) Tenants(ctx context.Context) ([]Tenant, error) {
 	}
 	for _, row := range rows {
 		if row.slug != DefaultSlug {
-			out = append(out, Tenant{Slug: row.slug, Schema: row.schema})
+			out = append(out, Tenant{ID: row.id, Slug: row.slug, Schema: row.schema})
 		}
 	}
 	return out, nil
@@ -155,7 +156,7 @@ func (r *Registry) Resolve(ctx context.Context, host string) (Tenant, error) {
 	porSlug := func(slug string) (Tenant, bool) {
 		for _, row := range rows {
 			if row.slug == slug {
-				return Tenant{Slug: row.slug, Schema: row.schema}, true
+				return Tenant{ID: row.id, Slug: row.slug, Schema: row.schema}, true
 			}
 		}
 		return Tenant{}, false
@@ -163,7 +164,7 @@ func (r *Registry) Resolve(ctx context.Context, host string) (Tenant, error) {
 	porCustom := func(h string) (Tenant, bool) {
 		for _, row := range rows {
 			if row.customDomain != "" && row.customDomain == h {
-				return Tenant{Slug: row.slug, Schema: row.schema}, true
+				return Tenant{ID: row.id, Slug: row.slug, Schema: row.schema}, true
 			}
 		}
 		return Tenant{}, false

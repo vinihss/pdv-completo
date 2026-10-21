@@ -175,6 +175,15 @@ das policies); `user.account_id` nasce em A e em B o `user` ganha `tenant_id`;
 o claim `{sub, role, tenant}` não muda em nenhum dos dois; `store_settings`
 permanece por-loja nos dois modelos.
 
+**O workstream B começou** (2026-10-21): o modelo — um schema só, `tenant_id`
+em toda tabela, RLS como barreira — e as fases estão em
+[`28-multitenant-row-level.md`](28-multitenant-row-level.md). A primeira
+entrega dele é a **identidade do tenant**: `public.tenant` ganha `id` (uuid,
+PK) ao lado do `slug` (rótulo), e o tenant default passa a ser uma linha do
+registry com id fixo. Daqui em diante o escopo de tenant (ALS, ports,
+gateway Go) carrega o **id**, e o `app.tenant_id` gravado na transação é o
+uuid — que é o que a policy vai comparar com a coluna `tenant_id`.
+
 ## 10. Verificação
 
 1. Backend: `npm run build` (tsc) e `npm run test` sem falhas.

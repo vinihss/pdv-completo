@@ -10,8 +10,20 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { getCache, resetCache, tenantCache } from "../src/infra/cache/index.js";
 import { runInTenantScope } from "../src/infra/db/tenant-context.js";
 
-const SCOPE_A = { schemaName: "tenant_cache_a", slug: "a", isDefault: false };
-const SCOPE_B = { schemaName: "tenant_cache_b", slug: "b", isDefault: false };
+// O `tenantId` (uuid) acompanha o escopo: é o que a transação grava em
+// `app.tenant_id` (o cache não depende dele, mas o escopo é o mesmo).
+const SCOPE_A = {
+  tenantId: "aaaaaaaa-0000-0000-0000-00000000000a",
+  schemaName: "tenant_cache_a",
+  slug: "a",
+  isDefault: false,
+};
+const SCOPE_B = {
+  tenantId: "bbbbbbbb-0000-0000-0000-00000000000b",
+  schemaName: "tenant_cache_b",
+  slug: "b",
+  isDefault: false,
+};
 
 const inScope = <T>(scope: typeof SCOPE_A, fn: () => T | Promise<T>) => runInTenantScope(scope, async () => fn());
 

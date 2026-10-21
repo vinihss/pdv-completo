@@ -89,7 +89,7 @@ próprio argumento e sai com código `!= 0` em uso inválido.
 | `provision <slug> [nome]` | Roda `src/infra/db/provision-tenant.ts` via `npx tsx` |
 | `reset-pin <slug> [pin]` | Roda `src/infra/db/reset-manager-pin.ts` via `npx tsx` |
 | `add-user <slug> <nome> <perfil> [pin]` | Roda `src/infra/db/add-user.ts` via `npx tsx` |
-| `list` | Lista os tenants do registry (mesma implementação da TUI; em single-tenant mostra o tenant implícito) |
+| `list` | Lista os tenants do registry (mesma implementação da TUI; em single-tenant mostra o tenant implícito) — com o **id** (uuid), que é a identidade estável do tenant |
 
 `provision`/`reset-pin`/`add-user`/`list` carregam `backend/.env` com `dotenvy`
 antes de chamar o `tsx`, e exportam `SLUG`/`DISPLAY_NAME`/`PIN`/`USER_*` no

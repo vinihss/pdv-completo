@@ -21,6 +21,8 @@ import { getCache } from "../cache/index.js";
 export type TenantStatus = "active" | "suspended";
 
 export type TenantRecord = {
+  /** Id do tenant (uuid) — a identidade estável que vai para `tenant_id`. */
+  id: string;
   slug: string;
   /** `schema_name` do registry. NUNCA sai para o cliente — é topologia interna. */
   schemaName: string;
@@ -56,12 +58,16 @@ function writeCache<T>(key: string, tenant: T | null): void {
   getCache().set<Cached<T>>(`${CACHE_PREFIX}${key}`, { tenant }, { ttl: ttlSeconds() });
 }
 
-const SELECT_COLUMNS = "slug, schema_name, display_name, status, custom_domain";
+const SELECT_COLUMNS = "id, slug, schema_name, display_name, status, custom_domain";
 
 function toRecord(row: Record<string, unknown>): TenantRecord {
   return {
+    id: String(row.id),
     slug: String(row.slug),
-    schemaName: String(row.schema_name),
+    // `schema_name` pode ser NULL desde a migration `0003_tenant_id.sql`: no
+    // modelo por LINHA a loja não tem schema. Vazio (e não a string "null")
+    // para que a validação de schema do use case reprove com mensagem clara.
+    schemaName: row.schema_name === null || row.schema_name === undefined ? "" : String(row.schema_name),
     displayName: String(row.display_name),
     status: row.status === "suspended" ? "suspended" : "active",
     customDomain: row.custom_domain === null || row.custom_domain === undefined ? null : String(row.custom_domain),

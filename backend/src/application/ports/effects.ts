@@ -192,6 +192,8 @@ export interface IdempotencyStore {
  * e NUNCA vai para o cliente; o cache (TTL) e o SQL cru moram no adapter.
  */
 export interface TenantRegistryRecord {
+  /** Id do tenant (uuid) — identidade estável (o slug pode ser renomeado). */
+  id: string;
   slug: string;
   schemaName: string;
   displayName: string;
@@ -226,7 +228,12 @@ export interface PublicTenantBrand {
  * explícita: schema do tenant sem `store_settings` → `tenant_schema_unavailable`.
  */
 export interface PublicTenantBrandReader {
-  read(tenant: { slug: string; schemaName: string; isDefault: boolean }): Promise<PublicTenantBrand>;
+  read(tenant: {
+    tenantId: string;
+    slug: string;
+    schemaName: string;
+    isDefault: boolean;
+  }): Promise<PublicTenantBrand>;
 }
 
 // ---------- escopo de tenant do request (ALS) ----------
@@ -242,7 +249,7 @@ export interface PublicTenantBrandReader {
  */
 export interface TenantScopeStore {
   /** Escopo corrente (ALS), ou `undefined` fora de um request. */
-  current(): { slug: string; schemaName: string; isDefault: boolean } | undefined;
+  current(): { tenantId: string; slug: string; schemaName: string; isDefault: boolean } | undefined;
   /** Entra no escopo corrente (workaround de propagação do ALS no login). */
-  enter(scope: { slug: string; schemaName: string; isDefault: boolean }): void;
+  enter(scope: { tenantId: string; slug: string; schemaName: string; isDefault: boolean }): void;
 }

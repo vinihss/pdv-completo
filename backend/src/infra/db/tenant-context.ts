@@ -13,6 +13,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { isSafeSchemaName } from "../../domain/tenant.js";
 
 export type TenantScope = {
+  /** Id do tenant (uuid) — a identidade estável, vai para `app.tenant_id`. */
+  tenantId: string;
   /** Nome do schema Postgres que o processo fala para esta requisição. */
   schemaName: string;
   /** Slug do tenant (ex.: "umami", "pdv1"). Necessário para JWT e validação. */
@@ -98,7 +100,12 @@ export async function ensureTenantScope<T>(
   const { resolveTenant } = await import("../composition/default-usecases.js");
   const tenant = await resolveTenant(host);
   return store.run(
-    { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault },
+    {
+      tenantId: tenant.id,
+      schemaName: tenant.schemaName,
+      slug: tenant.slug,
+      isDefault: tenant.isDefault,
+    },
     fn
   );
 }

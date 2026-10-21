@@ -25,11 +25,17 @@ import { runInTenantScope } from "./tenant-context.js";
 export class PublicTenantBrandReaderAdapter implements PublicTenantBrandReader {
   async read(tenant: {
     slug: string;
+    tenantId: string;
     schemaName: string;
     isDefault: boolean;
   }): Promise<PublicTenantBrand> {
     return runInTenantScope(
-      { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault },
+      {
+        tenantId: tenant.tenantId,
+        schemaName: tenant.schemaName,
+        slug: tenant.slug,
+        isDefault: tenant.isDefault,
+      },
       async () => {
         const { rows } = await pool.query(
           `SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'store_settings' LIMIT 1`,

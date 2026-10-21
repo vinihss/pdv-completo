@@ -418,18 +418,27 @@ fn handle_db_list() -> i32 {
         return 0;
       }
       println!("Tenants (registry public.tenant):");
-      println!("{}", "-".repeat(72));
+      println!("{}", "-".repeat(88));
+      println!(
+        "{:<20} {:<22} {:<18} {:<10} {}",
+        "slug", "schema", "nome", "id", "status"
+      );
       for t in &tenants {
         let mut linha = format!(
-          "{:<20} {:<22} {:<18} {}",
-          t.slug, t.schema_name, t.display_name, t.status
+          "{:<20} {:<22} {:<18} {:<10} {}",
+          t.slug,
+          t.schema_name,
+          t.display_name,
+          // Prefixo do id (como o git): o id inteiro é o uuid do registry.
+          t.id.chars().take(8).collect::<String>(),
+          t.status
         );
         if !t.custom_domain.is_empty() {
           linha.push_str(&format!("  ({})", t.custom_domain));
         }
         println!("{}", linha);
       }
-      println!("{}", "-".repeat(72));
+      println!("{}", "-".repeat(88));
       println!("Total: {} tenant(s)", tenants.len());
       0
     }

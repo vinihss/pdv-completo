@@ -70,7 +70,12 @@ export async function runMaintenanceOnce() {
   for (const tenant of tenants) {
     try {
       const result = await runInTenantScope(
-        { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: false },
+        {
+          tenantId: tenant.id,
+          schemaName: tenant.schemaName,
+          slug: tenant.slug,
+          isDefault: false,
+        },
         () => runMaintenanceForTenant()
       );
       results.outbox += result.outbox;

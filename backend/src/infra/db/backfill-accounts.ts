@@ -26,8 +26,11 @@ import { DEFAULT_TENANT_SLUG } from "../../application/tenant/resolve-tenant.use
 import { normalizeEmail, newId } from "../../application/identity/identity-helpers.js";
 import { PostgresIdentityRepository } from "./repositories/identity.repository.ts";
 import { users } from "./schema.js";
+import { DEFAULT_TENANT_ID } from "../../domain/tenant.js";
 
 interface Scope {
+  /** Id do tenant (uuid) — o mesmo que o escopo ALS carrega. */
+  tenantId: string;
   slug: string;
   schemaName: string;
 }
@@ -35,10 +38,18 @@ interface Scope {
 /** Default primeiro, depois os ativos do registry (dedup por slug). */
 async function resolveScopes(): Promise<Scope[]> {
   const bySlug = new Map<string, Scope>();
-  bySlug.set(DEFAULT_TENANT_SLUG, { slug: DEFAULT_TENANT_SLUG, schemaName: resolveTenantSchema() });
+  bySlug.set(DEFAULT_TENANT_SLUG, {
+    tenantId: DEFAULT_TENANT_ID,
+    slug: DEFAULT_TENANT_SLUG,
+    schemaName: resolveTenantSchema(),
+  });
   for (const tenant of await listActiveTenants()) {
     if (bySlug.has(tenant.slug)) continue;
-    bySlug.set(tenant.slug, { slug: tenant.slug, schemaName: tenant.schemaName });
+    bySlug.set(tenant.slug, {
+      tenantId: tenant.id,
+      slug: tenant.slug,
+      schemaName: tenant.schemaName,
+    });
   }
   return [...bySlug.values()];
 }

@@ -12,6 +12,11 @@ import { invalidateTenantRegistryCache } from "../src/infra/tenant/registry.js";
 import { runInTenantScope } from "../src/infra/db/tenant-context.js";
 
 const ROOT_DOMAIN = "teste.local";
+// Ids FIXOS dos tenants de teste: o mesmo id vai para a linha do registry e
+// para o escopo ALS, para que o `app.tenant_id` gravado na transação seja o
+// id do banco (e não um uuid diferente do que o registry devolve).
+const TENANT_A_ID = "aaaaaaaa-1111-2222-3333-44444444444a";
+const TENANT_B_ID = "bbbbbbbb-1111-2222-3333-44444444444b";
 const TENANT_A_SLUG = "a";
 const TENANT_B_SLUG = "b";
 const TENANT_A_SCHEMA = "tenant_test_a";
@@ -40,16 +45,16 @@ beforeAll(async () => {
 
   // Registrar tenants no registry
   await raw.all(
-    `INSERT INTO public.tenant (slug, schema_name, display_name, status)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (slug) DO UPDATE SET schema_name = EXCLUDED.schema_name, display_name = EXCLUDED.display_name, status = EXCLUDED.status`,
-    [TENANT_A_SLUG, TENANT_A_SCHEMA, "Tenant A", "active"]
+    `INSERT INTO public.tenant (id, slug, schema_name, display_name, status)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (slug) DO UPDATE SET id = EXCLUDED.id, schema_name = EXCLUDED.schema_name, display_name = EXCLUDED.display_name, status = EXCLUDED.status`,
+    [TENANT_A_ID, TENANT_A_SLUG, TENANT_A_SCHEMA, "Tenant A", "active"]
   );
   await raw.all(
-    `INSERT INTO public.tenant (slug, schema_name, display_name, status)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (slug) DO UPDATE SET schema_name = EXCLUDED.schema_name, display_name = EXCLUDED.display_name, status = EXCLUDED.status`,
-    [TENANT_B_SLUG, TENANT_B_SCHEMA, "Tenant B", "active"]
+    `INSERT INTO public.tenant (id, slug, schema_name, display_name, status)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (slug) DO UPDATE SET id = EXCLUDED.id, schema_name = EXCLUDED.schema_name, display_name = EXCLUDED.display_name, status = EXCLUDED.status`,
+    [TENANT_B_ID, TENANT_B_SLUG, TENANT_B_SCHEMA, "Tenant B", "active"]
   );
 
   // Invalidar cache do registry para garantir que as novas entradas sejam lidas
@@ -120,7 +125,12 @@ describe("Isolamento multi-tenant", () => {
     // Usa runInTenantScope para forçar o contexto do tenant durante a execução do handler,
     // contornando o problema de propagação do ALS através do inject() do Fastify.
     await runInTenantScope(
-      { schemaName: TENANT_A_SCHEMA, slug: TENANT_A_SLUG, isDefault: false },
+      {
+        tenantId: TENANT_A_ID,
+        schemaName: TENANT_A_SCHEMA,
+        slug: TENANT_A_SLUG,
+        isDefault: false,
+      },
       async () => {
         const res = await api("get", "/auth/users", {
           headers: { "x-tenant-host": `${TENANT_A_SLUG}.${ROOT_DOMAIN}` },
@@ -133,7 +143,12 @@ describe("Isolamento multi-tenant", () => {
 
   it("B) Host de tenant B lista apenas usuários de tenant B", async () => {
     await runInTenantScope(
-      { schemaName: TENANT_B_SCHEMA, slug: TENANT_B_SLUG, isDefault: false },
+      {
+        tenantId: TENANT_B_ID,
+        schemaName: TENANT_B_SCHEMA,
+        slug: TENANT_B_SLUG,
+        isDefault: false,
+      },
       async () => {
         const res = await api("get", "/auth/users", {
           headers: { "x-tenant-host": `${TENANT_B_SLUG}.${ROOT_DOMAIN}` },
@@ -146,7 +161,12 @@ describe("Isolamento multi-tenant", () => {
 
   it("C) Login com userId de outro tenant retorna 401", async () => {
     await runInTenantScope(
-      { schemaName: TENANT_A_SCHEMA, slug: TENANT_A_SLUG, isDefault: false },
+      {
+        tenantId: TENANT_A_ID,
+        schemaName: TENANT_A_SCHEMA,
+        slug: TENANT_A_SLUG,
+        isDefault: false,
+      },
       async () => {
         const res = await api("post", "/auth/login", {
           headers: { "x-tenant-host": `${TENANT_A_SLUG}.${ROOT_DOMAIN}` },
@@ -161,7 +181,12 @@ describe("Isolamento multi-tenant", () => {
     // Login válido em tenant A
     let tokenA: string;
     await runInTenantScope(
-      { schemaName: TENANT_A_SCHEMA, slug: TENANT_A_SLUG, isDefault: false },
+      {
+        tenantId: TENANT_A_ID,
+        schemaName: TENANT_A_SCHEMA,
+        slug: TENANT_A_SLUG,
+        isDefault: false,
+      },
       async () => {
         const loginRes = await api("post", "/auth/login", {
           headers: { "x-tenant-host": `${TENANT_A_SLUG}.${ROOT_DOMAIN}` },
@@ -174,7 +199,12 @@ describe("Isolamento multi-tenant", () => {
 
     // Usa token em tenant B — deve ser rejeitado
     await runInTenantScope(
-      { schemaName: TENANT_B_SCHEMA, slug: TENANT_B_SLUG, isDefault: false },
+      {
+        tenantId: TENANT_B_ID,
+        schemaName: TENANT_B_SCHEMA,
+        slug: TENANT_B_SLUG,
+        isDefault: false,
+      },
       async () => {
         const res = await api("get", "/auth/me", {
           headers: { "x-tenant-host": `${TENANT_B_SLUG}.${ROOT_DOMAIN}` },
@@ -201,7 +231,12 @@ describe("Isolamento multi-tenant", () => {
     // os contextos mesmo durante execução concorrente.
     const [resA, resB] = await Promise.all([
       runInTenantScope(
-        { schemaName: TENANT_A_SCHEMA, slug: TENANT_A_SLUG, isDefault: false },
+        {
+        tenantId: TENANT_A_ID,
+        schemaName: TENANT_A_SCHEMA,
+        slug: TENANT_A_SLUG,
+        isDefault: false,
+      },
         async () => {
           return await api("get", "/auth/users", { 
             headers: { "x-tenant-host": `${TENANT_A_SLUG}.${ROOT_DOMAIN}` } 
@@ -209,7 +244,12 @@ describe("Isolamento multi-tenant", () => {
         }
       ),
       runInTenantScope(
-        { schemaName: TENANT_B_SCHEMA, slug: TENANT_B_SLUG, isDefault: false },
+        {
+        tenantId: TENANT_B_ID,
+        schemaName: TENANT_B_SCHEMA,
+        slug: TENANT_B_SLUG,
+        isDefault: false,
+      },
         async () => {
           return await api("get", "/auth/users", { 
             headers: { "x-tenant-host": `${TENANT_B_SLUG}.${ROOT_DOMAIN}` } 
