@@ -1,6 +1,6 @@
 import { MemoryCache } from "./memory-cache.js";
 import { ICacheClient, CacheEntry, CacheOptions, matchesPattern } from "./cache-client.js";
-import { resolveTenantSchemaInScope } from "../db/tenant-context.js";
+import { currentTenantId } from "../db/tenant-context.js";
 import { RedisCacheClient, closeRedis } from "./redis-cache-client.js";
 
 let instance: ICacheClient | null = null;
@@ -43,8 +43,13 @@ export function isUsingRedis(): boolean {
   return cacheInstance instanceof RedisCacheClient;
 }
 
+/**
+ * A chave do cache é particionada pelo TENANT, não pelo schema: no modelo por
+ * linha todas as lojas moram no mesmo schema, e uma chave por schema
+ * misturaria as lojas (o `active` de uma vazaria para a outra).
+ */
 function scopedKey(key: string): string {
-  return `${resolveTenantSchemaInScope()}:${key}`;
+  return `${currentTenantId()}:${key}`;
 }
 
 export const tenantCache = {

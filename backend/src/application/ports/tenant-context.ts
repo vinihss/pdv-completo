@@ -8,8 +8,12 @@
 export interface TenantContext {
   tenantId: string;
   slug: string;
-  /** ADIÇÃO (escopo/schema-por-tenant vigente): schema do tenant no Postgres, usado pelo adapter para rotear o pool. `tenantId` === `slug` no registry atual. */
-  schemaName: string;
+  /**
+   * O schema do tenant NÃO faz mais parte do contexto: no modelo por LINHA
+   * (`docs/28`) todas as lojas moram no mesmo schema (`public`) e quem separa
+   * uma da outra é a coluna `tenant_id` + a policy de RLS (a Fase 2). O
+   * adapter roteia pelo `tenantId` — o pool é por tenant, não por schema.
+   */
   source: "http" | "worker" | "webhook" | "internal";
 }
 

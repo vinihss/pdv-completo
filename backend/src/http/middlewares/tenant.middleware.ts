@@ -31,7 +31,6 @@ export async function tenantMiddleware(
     const tenant = await resolveTenant(rawHost);
     enterTenantScope({
       tenantId: tenant.id,
-      schemaName: tenant.schemaName,
       slug: tenant.slug,
       isDefault: tenant.isDefault,
     });

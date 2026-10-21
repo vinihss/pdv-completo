@@ -231,7 +231,6 @@ export interface PublicTenantBrandReader {
   read(tenant: {
     tenantId: string;
     slug: string;
-    schemaName: string;
     isDefault: boolean;
   }): Promise<PublicTenantBrand>;
 }
@@ -249,7 +248,7 @@ export interface PublicTenantBrandReader {
  */
 export interface TenantScopeStore {
   /** Escopo corrente (ALS), ou `undefined` fora de um request. */
-  current(): { tenantId: string; slug: string; schemaName: string; isDefault: boolean } | undefined;
+  current(): { tenantId: string; slug: string; isDefault: boolean } | undefined;
   /** Entra no escopo corrente (workaround de propagação do ALS no login). */
-  enter(scope: { tenantId: string; slug: string; schemaName: string; isDefault: boolean }): void;
+  enter(scope: { tenantId: string; slug: string; isDefault: boolean }): void;
 }

@@ -44,7 +44,7 @@ import { isNotNull } from "drizzle-orm";
 import { db, pool } from "../src/infra/db/client.js";
 import { customers, products, storeSettings, users } from "../src/infra/db/schema.js";
 import { config } from "../src/config/env.js";
-import { resolveTenantSchema, storageDirFor } from "../src/infra/storage/index.js";
+import { resolveTenant, storageDirFor } from "../src/infra/storage/index.js";
 import { isSafeFilename, STORAGE_KINDS, type StorageKind } from "../src/infra/storage/storage.js";
 
 const args = new Set(process.argv.slice(2));
@@ -58,7 +58,9 @@ if (copy && revert) {
 }
 
 const root = path.resolve(config.uploadsDir);
-const tenant = resolveTenantSchema();
+// O diretório é por TENANT (`<uploadsDir>/<tenantId>/<kind>/`) — no modelo
+// por linha o schema é um só, e o id é a identidade estável.
+const tenant = resolveTenant();
 
 /** Arquivos que uma linha de banco aponta, grouped por kind. */
 async function referencedByKind(): Promise<Map<StorageKind, string[]>> {

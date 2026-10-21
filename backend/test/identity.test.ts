@@ -690,26 +690,20 @@ describe("identidade: conta com duas empresas", () => {
     process.env.TENANT_ROUTING = "true";
     process.env.PLATFORM_ROOT_DOMAIN = ROOT_DOMAIN;
 
-    // Segunda loja de verdade: schema provisionado + marca própria + usuário da
-    // conta com OUTRA role (a role do token vem da linha `user` da loja).
-    // DDL é do DONO (o papel do app não é owner).
-    await rawOwner.exec(`DROP SCHEMA IF EXISTS ${TENANT_B_SCHEMA} CASCADE`);
-    await rawOwner.exec(`CREATE SCHEMA ${TENANT_B_SCHEMA}`);
-    // O `search_path` é resolvido uma vez por sessão: as conexões dos pools
-    // antigos apontam para o schema DESTRUÍDO. Fechar os pools força a
-    // recriação (com o `search_path` novo).
-    await closeAllTenantPools();
-    // E o papel do app precisa de acesso ao schema novo (em produção quem faz
-    // isso é o provisionamento — `grantAppRoleOnSchema`).
-    await grantAppRoleOnSchema(TENANT_B_SCHEMA);
-    await runMigrations({ schema: TENANT_B_SCHEMA });
+    // Segunda loja de verdade: a linha no registry + a marca dela + o usuário
+    // da conta com OUTRA role (a role do token vem da linha `user` da loja).
+    //
+    // A loja NÃO tem schema: no modelo por linha (`docs/28`) as lojas
+    // convivem no `public` e quem separa uma da outra é a coluna `tenant_id`
+    // (a policy de RLS filtra a leitura).
+    //
     // A linha do registry ANTES do dado: a FK `store_settings →
     // public.tenant` recusa o dado de um tenant que não está no registry.
     await raw.all(
       `INSERT INTO public.tenant (id, slug, schema_name, display_name, status)
-       VALUES ($1, $2, $3, $4, 'active')
-       ON CONFLICT (slug) DO UPDATE SET id = EXCLUDED.id, schema_name = EXCLUDED.schema_name`,
-      [TENANT_B_ID, TENANT_B_SLUG, TENANT_B_SCHEMA, "Loja B"],
+       VALUES ($1, $2, 'public', $3, 'active')
+       ON CONFLICT (slug) DO UPDATE SET id = EXCLUDED.id`,
+      [TENANT_B_ID, TENANT_B_SLUG, "Loja B"],
     );
     // O `SET` é da sessão do INSERT: a policy de RLS exige que a linha
     // escrita seja da loja da sessão.
@@ -719,9 +713,11 @@ describe("identidade: conta com duas empresas", () => {
     // default. O `is_local=true` vale só até o fim da transação.
     await raw.exec(
       `SELECT set_config('app.tenant_id', '${TENANT_B_ID}', true);
-       INSERT INTO ${TENANT_B_SCHEMA}.store_settings
+       INSERT INTO store_settings
          (id, merchant_name, merchant_city, brand_color, uses_delivery, kitchen_enabled)
-       VALUES ('singleton', 'Loja B', 'Cidade B', '#654321', false, false)`,
+       VALUES ('singleton', 'Loja B', 'Cidade B', '#654321', false, false)
+       ON CONFLICT (tenant_id, id) DO UPDATE
+         SET merchant_name = EXCLUDED.merchant_name, brand_color = EXCLUDED.brand_color`,
     );
     invalidateTenantRegistryCache();
 
@@ -730,14 +726,14 @@ describe("identidade: conta com duas empresas", () => {
     // seja da loja da sessão (e o trigger preenche o `tenant_id`).
     await raw.exec(
       `SELECT set_config('app.tenant_id', '${TENANT_B_ID}', true);
-       INSERT INTO ${TENANT_B_SCHEMA}."user" (id, name, role, pin_hash, email, account_id)
+       INSERT INTO "user" (id, name, role, pin_hash, email, account_id)
        VALUES ('usr-b-${crypto.randomUUID()}', 'Gerente na Loja B', 'waiter', 'x', '${account.email}', '${account.accountId}')`,
     );
   });
 
   afterAll(async () => {
-    // O afterEach do arquivo limpa os vínculos; o schema some por inteiro.
-    await rawOwner.exec(`DROP SCHEMA IF EXISTS ${TENANT_B_SCHEMA} CASCADE`);
+    // O afterEach do arquivo limpa os vínculos e o dado da loja.
+    await rawOwner.exec(`DELETE FROM store_settings WHERE tenant_id = '${TENANT_B_ID}'`);
     for (const key of ENV_KEYS) {
       const value = savedEnv.get(key);
       if (value === undefined) delete process.env[key];
@@ -751,8 +747,8 @@ describe("identidade: conta com duas empresas", () => {
     // verificadas com as linhas REAIS (o RLS não esconde a linha da Loja B do
     // verificador da FK) e o papel do app não a enxerga → o dado da loja sai
     // ANTES da linha do registry, senão o DELETE da linha bate na FK.
-    await rawOwner.exec(`DELETE FROM ${TENANT_B_SCHEMA}."user" WHERE email LIKE '%${EMAIL_DOMAIN}'`);
-    await rawOwner.exec(`DELETE FROM ${TENANT_B_SCHEMA}.store_settings WHERE id = 'singleton'`);
+    await rawOwner.exec(`DELETE FROM "user" WHERE tenant_id = '${TENANT_B_ID}' AND email LIKE '%${EMAIL_DOMAIN}'`);
+    await rawOwner.exec(`DELETE FROM store_settings WHERE tenant_id = '${TENANT_B_ID}'`);
     await rawOwner.all(`DELETE FROM public.tenant WHERE slug = $1`, [TENANT_B_SLUG]);
     invalidateTenantRegistryCache();
   });
@@ -774,7 +770,7 @@ describe("identidade: conta com duas empresas", () => {
     // da Loja B ficaria pendurado nela — envenenando o default.
     await raw.exec(
       `SELECT set_config('app.tenant_id', '${TENANT_B_ID}', true);
-       INSERT INTO ${TENANT_B_SCHEMA}.store_settings
+       INSERT INTO store_settings
          (id, merchant_name, merchant_city, brand_color, uses_delivery, kitchen_enabled)
        VALUES ('singleton', 'Loja B', 'Cidade B', '#654321', false, false)
        ON CONFLICT (tenant_id, id) DO UPDATE SET brand_color = EXCLUDED.brand_color`,

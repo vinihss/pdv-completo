@@ -2,13 +2,13 @@
  * Warm-up script para pré-popular o Redis cache na inicialização do backend.
  * 
  * Esta versão integra com o registry de tenant (Fase 1 do doc 15),
- * populando caches por schema de loja em vez de uma lista fixa.
+ * populando caches por LOJA (o `tenantId` é a chave) em vez de uma lista fixa.
  * 
  * Popula:
- * - Configurações da store_settings por schema (loja)
- * - Cardápio/menu por schema
- * - Categorias ativas por schema
- * - Produtos populares por schema
+ * - Configurações da store_settings por loja
+ * - Cardápio/menu por loja
+ * - Categorias ativas por loja
+ * - Produtos populares por loja
  * 
  * O registry de tenant já tem seu próprio cache (TTL 60s) em infra/tenant/registry.ts.
  * Este warm-up foca em caches de dados de operação (cardápio, produtos, etc).
@@ -18,15 +18,17 @@ import { getRedis, waitForRedisReady } from "./redis-cache-client.js"
 import { listActiveTenants, invalidateTenantRegistryCache } from "./../../infra/tenant/registry.js"
 
 /**
- * Extrai o schemaName do registro de tenant para usar como chave de cache.
- * O schema isola os dados por loja no PostgreSQL (docs/15-multi-tenant-schema.md).
+ * A chave de partição do cache é o TENANT (o `tenantId`), não o schema: no
+ * modelo por linha (`docs/28`) todas as lojas moram no mesmo schema, e uma
+ * chave por schema misturaria as lojas. O formato é o mesmo do `tenantCache`
+ * (`${tenantId}:${chave}`), senão o warm-up popula chaves que o app nunca lê.
  */
-function getSchemaName(tenant: { schemaName: string }): string {
-  return tenant.schemaName
+function getTenantId(tenant: { id: string }): string {
+  return tenant.id
 }
 
 /**
- * Warm-up das configurações da loja usando o schema do tenant.
+ * Warm-up das configurações da loja (a chave é o `tenantId`).
  * As store_settings são quase estáticas (horário, taxas, flags), TTL de 24h.
  */
 async function warmupStoreSettingsByTenant(): Promise<void> {
@@ -36,14 +38,14 @@ async function warmupStoreSettingsByTenant(): Promise<void> {
     const tenants = await listActiveTenants()
 
     for (const tenant of tenants) {
-      const schema = getSchemaName(tenant)
+      const tenantId = getTenantId(tenant)
 
       // Verificar se já existe no cache
-      const cacheKey = `store_settings:${schema}`
+      const cacheKey = `${tenantId}:store_settings`
       const exists = await redis.exists(cacheKey)
       if (exists) continue
 
-      // Em produção, viriam do banco do schema correspondente.
+      // Em produção, viriam do banco (a linha da loja, filtrada pelo RLS).
         // Para now, usar dados padrão consistentes com o .env.example
       const defaultSettings = {
         merchantName: "PDV Restaurante",
@@ -70,7 +72,7 @@ async function warmupStoreSettingsByTenant(): Promise<void> {
         86400 // 24 horas TTL - configurações mudam raramente
       )
       // eslint-disable-next-line no-console
-      console.info(`✅ Store settings warm-up para schema ${schema} (loja ${tenant.slug})`)
+      console.info(`✅ Store settings warm-up para a loja ${tenant.slug} (${tenantId})`)
     }
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -79,7 +81,7 @@ async function warmupStoreSettingsByTenant(): Promise<void> {
 }
 
 /**
- * Warm-up de categorias ativas usando o schema do tenant.
+ * Warm-up de categorias ativas da loja.
  * TTL de 10min - categorias mudam quando admin altera promoções.
  */
 async function warmupCategoriasByTenant(): Promise<void> {
@@ -89,13 +91,13 @@ async function warmupCategoriasByTenant(): Promise<void> {
     const tenants = await listActiveTenants()
 
     for (const tenant of tenants) {
-      const schema = getSchemaName(tenant)
-      const cacheKey = `categorias:${schema}`
+      const tenantId = getTenantId(tenant)
+      const cacheKey = `${tenantId}:categorias`
 
       const exists = await redis.exists(cacheKey)
       if (exists) continue
 
-      // Em produção: SELECT * FROM categoria WHERE schema = ${schema} AND ativa = true
+      // Em produção: SELECT * FROM categoria WHERE ativa = true (o RLS filtra a loja)
       // Agora usando dados mock consistentes
       const mockCategorias = [
         { id: "cat-1", nome: "Bebidas" },
@@ -112,7 +114,7 @@ async function warmupCategoriasByTenant(): Promise<void> {
         600 // 10 minutos TTL
       )
       // eslint-disable-next-line no-console
-      console.info(`✅ Categorias warm-up para schema ${schema} (loja ${tenant.slug})`)
+      console.info(`✅ Categorias warm-up para a loja ${tenant.slug} (${tenantId})`)
     }
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -121,7 +123,7 @@ async function warmupCategoriasByTenant(): Promise<void> {
 }
 
 /**
- * Warm-up de produtos populares por schema de tenant.
+ * Warm-up de produtos populares da loja.
  * Usa dados mock; em produção viriam do prisma do schema certo.
  */
 async function warmupPopularProductsByTenant(): Promise<void> {
@@ -131,8 +133,8 @@ async function warmupPopularProductsByTenant(): Promise<void> {
     const tenants = await listActiveTenants()
 
     for (const tenant of tenants) {
-      const schema = getSchemaName(tenant)
-      const cacheKey = `produtos:resumo:${schema}`
+      const tenantId = getTenantId(tenant)
+      const cacheKey = `${tenantId}:produtos:resumo`
 
       // Dados mock de produtos populares
       const mockProducts = [
@@ -150,7 +152,7 @@ async function warmupPopularProductsByTenant(): Promise<void> {
 
       // Cache individual por produto
       for (const product of mockProducts) {
-        const prodKey = `produto:${product.id}:${schema}`
+        const prodKey = `${tenantId}:produto:${product.id}`
         const exists = await redis.exists(prodKey)
         if (exists) continue
 
@@ -163,7 +165,7 @@ async function warmupPopularProductsByTenant(): Promise<void> {
       }
 
       // eslint-disable-next-line no-console
-      console.info(`✅ Produtos warm-up para schema ${schema} (loja ${tenant.slug})`)
+      console.info(`✅ Produtos warm-up para a loja ${tenant.slug} (${tenantId})`)
     }
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -172,7 +174,7 @@ async function warmupPopularProductsByTenant(): Promise<void> {
 }
 
 /**
- * Warm-up de último vendas resumo por schema.
+ * Warm-up do resumo de últimas vendas da loja.
  * TTL de 1 minuto - dados que mudam a cada pedido.
  */
 async function warmupRecentSalesByTenant(): Promise<void> {
@@ -182,8 +184,8 @@ async function warmupRecentSalesByTenant(): Promise<void> {
     const tenants = await listActiveTenants()
 
     for (const tenant of tenants) {
-      const schema = getSchemaName(tenant)
-      const cacheKey = `ultimas_vendas:resumo:${schema}`
+      const tenantId = getTenantId(tenant)
+      const cacheKey = `${tenantId}:ultimas_vendas:resumo`
 
       await redis.set(
         cacheKey,
@@ -205,7 +207,7 @@ async function warmupRecentSalesByTenant(): Promise<void> {
  * Função principal de warm-up integrada ao registry de tenant.
  * 
  * Em vez de lista fixa de lojas, itera sobre tenants ativos do registry,
- * usando o schemaName para isolamento de dados por loja no Redis.
+ * usando o `tenantId` para isolamento de dados por loja no Redis.
  */
 export async function runWarmupWithTenantRegistry(): Promise<void> {
   // eslint-disable-next-line no-console
@@ -240,7 +242,7 @@ export async function runWarmupLegacy(): Promise<void> {
   await waitForRedisReady()
 
   // Usar listActiveTenants do registry se disponível, senão lista mock
-  let tenants: Array<{ schemaName: string; slug: string }>
+  let tenants: Array<{ id: string; slug: string }>
 
   try {
     tenants = await listActiveTenants()
@@ -251,8 +253,8 @@ export async function runWarmupLegacy(): Promise<void> {
     console.warn("⚠️ Registry indisponível, usando lista legado", err)
     // Lista mock de exemplo para desenvolvimento
     tenants = [
-      { schemaName: "loja_centro", slug: "centro" },
-      { schemaName: "loja_copacabana", slug: "copacabana" }
+      { id: "00000000-0000-0000-0000-000000000001", slug: "centro" },
+      { id: "00000000-0000-0000-0000-000000000002", slug: "copacabana" }
     ]
   }
 

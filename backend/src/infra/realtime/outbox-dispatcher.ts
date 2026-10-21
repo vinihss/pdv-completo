@@ -90,7 +90,6 @@ export async function pollOutboxOnce(): Promise<number> {
       const count = await runInTenantScope(
         {
           tenantId: tenant.id,
-          schemaName: tenant.schemaName,
           slug: tenant.slug,
           isDefault: false,
         },

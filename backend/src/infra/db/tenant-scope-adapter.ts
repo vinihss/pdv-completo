@@ -11,19 +11,18 @@ import { currentTenantScope, enterTenantScope } from "./tenant-context.js";
  * `resolveTenant`); aqui só entram/consultam o escopo.
  */
 export class TenantScopeAdapter implements TenantScopeStore {
-  current(): { tenantId: string; slug: string; schemaName: string; isDefault: boolean } | undefined {
+  current(): { tenantId: string; slug: string; isDefault: boolean } | undefined {
     const scope = currentTenantScope();
     return scope
       ? {
           tenantId: scope.tenantId,
           slug: scope.slug,
-          schemaName: scope.schemaName,
           isDefault: scope.isDefault,
         }
       : undefined;
   }
 
-  enter(scope: { tenantId: string; slug: string; schemaName: string; isDefault: boolean }): void {
+  enter(scope: { tenantId: string; slug: string; isDefault: boolean }): void {
     enterTenantScope(scope);
   }
 }

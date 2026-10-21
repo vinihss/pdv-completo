@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { users } from "../db/schema.js";
 import { Errors } from "../../domain/errors.js";
-import { resolveTenantSchemaInScope } from "../db/tenant-context.js";
+import { currentTenantId } from "../db/tenant-context.js";
 
 // Revogação de sessão aberta (docs/21 §5.4): o JWT é stateless (12h), então
 // "desativar usuário" não matava sessões vivas. O authMiddleware passa a
@@ -20,11 +20,12 @@ import { resolveTenantSchemaInScope } from "../db/tenant-context.js";
 const TTL_MS = 30_000;
 const cache = new Map<string, { active: boolean; at: number }>();
 
-// Chave particionada por schema de tenant: o id do usuário só é único dentro
-// da loja (o `system` e ids de seed repetem entre tenants), então a chave crua
-// faria o `active` de uma loja vazar para outra por até 30s.
+// Chave particionada por TENANT: o id do usuário só é único dentro da loja
+// (o `system` e ids de seed repetem entre tenants), então a chave crua faria o
+// `active` de uma loja vazar para outra por até 30s. No modelo por linha o
+// schema é um só — quem separa é o `tenant_id`.
 function cacheKey(userId: string): string {
-  return `${resolveTenantSchemaInScope()}:${userId}`;
+  return `${currentTenantId()}:${userId}`;
 }
 
 /** Invalida o cache de UM usuário (chamado ao desativar/reativar). */

@@ -72,7 +72,6 @@ export async function runMaintenanceOnce() {
       const result = await runInTenantScope(
         {
           tenantId: tenant.id,
-          schemaName: tenant.schemaName,
           slug: tenant.slug,
           isDefault: false,
         },

@@ -10,13 +10,11 @@
 // `resolveTenantSchemaInScope()` — a seam de storage já lê daqui.
 // Quem consome: o Proxy de `db` em `client.ts`, e a seam de storage.
 import { AsyncLocalStorage } from "node:async_hooks";
-import { isSafeSchemaName } from "../../domain/tenant.js";
+import { DEFAULT_TENANT_ID, isSafeSchemaName } from "../../domain/tenant.js";
 
 export type TenantScope = {
   /** Id do tenant (uuid) — a identidade estável, vai para `app.tenant_id`. */
   tenantId: string;
-  /** Nome do schema Postgres que o processo fala para esta requisição. */
-  schemaName: string;
   /** Slug do tenant (ex.: "umami", "pdv1"). Necessário para JWT e validação. */
   slug: string;
   /** `true` quando veio do ambiente (apex/localhost/kill-switch). */
@@ -50,20 +48,17 @@ export function currentTenantScope(): TenantScope | undefined {
 }
 
 /**
- * O schema que o `db` deve usar agora.
+ * O schema que o `db` deve usar agora: **sempre `public`**.
  *
- * Prioridade:
- *  1. ALS (request ativo) → o schema do tenant;
- *  2. `DEFAULT_TENANT_SCHEMA` do ambiente (comportamento de pré-Fase 2);
- *  3. `public`.
- *
- * `TENANT_STRICT=1` inverte a decisão no item 2: sem ALS e sem env, lança
- * em vez de cair no default — o modo estrito é a garantia de que nenhum
-//  código novo "esqueceu" de rodar dentro de um escopo de tenant.
+ * No modelo por LINHA (`docs/28`) todas as lojas moram no mesmo schema — o
+ * que separa uma da outra é a coluna `tenant_id` + a policy de RLS (a Fase
+ * 2). O roteamento por schema (o `docs/15`) acabou: sobrou o
+ * `DEFAULT_TENANT_SCHEMA` do ambiente, que é topologia de operação (o schema
+ * default do dono do volume), não do tenant.
  */
 export function resolveTenantSchemaInScope(): string {
   const scope = currentTenantScope();
-  if (scope) return scope.schemaName;
+  if (scope) return "public";
 
   const fromEnv = process.env.DEFAULT_TENANT_SCHEMA?.trim();
   if (fromEnv && isSafeSchemaName(fromEnv)) return fromEnv;
@@ -81,6 +76,17 @@ export function resolveTenantSchemaInScope(): string {
 /** `true` quando o ALS tem um escopo ativo (request multi-tenant no ar). */
 export function hasTenantScope(): boolean {
   return currentTenantScope() !== undefined;
+}
+
+/**
+ * O id do tenant do contexto corrente.
+ *
+ * É a chave de TUDO que precisa separar uma loja da outra: o pool (o
+ * `app.tenant_id` do startup packet), a chave do cache e o `set_config` da
+ * transação. Sem ALS (jobs, seed), é o default implícito.
+ */
+export function currentTenantId(): string {
+  return currentTenantScope()?.tenantId ?? DEFAULT_TENANT_ID;
 }
 
 /**
@@ -102,7 +108,6 @@ export async function ensureTenantScope<T>(
   return store.run(
     {
       tenantId: tenant.id,
-      schemaName: tenant.schemaName,
       slug: tenant.slug,
       isDefault: tenant.isDefault,
     },

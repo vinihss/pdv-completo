@@ -41,11 +41,9 @@ export class OutboxOrderNotifier implements OrderNotifier {
 }
 
 /**
- * Factory pronta para o composition root: tenant explícito → pool dedicado daquele
- * schema (sem ALS); sem tenant → proxy `db` (ALS corrente, como hoje).
+ * Factory pronta para o composition root: tenant explícito → pool dedicado
+ * daquele tenant (sem ALS); sem tenant → proxy `db` (ALS corrente, como hoje).
  */
 export function createOrderNotifier(tenant?: TenantContext): OrderNotifier {
-  return new OutboxOrderNotifier(
-    tenant ? tenantDb(tenant.schemaName, tenant.tenantId) : db,
-  );
+  return new OutboxOrderNotifier(tenant ? tenantDb(tenant.tenantId) : db);
 }

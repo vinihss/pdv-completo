@@ -29,11 +29,11 @@ export class PostgresTenantUnitOfWork implements TenantUnitOfWork {
   constructor(private readonly createSession: TenantSessionFactory) {}
 
   async run<T>(tenant: TenantContext, work: (session: TenantSession) => Promise<T>): Promise<T> {
-    if (!tenant.tenantId || !tenant.schemaName) throw new Error("tenant_context_required");
-    // O id do tenant entra no pool: o `app.tenant_id` vai no startup packet
+    if (!tenant.tenantId) throw new Error("tenant_context_required");
+    // O id do tenant é a chave do pool: o `app.tenant_id` vai no startup packet
     // (é o que faz o trigger de `tenant_id` preencher a coluna em qualquer
-    // inserção).
-    const db = tenantDb(tenant.schemaName, tenant.tenantId); // pool dedicado do schema — isolamento estrutural
+    // inserção, e o que a policy de RLS compara).
+    const db = tenantDb(tenant.tenantId); // pool dedicado do tenant — a barreira é o RLS
     return db.transaction(async (tx: Tx) => {
       await tx.execute(sql`select set_config('app.tenant_id', ${tenant.tenantId}, true)`);
       return work(this.createSession(tx));

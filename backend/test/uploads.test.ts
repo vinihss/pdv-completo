@@ -140,11 +140,11 @@ describe("storage: porta + serving de /uploads", () => {
 
 // ---- o defeito do logo: nome fixo (`logo.<ext>`) num diretório único ----
 //
-// O multi-tenant ainda não está implementado (docs/15 §6 — nada de Host, ALS
-// ou `search_path` aqui), então o teste é no nível do storage: dois schemas
-// com o MESMO kind e o MESMO nome de arquivo convivem, cada um com seu
-// conteúdo. É a propriedade que fecha o `logo.<ext>` sobrescrevendo o da outra
-// loja (§5.2) e a leitura cruzada de `/uploads/*` sem fronteira (§5.3).
+// O teste é no nível do storage: dois TENANTS com o MESMO kind e o MESMO nome
+// de arquivo convivem, cada um com seu conteúdo. É a propriedade que fecha o
+// `logo.<ext>` sobrescrevendo o da outra loja e a leitura cruzada de
+// `/uploads/*` sem fronteira. No modelo por linha (docs/28) o diretório é por
+// `tenantId` — o schema é um só.
 describe("storage: dois tenants convivem sem colidir", () => {
   let root: string;
   let previousEnv: string | undefined;
@@ -162,11 +162,11 @@ describe("storage: dois tenants convivem sem colidir", () => {
   });
 
   // `createStorage` tira o snapshot de `config.uploadsDir` no load, então a raiz
-  // do tmpdir é passada explicitamente; o schema é fixado por instância porque
+  // do tmpdir é passada explicitamente; o tenant é fixado por instância porque
   // o default é a seam, que lê o tenant *ambiente* a cada operação.
-  async function storageFor(schema: string) {
+  async function storageFor(tenantId: string) {
     const { createStorage } = await import("../src/infra/storage/index.js");
-    return createStorage(root, () => schema);
+    return createStorage(root, () => tenantId);
   }
 
   it("logo de uma loja não sobrescreve o da outra", async () => {
@@ -202,19 +202,24 @@ describe("storage: dois tenants convivem sem colidir", () => {
     expect(await lojaA.remove("logo", "logo.png")).toBe(false);
   });
 
-  it("o schema vem da seam: DEFAULT_TENANT_SCHEMA hoje, ALS na Fase 2", async () => {
-    const { createStorage, resolveTenantSchema } = await import("../src/infra/storage/index.js");
-    expect(resolveTenantSchema()).toBe("public");
+  it("o tenant vem da seam: o id do tenant corrente", async () => {
+    const { createStorage, resolveTenant } = await import("../src/infra/storage/index.js");
+    const { runInTenantScope } = await import("../src/infra/db/tenant-context.js");
+    const DEFAULT_ID = "00000000-0000-0000-0000-000000000001";
+    const LOJA_X = "11111111-2222-3333-4444-555555555555";
 
-    // Sem injetar o schema, a instância segue o tenant AMBIENTE — a propriedade
-    // que faz a Fase 2 não precisar tocar em mais nenhum arquivo.
-    process.env.DEFAULT_TENANT_SCHEMA = "tenant_x";
-    const storageAmbiente = createStorage(root);
-    expect(resolveTenantSchema()).toBe("tenant_x");
+    // Sem request no ar, a seam devolve o default implícito.
+    expect(resolveTenant()).toBe(DEFAULT_ID);
 
-    await storageAmbiente.put("logo", "logo.png", Buffer.from("x"));
-    expect(fs.existsSync(path.join(root, "tenant_x", "logo", "logo.png"))).toBe(true);
-    expect(fs.existsSync(path.join(root, "public", "logo", "logo.png"))).toBe(false);
+    // Dentro do escopo de uma loja, a seam segue o tenant CURRENT — a
+    // propriedade que faz o upload de uma loja não cair no diretório de outra.
+    await runInTenantScope({ tenantId: LOJA_X, slug: "loja-x", isDefault: false }, async () => {
+      expect(resolveTenant()).toBe(LOJA_X);
+      const storageAmbiente = createStorage(root);
+      await storageAmbiente.put("logo", "logo.png", Buffer.from("x"));
+    });
+    expect(fs.existsSync(path.join(root, LOJA_X, "logo", "logo.png"))).toBe(true);
+    expect(fs.existsSync(path.join(root, DEFAULT_ID, "logo", "logo.png"))).toBe(false);
   });
 
   it("nome de arquivo com traversal nunca sai da raiz", async () => {
@@ -278,12 +283,16 @@ describe("scripts/migrate-uploads-layout", () => {
     const { stdout } = await run(
       path.join("node_modules", ".bin", "tsx"),
       ["scripts/migrate-uploads-layout.ts", ...extra],
-      { cwd: process.cwd(), env: { ...process.env, UPLOADS_DIR: root, DEFAULT_TENANT_SCHEMA: "public" } }
+      { cwd: process.cwd(), env: { ...process.env, UPLOADS_DIR: root } }
     );
     return stdout;
   }
 
-  const noNovoLayout = (kind: string, name: string) => path.join(root, "public", kind, name);
+  // O diretório é por TENANT (`<uploadsDir>/<tenantId>/<kind>/`) — no modelo
+  // por linha o schema é um só. Sem ALS (o script roda fora de um request), a
+  // seam devolve o default implícito.
+  const DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001";
+  const noNovoLayout = (kind: string, name: string) => path.join(root, DEFAULT_TENANT_ID, kind, name);
 
   it("classifica pelo banco e move cada arquivo para o kind certo", async () => {
     const saida = await migrate();

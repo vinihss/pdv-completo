@@ -8,7 +8,8 @@
 //  1. Valida o slug e (quando informado) o PIN (4–6 dígitos).
 //  2. Busca o tenant no registry (`public.tenant`) — falha se não existir.
 //  3. Entra no escopo ALS do tenant (`runInTenantScope`) para que o `db`
-//     Proxy roteie as queries para o schema correto (`tenant_<slug>`).
+//     Proxy fale com o pool DELE (o `app.tenant_id` da conexão é o da loja —
+//     é o que a policy de RLS compara com a coluna `tenant_id`).
 //  4. Busca exatamente 1 usuário com `role = 'manager'` — 0 ou 2+ é erro.
 //  5. Hasheia o novo PIN com argon2 e grava o `pin_hash`.
 //  6. Imprime o PIN em texto claro no console (anotar antes que suma).
@@ -46,7 +47,7 @@ export async function resetManagerPin(slug: string, pin?: string): Promise<strin
     lookupError = err;
   }
   const scope = tenant
-    ? { tenantId: tenant.id, schemaName: tenant.schemaName, slug, isDefault: false }
+    ? { tenantId: tenant.id, slug, isDefault: false }
     : defaultTenantScope(slug);
   if (!scope) {
     throw new Error(
@@ -58,8 +59,8 @@ export async function resetManagerPin(slug: string, pin?: string): Promise<strin
   const newPin = pin ?? randomPin();
   const pinHash = await argon2.hash(newPin);
 
-  // Entra no ALS do tenant para que o `db` Proxy roteie para `tenant_<slug>`
-  // (ou para o schema default, no tenant implícito).
+  // Entra no ALS do tenant para que o `db` Proxy fale com o pool DELE (ou com
+  // o do default, no tenant implícito).
   await runInTenantScope(scope, async () => {
     const managers = await db.query.users.findMany({
       where: eq(users.role, "manager"),
