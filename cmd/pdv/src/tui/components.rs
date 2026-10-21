@@ -261,7 +261,9 @@ fn render_detail(f: &mut Frame, area: Rect, app: &App) {
     ])
   };
   lines.push(kv("Slug:", t.slug.clone(), value()));
-  lines.push(kv("Schema:", t.schema_name.clone(), value()));
+  // O schema saiu: no modelo por linha (`docs/28`) todas as lojas moram no
+  // mesmo schema e quem as separa é o `tenant_id`.
+  lines.push(kv("Id:", t.id.chars().take(8).collect::<String>(), value()));
   lines.push(kv(
     "Domínio:",
     if t.custom_domain.is_empty() {

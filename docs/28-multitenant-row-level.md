@@ -186,7 +186,7 @@ rollback em minutos:
 |---|---|---|
 | **F3a** (`0016`) | as PKs das 30 tabelas viram `(tenant_id, id)` + o dado dos schemas de loja é COPIADO para `public` | o schema `public` passa a aceitar duas lojas; o runtime ainda lê o schema da loja (que segue de pé, com o original) — **entregue** |
 | **F3b** (`0017` + código) | o runtime lê `public`; a chave do cache passa a ser o `tenant_id`; o storage é por tenant; o provisionamento é um `INSERT` | o dado já está em `public` (a cópia da F3a) — o schema antigo segue de pé, como redundância — **entregue** |
-| **F3c** | os schemas de loja são dropados; a coluna `schema_name` sai | só quando ninguém mais lê schema |
+| **F3c** (`0018`) | os schemas de loja são dropados; a coluna `schema_name` sai do registry | só quando ninguém mais lê schema — **entregue** |
 
 **Por que a PK precisa ser composta (e não só a coluna).** No schema
 único, o `id` deixa de ser globalmente único: o `store_settings` é o
@@ -214,6 +214,19 @@ qualquer loja bate no índice e morre. O mesmo valia para `customer.cpf`,
 `customer.email`, `order(channel, external_ref)`, a chave de provisionamento
 ativa e o "só um caixa aberto". Todos viram `(tenant_id, …)`: a unicidade
 passa a ser DENTRO da loja, que é o que o negócio quer.
+
+**A F3c fecha o ciclo: a coluna `schema_name` e os schemas de loja saem.**
+A migration `0018` dropa os schemas `tenant_*` (que eram a cópia redundante do
+dado — a cópia de verdade está em `public` desde a `0016`) e a coluna
+`schema_name` do registry, que era a última topologia morta. O critério do
+DROP é a presença da `store_settings` (a assinatura do modelo por loja): um
+schema de extensão (o `topology`, o `tiger` do PostGIS) não tem uma, e fica.
+
+**O dump por loja virou export por tenant** (a CLI). O `pg_dump --schema` do
+modelo antigo despejaria o banco INTEIRO no arquivo de uma loja — o `pg_dump`
+não respeita a policy. O export é um `COPY` por tabela, dentro de uma sessão
+com o `app.tenant_id`: a policy filtra as linhas de verdade, e o arquivo tem
+só a loja. O backup do BANCO INTEIRO (o `deploy/backup.sh`) continua valendo.
 
 **O que mais mudou no runtime (F3b)**
 
@@ -288,7 +301,7 @@ rollback:
 | **F0** | role `pdv_app` + `public.tenant.id` + linha do default | sim (a DSN) — e é a parte de maior risco de infra, então vem primeiro, com o schema-por-tenant ainda no ar (rollback em minutos) — **entregue** |
 | **F1** | `tenant_id` nas 30 tabelas + trigger + backfill + FKs compostas | não — **entregue** |
 | **F2** | policies + `FORCE RLS` + `app.tenant_id` no pool + suíte de isolamento | sim — **a barreira passa a existir aqui** — **entregue** |
-| **F3** | fim do schema-por-tenant (pool por tenant, migrations 1x, provisionamento, storage) | sim — em 3 PRs (expand/contract): **F3a** (PK composta, `0016`) e **F3b** (runtime + UNIQUEs por loja, `0017`) entregues; F3c (limpeza: drop dos schemas antigos + a coluna `schema_name`) pendente |
+| **F3** | fim do schema-por-tenant (pool por tenant, migrations 1x, provisionamento, storage) | sim — em 3 PRs (expand/contract): **F3a** (`0016`), **F3b** (`0017`) e **F3c** (`0018`) — **entregue** |
 | **F4** | dado de produção, gateway Go, CLI/TUI, docs | — |
 
 ## 7. Decisões em aberto (dono do produto)

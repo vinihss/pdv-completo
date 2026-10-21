@@ -187,15 +187,17 @@ export interface IdempotencyStore {
 // ---------- registry de tenants (espelha `infra/tenant/registry.ts`) ----------
 
 /**
- * ADIÇÃO (Onda tenant): linha do registry `public.tenant` — a tabela de
- * controle do multi-tenant (`docs/15` §3.2). `schemaName` é topologia interna
- * e NUNCA vai para o cliente; o cache (TTL) e o SQL cru moram no adapter.
+ * Linha do registry `public.tenant` — a tabela de controle do multi-tenant
+ * (`docs/28` §3.2).
+ *
+ * NÃO tem `schemaName`: no modelo por LINHA a loja não tem schema — todas
+ * convivem no schema do app e quem as separa é a coluna `tenant_id` + a
+ * policy de RLS. A coluna `schema_name` saiu do banco na migration `0018`.
  */
 export interface TenantRegistryRecord {
   /** Id do tenant (uuid) — identidade estável (o slug pode ser renomeado). */
   id: string;
   slug: string;
-  schemaName: string;
   displayName: string;
   status: "active" | "suspended";
   customDomain: string | null;

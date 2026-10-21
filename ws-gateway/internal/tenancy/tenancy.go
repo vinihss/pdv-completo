@@ -51,9 +51,6 @@ type Tenant struct {
 	// É a CHAVE de partição das conexões: um broadcast do tenant A só alcança
 	// conexões cujo `Tenant.Slug` é A (ver connmanager.BroadcastToRoom).
 	Slug string
-	// Schema é o schema Postgres do tenant. Vazio = não mexer no search_path
-	// (a tabela continua sendo resolvida pelo search_path da conexão).
-	Schema string
 }
 
 // DefaultSlug é o slug do tenant default, o MESMO `DEFAULT_TENANT_SLUG` do
@@ -75,10 +72,7 @@ const DefaultID = "00000000-0000-0000-0000-000000000001"
 func (t Tenant) Chave() string { return t.Slug }
 
 func (t Tenant) String() string {
-	if t.Schema == "" {
-		return t.Slug
-	}
-	return t.Slug + "(" + t.Schema + ")"
+	return t.Slug
 }
 
 // Os três RE, repetidos do backend (domain/tenant.ts) de propósito: as duas
@@ -92,6 +86,8 @@ var (
 	// `public`, que é o schema do tenant DEFAULT (a migration
 	// `0003_tenant_id.sql` relaxou o CHECK no banco para o mesmo formato).
 	schemaRE = regexp.MustCompile(`^(tenant_[a-z0-9_]+|public)$`)
+	// tenantIDRE é o formato do id do tenant (uuid) — o contexto de linha.
+	tenantIDRE = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	// safeSchemaRE é o formato de schema vindo do AMBIENTE
 	// (`DEFAULT_TENANT_SCHEMA`), mais frouxo que o do registry de propósito:
 	// o schema default é `public` até o cutover, e `public` não casa
@@ -103,8 +99,11 @@ var (
 // ValidSlug diz se o valor é um slug de tenant plausível (o CHECK do registry).
 func ValidSlug(v string) bool { return slugRE.MatchString(v) }
 
-// ValidSchema diz se o valor é um schema de tenant do registry.
-func ValidSchema(v string) bool { return schemaRE.MatchString(v) }
+// ValidTenantID diz se o valor é um id de tenant plausível (um uuid). O id é
+// o contexto de LINHA: é o que vai para o `app.tenant_id` e o que a policy de
+// RLS compara com a coluna `tenant_id` — um id malformado faria o
+// `set_config` falhar no meio da transação.
+func ValidTenantID(v string) bool { return tenantIDRE.MatchString(v) }
 
 // Default devolve o tenant default do processo.
 //
@@ -114,12 +113,10 @@ func ValidSchema(v string) bool { return schemaRE.MatchString(v) }
 // (env presente lá e ausente aqui) e o gateway ler `public`, o evento é
 // silenciosamente mudo — o pior defeito possível num realtime.
 func Default() Tenant {
-	schema := strings.TrimSpace(os.Getenv("DEFAULT_TENANT_SCHEMA"))
-	if !safeSchemaRE.MatchString(schema) {
-		// Ausente ou inseguro ⇒ `public`, o mesmo fallback do Node.
-		schema = "public"
-	}
-	return Tenant{ID: DefaultID, Slug: DefaultSlug, Schema: schema}
+	// O default é o MESMO id que o Node usa (`DEFAULT_TENANT_ID`): é o que
+	// vai para o `app.tenant_id` e o que a policy de RLS compara. O schema
+	// não entra mais: no modelo por linha (`docs/28`) o schema é único.
+	return Tenant{ID: DefaultID, Slug: DefaultSlug}
 }
 
 // -----------------------------------------------------------------------------
@@ -158,6 +155,13 @@ func Statements(t Tenant) ([]Statement, error) {
 		// de linha — e sem contexto, o RLS não tem como filtrar: fail-closed.
 		if t.ID == "" {
 			return nil, fmt.Errorf("tenancy: tenant %q sem id (app.tenant_id ficaria vazio)", t.Slug)
+		}
+		// O id tem que ser um uuid: é o que o `set_config` grava e o que a
+		// policy de RLS compara com a coluna `tenant_id`. Um id malformado
+		// faria o `set_config` falhar NO MEIO da transação (depois de ela ter
+		// começado) — fail-closed aqui é melhor que fail-depois.
+		if !ValidTenantID(t.ID) {
+			return nil, fmt.Errorf("tenancy: id de tenant invalido %q (uuid)", t.ID)
 		}
 		out = append(out, Statement{Query: setConfigStmt, Args: []any{"app.tenant_id", t.ID}})
 	}
@@ -282,13 +286,16 @@ func FromEnv() (*Static, bool, error) {
 		if item == "" {
 			continue
 		}
-		slug, schema, ok := strings.Cut(item, "=")
-		slug, schema = strings.TrimSpace(slug), strings.TrimSpace(schema)
-		if !ok || !ValidSlug(slug) || !safeSchemaRE.MatchString(schema) {
-			return nil, true, fmt.Errorf("tenancy: %s=%q fora do formato slug=schema (slug minúsculo sem pontuação, schema [a-z_][a-z0-9_]*)",
+		// O formato e `slug=<id>`: o id (uuid) e o contexto de LINHA (o que
+		// vai para o `app.tenant_id`). O schema saiu — no modelo por linha ele
+		// e unico e nao separa nada.
+		slug, id, ok := strings.Cut(item, "=")
+		slug, id = strings.TrimSpace(slug), strings.TrimSpace(id)
+		if !ok || !ValidSlug(slug) || !ValidTenantID(id) {
+			return nil, true, fmt.Errorf("tenancy: %s=%q fora do formato slug=<uuid> (slug minúsculo sem pontuação, id uuid)",
 				EnvTenants, item)
 		}
-		tenants = append(tenants, Tenant{Slug: slug, Schema: schema})
+		tenants = append(tenants, Tenant{Slug: slug, ID: id})
 	}
 	if len(tenants) == 0 {
 		return nil, true, fmt.Errorf("tenancy: %s definida mas vazia", EnvTenants)

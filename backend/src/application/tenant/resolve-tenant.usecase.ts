@@ -20,7 +20,6 @@ import { Errors } from "../../domain/errors.js";
 import {
   DEFAULT_TENANT_ID,
   isSafeSchemaName,
-  isValidTenantSchemaName,
   matchTenantHost,
   normalizeTenantHost,
 } from "../../domain/tenant.js";

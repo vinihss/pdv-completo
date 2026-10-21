@@ -33,7 +33,7 @@ use crate::runner::{capture_cmd_in_dir, capture_npm_run};
 // itens reexportados são a API do crate, não código morto.
 #[allow(unused_imports)]
 pub use db::{
-  load_db_url, pg_dump_to_file, psql, psql_for_tenant, resolve_db_target, DbTarget,
+  load_db_url, psql, psql_for_tenant, resolve_db_target, DbTarget,
 };
 #[allow(unused_imports)]
 pub use seeds::{apply_seed, list_seeds, SeedInfo};
@@ -45,7 +45,6 @@ pub struct TenantInfo {
   /// Id do tenant (uuid) — a identidade estável (o slug pode ser renomeado).
   pub id: String,
   pub slug: String,
-  pub schema_name: String,
   pub display_name: String,
   pub status: String,
   pub custom_domain: String,
@@ -80,38 +79,6 @@ pub const DEFAULT_TENANT_SLUG: &str = "default";
 /// `migrations/registry/0003_tenant_id.sql`.
 pub const DEFAULT_TENANT_ID: &str = "00000000-0000-0000-0000-000000000001";
 
-/// Schema default: `DEFAULT_TENANT_SCHEMA` do ambiente quando válido
-/// (`^[a-z_][a-z0-9_]*$`, o mesmo padrão do pool dedicado do backend),
-/// senão `public`.
-pub fn default_schema() -> String {
-  std::env::var("DEFAULT_TENANT_SCHEMA")
-    .ok()
-    .map(|v| v.trim().to_string())
-    .filter(|v| {
-      !v.is_empty()
-        && !v.starts_with(|c: char| c.is_ascii_digit())
-        && v
-          .chars()
-          .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-    })
-    .unwrap_or_else(|| "public".to_string())
-}
-
-/// Nome de schema aceito: `tenant_<minúsculas/números/underscore>` ou o
-/// schema default (o tenant implícito).
-fn valid_schema(schema: &str) -> bool {
-  if schema == default_schema() {
-    return true;
-  }
-  let Some(rest) = schema.strip_prefix("tenant_") else {
-    return false;
-  };
-  !rest.is_empty()
-    && rest
-      .chars()
-      .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-}
-
 /// Escapa uma string para literal SQL entre aspas simples.
 fn sql_lit(s: &str) -> String {
   format!("'{}'", s.replace('\'', "''"))
@@ -133,7 +100,7 @@ fn bool_lit(b: bool) -> &'static str {
 /// banco — em vez de uma lista vazia que deixa a TUI sem nada para
 /// selecionar.
 pub fn list_tenants() -> Result<Vec<TenantInfo>, String> {
-  let query = "SELECT id, slug, schema_name, display_name, status, \
+  let query = "SELECT id, slug, display_name, status, \
                  coalesce(custom_domain, ''), created_at::text \
                  FROM public.tenant ORDER BY slug";
   let out = psql(query, true)?;
@@ -144,17 +111,16 @@ pub fn list_tenants() -> Result<Vec<TenantInfo>, String> {
       continue;
     }
     let parts: Vec<&str> = line.split('|').collect();
-    if parts.len() != 7 {
+    if parts.len() != 6 {
       continue;
     }
     res.push(TenantInfo {
       id: parts[0].to_string(),
       slug: parts[1].to_string(),
-      schema_name: parts[2].to_string(),
-      display_name: parts[3].to_string(),
-      status: parts[4].to_string(),
-      custom_domain: parts[5].to_string(),
-      created_at: parts[6].to_string(),
+      display_name: parts[2].to_string(),
+      status: parts[3].to_string(),
+      custom_domain: parts[4].to_string(),
+      created_at: parts[5].to_string(),
     });
   }
   if res.is_empty() {
@@ -168,7 +134,6 @@ fn default_tenant() -> TenantInfo {
   TenantInfo {
     id: DEFAULT_TENANT_ID.to_string(),
     slug: DEFAULT_TENANT_SLUG.to_string(),
-    schema_name: default_schema(),
     display_name: "Padrão (default)".to_string(),
     status: "active".to_string(),
     custom_domain: String::new(),
@@ -176,25 +141,19 @@ fn default_tenant() -> TenantInfo {
   }
 }
 
-/// Lê a linha singleton de `store_settings` do schema do tenant.
-pub fn get_store_settings(
-  schema: &str,
-  tenant_id: Option<&str>,
-) -> Result<StoreSettings, String> {
-  if !valid_schema(schema) {
-    return Err(format!("nome de schema inválido: {schema}"));
-  }
-  let query = format!(
-    "SELECT merchant_name, merchant_city, printer_enabled, printer_auto_print, \
+/// Lê a linha singleton de `store_settings` DA LOJA.
+///
+/// No modelo por LINHA (`docs/28`) todas as lojas moram no mesmo schema: a
+/// linha é escolhida pelo `app.tenant_id` da sessão (a policy de RLS), não
+/// pelo schema. Sem o contexto de tenant, a sessão não vê NENHUMA linha.
+pub fn get_store_settings(tenant_id: Option<&str>) -> Result<StoreSettings, String> {
+  let query = "SELECT merchant_name, merchant_city, printer_enabled, printer_auto_print, \
          uses_delivery \
-         FROM {schema}.store_settings WHERE id = 'singleton'"
-  );
-  let out = psql_for_tenant(&query, true, tenant_id)?;
+         FROM store_settings WHERE id = 'singleton'";
+  let out = psql_for_tenant(query, true, tenant_id)?;
   let line = out.lines().find(|l| !l.trim().is_empty());
   let Some(line) = line else {
-    return Err(format!(
-      "store_settings não inicializado no schema {schema} (rode o seed)"
-    ));
+    return Err("store_settings não inicializado para a loja (rode o seed)".to_string());
   };
   let parts: Vec<&str> = line.trim_end().split('|').collect();
   if parts.len() != 5 {
@@ -210,17 +169,14 @@ pub fn get_store_settings(
   })
 }
 
-/// Grava as configurações editáveis na linha singleton de `store_settings`.
+/// Grava as configurações editáveis na linha singleton de `store_settings`
+/// DA LOJA (o `app.tenant_id` da sessão decide qual linha é).
 pub fn update_store_settings(
-  schema: &str,
   tenant_id: Option<&str>,
   s: &StoreSettings,
 ) -> Result<(), String> {
-  if !valid_schema(schema) {
-    return Err(format!("nome de schema inválido: {schema}"));
-  }
   let query = format!(
-    "UPDATE {schema}.store_settings SET \
+    "UPDATE store_settings SET \
          merchant_name = {}, merchant_city = {}, printer_enabled = {}, \
          printer_auto_print = {}, uses_delivery = {} \
          WHERE id = 'singleton'",
@@ -234,15 +190,20 @@ pub fn update_store_settings(
   Ok(())
 }
 
-/// Exporta o schema do tenant para um arquivo SQL (`pg_dump --schema`).
+/// Exporta o DADO da loja para um arquivo SQL.
 ///
-/// O `pg_dump` roda no host quando ele está instalado; senão roda dentro do
-/// container do Postgres e a CLI escreve o arquivo no host.
-pub fn dump_tenant(schema: &str, output_file: &str) -> Result<(), String> {
-  if !valid_schema(schema) {
-    return Err(format!("nome de schema inválido: {schema}"));
+/// O `pg_dump --schema` (o dump por loja do modelo antigo) **morreu** com o
+/// RLS: o `pg_dump` não respeita a policy, então ele despejaria o banco
+/// inteiro no arquivo de uma loja. A alternativa honesta é o export por
+/// tenant: um `COPY` por tabela, filtrado pelo `tenant_id` da loja.
+///
+/// O `pg_dump` continua existindo para o backup do BANCO INTEIRO (é o que o
+/// `deploy/backup.sh` faz) — e esse continua valendo.
+pub fn dump_tenant(tenant_id: &str, output_file: &str) -> Result<(), String> {
+  if tenant_id.trim().is_empty() {
+    return Err("dump sem o id da loja".to_string());
   }
-  db::pg_dump_to_file(schema, output_file)
+  db::export_tenant_to_file(tenant_id, output_file)
 }
 
 /// Provisiona um tenant novo (schema + migrations + bootstrap).
@@ -472,24 +433,9 @@ mod tests {
     let t = default_tenant();
     assert_eq!(t.slug, DEFAULT_TENANT_SLUG);
     assert_eq!(t.id, DEFAULT_TENANT_ID);
-    assert_eq!(t.schema_name, default_schema());
     assert_eq!(t.status, "active");
     assert_eq!(t.display_name, "Padrão (default)");
   }
 
-  #[test]
-  fn schema_default_e_public_quando_o_ambiente_nao_manda() {
-    // O ambiente do teste não define DEFAULT_TENANT_SCHEMA.
-    assert_eq!(default_schema(), "public");
-    assert!(valid_schema("public"));
-  }
 
-  #[test]
-  fn schema_de_tenant_continua_valendo_e_o_lixo_nao_passa() {
-    assert!(valid_schema("tenant_umami"));
-    assert!(!valid_schema("umami"));
-    assert!(!valid_schema("tenant_UMAMI"));
-    assert!(!valid_schema("public; DROP TABLE store_settings"));
-    assert!(!valid_schema(""));
-  }
 }

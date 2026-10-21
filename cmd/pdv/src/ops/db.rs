@@ -21,8 +21,7 @@
 //! próprio banco, então o host vira `localhost` e a porta, `5432` (a porta
 //! interna do container — a porta publicada no host pode ser outra).
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 
 use crate::config::root_path;
 use crate::runner::capture_cmd_in_dir;
@@ -403,75 +402,48 @@ pub fn psql_for_tenant(
   }
 }
 
-/// Exporta o schema do tenant para um arquivo SQL (`pg_dump --schema`).
+/// Exporta o DADO de uma loja para um arquivo SQL (um `COPY` por tabela,
+/// filtrado pelo `tenant_id`).
 ///
-/// No caminho host o `pg_dump` escreve o arquivo (`--file=`). No caminho
-/// container o `pg_dump` roda dentro do container e devolve o SQL no stdout —
-/// quem escreve o arquivo no host é a CLI.
-pub fn pg_dump_to_file(schema: &str, output_file: &str) -> Result<(), String> {
-  let (url, target) = resolve_db_target()?;
-  let schema_arg = format!("--schema={schema}");
-  match target {
-    DbTarget::Host => {
-      let file_arg = format!("--file={output_file}");
-      let (code, out) = capture_cmd_in_dir(
-        &backend_dir(),
-        &[],
-        "pg_dump",
-        &[&url, &schema_arg, &file_arg],
-      );
-      if code != 0 {
-        return Err(format!("pg_dump falhou:\n{}", out.trim()));
-      }
-      Ok(())
-    }
-    DbTarget::Container(name) => {
-      let url = rewrite_url_for_container(&url);
-      let (code, out, err) = capture_split(
-        &root_path(),
-        "docker",
-        &["exec", &name, "pg_dump", &url, &schema_arg],
-      );
-      if code != 0 {
-        return Err(format!(
-          "pg_dump falhou (docker exec {name}):\n{}",
-          err.trim()
-        ));
-      }
-      let path = output_path(output_file);
-      std::fs::write(&path, out.as_bytes())
-        .map_err(|e| format!("não consegui escrever {}: {e}", path.display()))
-    }
+/// O `pg_dump --schema` (o dump por loja do modelo antigo) morreu com o RLS:
+/// o `pg_dump` não respeita a policy, então despejaria o banco INTEIRO no
+/// arquivo de uma loja. O export por tenant é a alternativa honesta: o
+/// `COPY` roda DENTRO da sessão com o `app.tenant_id`, então a policy filtra
+/// as linhas de verdade — o arquivo tem só a loja.
+pub fn export_tenant_to_file(tenant_id: &str, output_file: &str) -> Result<(), String> {
+  let tabelas = tabelas_com_tenant_id()?;
+  if tabelas.is_empty() {
+    return Err("nenhuma tabela de loja encontrada (o banco tem as migrations aplicadas?)".to_string());
   }
+  let id = tenant_id.replace(char::from(39), "''");
+  let mut script = String::new();
+  for t in &tabelas {
+    script.push_str(&format!(
+      "\\echo === tabela {t} ===\nCOPY (SELECT * FROM {t} WHERE tenant_id = '{id}') TO STDOUT WITH (FORMAT csv, HEADER true);\n"
+    ));
+  }
+  let out = psql_for_tenant(&script, false, Some(tenant_id))?;
+  std::fs::write(output_file, out).map_err(|e| format!("não consegui escrever {output_file}: {e}"))
 }
 
-/// Caminho absoluto do arquivo de dump (relativo ao cwd da CLI).
-fn output_path(output_file: &str) -> PathBuf {
-  let p = Path::new(output_file);
-  if p.is_absolute() {
-    p.to_path_buf()
-  } else {
-    std::env::current_dir()
-      .unwrap_or_else(|_| PathBuf::from("."))
-      .join(p)
-  }
+/// As tabelas que têm a coluna `tenant_id` — as de loja (o modelo por linha).
+fn tabelas_com_tenant_id() -> Result<Vec<String>, String> {
+  let query = "SELECT c.relname FROM pg_class c \
+                 JOIN pg_namespace n ON n.oid = c.relnamespace \
+                 WHERE n.nspname = 'public' AND c.relkind = 'r' \
+                   AND EXISTS (SELECT 1 FROM pg_attribute a \
+                                WHERE a.attrelid = c.oid AND a.attname = 'tenant_id') \
+                 ORDER BY c.relname";
+  let out = psql(query, true)?;
+  Ok(out
+    .lines()
+    .map(|l| l.trim())
+    .filter(|l| !l.is_empty())
+    .map(|l| l.to_string())
+    .collect())
 }
 
-/// Executa um comando devolvendo stdout e stderr **separados** (o dump do
-/// container não pode ser contaminado por stderr).
-fn capture_split(dir: &Path, cmd: &str, args: &[&str]) -> (i32, String, String) {
-  let mut c = Command::new(cmd);
-  c.current_dir(dir);
-  c.args(args);
-  match c.output() {
-    Ok(o) => (
-      o.status.code().unwrap_or(1),
-      String::from_utf8_lossy(&o.stdout).to_string(),
-      String::from_utf8_lossy(&o.stderr).to_string(),
-    ),
-    Err(e) => (1, String::new(), format!("erro ao executar {cmd}: {e}")),
-  }
-}
+
 
 #[cfg(test)]
 mod tests {

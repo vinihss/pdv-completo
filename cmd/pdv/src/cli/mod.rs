@@ -420,14 +420,13 @@ fn handle_db_list() -> i32 {
       println!("Tenants (registry public.tenant):");
       println!("{}", "-".repeat(88));
       println!(
-        "{:<20} {:<22} {:<18} {:<10} {}",
-        "slug", "schema", "nome", "id", "status"
+        "{:<20} {:<18} {:<10} {}",
+        "slug", "nome", "id", "status"
       );
       for t in &tenants {
         let mut linha = format!(
-          "{:<20} {:<22} {:<18} {:<10} {}",
+          "{:<20} {:<18} {:<10} {}",
           t.slug,
-          t.schema_name,
           t.display_name,
           // Prefixo do id (como o git): o id inteiro é o uuid do registry.
           t.id.chars().take(8).collect::<String>(),

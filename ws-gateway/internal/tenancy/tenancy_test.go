@@ -21,7 +21,7 @@ import (
 
 func TestStatementsGravaOAppTenantId(t *testing.T) {
 	const id = "11111111-2222-3333-4444-555555555555"
-	stmts, err := Statements(Tenant{ID: id, Slug: "umami", Schema: "tenant_umami"})
+	stmts, err := Statements(Tenant{ID: id, Slug: "umami"})
 	if err != nil {
 		t.Fatalf("Statements devolveu erro para escopo válido: %v", err)
 	}
@@ -57,10 +57,10 @@ func TestStatementsRejeitaEscopoInconfiavel(t *testing.T) {
 		name   string
 		tenant Tenant
 	}{
-		{"slug com maiúscula", Tenant{Slug: "Umami", Schema: "tenant_umami"}},
-		{"slug com espaço", Tenant{Slug: "loja a", Schema: "tenant_loja_a"}},
-		{"slug com ponto (tentativa de escalar)", Tenant{Slug: "../public", Schema: "tenant_x"}},
-		{"tenant sem id (o contexto de linha ficaria vazio)", Tenant{Slug: "umami", Schema: "tenant_umami"}},
+		{"slug com maiúscula", Tenant{ID: DefaultID, Slug: "Umami"}},
+		{"slug com espaço", Tenant{ID: DefaultID, Slug: "loja a"}},
+		{"slug com ponto (tentativa de escalar)", Tenant{ID: DefaultID, Slug: "../public"}},
+		{"tenant sem id (o contexto de linha ficaria vazio)", Tenant{Slug: "umami"}},
 	}
 
 	for _, c := range casos {
@@ -72,13 +72,12 @@ func TestStatementsRejeitaEscopoInconfiavel(t *testing.T) {
 	}
 }
 
-// O `schema_name` do registry deixou de ser topologia do runtime: o schema é
-// único. A linha pode trazer o valor antigo (`tenant_umami`) sem quebrar
-// nada — o gateway não olha o campo.
-func TestStatementsAceitaSchemaAntigoDoRegistry(t *testing.T) {
-	for _, schema := range []string{"public", "tenant_umami", "tenant_main"} {
-		if _, err := Statements(Tenant{ID: DefaultID, Slug: "default", Schema: schema}); err != nil {
-			t.Errorf("Statements recusou o schema %q: %v", schema, err)
+// O contexto de linha é o ID (uuid) da loja. Um id que não é uuid é recusado:
+// o `set_config` falharia no meio da transação.
+func TestStatementsRecusaIdMalformado(t *testing.T) {
+	for _, id := range []string{"nao-e-uuid", "123", "'; DROP TABLE public.tenant; --"} {
+		if _, err := Statements(Tenant{ID: id, Slug: "umami"}); err == nil {
+			t.Errorf("Statements aceitou o id %q — o set_config falharia no meio da transação", id)
 		}
 	}
 }

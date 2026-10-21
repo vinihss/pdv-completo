@@ -50,14 +50,14 @@ beforeAll(async () => {
   // As DUAS lojas no MESMO schema (`public`): é o modelo por linha — a
   // separação é a coluna `tenant_id`, não o schema.
   await raw.all(
-    `INSERT INTO public.tenant (id, slug, schema_name, display_name, status)
-     VALUES ($1, $2, 'public', $3, 'active')
+    `INSERT INTO public.tenant (id, slug, display_name, status)
+     VALUES ($1, $2, $3, 'active')
      ON CONFLICT (slug) DO UPDATE SET id = EXCLUDED.id, display_name = EXCLUDED.display_name`,
     [TENANT_A_ID, TENANT_A_SLUG, "Loja A"],
   );
   await raw.all(
-    `INSERT INTO public.tenant (id, slug, schema_name, display_name, status)
-     VALUES ($1, $2, 'public', $3, 'active')
+    `INSERT INTO public.tenant (id, slug, display_name, status)
+     VALUES ($1, $2, $3, 'active')
      ON CONFLICT (slug) DO UPDATE SET id = EXCLUDED.id, display_name = EXCLUDED.display_name`,
     [TENANT_B_ID, TENANT_B_SLUG, "Loja B"],
   );
