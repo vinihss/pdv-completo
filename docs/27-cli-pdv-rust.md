@@ -35,10 +35,10 @@ não é compilado junto com os crates Tauri/standalone.
 
 ```bash
 # a partir da raiz do repo
-bash scripts/dev/install-pdv-cli.sh            # default: ~/.local/bin
-bash scripts/dev/install-pdv-cli.sh --global   # /usr/local/bin (pode exigir sudo)
-bash scripts/dev/install-pdv-cli.sh --prefix /opt/pdv
-bash scripts/dev/install-pdv-cli.sh --uninstall
+./install.sh                     # default: ~/.local/bin
+./install.sh --global            # /usr/local/bin (pode exigir sudo)
+./install.sh --prefix /opt/pdv
+./install.sh --uninstall
 ```
 
 O script roda `cargo build --release` dentro de `cmd/pdv/` e copia o binário
@@ -205,8 +205,9 @@ coexistência. Não foram portados:
 | `release bump` | Removido — o versionamento é automático pelo Semantic Release (ver [`agent-deploy.md`](agent-deploy.md)) |
 | `completion` | Não portado (autocomplete de shell) |
 
-Referências antigas: `scripts/build/install-cli.sh` (go build) foi **removido**;
-a instalação hoje é só `scripts/dev/install-pdv-cli.sh`.
+Referências antigas: `scripts/build/install-cli.sh` (go build) e
+`scripts/dev/install-pdv-cli.sh` foram **removidos**; a instalação hoje é
+só `install.sh` na raiz do repo.
 
 ## 7. Pendências conhecidas (fase 1)
 

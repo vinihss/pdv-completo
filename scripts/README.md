@@ -58,7 +58,7 @@ Para deployment, use [`../deploy/README.md`](../deploy/README.md). Para validar 
 - Backend: `cd ../backend && npm ci`; consulte `../docs/agent-backend.md` para banco, ambiente e testes.
 - Frontend: `cd ../frontend && npm ci`; `npm run dev`, `npm run lint`, `npm run test` e `npm run build` conforme a tarefa.
 - Apps Rust/Tauri: use o workspace Cargo da raiz e os README de cada crate. Build exige toolchain Rust/Tauri e pode ter requisitos específicos de assinatura.
-- CLI: `cd ../cmd/pdv && cargo test`; instalação via `dev/install-pdv-cli.sh` (cargo build --release; `--global`/`--uninstall` conforme `--help`).
+- CLI: `cd ../cmd/pdv && cargo test`; instalação via `bash ../install.sh` na raiz do repo (compila em release, remove versões anteriores e instala; `--global`/`--prefix`/`--uninstall` conforme `--help`).
 
 - Todo script começa com shebang (`#!/usr/bin/env bash`, ou `#!/bin/sh` quando
   é POSIX de propósito) e `set -euo pipefail` logo depois.
