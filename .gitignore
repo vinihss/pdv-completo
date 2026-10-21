@@ -80,9 +80,9 @@ standalone-*/.local-signing.key.pub
 /admin-server/admin-server
 /admin-server/*.exe
 
-# CLI Rust (`cmd/pdv`). O binário é compilado e instalado por
-# `scripts/dev/install-pdv-cli.sh` em `$PREFIX/bin`; a cópia solta na raiz do
-# repo é artefato de build, nunca versionada.
+# CLI Rust (`cmd/pdv`). O binário é compilado e instalado pelo
+# `install.sh` na raiz do repo em `$PREFIX/bin`; a cópia solta na raiz
+# do repo é artefato de build, nunca versionada.
 /pdv
 /pdv-cli
 data.db*
