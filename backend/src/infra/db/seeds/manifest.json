@@ -1,0 +1,33 @@
+{
+  "$schema": "./manifest.schema.json",
+  "version": 1,
+  "seeds": [
+    {
+      "id": "base",
+      "title": "Seed base (dados essenciais)",
+      "description": "store_settings, usuários de teste, categorias, produtos, mesas e saldo inicial de estoque",
+      "npmScript": "seed:base",
+      "destructive": false,
+      "productionSafe": false,
+      "requiresPostgis": false
+    },
+    {
+      "id": "demo",
+      "title": "Seed de demonstração (catálogo + histórico)",
+      "description": "seed base + catálogo demo, clientes e 30 dias de histórico de comandas, gavetas, entregas e auditoria",
+      "npmScript": "seed:demo",
+      "destructive": false,
+      "productionSafe": false,
+      "requiresPostgis": true
+    },
+    {
+      "id": "prod",
+      "title": "Seed de produção (bootstrap do primeiro deploy)",
+      "description": "store_settings com dados reais + um usuário manager com PIN temporário impresso uma vez",
+      "npmScript": "seed:prod",
+      "destructive": false,
+      "productionSafe": true,
+      "requiresPostgis": false
+    }
+  ]
+}
