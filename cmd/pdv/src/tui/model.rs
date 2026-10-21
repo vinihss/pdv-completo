@@ -225,6 +225,9 @@ pub enum Job {
   LoadLogs,
   LoadSeeds,
   LoadSettings {
+    /// Id do tenant (uuid) — o contexto que a policy de RLS compara com a
+    /// coluna `tenant_id`. Sem ele a sessão não vê linha nenhuma da loja.
+    tenant_id: Option<String>,
     slug: String,
     schema: String,
   },
@@ -243,6 +246,8 @@ pub enum Job {
     pin: String,
   },
   SaveSettings {
+    /// Id do tenant (uuid) — o contexto da policy de RLS (ver `LoadSettings`).
+    tenant_id: Option<String>,
     slug: String,
     schema: String,
     settings: StoreSettings,
@@ -268,6 +273,9 @@ pub enum JobResult {
   Settings {
     slug: String,
     schema: String,
+    /// Id do tenant (uuid) — o contexto que a policy de RLS exige (ver
+    /// `Job::LoadSettings`).
+    tenant_id: Option<String>,
     result: Result<StoreSettings, String>,
   },
   Task {
@@ -284,11 +292,16 @@ pub fn run_job(job: Job) -> JobResult {
     Job::LoadServices => JobResult::Services(ops::list_services().map_err(|e| e.to_string())),
     Job::LoadLogs => JobResult::Logs(ops::backend_logs(300)),
     Job::LoadSeeds => JobResult::Seeds(ops::list_seeds()),
-    Job::LoadSettings { slug, schema } => {
-      let result = ops::get_store_settings(&schema);
+    Job::LoadSettings {
+      slug,
+      schema,
+      tenant_id,
+    } => {
+      let result = ops::get_store_settings(&schema, tenant_id.as_deref());
       JobResult::Settings {
         slug,
         schema,
+        tenant_id,
         result,
       }
     }
@@ -312,9 +325,10 @@ pub fn run_job(job: Job) -> JobResult {
     Job::SaveSettings {
       slug,
       schema,
+      tenant_id,
       settings,
     } => {
-      let res = ops::update_store_settings(&schema, &settings)
+      let res = ops::update_store_settings(&schema, tenant_id.as_deref(), &settings)
         .map(|_| format!("store_settings atualizado ({slug})."));
       task_result(format!("Salvar configurações ({slug})"), res)
     }
@@ -405,6 +419,8 @@ pub struct App {
   pub form_kind: FormKind,
   pub active_slug: String,
   pub active_schema: String,
+  /// Id do tenant ativo (uuid) — o contexto que a policy de RLS exige.
+  pub active_tenant_id: Option<String>,
 
   pub submenu: SubmenuKind,
   pub submenu_idx: usize,
@@ -455,6 +471,7 @@ impl App {
       form_kind: FormKind::AddTenant,
       active_slug: String::new(),
       active_schema: String::new(),
+      active_tenant_id: None,
       submenu: SubmenuKind::Setup,
       submenu_idx: 0,
       pending: Pending::ResetPin,
@@ -560,10 +577,12 @@ impl App {
       JobResult::Settings {
         slug,
         schema,
+        tenant_id,
         result,
       } => {
         self.active_slug = slug.clone();
         self.active_schema = schema;
+        self.active_tenant_id = tenant_id.clone();
         match result {
           Ok(s) => {
             self.form = Form {
@@ -900,6 +919,7 @@ impl App {
           Job::LoadSettings {
             slug: t.slug.clone(),
             schema: t.schema_name.clone(),
+            tenant_id: Some(t.id.clone()),
           },
           "Carregando configurações…",
         );
@@ -921,6 +941,7 @@ impl App {
         Job::LoadSettings {
           slug: t.slug.clone(),
           schema: t.schema_name.clone(),
+          tenant_id: Some(t.id.clone()),
         },
         "Carregando configurações…",
       );
@@ -1195,10 +1216,12 @@ impl App {
         }
         let slug = self.active_slug.clone();
         let schema = self.active_schema.clone();
+        let tenant_id = self.active_tenant_id.clone();
         self.request(
           Job::SaveSettings {
             slug,
             schema,
+            tenant_id,
             settings,
           },
           "Salvando configurações…",

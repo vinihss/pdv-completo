@@ -1,5 +1,5 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from "vitest";
-import { api, seedFixture, resetState, closeTestApp, waiter, manager, cashier, FIXTURE, raw, tokenOf } from "./helpers.js";
+import { api, seedFixture, resetState, closeTestApp, waiter, manager, cashier, FIXTURE, raw, rawOwner, tokenOf } from "./helpers.js";
 import { describeOrderAlert, ORDER_ALERT_AUDIENCE } from "../src/application/alert/alert.usecases.js";
 
 // O sino vive na casca do app, então o contrato que importa é duplo: a linha no
@@ -180,7 +180,8 @@ describe("emissão do alerta na abertura da comanda", () => {
     // transação de `openOrderUsecase` (regra do AGENTS.md: audit + outbox na
     // mesma transação da escrita de domínio), a comanda passaria a existir sem
     // alerta nenhum — e o gerente nunca receberia o aviso da mesa.
-    await raw.exec(`
+    // DDL é do DONO (o papel do app não é owner).
+    await rawOwner.exec(`
       CREATE OR REPLACE FUNCTION fail_alert_insert() RETURNS trigger AS $$
       BEGIN RAISE EXCEPTION 'sabotagem de teste'; END;
       $$ LANGUAGE plpgsql;
@@ -201,7 +202,7 @@ describe("emissão do alerta na abertura da comanda", () => {
       expect(await alertRows()).toHaveLength(0);
       expect(await outboxRows("alerts:manager")).toHaveLength(0);
     } finally {
-      await raw.exec(`DROP TRIGGER IF EXISTS t_fail_alert ON alert;`);
+      await rawOwner.exec(`DROP TRIGGER IF EXISTS t_fail_alert ON alert;`);
     }
 
     // Sabotagem desfeita: o fluxo normal volta a gravar os dois na mesma

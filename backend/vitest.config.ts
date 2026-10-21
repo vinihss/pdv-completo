@@ -9,6 +9,24 @@ import { TEST_DATABASE_URL } from "./test/test-db.js";
  */
 const PRINTER_STUB_PORT = 3456;
 
+/**
+ * O APP fala com o banco pelo PAPEL RESTRITO (`pdv_app`, sem superuser e sem
+ * BYPASSRLS) — o mesmo papel do deploy (`docs/28-multitenant-row-level.md`).
+ *
+ * Não é preciosismo: superuser ignora row security, então uma policy de RLS
+ * testada como superuser não prova nada (a suíte de isolamento passaria sem
+ * isolar). O papel é criado pelo `globalSetup` (que roda antes dos workers, com
+ * o dono) — e o dono é quem pode criar papel e dar grant.
+ */
+const APP_DB_ROLE = process.env.TEST_APP_DB_ROLE ?? "pdv_app";
+const APP_DB_PASSWORD = process.env.TEST_APP_DB_PASSWORD ?? "pdv_app_test_pw";
+const APP_DB_URL = (() => {
+  const url = new URL(TEST_DATABASE_URL);
+  url.username = APP_DB_ROLE;
+  url.password = APP_DB_PASSWORD;
+  return url.toString();
+})();
+
 // Tests do backend rodam contra um Postgres dedicado (pdv_test), com as
 // variáveis de ambiente resolvidas ANTES de qualquer import das rotas/use
 // cases (o client do Drizzle abre o pool no carregamento do módulo, e o
@@ -28,7 +46,12 @@ export default defineConfig({
     // out" sem deadlock. Alinhado ao testTimeout.
     hookTimeout: 30000,
     env: {
-      DATABASE_URL: TEST_DATABASE_URL,
+      // O app (e os testes) falam com o papel RESTRITO; o DONO (superuser) fica
+      // só para o DDL — as migrations.
+      DATABASE_URL: APP_DB_URL,
+      MIGRATION_DATABASE_URL: TEST_DATABASE_URL,
+      APP_DB_ROLE: APP_DB_ROLE,
+      APP_DB_PASSWORD: APP_DB_PASSWORD,
       DEPLOYMENT_MODE: "local",
       JWT_SECRET: "test-secret-com-mais-de-32-caracteres-para-rodar-os-testes",
       LOG_LEVEL: "silent",

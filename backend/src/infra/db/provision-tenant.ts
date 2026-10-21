@@ -20,6 +20,7 @@ import { runMigrations } from "./migrate.js";
 import { runRegistryMigrations } from "./registry-migrate.js";
 import { runInTenantScope } from "./tenant-context.js";
 import { runProdSeed } from "./seed-prod.js";
+import { grantAppRoleOnSchema } from "./ensure-app-role.js";
 
 export async function provisionTenantSchema(slug: string, displayName: string): Promise<string> {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) {
@@ -42,6 +43,11 @@ export async function provisionTenantSchema(slug: string, displayName: string): 
 
   // Mesmo DDL das migrations de produção, agora dentro do schema do tenant.
   await runMigrations({ schema: schemaName });
+
+  // O papel do app precisa de acesso ao schema da loja nova (e às tabelas
+  // que as migrations vão criar nele) — quem cria o schema é quem dá o
+  // acesso.
+  await grantAppRoleOnSchema(schemaName);
 
   // Linha no registry: o `resolveTenant` passa a aceitar o subdomínio.
   //

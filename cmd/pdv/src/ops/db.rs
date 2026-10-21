@@ -327,7 +327,35 @@ pub fn resolve_db_target() -> Result<(String, DbTarget), String> {
 /// No caminho host é o `psql` do `PATH`; no caminho container é
 /// `docker exec <container> psql …` (mesmos argumentos, banco equivalente).
 pub fn psql(sql: &str, tuples_only: bool) -> Result<String, String> {
+  psql_for_tenant(sql, tuples_only, None)
+}
+
+/// O mesmo `psql`, mas com o **contexto de tenant** da sessão.
+///
+/// A policy de RLS (migration `0015_rls_policies.sql`) compara a linha com
+/// `current_setting('app.tenant_id')` — sem esse contexto, a sessão não vê
+/// NENHUMA linha da loja (a policy filtra tudo). Por isso a CLI, que fala com
+/// o banco por fora do app, precisa declarar de qual loja ela está falando.
+///
+/// O `SET` vai no MESMO comando do `psql` (uma sessão só) e é do tipo
+/// `SET` (sessão), não `SET LOCAL`: o `psql -c` pode mandar várias
+/// instruções, e o contexto precisa valer para todas.
+pub fn psql_for_tenant(
+  sql: &str,
+  tuples_only: bool,
+  tenant_id: Option<&str>,
+) -> Result<String, String> {
   let (url, target) = resolve_db_target()?;
+  let comando = match tenant_id {
+    Some(id) if !id.trim().is_empty() => {
+      format!(
+        "SET app.tenant_id = '{}'; {}",
+        id.replace(char::from(39), "''"),
+        sql
+      )
+    }
+    _ => sql.to_string(),
+  };
   let mut args: Vec<String> = Vec::new();
   match &target {
     DbTarget::Host => {
@@ -341,7 +369,7 @@ pub fn psql(sql: &str, tuples_only: bool) -> Result<String, String> {
         args.push("|".into());
       }
       args.push("-c".into());
-      args.push(sql.to_string());
+      args.push(comando.clone());
       let args: Vec<&str> = args.iter().map(String::as_str).collect();
       let (code, out) = capture_cmd_in_dir(&backend_dir(), &[], "psql", &args);
       if code != 0 {
@@ -364,7 +392,7 @@ pub fn psql(sql: &str, tuples_only: bool) -> Result<String, String> {
         args.push("|".into());
       }
       args.push("-c".into());
-      args.push(sql.to_string());
+      args.push(comando.clone());
       let args: Vec<&str> = args.iter().map(String::as_str).collect();
       let (code, out) = capture_cmd_in_dir(&root_path(), &[], "docker", &args);
       if code != 0 {

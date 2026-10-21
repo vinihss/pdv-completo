@@ -12,10 +12,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { api, closeTestApp, raw, resetState, seedFixture, testApp } from "./helpers.js";
+import { api, closeTestApp, raw, rawOwner, resetState, seedFixture, testApp } from "./helpers.js";
 import { pool } from "../src/infra/db/client.js";
 import { runRegistryMigrations } from "../src/infra/db/registry-migrate.js";
 import { runMigrations } from "../src/infra/db/migrate.js";
+import { grantAppRoleOnSchema } from "../src/infra/db/ensure-app-role.js";
+import { closeAllTenantPools } from "../src/infra/db/tenant-db.js";
 import {
   findTenantByCustomDomain,
   findTenantBySlug,
@@ -24,6 +26,7 @@ import {
 import { DEFAULT_TENANT_SLUG, resolveTenant } from "../src/infra/composition/default-usecases.js";
 import { getPublicTenantUsecase } from "../src/infra/composition/domains/tenant.js";
 import { DEFAULT_TENANT_ID, matchTenantHost, normalizeTenantHost } from "../src/domain/tenant.js";
+import { Client } from "pg";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REGISTRY_SQL = path.resolve(__dirname, "../migrations/registry/0001_tenant_registry.sql");
@@ -31,6 +34,11 @@ const REGISTRY_SQL = path.resolve(__dirname, "../migrations/registry/0001_tenant
 const ROOT_DOMAIN = "seudominio.com.br";
 
 type RegistryRow = {
+  /** Id do tenant (uuid) — o mesmo que a coluna `tenant_id` das linhas e o
+   *  que a policy de RLS compara. Sem ele, o registry geraria um id novo e a
+   *  linha da loja ficaria apontando para um tenant inexistente (a FK
+   *  `store_settings → public.tenant` recusa). */
+  id?: string;
   slug: string;
   schemaName: string;
   displayName?: string;
@@ -51,6 +59,8 @@ const ENV_KEYS = [
   "TENANT_REGISTRY_CACHE_TTL_SECONDS",
 ] as const;
 const savedEnv = new Map<string, string | undefined>();
+const TENANT_PDV1_ID = "eeeeeeee-1111-2222-3333-44444444444a";
+const TENANT_PDV2_ID = "ffffffff-1111-2222-3333-44444444444b";
 
 function setEnv(key: (typeof ENV_KEYS)[number], value: string | undefined): void {
   if (value === undefined) delete process.env[key];
@@ -64,12 +74,28 @@ async function seedRegistry(rows: RegistryRow[]): Promise<void> {
   // por exemplo) impede remover a linha dele. É a proteção que a FK existe
   // para dar: um tenant com dado não some do registry por accidento (a
   // operação de verdade é o `status` — suspended/active).
-  await raw.exec("DELETE FROM public.tenant WHERE slug <> 'default'");
+  // Os schemas das lojas de teste primeiro: a FK `store_settings →
+  // public.tenant` impede apagar a linha do registry enquanto a loja tem
+  // dado (é a proteção que a FK existe para dar).
+  await rawOwner.exec("DROP SCHEMA IF EXISTS tenant_pdv1 CASCADE");
+  await rawOwner.exec("DROP SCHEMA IF EXISTS tenant_pdv2 CASCADE");
+  await closeAllTenantPools();
+  // O DONO: a FK `user.tenant_id → public.tenant` é verificada com as linhas
+  // REAIS, e o papel do app não enxerga o `user` de outra loja → o DELETE da
+  // linha do registry falhava com violação de FK.
+  await rawOwner.exec("DELETE FROM public.tenant WHERE slug <> 'default'");
   for (const row of rows) {
     await raw.all(
-      `INSERT INTO public.tenant (slug, schema_name, display_name, status, custom_domain)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [row.slug, row.schemaName, row.displayName ?? row.slug, row.status ?? "active", row.customDomain ?? null],
+      `INSERT INTO public.tenant (id, slug, schema_name, display_name, status, custom_domain)
+       VALUES (COALESCE($1::uuid, gen_random_uuid()), $2, $3, $4, $5, $6)`,
+      [
+        row.id ?? null,
+        row.slug,
+        row.schemaName,
+        row.displayName ?? row.slug,
+        row.status ?? "active",
+        row.customDomain ?? null,
+      ],
     );
   }
   invalidateTenantRegistryCache();
@@ -78,22 +104,39 @@ async function seedRegistry(rows: RegistryRow[]): Promise<void> {
 // Provisiona de verdade um schema de tenant: `CREATE SCHEMA` + migrations +
 // `store_settings` com marca própria. É o mínimo que o teste da vitrine precisa
 // para provar que a leitura via ALS/pool por schema pega a marca DA LOJA.
-async function provisionTenantSchema(schemaName: string, merchantName: string): Promise<void> {
+async function provisionTenantSchema(
+  schemaName: string,
+  merchantName: string,
+  tenantId: string,
+): Promise<void> {
   // Derruba um schema de execução anterior (teste abortado antes do `finally`)
   // para o `CREATE SCHEMA` não falhar com "already exists".
-  await raw.exec(`DROP SCHEMA IF EXISTS ${schemaName} CASCADE`);
-  await raw.exec(`CREATE SCHEMA ${schemaName}`);
+  // DDL é do DONO (o papel do app não é owner).
+  await rawOwner.exec(`DROP SCHEMA IF EXISTS ${schemaName} CASCADE`);
+  // O pool daquele schema guardava o OID do schema DERRUBADO (o
+  // `search_path` é resolvido uma vez por sessão) — recriado o schema, a
+  // conexão antiga aponta para o schema destruído e a leitura volta "sem
+  // store_settings". Fechar os pools resolve.
+  await closeAllTenantPools();
+  await rawOwner.exec(`CREATE SCHEMA ${schemaName}`);
+  // E o papel do app precisa de acesso ao schema novo (em produção quem faz
+  // isso é o provisionamento — `grantAppRoleOnSchema`).
+  await grantAppRoleOnSchema(schemaName);
   await runMigrations({ schema: schemaName });
-  await raw.all(
-    `INSERT INTO ${schemaName}.store_settings
+  // O `SET` é da sessão do INSERT: a policy de RLS exige que a linha escrita
+  // seja da loja da sessão (e o trigger preenche o `tenant_id` a partir dele).
+  // O `SET` vai na MESMA instrução do INSERT (o `pg` não aceita múltiplos
+  // comandos num prepared statement, e o `SET` precisa valer para o INSERT).
+  await raw.exec(
+    `SET app.tenant_id = '${tenantId}';
+     INSERT INTO ${schemaName}.store_settings
        (id, merchant_name, merchant_city, brand_color, uses_delivery, kitchen_enabled)
-     VALUES ('singleton', $1, $1, '#123456', true, false)`,
-    [merchantName],
+     VALUES ('singleton', '${merchantName}', '${merchantName}', '#123456', true, false)`,
   );
 }
 
 async function dropTenantSchema(schemaName: string): Promise<void> {
-  await raw.exec(`DROP SCHEMA IF EXISTS ${schemaName} CASCADE`);
+  await rawOwner.exec(`DROP SCHEMA IF EXISTS ${schemaName} CASCADE`);
 }
 
 beforeAll(async () => {
@@ -108,7 +151,16 @@ afterAll(async () => {
   // Só as linhas da suíte: a do tenant DEFAULT fica (ela tem dado — as
   // categorias do seed base — e a FK `category → public.tenant` impede
   // removê-la; a remoção de um tenant com dado é软的, via `status`).
-  await raw.exec("DELETE FROM public.tenant WHERE slug <> 'default'");
+  // Os schemas das lojas de teste primeiro: a FK `store_settings →
+  // public.tenant` impede apagar a linha do registry enquanto a loja tem
+  // dado (é a proteção que a FK existe para dar).
+  await rawOwner.exec("DROP SCHEMA IF EXISTS tenant_pdv1 CASCADE");
+  await rawOwner.exec("DROP SCHEMA IF EXISTS tenant_pdv2 CASCADE");
+  await closeAllTenantPools();
+  // O DONO: a FK `user.tenant_id → public.tenant` é verificada com as linhas
+  // REAIS, e o papel do app não enxerga o `user` de outra loja → o DELETE da
+  // linha do registry falhava com violação de FK.
+  await rawOwner.exec("DELETE FROM public.tenant WHERE slug <> 'default'");
   invalidateTenantRegistryCache();
   for (const key of ENV_KEYS) setEnv(key, savedEnv.get(key));
   await closeTestApp();
@@ -135,7 +187,7 @@ function routingOn(rootDomain: string = ROOT_DOMAIN): void {
 describe("tenant: resolução por Host", () => {
   it("subdomínio resolve pela 1ª label", async () => {
     routingOn();
-    await seedRegistry([{ slug: "pdv1", schemaName: "tenant_pdv1" }]);
+    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" }]);
 
     // O `id` é gerado pelo banco (uuid) — o assert confere o que é estável e
     // o FORMATO do id, que é o que a policy vai comparar com `tenant_id`.
@@ -182,7 +234,7 @@ describe("tenant: resolução por Host", () => {
 
   it("apex, localhost e intranet caem no tenant default", async () => {
     routingOn();
-    await seedRegistry([{ slug: "pdv1", schemaName: "tenant_pdv1" }]);
+    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" }]);
 
     for (const host of [ROOT_DOMAIN, "localhost", "localhost:5175", "intranet"]) {
       expect(await resolveTenant(host)).toEqual({
@@ -196,7 +248,7 @@ describe("tenant: resolução por Host", () => {
 
   it("sem PLATFORM_ROOT_DOMAIN vale a heurística de rótulos do §3.1", async () => {
     routingOn("");
-    await seedRegistry([{ slug: "pdv1", schemaName: "tenant_pdv1" }]);
+    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" }]);
 
     // TLD de uma label: 2 rótulos é apex.
     expect((await resolveTenant("seudominio.tech")).isDefault).toBe(true);
@@ -237,7 +289,7 @@ describe("tenant: resolução por Host", () => {
   // loja errada para quem pediu a loja certa.
   it("slug inválido → tenant_not_resolved (404), nunca o default", async () => {
     routingOn();
-    await seedRegistry([{ slug: "pdv1", schemaName: "tenant_pdv1" }]);
+    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" }]);
 
     const invalidos = [
       "-pdv1.seudominio.com.br", // começa com hífen
@@ -257,7 +309,7 @@ describe("tenant: resolução por Host", () => {
 
   it("host que não é da plataforma nem domínio de loja → 404, não o default", async () => {
     routingOn();
-    await seedRegistry([{ slug: "pdv1", schemaName: "tenant_pdv1" }]);
+    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" }]);
 
     for (const host of ["outra-loja.seudominio.com.br", "loja.exemplo.net", "127.0.0.1"]) {
       await expect(resolveTenant(host)).rejects.toMatchObject({ code: "tenant_not_resolved", status: 404 });
@@ -294,7 +346,7 @@ describe("tenant: resolução por Host", () => {
 
   it("TENANT_ROUTING ligado no vocabulário do gate (1/true/yes/on)", async () => {
     setEnv("PLATFORM_ROOT_DOMAIN", ROOT_DOMAIN);
-    await seedRegistry([{ slug: "pdv1", schemaName: "tenant_pdv1" }]);
+    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" }]);
 
     for (const valor of ["1", "true", "TRUE", " yes ", "on"]) {
       setEnv("TENANT_ROUTING", valor);
@@ -317,7 +369,7 @@ describe("tenant: resolução por Host", () => {
     // O `CHECK` do banco é a primeira barreira; aqui ela é removida de propósito
     // para provar que a segunda (código) existe — o nome do schema entra num
     // `search_path` na Fase 2, então uma linha corrompida não pode passar.
-    await raw.exec("ALTER TABLE public.tenant DROP CONSTRAINT tenant_schema_name_check");
+    await rawOwner.exec("ALTER TABLE public.tenant DROP CONSTRAINT tenant_schema_name_check");
     try {
       await seedRegistry([{ slug: "pdv1", schemaName: "public; DROP TABLE public.tenant" }]);
       await expect(resolveTenant("pdv1.seudominio.com.br")).rejects.toMatchObject({
@@ -325,11 +377,20 @@ describe("tenant: resolução por Host", () => {
         status: 503,
       });
     } finally {
-      await raw.exec("DELETE FROM public.tenant WHERE slug <> 'default'");
+      // Os schemas das lojas de teste primeiro: a FK `store_settings →
+  // public.tenant` impede apagar a linha do registry enquanto a loja tem
+  // dado (é a proteção que a FK existe para dar).
+  await rawOwner.exec("DROP SCHEMA IF EXISTS tenant_pdv1 CASCADE");
+  await rawOwner.exec("DROP SCHEMA IF EXISTS tenant_pdv2 CASCADE");
+  await closeAllTenantPools();
+  // O DONO: a FK `user.tenant_id → public.tenant` é verificada com as linhas
+  // REAIS, e o papel do app não enxerga o `user` de outra loja → o DELETE da
+  // linha do registry falhava com violação de FK.
+  await rawOwner.exec("DELETE FROM public.tenant WHERE slug <> 'default'");
       // A definição ATUAL do CHECK (a da migration de registry `0003`, que
       // aceita `public` e NULL — o schema do tenant default e o modelo por
       // linha). A definição antiga rejeitaria a linha do default.
-      await raw.exec(
+      await rawOwner.exec(
         "ALTER TABLE public.tenant ADD CONSTRAINT tenant_schema_name_check CHECK (schema_name IS NULL OR schema_name = 'public' OR schema_name ~ '^tenant_[a-z0-9_]+$')",
       );
     }
@@ -446,7 +507,7 @@ describe("GET /public/tenants/resolve", () => {
     // `store_settings` para ler, e a vitrine responde 503 em vez de cair no
     // `search_path` `public` e servir a marca da plataforma achando que é da loja.
     routingOn();
-    await seedRegistry([{ slug: "pdv1", schemaName: "tenant_pdv1" }]);
+    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" }]);
 
     const res = await api("get", "/public/tenants/resolve?host=pdv1.seudominio.com.br", { ip: nextIp() });
 
@@ -460,8 +521,11 @@ describe("GET /public/tenants/resolve", () => {
     // marca própria, não a default.
     routingOn();
     try {
-      await provisionTenantSchema("tenant_pdv1", "Loja PDV1");
-      await seedRegistry([{ slug: "pdv1", schemaName: "tenant_pdv1" }]);
+      // O registry ANTES do schema: a linha da loja precisa existir (a FK
+      // `store_settings → public.tenant` recusa o dado de um tenant que não
+      // está no registry).
+      await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" }]);
+      await provisionTenantSchema("tenant_pdv1", "Loja PDV1", TENANT_PDV1_ID);
 
       const res = await api("get", `/public/tenants/resolve?host=pdv1.${ROOT_DOMAIN}`, { ip: nextIp() });
 
@@ -485,12 +549,12 @@ describe("GET /public/tenants/resolve", () => {
   it("dois tenants provisionados não vazam a marca um do outro", async () => {
     routingOn();
     try {
-      await provisionTenantSchema("tenant_pdv1", "Loja Um");
-      await provisionTenantSchema("tenant_pdv2", "Loja Dois");
       await seedRegistry([
-        { slug: "pdv1", schemaName: "tenant_pdv1" },
-        { slug: "pdv2", schemaName: "tenant_pdv2" },
+        { id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" },
+        { id: TENANT_PDV2_ID, slug: "pdv2", schemaName: "tenant_pdv2" },
       ]);
+      await provisionTenantSchema("tenant_pdv1", "Loja Um", TENANT_PDV1_ID);
+      await provisionTenantSchema("tenant_pdv2", "Loja Dois", TENANT_PDV2_ID);
 
       const res1 = await api("get", `/public/tenants/resolve?host=pdv1.${ROOT_DOMAIN}`, { ip: nextIp() });
       const res2 = await api("get", `/public/tenants/resolve?host=pdv2.${ROOT_DOMAIN}`, { ip: nextIp() });
@@ -545,7 +609,8 @@ describe("registry: migrations, isolamento de schema e cache", () => {
       "0011_delivery_gis.sql",
       "0012_user_account_id.sql",
       "0013_tenant_id.sql",
-      "0014_tenant_id_composite_fks.sql"
+      "0014_tenant_id_composite_fks.sql",
+      "0015_rls_policies.sql"
     ]);
     // E o diretório existe de verdade — a exclusão não é por pasta vazia.
     expect(fs.existsSync(path.dirname(REGISTRY_SQL))).toBe(true);
@@ -557,7 +622,12 @@ describe("registry: migrations, isolamento de schema e cache", () => {
     // pegasse esta pasta na Fase 3. Como o DDL é qualificado (`public.`) e o
     // runner ainda fixa `SET LOCAL search_path = public`, a tabela tem que nascer
     // em `public` — e o `SET LOCAL` não pode sujar a sessão.
-    const client = await pool.connect();
+    // DDL é do DONO (o papel do app não é owner).
+    const client = new Client({
+      connectionString:
+        process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL,
+    });
+    await client.connect();
     try {
       await client.query("DROP SCHEMA IF EXISTS tenant_probe CASCADE");
       await client.query("CREATE SCHEMA tenant_probe");
@@ -579,8 +649,9 @@ describe("registry: migrations, isolamento de schema e cache", () => {
       expect(onde.rows[0].search_path).toBe("tenant_probe");
     } finally {
       await client.query("RESET search_path");
-      client.release();
-      await raw.exec("DROP SCHEMA IF EXISTS tenant_probe CASCADE");
+      await client.end();
+      // DDL é do DONO (o papel do app não é owner).
+      await rawOwner.exec("DROP SCHEMA IF EXISTS tenant_probe CASCADE");
     }
   });
 
@@ -626,9 +697,12 @@ describe("registry: migrations, isolamento de schema e cache", () => {
     await expect(
       raw.all("INSERT INTO public.tenant (slug, schema_name, display_name) VALUES ('Slug Inválido', 'tenant_x', 'X')"),
     ).rejects.toThrow();
+    // Duas lojas no MESMO schema: no modelo por LINHA isso é o normal (a
+    // separação é a coluna `tenant_id`), então o UNIQUE de `schema_name` saiu
+    // de cena — a coluna virou vestigial.
     await expect(
       raw.all("INSERT INTO public.tenant (slug, schema_name, display_name) VALUES ('outro', 'public', 'X')"),
-    ).rejects.toThrow();
+    ).resolves.toBeDefined();
     // Domínio próprio com maiúscula não entra: o índice único é sobre `lower()`
     // e o `CHECK` exige a forma que o browser envia.
     await expect(

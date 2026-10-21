@@ -18,9 +18,11 @@
  */
 import argon2 from "argon2";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { api, closeTestApp, manager, raw, resetState, seedFixture } from "./helpers.js";
+import { api, closeTestApp, manager, raw, rawOwner, resetState, seedFixture } from "./helpers.js";
 import { installTestMailer } from "./helpers/test-mailer.js";
 import { runMigrations } from "../src/infra/db/migrate.js";
+import { grantAppRoleOnSchema } from "../src/infra/db/ensure-app-role.js";
+import { closeAllTenantPools } from "../src/infra/db/tenant-db.js";
 import { runRegistryMigrations } from "../src/infra/db/registry-migrate.js";
 import { invalidateTenantRegistryCache } from "../src/infra/tenant/registry.js";
 import { resetRateLimit } from "../src/http/middlewares/rate-limit.middleware.js";
@@ -97,17 +99,23 @@ const TENANT_B_SCHEMA = "tenant_identity_b";
 
 async function cleanupIdentityRows(): Promise<void> {
   const like = `%${EMAIL_DOMAIN}`;
+  // A limpeza é do DONO (`rawOwner`), não do papel do app: com RLS ligado, o
+  // papel do app só enxerga a linha da LOJA DA SESSÃO — o `user` da Loja B
+  // (criado com o `tenant_id` de B) fica invisível ✗ e o `DELETE` da conta
+  // batia na FK `user_account_id_fkey` com a linha "invisível" ainda viva.
+  // O dono ignora a policy (superuser) e apaga tudo que a suíte criou.
+  //
   // Vínculos no schema do teste multi-empresa (o catch cobre os describes onde o
   // schema nem existe — a limpeza é best-effort).
-  await raw
+  await rawOwner
     .all(`UPDATE ${TENANT_B_SCHEMA}."user" SET account_id = NULL WHERE email LIKE $1`, [like])
     .catch(() => {});
-  await raw.all(`DELETE FROM ${TENANT_B_SCHEMA}."user" WHERE email LIKE $1`, [like]).catch(() => {});
+  await rawOwner.all(`DELETE FROM ${TENANT_B_SCHEMA}."user" WHERE email LIKE $1`, [like]).catch(() => {});
   // `audit_log.user_id` é NO ACTION: filho primeiro (mesmo cuidado do profiles).
-  await raw.all(`DELETE FROM audit_log WHERE user_id IN (SELECT id FROM "user" WHERE email LIKE $1)`, [like]);
-  await raw.all(`DELETE FROM "user" WHERE email LIKE $1`, [like]);
+  await rawOwner.all(`DELETE FROM audit_log WHERE user_id IN (SELECT id FROM "user" WHERE email LIKE $1)`, [like]);
+  await rawOwner.all(`DELETE FROM "user" WHERE email LIKE $1`, [like]);
   // auth_session/password_reset saem por ON DELETE CASCADE.
-  await raw.all(`DELETE FROM public.account WHERE email LIKE $1`, [like]);
+  await rawOwner.all(`DELETE FROM public.account WHERE email LIKE $1`, [like]);
 }
 
 beforeAll(async () => {
@@ -669,6 +677,9 @@ describe("identidade: convite e vínculo de conta", () => {
 describe("identidade: conta com duas empresas", () => {
   const ROOT_DOMAIN = "ident.test";
   const TENANT_B_SLUG = "loja-b";
+  // Id fixo do tenant B: o mesmo vai para a linha do registry e para a coluna
+  // `tenant_id` das linhas (é o que a policy de RLS compara).
+  const TENANT_B_ID = "bbbbbbbb-2222-3333-4444-55555555555b";
   const ENV_KEYS = ["TENANT_ROUTING", "PLATFORM_ROOT_DOMAIN", "DEFAULT_TENANT_SCHEMA"] as const;
   const savedEnv = new Map<string, string | undefined>();
 
@@ -681,31 +692,52 @@ describe("identidade: conta com duas empresas", () => {
 
     // Segunda loja de verdade: schema provisionado + marca própria + usuário da
     // conta com OUTRA role (a role do token vem da linha `user` da loja).
-    await raw.exec(`DROP SCHEMA IF EXISTS ${TENANT_B_SCHEMA} CASCADE`);
-    await raw.exec(`CREATE SCHEMA ${TENANT_B_SCHEMA}`);
+    // DDL é do DONO (o papel do app não é owner).
+    await rawOwner.exec(`DROP SCHEMA IF EXISTS ${TENANT_B_SCHEMA} CASCADE`);
+    await rawOwner.exec(`CREATE SCHEMA ${TENANT_B_SCHEMA}`);
+    // O `search_path` é resolvido uma vez por sessão: as conexões dos pools
+    // antigos apontam para o schema DESTRUÍDO. Fechar os pools força a
+    // recriação (com o `search_path` novo).
+    await closeAllTenantPools();
+    // E o papel do app precisa de acesso ao schema novo (em produção quem faz
+    // isso é o provisionamento — `grantAppRoleOnSchema`).
+    await grantAppRoleOnSchema(TENANT_B_SCHEMA);
     await runMigrations({ schema: TENANT_B_SCHEMA });
+    // A linha do registry ANTES do dado: a FK `store_settings →
+    // public.tenant` recusa o dado de um tenant que não está no registry.
     await raw.all(
-      `INSERT INTO ${TENANT_B_SCHEMA}.store_settings
+      `INSERT INTO public.tenant (id, slug, schema_name, display_name, status)
+       VALUES ($1, $2, $3, $4, 'active')
+       ON CONFLICT (slug) DO UPDATE SET id = EXCLUDED.id, schema_name = EXCLUDED.schema_name`,
+      [TENANT_B_ID, TENANT_B_SLUG, TENANT_B_SCHEMA, "Loja B"],
+    );
+    // O `SET` é da sessão do INSERT: a policy de RLS exige que a linha
+    // escrita seja da loja da sessão.
+    // `set_config(..., true)` e NÃO `SET`: o `SET` é de SESSÃO e vazaria para
+    // a conexão do POOL (que é reutilizada) — o `app.tenant_id` da Loja B
+    // ficava pendurado na conexão do default e a policy escondia os dados do
+    // default. O `is_local=true` vale só até o fim da transação.
+    await raw.exec(
+      `SELECT set_config('app.tenant_id', '${TENANT_B_ID}', true);
+       INSERT INTO ${TENANT_B_SCHEMA}.store_settings
          (id, merchant_name, merchant_city, brand_color, uses_delivery, kitchen_enabled)
        VALUES ('singleton', 'Loja B', 'Cidade B', '#654321', false, false)`,
-    );
-    await raw.all(
-      `INSERT INTO public.tenant (slug, schema_name, display_name, status) VALUES ($1, $2, $3, 'active')`,
-      [TENANT_B_SLUG, TENANT_B_SCHEMA, "Loja B"],
     );
     invalidateTenantRegistryCache();
 
     account = await createLinkedAccount({ label: "duas-empresas", role: "manager" });
-    await raw.all(
-      `INSERT INTO ${TENANT_B_SCHEMA}."user" (id, name, role, pin_hash, email, account_id)
-       VALUES ($1, 'Gerente na Loja B', 'waiter', 'x', $2, $3)`,
-      [`usr-b-${crypto.randomUUID()}`, account.email, account.accountId],
+    // O `SET` é da sessão do INSERT: a policy de RLS exige que a linha escrita
+    // seja da loja da sessão (e o trigger preenche o `tenant_id`).
+    await raw.exec(
+      `SELECT set_config('app.tenant_id', '${TENANT_B_ID}', true);
+       INSERT INTO ${TENANT_B_SCHEMA}."user" (id, name, role, pin_hash, email, account_id)
+       VALUES ('usr-b-${crypto.randomUUID()}', 'Gerente na Loja B', 'waiter', 'x', '${account.email}', '${account.accountId}')`,
     );
   });
 
   afterAll(async () => {
     // O afterEach do arquivo limpa os vínculos; o schema some por inteiro.
-    await raw.exec(`DROP SCHEMA IF EXISTS ${TENANT_B_SCHEMA} CASCADE`);
+    await rawOwner.exec(`DROP SCHEMA IF EXISTS ${TENANT_B_SCHEMA} CASCADE`);
     for (const key of ENV_KEYS) {
       const value = savedEnv.get(key);
       if (value === undefined) delete process.env[key];
@@ -715,18 +747,37 @@ describe("identidade: conta com duas empresas", () => {
   });
 
   afterEach(async () => {
-    await raw.all(`DELETE FROM public.tenant WHERE slug = $1`, [TENANT_B_SLUG]);
+    // O DONO, e NESTA ORDEM: as FKs `user/store_settings → public.tenant` são
+    // verificadas com as linhas REAIS (o RLS não esconde a linha da Loja B do
+    // verificador da FK) e o papel do app não a enxerga → o dado da loja sai
+    // ANTES da linha do registry, senão o DELETE da linha bate na FK.
+    await rawOwner.exec(`DELETE FROM ${TENANT_B_SCHEMA}."user" WHERE email LIKE '%${EMAIL_DOMAIN}'`);
+    await rawOwner.exec(`DELETE FROM ${TENANT_B_SCHEMA}.store_settings WHERE id = 'singleton'`);
+    await rawOwner.all(`DELETE FROM public.tenant WHERE slug = $1`, [TENANT_B_SLUG]);
     invalidateTenantRegistryCache();
   });
 
   beforeEach(async () => {
     // O `beforeEach` do arquivo já zerou o registry? Não — o seedRegistry do
-    // arquivo não existe aqui, então a linha do tenant B é reposta a cada teste.
+    // arquivo não existe aqui, então a linha do tenant B é reposta a cada
+    // teste. O id é FIXO: é o mesmo que vai na coluna `tenant_id` das linhas da
+    // loja (é o que a policy de RLS compara) — um id aleatório deixaria o
+    // dado da loja invisível para o contexto.
     await raw.all(
-      `INSERT INTO public.tenant (slug, schema_name, display_name, status)
-       VALUES ($1, $2, 'Loja B', 'active')
-       ON CONFLICT (slug) DO UPDATE SET schema_name = EXCLUDED.schema_name, status = 'active'`,
-      [TENANT_B_SLUG, TENANT_B_SCHEMA],
+      `INSERT INTO public.tenant (id, slug, schema_name, display_name, status)
+       VALUES ($1, $2, $3, 'Loja B', 'active')
+       ON CONFLICT (slug) DO UPDATE SET id = EXCLUDED.id, schema_name = EXCLUDED.schema_name, status = 'active'`,
+      [TENANT_B_ID, TENANT_B_SLUG, TENANT_B_SCHEMA],
+    );
+    // A marca da loja. O `set_config(..., true)` é de TRANSAÇÃO: um `SET` de
+    // sessão vazaria para a conexão do POOL (reutilizada) e o `app.tenant_id`
+    // da Loja B ficaria pendurado nela — envenenando o default.
+    await raw.exec(
+      `SELECT set_config('app.tenant_id', '${TENANT_B_ID}', true);
+       INSERT INTO ${TENANT_B_SCHEMA}.store_settings
+         (id, merchant_name, merchant_city, brand_color, uses_delivery, kitchen_enabled)
+       VALUES ('singleton', 'Loja B', 'Cidade B', '#654321', false, false)
+       ON CONFLICT (id) DO UPDATE SET brand_color = EXCLUDED.brand_color`,
     );
     invalidateTenantRegistryCache();
   });

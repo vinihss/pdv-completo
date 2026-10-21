@@ -32,7 +32,9 @@ use crate::runner::{capture_cmd_in_dir, capture_npm_run};
 // import não usado reclama porque `ops` é um módulo privado do binário — os
 // itens reexportados são a API do crate, não código morto.
 #[allow(unused_imports)]
-pub use db::{load_db_url, pg_dump_to_file, psql, resolve_db_target, DbTarget};
+pub use db::{
+  load_db_url, pg_dump_to_file, psql, psql_for_tenant, resolve_db_target, DbTarget,
+};
 #[allow(unused_imports)]
 pub use seeds::{apply_seed, list_seeds, SeedInfo};
 pub use services::{list_services, Service};
@@ -175,7 +177,10 @@ fn default_tenant() -> TenantInfo {
 }
 
 /// Lê a linha singleton de `store_settings` do schema do tenant.
-pub fn get_store_settings(schema: &str) -> Result<StoreSettings, String> {
+pub fn get_store_settings(
+  schema: &str,
+  tenant_id: Option<&str>,
+) -> Result<StoreSettings, String> {
   if !valid_schema(schema) {
     return Err(format!("nome de schema inválido: {schema}"));
   }
@@ -184,7 +189,7 @@ pub fn get_store_settings(schema: &str) -> Result<StoreSettings, String> {
          uses_delivery \
          FROM {schema}.store_settings WHERE id = 'singleton'"
   );
-  let out = psql(&query, true)?;
+  let out = psql_for_tenant(&query, true, tenant_id)?;
   let line = out.lines().find(|l| !l.trim().is_empty());
   let Some(line) = line else {
     return Err(format!(
@@ -206,7 +211,11 @@ pub fn get_store_settings(schema: &str) -> Result<StoreSettings, String> {
 }
 
 /// Grava as configurações editáveis na linha singleton de `store_settings`.
-pub fn update_store_settings(schema: &str, s: &StoreSettings) -> Result<(), String> {
+pub fn update_store_settings(
+  schema: &str,
+  tenant_id: Option<&str>,
+  s: &StoreSettings,
+) -> Result<(), String> {
   if !valid_schema(schema) {
     return Err(format!("nome de schema inválido: {schema}"));
   }
@@ -221,7 +230,7 @@ pub fn update_store_settings(schema: &str, s: &StoreSettings) -> Result<(), Stri
     bool_lit(s.printer_auto_print),
     bool_lit(s.uses_delivery),
   );
-  psql(&query, false)?;
+  psql_for_tenant(&query, false, tenant_id)?;
   Ok(())
 }
 

@@ -119,8 +119,25 @@ async function describeForeignConnections(
   }
 }
 
+/**
+ * A URL do APP (papel restrito) a partir da URL do DONO (o superuser do banco
+ * de teste).
+ *
+ * A suíte precisa falar com o banco pelo PAPEL RESTRITO: superuser ignora
+ * row security, então uma policy testada como superuser não prova nada — o
+ * isolamento pareceria existir e não existiria. É o mesmo motivo do app em
+ * produção (`pdv_app`, docs/28).
+ */
+function appRoleUrl(adminUrl: string, role: string, password: string): string {
+  const url = new URL(adminUrl);
+  url.username = role;
+  url.password = password;
+  return url.toString();
+}
+
 export default async function globalSetup() {
-  process.env.DATABASE_URL = TEST_DATABASE_URL;
+  // O DONO: quem aplica migration (DDL) e quem cria o papel do app.
+  process.env.MIGRATION_DATABASE_URL = TEST_DATABASE_URL;
 
   // `console.error` + `exit(1)`, e não `throw`: o `throw` no global setup sai
   // pelo caminho de "Unhandled Error" do vitest, que ainda imprime um
@@ -136,15 +153,36 @@ export default async function globalSetup() {
 
   await recreateSchema(TEST_DATABASE_URL);
 
+  // O PAPEL DO APP: sem superuser e sem BYPASSRLS. Sem ele, as policies de RLS
+  // são decoração na suíte (superuser burla row security) — e a suíte de
+  // isolamento passaria sem provar nada.
+  //
+  // A ORDEM IMPORTA: o `config` do backend é um SNAPSHOT do ambiente no load
+  // do módulo. Se o `DATABASE_URL` (o papel restrito) fosse definido depois
+  // do primeiro import de `src/`, o app (e os testes) continuariam
+  // conectando como superuser — e a policy não valeria nada. Por isso as
+  // envs são definidas ANTES de qualquer import de `src/`.
+  const appRole = process.env.TEST_APP_DB_ROLE ?? "pdv_app";
+  const appPassword = process.env.TEST_APP_DB_PASSWORD ?? "pdv_app_test_pw";
+  process.env.APP_DB_ROLE = appRole;
+  process.env.APP_DB_PASSWORD = appPassword;
+  process.env.DATABASE_URL = appRoleUrl(TEST_DATABASE_URL, appRole, appPassword);
+
   const { runRegistryMigrations } = await import("../src/infra/db/registry-migrate.js");
   const { runMigrations } = await import("../src/infra/db/migrate.js");
   const { closeDatabase } = await import("../src/infra/db/client.js");
+  const { ensureAppRole } = await import("../src/infra/db/ensure-app-role.js");
   // ORDEM DO BOOT (server.ts): registry ANTES das migrations de tenant. As
   // tabelas globais de identidade (`public.account`, docs/26 §3) precisam
   // existir antes da `0012_user_account_id.sql`, que cria a FK do `user` para
   // `public.account` — invertida, a migration de tenant falha em banco novo.
   await runRegistryMigrations();
   await runMigrations();
+  await closeDatabase();
+
+  // O papel do app: criado e com os grants (o dono faz isso; o papel não tem
+  // direito de DDL nem de GRANT).
+  await ensureAppRole();
   await closeDatabase();
 
   return async () => {
