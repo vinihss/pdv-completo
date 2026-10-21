@@ -120,9 +120,9 @@ que a FK composta fecha logo após o backfill.
 `store_settings` (o singleton) continua com a PK `id` — no modelo por linha
 ela vira `(tenant_id, id)`, e isso é da Fase 3.
 
-### 3.3 RLS (FASE 2 — a barreira)
+### 3.3 RLS (FASE 2 — entregue)
 
-Policy em todas as tabelas:
+Policy nas 30 tabelas de negócio:
 
 ```sql
 USING (tenant_id = current_setting('app.tenant_id')::uuid)
@@ -130,14 +130,23 @@ WITH CHECK (tenant_id = current_setting('app.tenant_id')::uuid)
 ```
 
 com `FORCE ROW LEVEL SECURITY` e o app conectando com **role própria, sem
-superuser e sem BYPASSRLS**. `current_setting` **sem** `missing_ok` → sem
-contexto de tenant a query **erra** (fail-closed), em vez de devolver vazio em
-silêncio.
+superuser e sem BYPASSRLS** (a Fase 0). `current_setting` **sem** `missing_ok`
+→ sem contexto de tenant a query **erra** (fail-closed), em vez de devolver
+vazio em silêncio.
 
-O `app.tenant_id` tem de estar em **toda** transação. Hoje ele é gravado pelo
-Unit-of-Worker — mas 43 arquivos usam o `db` direto, e o `db` proxy é o
-caminho que precisa passar a setar a GUC (e a errar alto quando não há tenant
-no ALS).
+O `app.tenant_id` mora no **startup packet do pool** (o pool é por tenant) e
+é reaffirmed por transação pelo Unit-of-Worker. Cobre o app, o seed, os
+scripts e os workers — e nenhum código de aplicação escreve o id.
+
+O `schema_name` (vestigial no modelo por linha) sai de cena junto com o seu
+UNIQUE: no schema único todas as lojas teriam `schema_name = 'public'`, e o
+constraint recusava a segunda. A coluna continua (o roteamento por schema
+ainda está no ar até a Fase 3).
+
+**A suíte passou a falar com o papel restrito.** Sem isso a policy seria
+decoração na suíte (superuser burla row security) e o teste de isolamento
+passaria sem provar nada. E o que era do dono (DDL, o `TRUNCATE` do reset) foi
+separado: o app não é owner, e não deve ser.
 
 ### 3.4 Fim do schema-por-tenant (FASE 3)
 
@@ -203,7 +212,7 @@ rollback:
 |---|---|---|
 | **F0** | role `pdv_app` + `public.tenant.id` + linha do default | sim (a DSN) — e é a parte de maior risco de infra, então vem primeiro, com o schema-por-tenant ainda no ar (rollback em minutos) — **entregue** |
 | **F1** | `tenant_id` nas 30 tabelas + trigger + backfill + FKs compostas | não — **entregue** |
-| **F2** | policies + `FORCE RLS` + `db` fail-closed + suíte de isolamento | sim — **a barreira passa a existir aqui** |
+| **F2** | policies + `FORCE RLS` + `app.tenant_id` no pool + suíte de isolamento | sim — **a barreira passa a existir aqui** — **entregue** |
 | **F3** | fim do schema-por-tenant (pool único, migrations 1x, provisionamento, storage) | sim |
 | **F4** | dado de produção, gateway Go, CLI/TUI, docs | — |
 

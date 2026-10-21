@@ -26,6 +26,8 @@ import { ensureTenantScope } from "../infra/db/tenant-context.js";
 import { tenantContext } from "./plugins/tenant-context.plugin.js";
 import { appRouter } from "./plugins/router.plugin.js";
 import { configureGlobalErrorHandler } from "./errors/error-handler.js";
+import { currentTenantScope } from "../infra/db/tenant-context.js";
+import { DEFAULT_TENANT_ID } from "../domain/tenant.js";
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&");
@@ -113,7 +115,12 @@ export async function buildApp(): Promise<FastifyInstance> {
     if (!(await checkDatabaseHealth())) return reply.code(503).send({ status: "degraded", database: "disconnected" });
     try {
       const schemaName = resolveTenantSchemaInScope();
-      const pool = getTenantPool(schemaName);
+      // O id do tenant vai junto (o `app.tenant_id` mora no startup packet do
+      // pool) — é o que a policy de RLS compara com a coluna `tenant_id`.
+      const pool = getTenantPool(
+        schemaName,
+        currentTenantScope()?.tenantId ?? DEFAULT_TENANT_ID,
+      );
       const client = await pool.connect();
       try {
         const { rows } = await client.query<{ name: string; applied_at: string }>("SELECT name, applied_at FROM _migrations ORDER BY name");

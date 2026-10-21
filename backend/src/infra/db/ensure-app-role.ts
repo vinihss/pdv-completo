@@ -32,6 +32,7 @@
 // Uso (no boot do backend e no deploy):
 //   APP_DB_PASSWORD=... node dist/infra/db/ensure-app-role.js
 import { config } from "../../config/env.js";
+import { isSafeSchemaName } from "../../domain/tenant.js";
 import { withMigrationPool } from "./migration-db.js";
 
 /** Nome de papel aceito (vai para o SQL — precisa ser identificador seguro). */
@@ -46,8 +47,12 @@ export type EnsureAppRoleResult = {
 };
 
 export async function ensureAppRole(): Promise<EnsureAppRoleResult | null> {
-  const role = config.appDbRole;
-  const password = config.appDbPassword;
+  // Lidos do AMBIENTE a cada chamada, e não do `config`: o `config` é um
+  // snapshot no load do módulo, e quem define a senha (o setup de teste, o
+  // boot) pode hacerlo depois — com o snapshot, a senha chegaria vazia e o
+  // papel nunca seria criado. É a mesma razão do TTL do registry.
+  const role = (process.env.APP_DB_ROLE ?? config.appDbRole).trim();
+  const password = process.env.APP_DB_PASSWORD ?? config.appDbPassword;
 
   if (!password) {
     console.warn(
@@ -70,10 +75,19 @@ export async function ensureAppRole(): Promise<EnsureAppRoleResult | null> {
     const created = rows.length === 0;
 
     if (created) {
-      await pool.query(
-        `CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`,
-      );
-      console.log(`[app-role] papel "${role}" criado (sem superuser, sem BYPASSRLS)`);
+      try {
+        await pool.query(
+          `CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`,
+        );
+        console.log(`[app-role] papel "${role}" criado (sem superuser, sem BYPASSRLS)`);
+      } catch (err) {
+        // Corrida: outro processo (a suíte roda em paralelo, um banco por
+        // worker) criou o papel entre a consulta e o CREATE. O papel existe —
+        // o que importa é o atributo, e o `ALTER` abaixo o garante.
+        if (!/already exists/i.test(err instanceof Error ? err.message : String(err))) {
+          throw err;
+        }
+      }
     } else {
       // Um papel que já existia pode ter vindo com atributos perigosos
       // (superuser, BYPASSRLS): reaplicar é o que garante a barreira.
@@ -126,6 +140,37 @@ export async function ensureAppRole(): Promise<EnsureAppRoleResult | null> {
     );
 
     return { role, created, schemas: schemaRows.map((s) => s.nspname) };
+  });
+}
+
+/**
+ * Dá ao papel do app os grants de um schema novo (a loja que acabou de ser
+ * provisionada).
+ *
+ * Um schema de loja nasce DEPOIS do papel (o `ensure-app-role` roda no boot,
+ * a loja é provisionada depois) — então o grant não pode ser só do boot: quem
+ * cria o schema é quem dá o acesso. E o `DEFAULT PRIVILEGES` do schema novo
+ * é o que faz as tabelas que as migrations criarem depois já nascerem com
+ * o papel na lista.
+ */
+export async function grantAppRoleOnSchema(schemaName: string): Promise<void> {
+  if (!isSafeSchemaName(schemaName)) {
+    throw new Error(`[app-role] schema inválido para grant: ${JSON.stringify(schemaName)}`);
+  }
+  const role = (process.env.APP_DB_ROLE ?? config.appDbRole).trim();
+  if (!ROLE_NAME_PATTERN.test(role)) {
+    throw new Error(`[app-role] nome de papel inválido: ${JSON.stringify(role)}`);
+  }
+  await withMigrationPool("public", async (pool) => {
+    const s = quoteIdent(schemaName);
+    const r = quoteIdent(role);
+    await pool.query(`GRANT USAGE ON SCHEMA ${s} TO ${r}`);
+    await pool.query(
+      `ALTER DEFAULT PRIVILEGES IN SCHEMA ${s} GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${r}`,
+    );
+    await pool.query(
+      `ALTER DEFAULT PRIVILEGES IN SCHEMA ${s} GRANT USAGE, SELECT ON SEQUENCES TO ${r}`,
+    );
   });
 }
 

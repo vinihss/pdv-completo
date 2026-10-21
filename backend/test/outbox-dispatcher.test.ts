@@ -13,7 +13,10 @@ vi.mock("../src/infra/tenant/registry.js", async (importOriginal) => {
     ...actual,
     listActiveTenants: vi.fn().mockResolvedValue([
       {
-        id: "cccccccc-0000-0000-0000-00000000000c",
+        // O id do tenant DONO dos dados: o dispatcher roda no escopo deste
+        // tenant e a policy de RLS filtra pela `tenant_id` da linha — um id
+        // fictício esconderia os eventos do default.
+        id: "00000000-0000-0000-0000-000000000001",
         slug: "test",
         schemaName: "public",
         displayName: "Test Tenant",

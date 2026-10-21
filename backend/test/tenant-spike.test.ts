@@ -31,7 +31,12 @@ beforeAll(async () => {
   });
 
   // Schemas e tabelas de probe.
-  const admin = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+  // DDL é do DONO (o papel do app não é owner).
+  const admin = new Pool({
+    connectionString:
+      process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL,
+    max: 1,
+  });
   await admin.query(`
     CREATE SCHEMA IF NOT EXISTS tenant_a;
     CREATE SCHEMA IF NOT EXISTS tenant_b;
@@ -46,7 +51,12 @@ beforeAll(async () => {
 afterAll(async () => {
   await tenantAPool?.end();
   await tenantBPool?.end();
-  const admin = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+  // DDL é do DONO (o papel do app não é owner).
+  const admin = new Pool({
+    connectionString:
+      process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL,
+    max: 1,
+  });
   await admin.query(`DROP SCHEMA IF EXISTS tenant_a CASCADE`);
   await admin.query(`DROP SCHEMA IF EXISTS tenant_b CASCADE`);
   await admin.end();

@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import type { FastifyInstance } from "fastify";
 import { eq, or } from "drizzle-orm";
+import { Client } from "pg";
 import { db, pool } from "../src/infra/db/client.js";
 import { runMigrations } from "../src/infra/db/migrate.js";
 import { buildApp } from "../src/http/server.js";
@@ -185,6 +186,42 @@ const TRANSIENT_TABLES = [
 // grupo de cozinha, o produto e a mesa da fixture sobrevivem — inclusive os
 // toggles de rollout que um `beforeAll` liga (o estoque depende de
 // `inventory_enabled = true`, o self-service do modo com cozinha).
+/**
+ * O pool do DONO — o papel que tem direito de DDL.
+ *
+ * O app (e a suíte) falam com o PAPEL RESTRITO (`pdv_app`), que por
+ * desenho não é owner: não faz DDL. Os testes que precisam de DDL (um
+ * trigger de sabotagem, mexer num CHECK) usam este helper, com a
+ * `MIGRATION_DATABASE_URL` — a mesma DSN que as migrations usam.
+ */
+export const rawOwner = {
+  exec: async (text: string): Promise<void> => {
+    const client = new Client({
+      connectionString:
+        process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL,
+    });
+    await client.connect();
+    try {
+      await client.query(text);
+    } finally {
+      await client.end();
+    }
+  },
+  all: async (text: string, params: unknown[] = []): Promise<any[]> => {
+    const client = new Client({
+      connectionString:
+        process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL,
+    });
+    await client.connect();
+    try {
+      const res = await client.query(text, params as any[]);
+      return res.rows;
+    } finally {
+      await client.end();
+    }
+  },
+};
+
 export async function resetState() {
   resetCache();
   // O authMiddleware cacheia user.active por ~30s (docs/21 §5.4); entre
@@ -193,7 +230,17 @@ export async function resetState() {
   clearActiveUserCache();
   // Truncate das tabelas transitórias (ignora tabelas que não existem — migration 0001+).
   // Usa DO block para capturar exceções de tabelas inexistentes.
-  await raw.exec(`
+  // O TRUNCATE é do DONO (o papel do app não é owner) e por isso vai pela
+  // `MIGRATION_DATABASE_URL`. E o TRUNCATE não é filtrado pela policy (é
+  // operação de catálogo, não de linha) — então ele limpa as lojas todas, que
+  // é o que o reset quer.
+  const owner = new Client({
+    connectionString:
+      process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL,
+  });
+  await owner.connect();
+  try {
+    await owner.query(`
     DO $$ 
     DECLARE
       tbl text;
@@ -209,6 +256,9 @@ export async function resetState() {
       END LOOP;
     END $$;
   `);
+  } finally {
+    await owner.end();
+  }
   // Reset das configurações de fechamento de caixa (migration 0005 e 0008).
   // Tolerância 0 (qualquer diferença exige justificativa) e requireApprovalAbove
   // alto (1000) para que a maioria dos testes não precise de aprovação.

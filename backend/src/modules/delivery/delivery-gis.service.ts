@@ -1,12 +1,25 @@
 import { randomUUID } from "node:crypto";
 import { getTenantPool } from "../../infra/db/tenant-db.js";
-import { resolveTenantSchemaInScope } from "../../infra/db/tenant-context.js";
+import { currentTenantScope, resolveTenantSchemaInScope } from "../../infra/db/tenant-context.js";
+import { DEFAULT_TENANT_ID } from "../../domain/tenant.js";
 
 const OSRM_URL = (process.env.OSRM_URL ?? "http://localhost:5001").replace(/\/$/, "");
 const OSRM_TIMEOUT_MS = 10_000;
 type Point = { latitude: number; longitude: number };
 
-function db() { return getTenantPool(resolveTenantSchemaInScope()); }
+/**
+ * O pool do tenant.
+ *
+ * O `tenantId` vai junto: o `app.tenant_id` mora no startup packet do pool (é
+ * o que a policy de RLS compara com a coluna `tenant_id`) — sem ele, a
+ * conexão não tem contexto e a policy falha.
+ */
+function db() {
+  return getTenantPool(
+    resolveTenantSchemaInScope(),
+    currentTenantScope()?.tenantId ?? DEFAULT_TENANT_ID,
+  );
+}
 function validatePoint(point: Point) {
   if (!Number.isFinite(point.latitude) || point.latitude < -90 || point.latitude > 90 ||
       !Number.isFinite(point.longitude) || point.longitude < -180 || point.longitude > 180) {

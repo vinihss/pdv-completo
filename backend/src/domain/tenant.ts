@@ -67,7 +67,11 @@ export function isValidTenantSlug(value: string): boolean {
 
 /** `true` quando o `schema_name` vindo do registry é um identificador seguro. */
 export function isValidTenantSchemaName(value: string): boolean {
-  return TENANT_SCHEMA_PATTERN.test(value);
+  // `public` entra porque, no modelo por LINHA (workstream B), o schema é
+  // vestigial: a loja não tem schema próprio e o default é o `public`. O
+  // CHECK do banco (migration de registry `0003_tenant_id.sql`) já aceita
+  // `public` e NULL — o código precisa casar com ele.
+  return value === "public" || TENANT_SCHEMA_PATTERN.test(value);
 }
 
 /** `true` para o schema default vindo do ambiente (`public`, `tenant_x`, …). */
