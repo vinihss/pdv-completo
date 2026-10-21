@@ -14,11 +14,14 @@
 #     `scripts/dev/setup-dev.sh` escolhe portas livres e grava a escolha
 #     em `deploy/.env.dev` (os valores abaixo são os defaults).
 #
-# Duas mudanças deste arquivo (stack de dev):
+# Três mudanças deste arquivo (stack de dev):
 #   1. o `caddy` monta o `Caddyfile.devstack` (o seu próprio Caddyfile de
 #      dev) em vez do `Caddyfile.dev`, que é o do stack de PRODUÇÃO;
 #   2. o `postgres` publica a porta por variável (`DEV_POSTGRES_PORT`),
-#      para o host poder falar com o banco mesmo com a 5432 ocupada.
+#      para o host poder falar com o banco mesmo com a 5432 ocupada;
+#   3. o `postgres` usa a imagem COM PostGIS (`postgis/postgis:16-3.5-alpine`),
+#      porque a migration `0011_delivery_gis.sql` faz `CREATE EXTENSION postgis`
+#      e o seed de demonstração usa `ST_*` — ver o comentário do serviço.
 # ============================================================================
 name: pdv-dev
 
@@ -120,7 +123,20 @@ services:
       - pdv-internal
 
   postgres:
-    image: postgres:16-alpine
+    # PostGIS: a migration `0011_delivery_gis.sql` faz `CREATE EXTENSION postgis`,
+    # e `CREATE EXTENSION` NÃO instala o pacote do SO — quem precisa trazer o
+    # PostGIS é a imagem. `postgis/postgis:16-3.5-alpine` é a `postgres:16-alpine`
+    # (mesma versão 16.x e mesmo PGDATA `/var/lib/postgresql/data`) com o PostGIS
+    # acrescentado, então o volume `pdv-dev_postgres_data_dev` já existente é
+    # reaproveitado sem dump/restore — a extensão só precisa ser criada à mão
+    # (`CREATE EXTENSION postgis`) nos bancos que já existem, porque os scripts de
+    # init da imagem só rodam com o diretório de dados vazio.
+    # Sem PostGIS na imagem, o seed de demonstração (`npm run seed:demo`, passo
+    # 6/7) quebra no `ST_SetSRID`/`ST_MakePoint`/`ST_Contains`, e a própria
+    # migration 0011 morre com `extension "postgis" is not available` num banco
+    # NOVO de dev (a extensão registrada no `pg_extension` sem a biblioteca no
+    # SO dá `could not access file "$libdir/postgis-3"`).
+    image: postgis/postgis:16-3.5-alpine
     restart: unless-stopped
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-pdv}

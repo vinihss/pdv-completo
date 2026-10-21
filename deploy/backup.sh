@@ -38,14 +38,21 @@ mkdir -p "$DEST"
 # Resolve o nome do container se o padrão não existir (compose nomeia
 # <projeto>-<serviço>-1; o projeto pode ter outro nome). Com mais de um
 # Postgres no host não dá pra adivinhar — exige PDV_PG_CONTAINER.
+#
+# O filtro é o LABEL do compose (`com.docker.compose.service=postgres`), não a
+# imagem: o filtro por `ancestor=` quebrava com a imagem do PostGIS
+# (`postgis/postgis:16-3.5-alpine`) e — pior — num host com outro Postgres de
+# imagem parecida (ex.: um `postgres:16-alpine` de outro projeto) ele achava
+# UM candidato e ia dar backup do banco errado em silêncio. O label do serviço
+# `postgres` só bate no container do PDV.
 if ! docker inspect "$PG_CONTAINER" >/dev/null 2>&1; then
-  mapfile -t CANDIDATES < <(docker ps --filter ancestor=postgres:16-alpine --format '{{.Names}}')
+  mapfile -t CANDIDATES < <(docker ps --filter "label=com.docker.compose.service=postgres" --format '{{.Names}}')
   if [[ ${#CANDIDATES[@]} -eq 0 ]]; then
     echo "ERRO: container do Postgres não encontrado (ajuste PDV_PG_CONTAINER)." >&2
     exit 1
   fi
   if [[ ${#CANDIDATES[@]} -gt 1 ]]; then
-    echo "ERRO: ${#CANDIDATES[@]} containers Postgres no host; defina PDV_PG_CONTAINER:" >&2
+    echo "ERRO: ${#CANDIDATES[@]} containers Postgres do PDV no host; defina PDV_PG_CONTAINER:" >&2
     printf '  %s\n' "${CANDIDATES[@]}" >&2
     exit 1
   fi
