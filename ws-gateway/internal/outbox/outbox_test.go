@@ -687,9 +687,11 @@ func TestPollOnceParticionaPorTenant(t *testing.T) {
 	hub.assinarNo("loja-a", room, 1)
 	hub.assinarNo("loja-b", room, 1)
 
+	// O `ID` (uuid) acompanha o tenant: é o que a transação grava em
+	// `app.tenant_id` (e o que a policy vai comparar com `tenant_id`).
 	fonte := tenancy.NewStatic([]tenancy.Tenant{
-		{Slug: "loja-a", Schema: schemaA},
-		{Slug: "loja-b", Schema: schemaB},
+		{ID: "11111111-aaaa-0000-0000-00000000000a", Slug: "loja-a", Schema: schemaA},
+		{ID: "22222222-bbbb-0000-0000-00000000000b", Slug: "loja-b", Schema: schemaB},
 	})
 
 	n, err := NewWithSource(bd, hub, fonte).PollOnce(context.Background())
