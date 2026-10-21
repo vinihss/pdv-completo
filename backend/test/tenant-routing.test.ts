@@ -23,7 +23,7 @@ import {
 } from "../src/infra/tenant/registry.js";
 import { DEFAULT_TENANT_SLUG, resolveTenant } from "../src/infra/composition/default-usecases.js";
 import { getPublicTenantUsecase } from "../src/infra/composition/domains/tenant.js";
-import { matchTenantHost, normalizeTenantHost } from "../src/domain/tenant.js";
+import { DEFAULT_TENANT_ID, matchTenantHost, normalizeTenantHost } from "../src/domain/tenant.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REGISTRY_SQL = path.resolve(__dirname, "../migrations/registry/0001_tenant_registry.sql");
@@ -128,11 +128,19 @@ describe("tenant: resolução por Host", () => {
     routingOn();
     await seedRegistry([{ slug: "pdv1", schemaName: "tenant_pdv1" }]);
 
-    expect(await resolveTenant("pdv1.seudominio.com.br")).toEqual({
-      slug: "pdv1",
-      schemaName: "tenant_pdv1",
-      isDefault: false,
-    });
+    // O `id` é gerado pelo banco (uuid) — o assert confere o que é estável e
+    // o FORMATO do id, que é o que a policy vai comparar com `tenant_id`.
+    const resolvido = await resolveTenant("pdv1.seudominio.com.br");
+    expect(resolvido).toEqual(
+      expect.objectContaining({
+        slug: "pdv1",
+        schemaName: "tenant_pdv1",
+        isDefault: false,
+      }),
+    );
+    expect(resolvido.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
   });
 
   it("domínio próprio resolve pelo `custom_domain` (e não pela 1ª label)", async () => {
@@ -143,11 +151,13 @@ describe("tenant: resolução por Host", () => {
       { slug: "umami", schemaName: "tenant_umami", customDomain: "umamisushiarte.com.br" },
     ]);
 
-    expect(await resolveTenant("umamisushiarte.com.br")).toEqual({
-      slug: "umami",
-      schemaName: "tenant_umami",
-      isDefault: false,
-    });
+    expect(await resolveTenant("umamisushiarte.com.br")).toEqual(
+      expect.objectContaining({
+        slug: "umami",
+        schemaName: "tenant_umami",
+        isDefault: false,
+      }),
+    );
   });
 
   it("host é normalizado antes de casar: maiúsculas, porta e ponto final", async () => {
@@ -167,6 +177,7 @@ describe("tenant: resolução por Host", () => {
 
     for (const host of [ROOT_DOMAIN, "localhost", "localhost:5175", "intranet"]) {
       expect(await resolveTenant(host)).toEqual({
+        id: DEFAULT_TENANT_ID,
         slug: DEFAULT_TENANT_SLUG,
         schemaName: "public",
         isDefault: true,
@@ -204,6 +215,7 @@ describe("tenant: resolução por Host", () => {
 
     for (const host of ["app.seudominio.com.br", "api.seudominio.com.br", "www.seudominio.com.br"]) {
       expect(await resolveTenant(host)).toEqual({
+        id: DEFAULT_TENANT_ID,
         slug: DEFAULT_TENANT_SLUG,
         schemaName: "public",
         isDefault: true,
@@ -252,11 +264,13 @@ describe("tenant: resolução por Host", () => {
       setEnv("TENANT_ROUTING", valor);
       setEnv("PLATFORM_ROOT_DOMAIN", ROOT_DOMAIN);
       expect(await resolveTenant("pdv1.seudominio.com.br")).toEqual({
+        id: DEFAULT_TENANT_ID,
         slug: DEFAULT_TENANT_SLUG,
         schemaName: "public",
         isDefault: true,
       });
       expect(await resolveTenant("umamisushiarte.com.br")).toEqual({
+        id: DEFAULT_TENANT_ID,
         slug: DEFAULT_TENANT_SLUG,
         schemaName: "public",
         isDefault: true,
@@ -501,7 +515,11 @@ describe("registry: migrations, isolamento de schema e cache", () => {
       (r) => r.name,
     );
 
-    expect(doRegistry).toEqual(["0001_tenant_registry.sql", "0002_identity.sql"]);
+    expect(doRegistry).toEqual([
+      "0001_tenant_registry.sql",
+      "0002_identity.sql",
+      "0003_tenant_id.sql",
+    ]);
     expect(doTenant).toEqual([
       "0001_init.sql",
       "0003_courier_location.sql",

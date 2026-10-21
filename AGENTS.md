@@ -49,7 +49,8 @@ implementação atual.
 | `docs/07-estoque.md` | Controle de estoque: ledger, flags, endpoints, regras |
 | `docs/08-estoque-profissional.md` | Estoque profissional: fornecedores, compras, custo médio móvel |
 | `docs/11-desktop-instalador.md` | App Windows (Tauri): instalador, boot/update, daemon |
-| `docs/26-identidade-centralizada.md` | Identidade centralizada (novo login email/senha, seleção de empresa, invite) e a decisão por **schema único + RLS** (workstream B). Substitui os docs 15/23, removidos do repo (`git show 308c9977^:docs/15-multi-tenant-schema.md`) |
+| `docs/26-identidade-centralizada.md` | Identidade centralizada (novo login email/senha, seleção de empresa, invite). Substitui os docs 15/23, removidos do repo (`git show 308c9977^:docs/15-multi-tenant-schema.md`) |
+| `docs/28-multitenant-row-level.md` | Multi-tenant por **linha** (`tenant_id` + RLS) — o modelo decidido, as fases e as regras do workstream B |
 | `docs/17-runbook-unificacao-migrations.md` | Runbook do cutover para o baseline único de migrations (com validação de backup) |
 | `ws-gateway/GO-GATEWAY-PLAN.md` | Gateway WebSocket em Go: arquitetura, rooms, outbox, fases de migração e o checklist de implantação. Mora junto do código (fora de `docs/`) porque é spec de um componente, não do produto inteiro |
 

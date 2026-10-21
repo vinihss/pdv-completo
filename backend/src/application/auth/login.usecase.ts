@@ -32,7 +32,12 @@ export interface LoginUsecaseDeps {
    */
   scope: TenantScopeStore;
   /** Resolve o tenant pelo host (usado quando o ALS está vazio). */
-  resolveTenant: (host: string | undefined) => Promise<{ slug: string; schemaName: string; isDefault: boolean }>;
+  resolveTenant: (host: string | undefined) => Promise<{
+    id: string;
+    slug: string;
+    schemaName: string;
+    isDefault: boolean;
+  }>;
   /** Valida o vínculo aparelho→usuário (docs/21 §5.3) e toca `last_seen_at`. */
   assertDeviceForLogin: (userId: string, deviceId: string) => Promise<void>;
   /** Segredo do JWT (a application não lê `config`). */
@@ -52,7 +57,12 @@ export function createLoginUsecase(deps: LoginUsecaseDeps) {
     // tenant manualmente antes de qualquer acesso ao banco.
     if (!deps.scope.current() && host) {
       const tenant = await deps.resolveTenant(host);
-      deps.scope.enter({ schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault });
+      deps.scope.enter({
+        tenantId: tenant.id,
+        schemaName: tenant.schemaName,
+        slug: tenant.slug,
+        isDefault: tenant.isDefault,
+      });
     }
 
     const u = await deps.uow.run(deps.tenant(), (session) => session.users.findById(userId));

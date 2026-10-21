@@ -66,6 +66,7 @@ import { resolveTenantSchema } from "../storage/index.js";
 import { config } from "../../config/env.js";
 import type { TenantContext } from "../../application/ports/tenant-context.js";
 import type { GeocodingService, RoutingService } from "../../application/ports/effects.js";
+import { DEFAULT_TENANT_ID } from "../../domain/tenant.js";
 
 // ---------------------------------------------------------------------------
 // Tenant resolver: lê o ALS (contexto do request/worker corrente) e monta o
@@ -78,14 +79,17 @@ function requireTenant(): TenantContext {
     // Fallback: sem ALS (testes unitários, jobs), usa o schema padrão — como o
     // proxy `db` fazia antes (resolveTenantSchemaInScope → DEFAULT_TENANT_SCHEMA ?? "public").
     return {
-      tenantId: "default",
+      // O id FIXO do default (`domain/tenant.ts`): o mesmo da linha no
+      // registry, para que o `app.tenant_id` gravado na transação seja
+      // idêntico ao do caminho com ALS.
+      tenantId: DEFAULT_TENANT_ID,
       slug: "default",
       schemaName: process.env.DEFAULT_TENANT_SCHEMA ?? "public",
       source: "internal",
     };
   }
   return {
-    tenantId: scope.slug,
+    tenantId: scope.tenantId,
     slug: scope.slug,
     schemaName: scope.schemaName,
     source: "http",
@@ -328,7 +332,18 @@ export const identityInstances = createIdentityUsecases({
   tenants: new PgIdentityTenantReader({
     brand: new PublicTenantBrandReaderAdapter(),
     registry: tenantRegistry,
-    defaultTenant: tenantInstances.defaultTenant,
+    // O port quer um ESCOPO (com `tenantId`); o resolved tenant do use case
+    // carrega o id em `id`. A conversão fica no composition root — a
+    // application não conhece o formato do escopo de infra.
+    defaultTenant: () => {
+      const t = tenantInstances.defaultTenant();
+      return {
+        tenantId: t.id,
+        slug: t.slug,
+        schemaName: t.schemaName,
+        isDefault: t.isDefault,
+      };
+    },
     routingEnabled: tenantRoutingEnabled,
     listActiveTenants,
   }),

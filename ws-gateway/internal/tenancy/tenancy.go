@@ -43,6 +43,10 @@ import (
 // Os dois campos podem ser vazios, e o vazio é SEM escopo — o modo legado de
 // uma-loja só, em que nada muda em relação ao `search_path` default da conexão.
 type Tenant struct {
+	// ID é o id do tenant (uuid) — a identidade ESTÁVEL, a mesma que vai
+	// para a coluna `tenant_id` no modelo por linha. O Slug (claim do JWT) é
+	// o rótulo; o ID é o que a policy do Postgres compara.
+	ID string
 	// Slug é o claim `tenant` do JWT (e a 1ª label do Host no caminho público).
 	// É a CHAVE de partição das conexões: um broadcast do tenant A só alcança
 	// conexões cujo `Tenant.Slug` é A (ver connmanager.BroadcastToRoom).
@@ -58,6 +62,13 @@ type Tenant struct {
 // deste nome próprio para casar com o claim do JWT emitido pelo Node para a
 // loja default.
 const DefaultSlug = "default"
+
+// DefaultID é o id FIXO do tenant default — o MESMO valor do
+// `DEFAULT_TENANT_ID` do backend Node (`backend/src/domain/tenant.ts`) e da
+// linha que a migration `migrations/registry/0003_tenant_id.sql` cria.
+// Fixo para que o caminho "sem linha no registry" (o default) grave o mesmo
+// `app.tenant_id` que o caminho com linha.
+const DefaultID = "00000000-0000-0000-0000-000000000001"
 
 // Chave devolve a chave de partição do tenant: é o valor que entra no filtro de
 // broadcast e que a conexão carrega vindo do JWT.
@@ -77,8 +88,10 @@ func (t Tenant) String() string {
 var (
 	// slugRE é o CHECK do slug em `public.tenant` (`^ [a-z0-9][a-z0-9-]* $`).
 	slugRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
-	// schemaRE é o CHECK do `schema_name` (`^ tenant_[a-z0-9_]+ $`).
-	schemaRE = regexp.MustCompile(`^tenant_[a-z0-9_]+$`)
+	// schemaRE é o CHECK do `schema_name`: `^ tenant_[a-z0-9_]+ $` — e também
+	// `public`, que é o schema do tenant DEFAULT (a migration
+	// `0003_tenant_id.sql` relaxou o CHECK no banco para o mesmo formato).
+	schemaRE = regexp.MustCompile(`^(tenant_[a-z0-9_]+|public)$`)
 	// safeSchemaRE é o formato de schema vindo do AMBIENTE
 	// (`DEFAULT_TENANT_SCHEMA`), mais frouxo que o do registry de propósito:
 	// o schema default é `public` até o cutover, e `public` não casa
@@ -106,7 +119,7 @@ func Default() Tenant {
 		// Ausente ou inseguro ⇒ `public`, o mesmo fallback do Node.
 		schema = "public"
 	}
-	return Tenant{Slug: DefaultSlug, Schema: schema}
+	return Tenant{ID: DefaultID, Slug: DefaultSlug, Schema: schema}
 }
 
 // -----------------------------------------------------------------------------
@@ -139,7 +152,13 @@ func Statements(t Tenant) ([]Statement, error) {
 		if !ValidSlug(t.Slug) {
 			return nil, fmt.Errorf("tenancy: slug de tenant inválido %q", t.Slug)
 		}
-		out = append(out, Statement{Query: setConfigStmt, Args: []any{"app.tenant_id", t.Slug}})
+		// O `app.tenant_id` leva o ID (uuid), não o slug: é o que a policy do
+		// Postgres vai comparar com a coluna `tenant_id`. Sem id não há contexto
+		// de linha — e sem contexto, o RLS não tem como filtrar: fail-closed.
+		if t.ID == "" {
+			return nil, fmt.Errorf("tenancy: tenant %q sem id (app.tenant_id ficaria vazio)", t.Slug)
+		}
+		out = append(out, Statement{Query: setConfigStmt, Args: []any{"app.tenant_id", t.ID}})
 	}
 	if t.Schema != "" {
 		if !safeSchemaRE.MatchString(t.Schema) {

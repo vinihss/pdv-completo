@@ -18,6 +18,7 @@
 
 import { Errors } from "../../domain/errors.js";
 import {
+  DEFAULT_TENANT_ID,
   isSafeSchemaName,
   isValidTenantSchemaName,
   matchTenantHost,
@@ -56,6 +57,8 @@ export function tenantRoutingEnabled(): boolean {
 }
 
 export type ResolvedTenant = {
+  /** Id do tenant (uuid) — a identidade estável (o `slug` pode ser renomeado). */
+  id: string;
   slug: string;
   /** Schema de onde o processo fala. Nunca vai para o cliente. */
   schemaName: string;
@@ -125,11 +128,26 @@ export function createTenantUsecases(deps: TenantUsecasesDeps) {
   }
 
   function defaultTenant(): ResolvedTenant {
-    return { slug: DEFAULT_TENANT_SLUG, schemaName: defaultSchemaName(), isDefault: true };
+    // O default tem id FIXO (`domain/tenant.ts`): é o mesmo id da linha que a
+    // migration `0003_tenant_id.sql` cria no registry, e o mesmo que o
+    // fallback "sem ALS" usa — para que o `app.tenant_id` gravado na
+    // transação seja o mesmo nos dois caminhos.
+    return {
+      id: DEFAULT_TENANT_ID,
+      slug: DEFAULT_TENANT_SLUG,
+      schemaName: defaultSchemaName(),
+      isDefault: true,
+    };
   }
 
-  function fromRecord(record: { slug: string; schemaName: string; status: string }): ResolvedTenant {
+  function fromRecord(record: { id: string; slug: string; schemaName: string; status: string }): ResolvedTenant {
     if (record.status !== "active") throw Errors.tenantInactive(record.slug);
+    // O default tem LINHA no registry (a migration `0003_tenant_id.sql`), e a
+    // linha carrega `schema_name = 'public'` — que é o schema do default só
+    // por coincidência: o default de verdade vem do ambiente
+    // (`DEFAULT_TENANT_SCHEMA`). Resolvido pelo registry, o default sai pelo
+    // caminho do ambiente — que é o único que sabe qual schema ele fala.
+    if (record.slug === DEFAULT_TENANT_SLUG) return defaultTenant();
     if (!isValidTenantSchemaName(record.schemaName)) {
       // Não deveria existir: o `CHECK` do registry barra isso (§3.2). Se existir,
       // é o registry corrompido — e o nome do schema entra num `search_path` na
@@ -140,7 +158,7 @@ export function createTenantUsecases(deps: TenantUsecasesDeps) {
       );
       throw Errors.tenantSchemaUnavailable(record.slug, record.schemaName);
     }
-    return { slug: record.slug, schemaName: record.schemaName, isDefault: false };
+    return { id: record.id, slug: record.slug, schemaName: record.schemaName, isDefault: false };
   }
 
   /**
@@ -197,6 +215,7 @@ export function createTenantUsecases(deps: TenantUsecasesDeps) {
   async function getPublicTenantUsecase(rawHost: string | undefined | null): Promise<PublicTenant> {
     const tenant = await resolveTenant(rawHost);
     const brand = await deps.publicBrand.read({
+      tenantId: tenant.id,
       schemaName: tenant.schemaName,
       slug: tenant.slug,
       isDefault: tenant.isDefault,

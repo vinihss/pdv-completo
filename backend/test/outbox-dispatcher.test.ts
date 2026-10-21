@@ -13,6 +13,7 @@ vi.mock("../src/infra/tenant/registry.js", async (importOriginal) => {
     ...actual,
     listActiveTenants: vi.fn().mockResolvedValue([
       {
+        id: "cccccccc-0000-0000-0000-00000000000c",
         slug: "test",
         schemaName: "public",
         displayName: "Test Tenant",

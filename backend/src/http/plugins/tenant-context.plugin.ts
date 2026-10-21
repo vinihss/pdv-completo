@@ -36,7 +36,12 @@ async function tenantContextPlugin(app: FastifyInstance) {
         if (NO_TENANT_RESOLVE.has(req.url.split("?")[0])) return;
         const rawHost = req.headers["x-tenant-host"] ?? req.hostname;
         const tenant = await resolveTenant(typeof rawHost === "string" ? rawHost : undefined);
-        enterTenantScope({ schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault });
+        enterTenantScope({
+          tenantId: tenant.id,
+          schemaName: tenant.schemaName,
+          slug: tenant.slug,
+          isDefault: tenant.isDefault,
+        });
     });
 
     app.addHook("onResponse", async () => {

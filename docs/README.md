@@ -43,6 +43,7 @@ Este índice é a porta de entrada para pessoas e agentes. Comece pelo objetivo 
 | [`25-admin-server-tui.md`](25-admin-server-tui.md) | Plano do admin server (Go, no host) + TUI remota de administração — **plano, não implementado** |
 | [`26-identidade-centralizada.md`](26-identidade-centralizada.md) | Identidade centralizada: novo login (email/senha), seleção de empresa, invite — **plano aprovado em implementação**; registra a decisão por schema único + RLS (workstream B) |
 | [`27-cli-pdv-rust.md`](27-cli-pdv-rust.md) | CLI local `pdv` (Rust): comandos, TUI interativa, instalação — **implementado (fase 1)** |
+| [`28-multitenant-row-level.md`](28-multitenant-row-level.md) | Multi-tenant por **linha** (`tenant_id` + RLS): o modelo, as fases e as regras — **decidido, em andamento (fase 0)** |
 
 ### Documentos removidos em `308c9977` (recuperar com `git show 308c9977^:docs/<arquivo>`)
 

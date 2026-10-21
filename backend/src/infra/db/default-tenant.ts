@@ -24,7 +24,7 @@
 // se casar `^[a-z_][a-z0-9_]*$` — o mesmo padrão de `isSafeSchemaName`, que
 // é o que o pool dedicado exige (`search_path=<schema>,public,pg_temp`). Um
 // valor fora do padrão é ignorado e o default vira `public`.
-import { isSafeSchemaName } from "../../domain/tenant.js";
+import { DEFAULT_TENANT_ID, isSafeSchemaName } from "../../domain/tenant.js";
 import type { TenantScope } from "./tenant-context.js";
 
 /** Slug reservado do tenant implícito (o "default" do single-tenant). */
@@ -50,6 +50,7 @@ export function defaultTenantSchema(): string {
 export function defaultTenantScope(slug: string): TenantScope | undefined {
   if (slug !== DEFAULT_TENANT_SLUG) return undefined;
   return {
+    tenantId: DEFAULT_TENANT_ID,
     schemaName: defaultTenantSchema(),
     slug: DEFAULT_TENANT_SLUG,
     isDefault: true,

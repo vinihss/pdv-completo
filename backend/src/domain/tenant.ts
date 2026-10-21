@@ -35,6 +35,20 @@ export const TENANT_SCHEMA_PATTERN = /^tenant_[a-z0-9_]+$/;
 export const SAFE_SCHEMA_NAME_PATTERN = /^[a-z_][a-z0-9_]*$/;
 
 /**
+ * Id FIXO do tenant default (`public.tenant`, slug `default`).
+ *
+ * O default deixou de ser "o ambiente" (`DEFAULT_TENANT_SCHEMA`) e passou a
+ * ser uma LINHA do registry — é o que dá a ele uma identidade estável, e o
+ * que o backfill do dado existente vai carimbar.
+ *
+ * Fixo (e não `gen_random_uuid()`) para que o caminho "sem escopo ALS"
+ * (trabalhos internos, `requireTenant()`) use exatamente o mesmo id do
+ * tenant default, e para que backfill e seeds sejam reprodutíveis. A migration
+ * `migrations/registry/0003_tenant_id.sql` cria a linha com este MESMO id.
+ */
+export const DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001";
+
+/**
  * Subdomínios da plataforma. Não são loja: `app.` é a aplicação interna,
  * `api.` é a API (que atende todos os tenants) e `www.` é o redirecionamento do
  * domínio próprio. Se um deles resolvesse para um tenant, qualquer um poderia

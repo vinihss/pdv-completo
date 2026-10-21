@@ -25,8 +25,9 @@ import (
 // (só o que a suíte usa). `IF NOT EXISTS` de propósito: num banco que já roda o
 // registry de verdade, quem manda é a DDL real.
 const criarTenantTable = `CREATE TABLE IF NOT EXISTS public.tenant (
-	slug         TEXT PRIMARY KEY CHECK (slug ~ '^[a-z0-9][a-z0-9-]*$'),
-	schema_name  TEXT NOT NULL UNIQUE CHECK (schema_name ~ '^tenant_[a-z0-9_]+$'),
+	id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+	slug         TEXT NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9][a-z0-9-]*$'),
+	schema_name  TEXT UNIQUE CHECK (schema_name IS NULL OR schema_name = 'public' OR schema_name ~ '^tenant_[a-z0-9_]+$'),
 	display_name TEXT NOT NULL,
 	status       TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended')),
 	custom_domain TEXT,

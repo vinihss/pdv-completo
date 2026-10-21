@@ -29,7 +29,12 @@ export async function tenantMiddleware(
 
   try {
     const tenant = await resolveTenant(rawHost);
-    enterTenantScope({ schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault });
+    enterTenantScope({
+      tenantId: tenant.id,
+      schemaName: tenant.schemaName,
+      slug: tenant.slug,
+      isDefault: tenant.isDefault,
+    });
   } catch (err: any) {
     if (err.code === "tenant_not_resolved") {
       return reply.status(404).send({ error: { code: "tenant_not_resolved", message: "Loja não encontrada para este endereço." } });

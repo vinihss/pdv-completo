@@ -44,12 +44,23 @@ export async function provisionTenantSchema(slug: string, displayName: string): 
   await runMigrations({ schema: schemaName });
 
   // Linha no registry: o `resolveTenant` passa a aceitar o subdomínio.
-  await pool.query(
-    `INSERT INTO public.tenant (slug, schema_name, display_name, status)
-     VALUES ($1, $2, $3, 'active')
-     ON CONFLICT (slug) DO UPDATE SET schema_name = EXCLUDED.schema_name, display_name = EXCLUDED.display_name`,
+  //
+  // O `id` (uuid) é a identidade ESTÁVEL do tenant — é o que vai para a coluna
+  // `tenant_id` no modelo por linha. `RETURNING id` devolve o id da linha que
+  // ficou (nova ou já existente), e é ele que o escopo ALS carrega: o
+  // `app.tenant_id` gravado na transação tem que ser o id do banco, não um
+  // slug recriado às cegas.
+  const inserted = await pool.query<{ id: string }>(
+    `INSERT INTO public.tenant (id, slug, schema_name, display_name, status)
+     VALUES (gen_random_uuid(), $1, $2, $3, 'active')
+     ON CONFLICT (slug) DO UPDATE SET schema_name = EXCLUDED.schema_name, display_name = EXCLUDED.display_name
+     RETURNING id`,
     [slug, schemaName, displayName],
   );
+  const tenantId = inserted.rows[0]?.id;
+  if (!tenantId) {
+    throw new Error(`não consegui obter o id do tenant "${slug}" ao registrá-lo no registry`);
+  }
 
   // Bootstrap de dados no schema recém-migrado. `runInTenantScope` faz o ALS
   // apontar para o tenant, e como `db`/`pool` são Proxies que leem o ALS
@@ -58,7 +69,7 @@ export async function provisionTenantSchema(slug: string, displayName: string): 
   if (skipSeed) {
     console.log(`[provision] SEED=0 — bootstrap pulado (schema vazio de dados)`);
   } else {
-    await runInTenantScope({ schemaName, slug, isDefault: false }, () =>
+    await runInTenantScope({ tenantId, schemaName, slug, isDefault: false }, () =>
       runProdSeed({ merchantName: displayName }),
     );
   }

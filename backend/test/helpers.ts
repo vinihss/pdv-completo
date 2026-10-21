@@ -246,10 +246,17 @@ export type ApiResult = { status: number; json: any; body: string };
 // entra no escopo: o hook `onRequest` da rota resolve e devolve o erro pelo
 // error handler. Resolver aqui incondicionalmente quebraria esse caminho.
 async function withResolvedTenantScope<T>(host: string | undefined, fn: () => Promise<T>): Promise<T> {
-  let scope: { schemaName: string; slug: string; isDefault: boolean } | null = null;
+  let scope: { tenantId: string; schemaName: string; slug: string; isDefault: boolean } | null = null;
   try {
     const tenant = await resolveTenant(host);
-    scope = { schemaName: tenant.schemaName, slug: tenant.slug, isDefault: tenant.isDefault };
+    // O `tenantId` (uuid) é a identidade do tenant no registry — o mesmo que
+    // o `app.tenant_id` da transação vai carregar.
+    scope = {
+      tenantId: tenant.id,
+      schemaName: tenant.schemaName,
+      slug: tenant.slug,
+      isDefault: tenant.isDefault,
+    };
   } catch {
     scope = null;
   }

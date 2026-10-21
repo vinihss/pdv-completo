@@ -40,6 +40,8 @@ pub use services::{list_services, Service};
 /// Registro de um tenant no registry `public.tenant`.
 #[derive(Debug, Clone)]
 pub struct TenantInfo {
+  /// Id do tenant (uuid) — a identidade estável (o slug pode ser renomeado).
+  pub id: String,
   pub slug: String,
   pub schema_name: String,
   pub display_name: String,
@@ -70,6 +72,11 @@ fn backend_dir() -> PathBuf {
 /// editar configurações, dump) ficavam sem alvo no dev, mesmo existindo um
 /// `store_settings` de verdade (que vive em `public`).
 pub const DEFAULT_TENANT_SLUG: &str = "default";
+
+/// Id FIXO do tenant default — o MESMO valor do backend
+/// (`backend/src/domain/tenant.ts`) e da linha criada pela migration
+/// `migrations/registry/0003_tenant_id.sql`.
+pub const DEFAULT_TENANT_ID: &str = "00000000-0000-0000-0000-000000000001";
 
 /// Schema default: `DEFAULT_TENANT_SCHEMA` do ambiente quando válido
 /// (`^[a-z_][a-z0-9_]*$`, o mesmo padrão do pool dedicado do backend),
@@ -124,7 +131,7 @@ fn bool_lit(b: bool) -> &'static str {
 /// banco — em vez de uma lista vazia que deixa a TUI sem nada para
 /// selecionar.
 pub fn list_tenants() -> Result<Vec<TenantInfo>, String> {
-  let query = "SELECT slug, schema_name, display_name, status, \
+  let query = "SELECT id, slug, schema_name, display_name, status, \
                  coalesce(custom_domain, ''), created_at::text \
                  FROM public.tenant ORDER BY slug";
   let out = psql(query, true)?;
@@ -135,16 +142,17 @@ pub fn list_tenants() -> Result<Vec<TenantInfo>, String> {
       continue;
     }
     let parts: Vec<&str> = line.split('|').collect();
-    if parts.len() != 6 {
+    if parts.len() != 7 {
       continue;
     }
     res.push(TenantInfo {
-      slug: parts[0].to_string(),
-      schema_name: parts[1].to_string(),
-      display_name: parts[2].to_string(),
-      status: parts[3].to_string(),
-      custom_domain: parts[4].to_string(),
-      created_at: parts[5].to_string(),
+      id: parts[0].to_string(),
+      slug: parts[1].to_string(),
+      schema_name: parts[2].to_string(),
+      display_name: parts[3].to_string(),
+      status: parts[4].to_string(),
+      custom_domain: parts[5].to_string(),
+      created_at: parts[6].to_string(),
     });
   }
   if res.is_empty() {
@@ -156,6 +164,7 @@ pub fn list_tenants() -> Result<Vec<TenantInfo>, String> {
 /// O tenant implícito — o schema default em ambiente single-tenant.
 fn default_tenant() -> TenantInfo {
   TenantInfo {
+    id: DEFAULT_TENANT_ID.to_string(),
     slug: DEFAULT_TENANT_SLUG.to_string(),
     schema_name: default_schema(),
     display_name: "Padrão (default)".to_string(),
@@ -453,6 +462,7 @@ mod tests {
   fn tenant_implicito_aponta_para_o_schema_default() {
     let t = default_tenant();
     assert_eq!(t.slug, DEFAULT_TENANT_SLUG);
+    assert_eq!(t.id, DEFAULT_TENANT_ID);
     assert_eq!(t.schema_name, default_schema());
     assert_eq!(t.status, "active");
     assert_eq!(t.display_name, "Padrão (default)");
