@@ -64,6 +64,8 @@ import {
   type PlanDrawer,
   type PlanOrder,
 } from "./demo/plan.js";
+import { runInTenantScope } from "../tenant-context.js";
+import { seedScope } from "../seed-scope.js";
 
 // ------------------------------------------------------------
 // Fase de dados (banco): catálogo, clientes, pessoas e settings.
@@ -834,7 +836,12 @@ async function ensureCourierDemo(ctx: Ctx): Promise<void> {
 // ------------------------------------------------------------
 // Runner
 // ------------------------------------------------------------
+/** O seed de demonstração, dentro do escopo do tenant (ver `seed-scope.ts`). */
 export async function runDemoSeed(): Promise<void> {
+  await runInTenantScope(seedScope(), () => runDemoSeedBody());
+}
+
+async function runDemoSeedBody(): Promise<void> {
   console.log("[seed:demo] 1/7 seed base (migrations + usuários + catálogo inicial)…");
   await runBaseSeed();
 

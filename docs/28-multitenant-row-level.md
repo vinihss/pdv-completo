@@ -93,16 +93,32 @@ recusa subir) quando a conexão é superuser: `ws-gateway/internal/db/role.go`.
 criado/ajustado e o app segue com o papel que a `DATABASE_URL` apontar — ou
 seja, desfazer a troca é trocar a env de volta.
 
-### 3.2 Coluna `tenant_id` (FASE 1)
+### 3.2 Coluna `tenant_id` (FASE 1 — entregue)
 
-`tenant_id uuid` em **todas** as tabelas de negócio (38 no schema de tenant),
-com índice, `UNIQUE (id, tenant_id)` nas tabelas mãe e **FKs compostas** (49) —
-sem `tenant_id` na FK, uma linha da loja A poderia apontar para a linha da loja
-B.
+`tenant_id uuid` nas **30 tabelas de negócio** (as 5 de controle — `tenant`,
+`account`, `account_identity`, `auth_session`, `password_reset` — e a
+`spatial_ref_sys` do PostGIS ficam de fora: são plano de controle, e não
+entram nas policies), com índice, FK para `public.tenant(id)` e **FKs
+compostas** (45) — sem `tenant_id` na FK, uma linha da loja A poderia
+apontar para a linha da loja B. (A verificação de FK do Postgres ignora o
+RLS, então a policy não fecha isso: é a FK composta que fecha.)
 
-O dado existente é **backfilled** (a decisão do dono), com o id do tenant
-default. A coluna nasce nullable (expand) e vira NOT NULL quando a Fase 3
-cortar o schema-por-tenant (contract).
+Duas peças fazem a coluna se preencher sozinha, sem o app saber dela:
+
+1. **O GUC no startup packet do pool.** O pool é por tenant, então o
+   `app.tenant_id` na inicialização da conexão é sempre o do tenant daquele
+   pool — a mesma propriedade que sustenta o `search_path`. Cobre o app, o
+   seed e os scripts (o Unit-of-Worker continua setando por transação).
+2. **Um trigger `BEFORE INSERT`** que preenche a coluna a partir do GUC. Sem
+   contexto, a coluna fica como veio — e o `NOT NULL` cobra, com mensagem
+   clara.
+
+O dado existente é **backfilled**: o tenant default para as tabelas sem pai, e
+o tenant **do pai** para as demais (na ordem topológica) — é isso que garante
+que a FK composta fecha logo após o backfill.
+
+`store_settings` (o singleton) continua com a PK `id` — no modelo por linha
+ela vira `(tenant_id, id)`, e isso é da Fase 3.
 
 ### 3.3 RLS (FASE 2 — a barreira)
 
@@ -151,6 +167,14 @@ conflito do `AGENTS.md`).
 5. **O registry é global**: `public.tenant`, `public.account`,
    `public.account_identity`, `public.auth_session` e `public.password_reset`
    ficam **fora** das policies (são controle de plano, não dado de loja).
+6. **A coluna `tenant_id` é preenchida pelo banco** (o trigger + o GUC que o
+   pool carrega), não pelo app: nenhum arquivo de aplicação escreve o tenant,
+   e nenhum pode esquecer. E a **FK composta** garante que uma linha da loja
+   A não aponte para a linha da loja B — a policy do RLS não fecha isso (a
+   verificação de FK do Postgres ignora o RLS).
+7. **Um tenant com dado não some do registry**: a FK para `public.tenant`
+   bloqueia a remoção da linha. A operação de verdade é o `status`
+   (suspended/active).
 
 ## 5. O que se ganha e o que se perde
 
@@ -178,7 +202,7 @@ rollback:
 | Fase | Entrega | Quebra algo? |
 |---|---|---|
 | **F0** | role `pdv_app` + `public.tenant.id` + linha do default | sim (a DSN) — e é a parte de maior risco de infra, então vem primeiro, com o schema-por-tenant ainda no ar (rollback em minutos) — **entregue** |
-| **F1** | `tenant_id` nas 38 tabelas + backfill | não |
+| **F1** | `tenant_id` nas 30 tabelas + trigger + backfill + FKs compostas | não — **entregue** |
 | **F2** | policies + `FORCE RLS` + `db` fail-closed + suíte de isolamento | sim — **a barreira passa a existir aqui** |
 | **F3** | fim do schema-por-tenant (pool único, migrations 1x, provisionamento, storage) | sim |
 | **F4** | dado de produção, gateway Go, CLI/TUI, docs | — |

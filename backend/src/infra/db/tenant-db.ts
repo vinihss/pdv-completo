@@ -40,10 +40,22 @@ type TenantPoolEntry = {
 };
 
 // LRU simples: array com o mais recentemente usado POR ÚLTIMO.
+//
+// A chave é (schema, tenant): o `app.tenant_id` vai no startup packet do pool
+// (é o que faz o trigger de `tenant_id` preencher a coluna), e um pool criado
+// SEM o id (o caminho sem escopo ALS) não pode ser reaproveitado por um
+// tenant que tem id — nem o contrário. Schema e tenant são 1:1 no modelo
+// atual, então a chave dupla raramente cria dois pools para o mesmo schema —
+// mas ela elimina a classe de bug em que o pool "errado" (sem o GUC) serve o
+// tenant.
 const pools = new Map<string, TenantPoolEntry>();
 
-function touch(schemaName: string): void {
-  const entry = pools.get(schemaName);
+function poolKey(schemaName: string, tenantId?: string): string {
+  return `${schemaName}|${tenantId ?? ""}`;
+}
+
+function touch(key: string): void {
+  const entry = pools.get(key);
   if (entry) entry.lastUsed = Date.now();
 }
 
@@ -67,7 +79,38 @@ function evictLRU(): void {
   }
 }
 
-function createPool(schemaName: string): Pool {
+/**
+ * O `app.tenant_id` no startup packet.
+ *
+ * O GUC vai no pacote de inicialização da conexão (e não só na transação) por
+ * um motivo prático: o TRIGGER que preenche `tenant_id` (migration
+ * `0013_tenant_id.sql`) precisa do contexto em TODA inserção — e o pool tem
+ * mais de uma conexão. Setar por transação (o Unit-of-Worker faz) cobre o
+ * caminho do app, mas o seed e os scripts escreveriam sem contexto e a coluna
+ * ficaria nula.
+ *
+ * Como o pool é POR SCHEMA e o schema é POR TENANT (1:1), o GUC da conexão é
+ * sempre o do tenant daquele pool: uma conexão devolvida "suja" só pode estar
+ * suja para o PRÓPRIO tenant — a mesma propriedade que sustenta o
+ * `search_path` (docs/15 §4.2).
+ *
+ * O id só entra no pacote se for um UUID válido: um valor malformado no
+ * startup packet derrubaria a conexão.
+ */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function tenantGucOption(tenantId: string | undefined): string {
+  if (!tenantId) return "";
+  if (!UUID_PATTERN.test(tenantId)) {
+    console.warn(
+      `[tenant-db] tenant_id ignorado no startup packet (não é um uuid): ${JSON.stringify(tenantId)}`,
+    );
+    return "";
+  }
+  return ` -c app.tenant_id=${tenantId}`;
+}
+
+function createPool(schemaName: string, tenantId?: string): Pool {
   // Validação em camada: o `search_path` vai para um `-c search_path=...` do
   // startup packet, então o nome precisa ser identificador seguro (mesmo
   // filtro do `resolveTenantSchemaInScope`). O `isValidTenantSchemaName`
@@ -83,7 +126,7 @@ function createPool(schemaName: string): Pool {
     max: tenantPoolMax(),
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
-    options: `-c search_path=${schemaName},public,pg_temp`,
+    options: `-c search_path=${schemaName},public,pg_temp${tenantGucOption(tenantId)}`,
   });
 
   // Sem este listener, o Node mata o PROCESSO (não só a requisição) quando a
@@ -107,18 +150,19 @@ function createPool(schemaName: string): Pool {
  * Devolve o `Pool` dedicado ao schema — cria um novo quando não existe.
  * O `options` fixa o `search_path` no startup packet de cada conexão.
  */
-export function getTenantPool(schemaName: string): Pool {
-  if (!pools.has(schemaName)) {
+export function getTenantPool(schemaName: string, tenantId?: string): Pool {
+  const key = poolKey(schemaName, tenantId);
+  if (!pools.has(key)) {
     evictLRU();
-    pools.set(schemaName, { pool: createPool(schemaName), lastUsed: Date.now() });
+    pools.set(key, { pool: createPool(schemaName, tenantId), lastUsed: Date.now() });
   }
-  touch(schemaName);
-  return pools.get(schemaName)!.pool;
+  touch(key);
+  return pools.get(key)!.pool;
 }
 
 /** Devolve o `db` do Drizzle escopado ao schema do tenant. */
-export function tenantDb(schemaName: string) {
-  return drizzle(getTenantPool(schemaName), { schema });
+export function tenantDb(schemaName: string, tenantId?: string) {
+  return drizzle(getTenantPool(schemaName, tenantId), { schema });
 }
 
 /** Fecha TODOS os pools (usado no shutdown do processo). */
@@ -131,8 +175,12 @@ export async function closeAllTenantPools(): Promise<void> {
 /** Mapa atual (só para testes/diagnóstico — não muta). */
 export function getTenantPoolSnapshot(): Array<{ schema: string; max: number; used: number }> {
   const out: Array<{ schema: string; max: number; used: number }> = [];
-  for (const [schemaName, entry] of pools) {
-    out.push({ schema: schemaName, max: tenantPoolMax(), used: entry.pool.totalCount });
+  for (const [key, entry] of pools) {
+    out.push({
+      schema: key.split("|")[0],
+      max: tenantPoolMax(),
+      used: entry.pool.totalCount,
+    });
   }
   return out;
 }
