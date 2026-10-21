@@ -333,17 +333,23 @@ rollback:
 | **F3** | fim do schema-por-tenant (pool por tenant, migrations 1x, provisionamento, storage) | sim — em 3 PRs (expand/contract): **F3a** (`0016`), **F3b** (`0017`) e **F3c** (`0018`) — **entregue** |
 | **F4** | dado de produção, gateway Go, CLI/TUI, docs | — |
 
-## 7. Decisões em aberto (dono do produto)
+## 7. Decisões do dono do produto
 
-1. **Existe cliente real rodando em produção?** O custo do backfill depende
-   disso. (O `docs/23` §2 registra a contradição: o mesmo documento afirmava
-   "sem clientes reais" e citava `umamisushitarte.com.br` como cliente.)
+As três perguntas que este workstream depended were **respondidas** (2026-10-21):
+
+1. **Existe cliente real rodando em produção?** — **Não.** Isso é o que
+   tornou o backfill barato e o cutover sem risco de dado. (O `docs/23` §2
+   registra a contradição: o mesmo documento afirmava "sem clientes reais" e
+   citava `umamisushitarte.com.br` como cliente.)
 2. **A troca da `DATABASE_URL` de produção (superuser → role restrita) é
-   aceitável operacionalmente?** — a mecânica está pronta e validada no dev;
-   falta a decisão de operação (e o `MIGRATION_DATABASE_URL` + o
-   `APP_DB_PASSWORD` no `deploy/.env`).
-3. **O dump por loja sai ou vira export lógico por `COPY`?** Com RLS, o
-   `pg_dump --schema=` da CLI não isola.
+   aceitável operacionalmente?** — **Sim.** A mecânica está pronta e validada
+   no dev; o que falta é o passo de operação (`MIGRATION_DATABASE_URL` + o
+   `APP_DB_PASSWORD` no `deploy/.env`, e só então o `DATABASE_URL` para o
+   `pdv_app` — o passo a passo está no `deploy/README.md`).
+3. **O dump por loja sai ou vira export lógico por `COPY`?** — **Não precisa
+   por enquanto**, e a alternativa já existe: a CLI exporta por tenant (um
+   `COPY` por tabela, com a policy filtrando). O `pg_dump` continua sendo do
+   banco **inteiro** (é o que o `deploy/backup.sh` faz).
 
 ## 8. Referências
 

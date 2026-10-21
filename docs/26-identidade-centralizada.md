@@ -54,10 +54,16 @@ tenant nunca as vê, porque `migrations/registry/*.sql` fica fora do alcance do
 - `public.password_reset`: `id`, `account_id`, `token_hash`, `expires_at`
   (~30min), `used_at`.
 
-Migracao **por schema** (`migrations/0012_user_account_id.sql`, roda em cada
-schema de tenant + no default): `ALTER TABLE "user" ADD COLUMN account_id
-TEXT REFERENCES public.account(id)` + índice. O `user` continua dono do papel
-(`role`) e do estado de login por PIN (fallback).
+Migração (`migrations/0012_user_account_id.sql`, aplicada **uma vez**, no
+schema do app): `ALTER TABLE "user" ADD COLUMN account_id TEXT REFERENCES
+public.account(id)` + índice. O `user` continua dono do papel (`role`) e do
+estado de login por PIN (fallback).
+
+> **Atualizado (2026-10-21):** a migration rodava "em cada schema de tenant"
+> porque o modelo era o schema-por-loja (`docs/15`). No modelo por **linha**
+> (`docs/28-multitenant-row-level.md`) as lojas convivem no mesmo schema e a
+> `account_id` é uma coluna como outra qualquer — a linha da loja é escolhida
+> pelo `tenant_id` + a policy de RLS.
 
 ## 4. Contrato de API (CONGELADO — frontend e backend casam exatamente aqui)
 
@@ -126,7 +132,8 @@ Regras do contrato:
 ## 6. Fases de implementação
 
 1. **L1 — Migrations**: `registry/0002_identity.sql` (tabelas globais) +
-   `0012_user_account_id.sql` (por schema).
+   `0012_user_account_id.sql` (no schema do app — no modelo por linha as lojas
+   convivem nele).
 2. **L2 — Backend**: use cases `session`/`select-tenant`/`refresh`/`password`,
    middleware de account token, rotas, invite no `POST /users`, backfill
    (accounts `password_hash NULL` para `user` com email já existente).
@@ -175,14 +182,18 @@ das policies); `user.account_id` nasce em A e em B o `user` ganha `tenant_id`;
 o claim `{sub, role, tenant}` não muda em nenhum dos dois; `store_settings`
 permanece por-loja nos dois modelos.
 
-**O workstream B começou** (2026-10-21): o modelo — um schema só, `tenant_id`
-em toda tabela, RLS como barreira — e as fases estão em
-[`28-multitenant-row-level.md`](28-multitenant-row-level.md). A primeira
-entrega dele é a **identidade do tenant**: `public.tenant` ganha `id` (uuid,
-PK) ao lado do `slug` (rótulo), e o tenant default passa a ser uma linha do
-registry com id fixo. Daqui em diante o escopo de tenant (ALS, ports,
-gateway Go) carrega o **id**, e o `app.tenant_id` gravado na transação é o
-uuid — que é o que a policy vai comparar com a coluna `tenant_id`.
+**O workstream B foi entregue** (2026-10-21, PRs `#216`–`#223`): o modelo —
+um schema só, `tenant_id` em toda tabela, RLS como barreira — e as fases
+estão em [`28-multitenant-row-level.md`](28-multitenant-row-level.md). A
+**identidade do tenant** foi a primeira entrega: `public.tenant` ganhou `id`
+(uuid, PK) ao lado do `slug` (rótulo), e o tenant default passou a ser uma
+linha do registry com id fixo. Depois vieram o papel restrito do app, a coluna
+`tenant_id` com FKs compostas, as policies de RLS, as PKs compostas, o runtime
+sem schema, a limpeza dos schemas antigos e o volume de uploads.
+
+Daqui em diante o escopo de tenant (ALS, ports, gateway Go) carrega o **id**, e
+o `app.tenant_id` gravado na transação é o uuid — que é o que a policy
+compara com a coluna `tenant_id`.
 
 ## 10. Verificação
 
