@@ -12,6 +12,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Pool } from "pg";
+import { grantAppRoleOnSchema } from "../src/infra/db/ensure-app-role.js";
 
 const tenantStore = new AsyncLocalStorage<{ schema: string }>();
 
@@ -40,6 +41,14 @@ beforeAll(async () => {
   await admin.query(`
     CREATE SCHEMA IF NOT EXISTS tenant_a;
     CREATE SCHEMA IF NOT EXISTS tenant_b;
+  `);
+  // O papel do app precisa de acesso aos schemas (em produção quem faz isso é
+  // o provisionamento — `grantAppRoleOnSchema`). Sem o USAGE no schema, a
+  // tabela existe mas é INVISÍVEL para o papel do app: o Postgres responde
+  // "relation does not exist".
+  await grantAppRoleOnSchema("tenant_a");
+  await grantAppRoleOnSchema("tenant_b");
+  await admin.query(`
     CREATE TABLE IF NOT EXISTS tenant_a.probe (id int primary key);
     CREATE TABLE IF NOT EXISTS tenant_b.probe (id int primary key);
   `);

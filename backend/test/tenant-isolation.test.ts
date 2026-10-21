@@ -10,6 +10,7 @@ import { runMigrations } from "../src/infra/db/migrate.js";
 import { runRegistryMigrations } from "../src/infra/db/registry-migrate.js";
 import { invalidateTenantRegistryCache } from "../src/infra/tenant/registry.js";
 import { grantAppRoleOnSchema } from "../src/infra/db/ensure-app-role.js";
+import { closeAllTenantPools } from "../src/infra/db/tenant-db.js";
 import { runInTenantScope } from "../src/infra/db/tenant-context.js";
 
 const ROOT_DOMAIN = "teste.local";
@@ -44,6 +45,9 @@ beforeAll(async () => {
   // DDL é do DONO (o papel do app não é owner).
   await rawOwner.exec(`CREATE SCHEMA IF NOT EXISTS ${TENANT_A_SCHEMA}`);
   await rawOwner.exec(`CREATE SCHEMA IF NOT EXISTS ${TENANT_B_SCHEMA}`);
+  // O `search_path` é resolvido uma vez por sessão: uma conexão de um pool
+  // antigo aponta para o schema DESTRUÍDO. Fechar os pools força a recriação.
+  await closeAllTenantPools();
   // E o papel do app precisa de acesso aos schemas (em produção quem faz isso
   // é o provisionamento — `grantAppRoleOnSchema`).
   await grantAppRoleOnSchema(TENANT_A_SCHEMA);
@@ -74,32 +78,34 @@ beforeAll(async () => {
   // não depender de `search_path` (cada `pool.query` pode pegar conexão
   // diferente do pool, então `SET LOCAL` não sobrevive entre statements).
   const pinHashA = await argon2.hash("1111");
-  // O `SET` é da sessão do INSERT: a policy de RLS exige que a linha escrita
-  // seja da loja da sessão (e o trigger preenche o `tenant_id` a partir dele).
+  // O `set_config(..., true)` é de TRANSAÇÃO (um `SET` de sessão gruda na
+  // conexão do POOL e envenenaria o `app.tenant_id` das outras leituras): a
+  // policy de RLS exige que a linha escrita seja da loja do contexto, e o
+  // trigger preenche o `tenant_id` a partir dele.
   await raw.exec(`
-    SET app.tenant_id = '${TENANT_A_ID}';
+    SELECT set_config('app.tenant_id', '${TENANT_A_ID}', true);
     INSERT INTO ${TENANT_A_SCHEMA}.store_settings (id, merchant_name, merchant_city, enabled_payment_methods, uses_delivery, kitchen_enabled)
     VALUES ('singleton', 'Tenant A', 'Cidade A', '["cash"]', false, false)
     ON CONFLICT (id) DO NOTHING
   `);
   await raw.exec(`
-    SET app.tenant_id = '${TENANT_A_ID}';
+    SELECT set_config('app.tenant_id', '${TENANT_A_ID}', true);
     INSERT INTO ${TENANT_A_SCHEMA}."user" (id, name, role, pin_hash, active, failed_attempts)
     VALUES ('user-a', 'Usuário A', 'waiter', '${pinHashA}', true, 0)
     ON CONFLICT (id) DO NOTHING
   `);
   userIdA = "user-a";
 
-  // Popular tenant B
+  // Popular tenant B (mesma regra de contexto: `set_config` de TRANSAÇÃO).
   const pinHashB = await argon2.hash("2222");
   await raw.exec(`
-    SET app.tenant_id = '${TENANT_B_ID}';
+    SELECT set_config('app.tenant_id', '${TENANT_B_ID}', true);
     INSERT INTO ${TENANT_B_SCHEMA}.store_settings (id, merchant_name, merchant_city, enabled_payment_methods, uses_delivery, kitchen_enabled)
     VALUES ('singleton', 'Tenant B', 'Cidade B', '["cash"]', false, false)
     ON CONFLICT (id) DO NOTHING
   `);
   await raw.exec(`
-    SET app.tenant_id = '${TENANT_B_ID}';
+    SELECT set_config('app.tenant_id', '${TENANT_B_ID}', true);
     INSERT INTO ${TENANT_B_SCHEMA}."user" (id, name, role, pin_hash, active, failed_attempts)
     VALUES ('user-b', 'Usuário B', 'waiter', '${pinHashB}', true, 0)
     ON CONFLICT (id) DO NOTHING
@@ -122,11 +128,15 @@ afterAll(async () => {
   }
 
   // Limpar schemas de tenant
-  await raw.exec(`DROP SCHEMA IF EXISTS ${TENANT_A_SCHEMA} CASCADE`);
-  await raw.exec(`DROP SCHEMA IF EXISTS ${TENANT_B_SCHEMA} CASCADE`);
+  // DDL é do DONO (o papel do app não é owner).
+  await rawOwner.exec(`DROP SCHEMA IF EXISTS ${TENANT_A_SCHEMA} CASCADE`);
+  await rawOwner.exec(`DROP SCHEMA IF EXISTS ${TENANT_B_SCHEMA} CASCADE`);
 
   // Remover tenants do registry
-  await raw.all(`DELETE FROM public.tenant WHERE slug IN ($1, $2)`, [TENANT_A_SLUG, TENANT_B_SLUG]);
+  // O DONO: a FK `user.tenant_id → public.tenant` é verificada com as linhas
+  // REAIS, e o papel do app não enxerga o `user` da outra loja → o DELETE da
+  // linha do registry falhava com violação de FK.
+  await rawOwner.all(`DELETE FROM public.tenant WHERE slug IN ($1, $2)`, [TENANT_A_SLUG, TENANT_B_SLUG]);
   invalidateTenantRegistryCache();
 
   await closeTestApp();

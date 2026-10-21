@@ -80,7 +80,10 @@ async function seedRegistry(rows: RegistryRow[]): Promise<void> {
   await rawOwner.exec("DROP SCHEMA IF EXISTS tenant_pdv1 CASCADE");
   await rawOwner.exec("DROP SCHEMA IF EXISTS tenant_pdv2 CASCADE");
   await closeAllTenantPools();
-  await raw.exec("DELETE FROM public.tenant WHERE slug <> 'default'");
+  // O DONO: a FK `user.tenant_id → public.tenant` é verificada com as linhas
+  // REAIS, e o papel do app não enxerga o `user` de outra loja → o DELETE da
+  // linha do registry falhava com violação de FK.
+  await rawOwner.exec("DELETE FROM public.tenant WHERE slug <> 'default'");
   for (const row of rows) {
     await raw.all(
       `INSERT INTO public.tenant (id, slug, schema_name, display_name, status, custom_domain)
@@ -154,7 +157,10 @@ afterAll(async () => {
   await rawOwner.exec("DROP SCHEMA IF EXISTS tenant_pdv1 CASCADE");
   await rawOwner.exec("DROP SCHEMA IF EXISTS tenant_pdv2 CASCADE");
   await closeAllTenantPools();
-  await raw.exec("DELETE FROM public.tenant WHERE slug <> 'default'");
+  // O DONO: a FK `user.tenant_id → public.tenant` é verificada com as linhas
+  // REAIS, e o papel do app não enxerga o `user` de outra loja → o DELETE da
+  // linha do registry falhava com violação de FK.
+  await rawOwner.exec("DELETE FROM public.tenant WHERE slug <> 'default'");
   invalidateTenantRegistryCache();
   for (const key of ENV_KEYS) setEnv(key, savedEnv.get(key));
   await closeTestApp();
@@ -377,7 +383,10 @@ describe("tenant: resolução por Host", () => {
   await rawOwner.exec("DROP SCHEMA IF EXISTS tenant_pdv1 CASCADE");
   await rawOwner.exec("DROP SCHEMA IF EXISTS tenant_pdv2 CASCADE");
   await closeAllTenantPools();
-  await raw.exec("DELETE FROM public.tenant WHERE slug <> 'default'");
+  // O DONO: a FK `user.tenant_id → public.tenant` é verificada com as linhas
+  // REAIS, e o papel do app não enxerga o `user` de outra loja → o DELETE da
+  // linha do registry falhava com violação de FK.
+  await rawOwner.exec("DELETE FROM public.tenant WHERE slug <> 'default'");
       // A definição ATUAL do CHECK (a da migration de registry `0003`, que
       // aceita `public` e NULL — o schema do tenant default e o modelo por
       // linha). A definição antiga rejeitaria a linha do default.

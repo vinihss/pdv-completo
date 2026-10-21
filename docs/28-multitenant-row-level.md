@@ -148,6 +148,29 @@ decoração na suíte (superuser burla row security) e o teste de isolamento
 passaria sem provar nada. E o que era do dono (DDL, o `TRUNCATE` do reset) foi
 separado: o app não é owner, e não deve ser.
 
+**O `app.tenant_id` é do POOL — e só dele.** O pool carrega o id no startup
+packet; ninguém escreve o id em cima dele. A consequência prática: **nunca
+faça `SET app.tenant_id` de SESSÃO numa conexão de pool compartilhado** — o
+`SET` gruda na sessão, a sessão volta para o pool, e a conexão passa a ler a
+loja errada (a policy esconde a loja certa). Para mudar o contexto na
+marcação, use `set_config('app.tenant_id', …, true)` (é de **transação**) ou
+um pool dedicado. Foi assim que a suíte envenenou o default e derrubou a
+sessão de duas lojas.
+
+**O DONO precisa de `BYPASSRLS`.** Com `FORCE ROW LEVEL SECURITY`, o dono
+das tabelas também é filtrado pela policy — e a verificação de FK do Postgres
+ignora o RLS (ou seja: o dono vê menos linhas do que o verificador de FK).
+Quem roda DDL/limpeza (o papel das migrations, o `TRUNCATE` do reset) precisa
+ser superuser ou ter `BYPASSRLS`.
+
+**O que a suíte pegou (e vale registrar para as próximas fases).** Trocar o
+privilégio do banco expôs ~10 pontos da infraestrutura de teste que assumiam o
+app como dono — `TRUNCATE`, DDL, criação de schema, mock de registry, e dois
+caminhos que abriam o pool sem o id do tenant. E dois detalhes de Postgres
+que valem mais que os testes: o `search_path` é resolvido **uma vez por
+sessão** (conexão de pool antigo aponta para o schema destruído → fechar os
+pools) e o `SET` de sessão gruda na conexão (→ `set_config(…, true)`).
+
 ### 3.4 Fim do schema-por-tenant (FASE 3)
 
 `TenantContext` perde o `schemaName`; o pool vira único (some o LRU de 16
@@ -184,6 +207,9 @@ conflito do `AGENTS.md`).
 7. **Um tenant com dado não some do registry**: a FK para `public.tenant`
    bloqueia a remoção da linha. A operação de verdade é o `status`
    (suspended/active).
+8. **O contexto de tenant é do POOL.** Ninguém escreve `app.tenant_id` por
+   cima: `SET` de sessão numa conexão de pool vaza para a loja errada. Mudança
+   pontual de contexto = `set_config(…, true)` (transação) ou pool dedicado.
 
 ## 5. O que se ganha e o que se perde
 
