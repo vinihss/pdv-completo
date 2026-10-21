@@ -1,8 +1,10 @@
 // Seed BASE — popula store_settings, usuários, categorias, produtos e mesas.
-// Este é o corpo do clássico `npm run seed`; o arquivo `seed.ts` virou só o
-// runner executável (process.exit + closeDatabase) para que outros scripts
-// possam reutilizar o base importando `runBaseSeed()` — é o que o
-// `npm run seed:demo` (seed-demo.ts) faz antes de popular o histórico.
+//
+// Veio de `src/infra/db/seed-base.ts` (o corpo do clássico `npm run seed`).
+// O runner executável de antes era `seed.ts`; agora o runner é ESTE arquivo
+// (`npm run seed:base`) e `src/infra/db/seed.ts` virou um wrapper fino que
+// delega para cá — assim o catálogo de seeds (`seeds/manifest.json`) e o
+// código do seed ficam no mesmo lugar.
 //
 // Os dados base são idempotentes (checam store_settings pra não duplicar); os
 // usuários demo são reconciliados em toda execução (só os que faltam são
@@ -10,12 +12,12 @@
 // store_settings mínimo é necessária — ver nota no final de seed.ts (§14.3).
 import argon2 from "argon2";
 import { eq } from "drizzle-orm";
-import { runRegistryMigrations } from "./registry-migrate.js";
-import { runMigrations } from "./migrate.js";
-import { db } from "./client.js";
-import { PostgresIdentityRepository } from "./repositories/identity.repository.ts";
-import { newId } from "../../application/identity/identity-helpers.js";
-import { users, categories, products, restaurantTables, storeSettings, kitchenGroups, stockMovements } from "./schema.js";
+import { runRegistryMigrations } from "../registry-migrate.js";
+import { runMigrations } from "../migrate.js";
+import { closeDatabase, db } from "../client.js";
+import { PostgresIdentityRepository } from "../repositories/identity.repository.ts";
+import { newId } from "../../../application/identity/identity-helpers.js";
+import { users, categories, products, restaurantTables, storeSettings, kitchenGroups, stockMovements } from "../schema.js";
 
 // Senha de DEV de todas as contas do seed (docs/26 §4). O PIN continua valendo
 // para a rota fallback `/login/pin`; o login novo usa email + esta senha, com
@@ -187,4 +189,20 @@ export async function runBaseSeed(): Promise<void> {
   console.log("[seed] concluído.");
   console.log("[seed] PINs de teste — Ana: 1234 · Carlos: 5678 · Roberto: 9999 · Caixa: 2468 · Entregador: 1357 · Marcos: 2222 · Júlia: 3333 · Cozinha: 0000");
   printDemoAccounts();
+}
+
+// CLI próprio (`npm run seed:base`). O guard é obrigatório: o seed demo
+// importa `runBaseSeed` deste arquivo e, sem o guard, o import dispararia um
+// seed base no meio do outro.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  runBaseSeed()
+    .then(async () => {
+      await closeDatabase();
+      process.exit(0);
+    })
+    .catch(async (err) => {
+      console.error(err);
+      await closeDatabase();
+      process.exit(1);
+    });
 }

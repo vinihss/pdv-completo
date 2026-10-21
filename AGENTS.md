@@ -204,8 +204,13 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `npm run dev` | backend | roda com `tsx watch` |
 | `npm run build` | backend | `tsc` → `dist/` |
 | `npm run start` | backend | roda `dist/http/server.js` |
-| `npm run seed` | backend | seed de dev (usuários/PINs fictícios) |
+| `npm run seed` | backend | seed base (store_settings, usuários/PINs fictícios, catálogo mínimo, mesas) |
+| `npm run seed:base` | backend | idem `npm run seed` (nome explícito do catálogo de seeds) |
+| `npm run seed:demo` | backend | seed de demonstração completo: seed base + catálogo demo, clientes e 30 dias de histórico (exige PostGIS) |
 | `npm run seed:prod` | backend | seed de primeiro deploy (sem dados fictícios) |
+| `npm run seed:apply -- <id>` | backend | aplica um seed pelo id do catálogo (`base`, `demo`, `prod`) — o mesmo catálogo em `backend/src/infra/db/seeds/manifest.json` que a CLI lê |
+| CLI `pdv db seeds` | CLI instalada | lista os seeds do catálogo (lido em runtime do manifest — seed novo não exige recompilar a CLI) |
+| CLI `pdv db seed <id>` | CLI instalada | aplica o seed `<id>`; roda no host (com `backend/node_modules`) ou dentro do container do backend |
 | `npm run db:migrate` | backend | aplica `migrations/*.sql` (também roda no boot em modo local) |
 | `npm run db:migrate:registry` | backend | aplica `migrations/registry/*.sql` no schema `public` (registry de tenant; roda no boot antes do `db:migrate`) |
 | `npm run db:provision -- <slug> "<nome>"` | backend | provisiona um tenant novo: cria o schema `tenant_<slug>`, aplica as migrations dentro dele, registra em `public.tenant` e roda o bootstrap (`store_settings` + manager com PIN no log). `SEED=0` pula o bootstrap |

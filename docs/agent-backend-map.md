@@ -103,7 +103,7 @@ Mapa de use cases, rotas e testes para agentes encontrarem código rapidamente.
 | DB Client | `backend/src/infra/db/client.ts` |
 | Migrations (por schema) | `backend/src/infra/db/migrate.ts` |
 | Migrations (registry/global em `public`) | `backend/src/infra/db/registry-migrate.ts` |
-| Seed | `backend/src/infra/db/seed.ts` |
+| Seed (catálogo + runners) | `backend/src/infra/db/seeds/` — `manifest.json` (catálogo, lido em runtime também pela CLI Rust), `registry.ts` (leitura validada por zod), `apply.ts` (runner genérico `seed:apply -- <id>`), `base.ts`, `demo.ts` (+ `demo/fixtures.ts`, `demo/plan.ts`), `prod.ts`. Os `backend/src/infra/db/seed*.ts` são wrappers finos |
 | Load Menu | `backend/src/infra/db/load-menu.ts` |
 | **Composition root (DI)** | `backend/src/infra/composition/default-usecases.ts` + re-export por domínio em `composition/domains/*.ts` — **único** lugar de wiring; rotas importam daqui |
 | **Ports (application)** | `backend/src/application/ports/` — unit-of-work, tenant-context, effects, notifications, file-storage, payment-gateway, … |

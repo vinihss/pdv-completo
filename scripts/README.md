@@ -18,9 +18,8 @@ argumentos (ou com `--help`) imprime a ajuda completa e sai com 0.
 ./pdv build <standalone|app|backend|frontend>          # Tauri / tsc / vite
 ./pdv test <backend|frontend|gateway|all>      # vitest e go test
 ./pdv lint <frontend|all>             # oxlint; `all` soma o gate de gofmt do ws-gateway
-./pdv db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo>
+./pdv db <migrate|migrate-registry|generate|seeds|seed <id>|deactivate-demo>
 ./pdv check [backend|frontend|all]    # critérios de verificação gerais (portão pré-PR)
-./pdv release bump <versão>           # bump da família standalone
 ./pdv deploy <switch|backup|backup-fetch|probe|install|reset|caddy|run-cloud|pedido> [opções]
 ```
 
@@ -91,7 +90,7 @@ Para deployment, use [`../deploy/README.md`](../deploy/README.md). Para validar 
 
 | Caminho | O que faz | Como invocar | Dependências |
 |---|---|---|---|
-| `bump-version.sh` | Bump de versão da família standalone: atualiza `Cargo.toml` (raiz) e `frontend/package.json` | `./pdv release bump <nova-versão>` | — |
+| `bump-version.sh` | Bump de versão da família standalone: atualiza `Cargo.toml` (raiz) e `frontend/package.json` — **fallback de emergência**; o caminho normal é o Semantic Release no merge da `main` | `bash scripts/release/bump-version.sh <nova-versão>` | — |
 
 ## `scripts/lib/`
 

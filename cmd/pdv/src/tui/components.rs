@@ -5,7 +5,8 @@ use ratatui::widgets::{
   Block, BorderType, Borders, Cell, List, ListItem, Paragraph, Row, Table, Wrap,
 };
 
-use crate::tui::model::{App, Screen};
+use crate::ops::SeedInfo;
+use crate::tui::model::{App, Screen, SubmenuKind};
 use crate::tui::styles::*;
 
 /// Bloco padrão com bordas arredondadas e título.
@@ -356,18 +357,33 @@ fn render_confirm(f: &mut Frame, area: Rect, app: &App) {
     lines.push(Line::from(Span::styled(format!("  {l}"), value())));
   }
   lines.push(Line::from(""));
-  lines.push(Line::from(vec![
-    Span::raw("  "),
-    Span::styled("[y] ", help_key()),
-    Span::styled("confirmar", muted()),
-    Span::raw("   "),
-    Span::styled("[n] ", help_key()),
-    Span::styled("cancelar", muted()),
-  ]));
+  if app.busy {
+    lines.push(Line::from(vec![
+      Span::raw("  "),
+      Span::styled("⏳ executando…", muted()),
+      Span::styled("  (o resultado sai no painel de saída)", muted()),
+    ]));
+  } else {
+    lines.push(Line::from(vec![
+      Span::raw("  "),
+      Span::styled("[y] ", help_key()),
+      Span::styled("confirmar", muted()),
+      Span::raw("   "),
+      Span::styled("[n] ", help_key()),
+      Span::styled("cancelar", muted()),
+    ]));
+  }
   f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
 fn render_submenu(f: &mut Frame, area: Rect, app: &App) {
+  match app.submenu {
+    SubmenuKind::Setup => render_setup_submenu(f, area, app),
+    SubmenuKind::Seeds => render_seeds_submenu(f, area, app),
+  }
+}
+
+fn render_setup_submenu(f: &mut Frame, area: Rect, app: &App) {
   let block = panel(app.submenu_title());
   let inner = block.inner(area);
   f.render_widget(block, area);
@@ -387,7 +403,7 @@ fn render_submenu(f: &mut Frame, area: Rect, app: &App) {
       ListItem::new(Line::from(vec![
         Span::raw(" "),
         Span::styled(format!("{cursor} "), style),
-        Span::styled(*label, style),
+        Span::styled(label.clone(), style),
       ]))
     })
     .collect();
@@ -404,11 +420,161 @@ fn render_submenu(f: &mut Frame, area: Rect, app: &App) {
   f.render_widget(List::new(items), chunks[1]);
   f.render_widget(
     Paragraph::new(Line::from(Span::styled(
-      "  ↑↓ navega · Enter executa · Esc volta",
+      "  ↑↓ navega · Enter executa · r recarrega o catálogo · Esc volta",
       muted(),
     ))),
     chunks[2],
   );
+}
+
+/// Tela de seeds: a lista vem do catálogo (manifest do backend, lido em
+/// runtime) e o rodapé descreve o seed selecionado antes de aplicar.
+fn render_seeds_submenu(f: &mut Frame, area: Rect, app: &App) {
+  let block = panel(app.submenu_title());
+  let inner = block.inner(area);
+  f.render_widget(block, area);
+
+  let chunks = Layout::default()
+    .direction(Direction::Vertical)
+    .constraints([
+      Constraint::Min(3),
+      Constraint::Length(7),
+      Constraint::Length(1),
+    ])
+    .split(inner);
+
+  // ---- lista (ou o motivo de não ter lista) ----
+  if let Some(err) = &app.seeds_error {
+    let lines = vec![
+      Line::from(Span::styled(
+        "Não consegui ler o catálogo de seeds.",
+        Style::default().fg(ERROR).add_modifier(Modifier::BOLD),
+      )),
+      Line::from(""),
+      Line::from(Span::styled(err.clone(), muted())),
+      Line::from(""),
+      Line::from(Span::styled(
+        "Aperte r para tentar de novo — o catálogo fica em \
+         backend/src/infra/db/seeds/manifest.json.",
+        muted(),
+      )),
+    ];
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), chunks[0]);
+  } else if app.seeds.is_empty() {
+    let msg = if app.busy {
+      "Carregando o catálogo de seeds…"
+    } else {
+      "O catálogo de seeds está vazio — aperte r para recarregar."
+    };
+    f.render_widget(
+      Paragraph::new(Span::styled(msg, muted())).wrap(Wrap { trim: true }),
+      chunks[0],
+    );
+  } else {
+    let items: Vec<ListItem> = app
+      .seeds
+      .iter()
+      .enumerate()
+      .map(|(i, seed)| {
+        let selected = i == app.submenu_idx;
+        let cursor = if selected { ICON_CURSOR } else { " " };
+        let (base, id_style, title_style) = if selected {
+          (menu_selected(), menu_selected(), menu_selected())
+        } else {
+          (
+            Style::default().fg(FOREGROUND),
+            Style::default().fg(SECONDARY),
+            Style::default().fg(FOREGROUND),
+          )
+        };
+        let mut spans = vec![
+          Span::raw(" "),
+          Span::styled(format!("{cursor} "), base),
+          Span::styled(format!("{:<7} ", seed.id), id_style),
+          Span::styled(seed.title.clone(), title_style),
+        ];
+        if seed.destructive {
+          spans.push(Span::styled(
+            format!("  {ICON_WARNING} destrutivo"),
+            Style::default().fg(WARNING),
+          ));
+        }
+        ListItem::new(Line::from(spans))
+      })
+      .collect();
+    f.render_widget(List::new(items), chunks[0]);
+  }
+
+  render_seed_detail(f, chunks[1], app);
+
+  let help = match app.selected_seed() {
+    Some(seed) if seed.destructive => {
+      "  ↑↓ navega · Enter pede confirmação · r recarrega · Esc volta"
+    }
+    Some(_) => "  ↑↓ navega · Enter aplica · r recarrega · Esc volta",
+    None => "  r recarrega o catálogo · Esc volta",
+  };
+  f.render_widget(
+    Paragraph::new(Line::from(Span::styled(help, muted()))),
+    chunks[2],
+  );
+}
+
+/// Rodapé da tela de seeds: descrição e flags do seed selecionado.
+fn render_seed_detail(f: &mut Frame, area: Rect, app: &App) {
+  let block = Block::default()
+    .borders(Borders::TOP)
+    .border_type(BorderType::Rounded)
+    .border_style(Style::default().fg(SUBTLE))
+    .title(Span::styled(" seed selecionado ", title()));
+  let inner = block.inner(area);
+  f.render_widget(block, area);
+
+  let Some(seed) = app.selected_seed() else {
+    f.render_widget(
+      Paragraph::new(Span::styled("nenhum seed selecionado", muted())),
+      inner,
+    );
+    return;
+  };
+
+  let mut lines = vec![
+    Line::from(Span::styled(
+      seed.title.clone(),
+      Style::default().fg(FOREGROUND).add_modifier(Modifier::BOLD),
+    )),
+    Line::from(Span::styled(seed.description.clone(), muted())),
+    Line::from(""),
+  ];
+  lines.extend(seed_flags_lines(seed));
+  f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
+}
+
+/// Flags do seed: destrutivo, seguro em produção, PostGIS e script npm.
+fn seed_flags_lines(seed: &SeedInfo) -> Vec<Line<'static>> {
+  vec![
+    Line::from(vec![
+      Span::styled("destrutivo: ", label()),
+      flag_value(seed.destructive, WARNING),
+      Span::styled("  ·  seguro em produção: ", label()),
+      flag_value(seed.production_safe, SUCCESS),
+    ]),
+    Line::from(vec![
+      Span::styled("exige PostGIS: ", label()),
+      flag_value(seed.requires_postgis, INFO),
+      Span::styled(
+        format!("  ·  npm run {}", seed.npm_script),
+        Style::default().fg(SECONDARY),
+      ),
+    ]),
+  ]
+}
+
+fn flag_value(on: bool, color: Color) -> Span<'static> {
+  Span::styled(
+    if on { "sim" } else { "não" },
+    Style::default().fg(if on { color } else { MUTED }),
+  )
 }
 
 fn render_logs(f: &mut Frame, area: Rect, app: &App) {

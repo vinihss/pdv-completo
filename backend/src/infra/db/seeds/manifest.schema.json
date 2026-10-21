@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Manifest dos seeds do PDV",
+  "description": "Contrato do catálogo de seeds do backend. O CLI Rust lê este arquivo em runtime — adicionar um seed aqui NÃO exige recompilar a CLI.",
+  "type": "object",
+  "required": ["version", "seeds"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "type": "integer", "minimum": 1 },
+    "seeds": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "description",
+          "npmScript",
+          "destructive",
+          "productionSafe",
+          "requiresPostgis"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$",
+            "description": "Identificador curto e estável, usado em `pdv db seed <id>`."
+          },
+          "title": { "type": "string", "description": "Nome curto exibido na lista." },
+          "description": { "type": "string", "description": "O que o seed faz, em uma linha." },
+          "npmScript": {
+            "type": "string",
+            "description": "Script npm do backend que executa o seed (ex.: `seed:demo`)."
+          },
+          "destructive": {
+            "type": "boolean",
+            "description": "Verdadeiro se o seed apaga/sobrescreve dados existentes."
+          },
+          "productionSafe": {
+            "type": "boolean",
+            "description": "Verdadeiro se o seed pode rodar em produção."
+          },
+          "requiresPostgis": {
+            "type": "boolean",
+            "description": "Verdadeiro se o seed usa funções PostGIS (ST_*) — exige a extensão no banco."
+          }
+        }
+      }
+    }
+  }
+}

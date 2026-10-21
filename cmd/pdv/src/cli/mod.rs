@@ -59,7 +59,14 @@ pub enum DbSub {
   Migrate,
   MigrateRegistry,
   Generate,
-  Seed,
+  /// Lista os seeds disponíveis (catálogo lido do manifest do backend)
+  Seeds,
+  /// Aplica um seed pelo id (veja `pdv db seeds`)
+  Seed {
+    /// Id do seed (ex.: base, demo, prod). Sem id, só lista os disponíveis.
+    id: Option<String>,
+  },
+  /// [DEPRECIADO] use `pdv db seed prod`
   SeedProd,
   DeactivateDemo,
   Provision {
@@ -160,7 +167,7 @@ fn print_usage() {
   print!("{}", USAGE);
 }
 
-const USAGE: &str = "Uso: ./pdv <domínio> <comando> [args...]\n\nDomínios:\n  status\n  setup [--no-seed]  (ambiente de dev em containers)\n  worktree <new|list|rm>\n  dev <backend|frontend|all> [--profile <pdv|kds|garcon|entregador>]\n  build <standalone|app|backend|frontend>\n  test <backend|frontend|gateway|all>\n  lint <frontend|all>\n  db <migrate|migrate-registry|generate|seed|seed-prod|deactivate-demo|provision|reset-pin|add-user|list>\n  tui\n  check [backend|frontend|all]\n  deploy <switch|backup|backup-fetch|probe|install|reset|caddy|run-cloud|pedido> [opções]\n  -h|--help\n\nSem argumentos, ./pdv imprime esta ajuda e sai com 0.\nCada domínio com argumento inválido imprime o uso e sai com != 0.\n";
+const USAGE: &str = "Uso: ./pdv <domínio> <comando> [args...]\n\nDomínios:\n  status\n  setup [--no-seed]  (ambiente de dev em containers)\n  worktree <new|list|rm>\n  dev <backend|frontend|all> [--profile <pdv|kds|garcon|entregador>]\n  build <standalone|app|backend|frontend>\n  test <backend|frontend|gateway|all>\n  lint <frontend|all>\n  db <migrate|migrate-registry|generate|seeds|seed <id>|seed-prod|deactivate-demo|provision|reset-pin|add-user|list>\n  tui\n  check [backend|frontend|all]\n  deploy <switch|backup|backup-fetch|probe|install|reset|caddy|run-cloud|pedido> [opções]\n  -h|--help\n\nSem argumentos, ./pdv imprime esta ajuda e sai com 0.\nCada domínio com argumento inválido imprime o uso e sai com != 0.\n\n`pdv db seeds` lista os seeds do catálogo (manifest do backend) e\n`pdv db seed <id>` aplica um deles. `pdv db seed` sem id só lista.\n";
 
 fn handle_status() -> i32 {
   use crate::config::root_path;
@@ -329,6 +336,14 @@ fn run_tsx_script(script: &str, envs: &[(&str, &str)], args: &[&str]) -> i32 {
   for (k, v) in envs {
     c.env(k, v);
   }
+  // A URL do banco: `backend/.env` é gitignored e pode não existir (no
+  // ambiente de dev, tudo é container e o host não tem esse arquivo). A
+  // resolução do `ops::db` cai no `deploy/.env.dev` — sem exportar isso, o
+  // script aborta com "DATABASE_URL é obrigatório".
+  let db_url = crate::ops::load_db_url();
+  if !db_url.trim().is_empty() {
+    c.env("DATABASE_URL", &db_url);
+  }
   let s = c.status().unwrap_or_else(|_| std::process::exit(1));
   s.code().unwrap_or(1)
 }
@@ -338,8 +353,21 @@ fn handle_db(cmd: DbSub) -> i32 {
     DbSub::Migrate => npm_run("backend", "db:migrate", &[]),
     DbSub::MigrateRegistry => npm_run("backend", "db:migrate:registry", &[]),
     DbSub::Generate => npm_run("backend", "db:generate", &[]),
-    DbSub::Seed => npm_run("backend", "seed", &[]),
-    DbSub::SeedProd => npm_run("backend", "seed:prod", &[]),
+    DbSub::Seeds => handle_db_seeds(),
+    DbSub::Seed { id } => match id {
+      Some(id) => handle_db_seed(&id),
+      // Sem id: NÃO aplica o seed base "por conta própria" — lista e mostra o uso.
+      None => {
+        handle_db_seeds();
+        println!();
+        println!("uso: pdv db seed <id>   (ids em `pdv db seeds`)");
+        1
+      }
+    },
+    DbSub::SeedProd => {
+      eprintln!("aviso: `pdv db seed-prod` está depreciado — use `pdv db seed prod`.");
+      handle_db_seed("prod")
+    }
     DbSub::DeactivateDemo => npm_run("backend", "db:deactivate-demo", &[]),
     DbSub::Provision { slug, display_name } => {
       let dn = display_name.as_deref().unwrap_or(&slug);
@@ -376,6 +404,53 @@ fn handle_db(cmd: DbSub) -> i32 {
       )
     }
     DbSub::List => run_tsx_script("list-tenants.ts", &[], &[]),
+  }
+}
+
+/// Lista o catálogo de seeds — lido do manifest do backend em runtime
+/// (adicionar um seed novo não exige recompilar a CLI).
+fn handle_db_seeds() -> i32 {
+  match crate::ops::list_seeds() {
+    Ok(seeds) => {
+      println!("Seeds disponíveis (manifest do backend):");
+      for s in seeds {
+        println!();
+        println!("  {} — {}", s.id, s.title);
+        println!("     {}", s.description);
+        println!(
+          "     npm: {} | destrutivo: {} | seguro em produção: {} | exige PostGIS: {}",
+          s.npm_script,
+          yes_no(s.destructive),
+          yes_no(s.production_safe),
+          yes_no(s.requires_postgis)
+        );
+      }
+      println!();
+      println!("Aplique com: pdv db seed <id>");
+      0
+    }
+    Err(e) => crate::ui::die(&e),
+  }
+}
+
+/// Aplica um seed pelo id (catálogo do manifest do backend).
+fn handle_db_seed(id: &str) -> i32 {
+  match crate::ops::apply_seed(id) {
+    Ok(out) => {
+      if !out.trim().is_empty() {
+        println!("{}", out.trim_end());
+      }
+      0
+    }
+    Err(e) => crate::ui::die(&e),
+  }
+}
+
+fn yes_no(b: bool) -> &'static str {
+  if b {
+    "sim"
+  } else {
+    "não"
   }
 }
 

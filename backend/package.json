@@ -7,10 +7,13 @@
   "scripts": {
     "dev": "tsx watch src/http/server.ts",
     "build": "tsc -p tsconfig.json",
+    "postbuild": "node scripts/copy-seed-manifest.mjs",
     "start": "node dist/http/server.js",
     "seed": "tsx src/infra/db/seed.ts",
+    "seed:base": "tsx src/infra/db/seeds/base.ts",
     "seed:demo": "tsx src/infra/db/seed-demo.ts",
     "seed:prod": "tsx src/infra/db/seed-prod.ts",
+    "seed:apply": "tsx src/infra/db/seeds/apply.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "npm run db:migrate:registry && tsx src/infra/db/migrate.ts",
     "db:migrate:registry": "tsx src/infra/db/registry-migrate.ts",

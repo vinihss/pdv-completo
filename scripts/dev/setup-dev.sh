@@ -10,6 +10,10 @@
 # O código do backend e do frontend entra por bind mount — editar no host
 # reflete no container (hot reload).
 #
+# No fim ele roda o seed de DEMONSTRAÇÃO (`npm run seed:demo`) dentro do
+# container do backend: catálogo demo + 30 dias de histórico + as contas de
+# teste. Com `--no-seed` o banco é preservado como está.
+#
 # Chamado por `pdv setup` (cmd/pdv/internal/commands/setup.go).
 # ============================================================================
 
@@ -49,7 +53,7 @@ usage() {
     cat <<EOF
 Uso: $(basename "$0") [opções]
 
-  --no-seed      não roda o seed (preserva os dados do banco)
+  --no-seed      não roda o seed de demonstração (preserva os dados do banco)
   -h, --help     esta ajuda
 
 Sobe o ambiente de dev INTEIRO em containers Docker (docker compose):
@@ -405,19 +409,33 @@ pass "caddy running"
 # -----------------------------------------------------------------
 # 6. Seed
 #    Roda DENTRO do container do backend (o banco é `postgres:5432` na
-#    rede do projeto). O seed é idempotente: se o store_settings já
-#    existir, ele só reconcilia os usuários demo que faltam.
+#    rede do projeto). É o seed de DEMONSTRAÇÃO (`npm run seed:demo`),
+#    o mesmo que o cabeçalho deste script, o `--help` e o texto do
+#    subcomando `pdv setup` prometem: catálogo demo + 30 dias de
+#    histórico + contas de teste.
+#
+#    O seed de demonstração é idempotente: reexecutar reconcilia o que
+#    falta (usuários demo, catálogo, geometria das entregas) sem
+#    duplicar o que já existe.
+#    O passo 6/7 do `seed:demo` usa `ST_SetSRID`/`ST_MakePoint`/
+#    `ST_Contains` — por isso o `postgres` do dev sobe com a imagem
+#    COM PostGIS (`postgis/postgis:16-3.5-alpine`, ver
+#    `deploy/docker-compose.override.yml`).
 # -----------------------------------------------------------------
 if [[ "$DO_SEED" -eq 1 ]]; then
     echo ""
     echo "Rodando o seed de demonstração (dentro do container do backend)..."
-    if ! dc exec -T backend npm run seed; then
+    if ! dc exec -T backend npm run seed:demo; then
         die "o seed falhou — veja: $DC logs backend"
     fi
-    pass "seed aplicado"
+    pass "seed de demonstração aplicado"
+    SEED_NOTE="Rodou o seed de demonstração: catálogo demo + 30 dias de histórico +
+  comandas abertas de hoje + as contas de teste (o log do seed tem o detalhamento)."
 else
     echo ""
     warn "seed pulado (--no-seed) — os dados do banco foram preservados"
+    SEED_NOTE="Seed pulado (--no-seed): o banco é o que estava — sem catálogo demo
+  e sem histórico."
 fi
 
 # -----------------------------------------------------------------
@@ -532,7 +550,10 @@ cat <<EOF
     roberto.alves@pdv.local  / pdv1234   (gerente)
     caixa.teste@pdv.local    / pdv1234   (caixa)
     cozinha@pdv.local        / pdv1234   (cozinha)
-    (a lista completa das contas sai no log do seed)
+    (a lista completa das contas e dos PINs sai no log do seed — o
+     seed:demo roda o seed base no passo 1/7, que é quem imprime as contas)
+
+  ${SEED_NOTE}
 
   Fallback por PIN (tela /login/pin):
     Ana Ribeiro 1234 · Carlos Lima 5678 · Roberto Alves 9999 · Caixa Teste 2468

@@ -2,14 +2,25 @@
 //!
 //! Tudo aqui roda **no clone local do repo**: as consultas de registry
 //! (`public.tenant`) e as leituras/escritas de `store_settings` vão por `psql`
-//! apontando para o `DATABASE_URL` de `backend/.env`; provisionamento, reset de
-//! PIN e criação de usuário delegam para os scripts `tsx` do backend.
+//! apontando para o `DATABASE_URL` resolvido por `ops::db` (variável de
+//! ambiente → `backend/.env` → derivado do `deploy/.env.dev` do compose de
+//! dev); provisionamento, reset de PIN e criação de usuário delegam para os
+//! scripts `tsx` do backend.
+//!
+//! Sub-módulos:
+//! * `db` — acesso ao Postgres: `psql`/`pg_dump` no host **ou** dentro do
+//!   container do Postgres (o ambiente de dev é 100% containerizado e o host
+//!   não tem cliente do Postgres instalado).
+//! * `seeds` — catálogo **dinâmico** de seeds, lido do manifest do backend em
+//!   runtime (`backend/src/infra/db/seeds/manifest.json`).
 //!
 //! Nota histórica: a `store_settings` é uma tabela de **colunas fixas**
 //! (singleton `id = 'singleton'`) — não existe coluna JSONB `settings`. A CLI
 //! Go lia/escrevia `settings` e por isso a edição de configurações nunca
 //! funcionou no modo local. Aqui a leitura/escrita usa as colunas reais.
 
+mod db;
+mod seeds;
 mod services;
 
 use std::path::PathBuf;
@@ -17,6 +28,13 @@ use std::path::PathBuf;
 use crate::config::root_path;
 use crate::runner::{capture_cmd_in_dir, capture_npm_run};
 
+// Superfície pública de `ops` (consumida pela CLI e pela TUI). O lint de
+// import não usado reclama porque `ops` é um módulo privado do binário — os
+// itens reexportados são a API do crate, não código morto.
+#[allow(unused_imports)]
+pub use db::{load_db_url, pg_dump_to_file, psql, resolve_db_target, DbTarget};
+#[allow(unused_imports)]
+pub use seeds::{apply_seed, list_seeds, SeedInfo};
 pub use services::{list_services, Service};
 
 /// Registro de um tenant no registry `public.tenant`.
@@ -45,17 +63,6 @@ fn backend_dir() -> PathBuf {
   root_path().join("backend")
 }
 
-/// Lê o `DATABASE_URL` do ambiente ou de `backend/.env`.
-fn load_db_url(backend: &std::path::Path) -> String {
-  if let Ok(db) = std::env::var("DATABASE_URL") {
-    if !db.trim().is_empty() {
-      return db;
-    }
-  }
-  let _ = dotenvy::from_path(backend.join(".env"));
-  std::env::var("DATABASE_URL").unwrap_or_default()
-}
-
 /// Nome de schema aceito: `tenant_<minúsculas/números/underscore>`.
 fn valid_schema(schema: &str) -> bool {
   let Some(rest) = schema.strip_prefix("tenant_") else {
@@ -78,26 +85,6 @@ fn bool_lit(b: bool) -> &'static str {
   } else {
     "false"
   }
-}
-
-/// Roda um `psql` com saída em colunas `|` e retorna o stdout.
-fn psql(sql: &str, tuples_only: bool) -> Result<String, String> {
-  let backend = backend_dir();
-  let db_url = load_db_url(&backend);
-  if db_url.is_empty() {
-    return Err("DATABASE_URL não definido (backend/.env ausente?)".into());
-  }
-  let mut args: Vec<&str> = vec![&db_url, "-v", "ON_ERROR_STOP=1"];
-  if tuples_only {
-    args.extend_from_slice(&["-t", "-A", "-F", "|"]);
-  }
-  args.extend_from_slice(&["-c", sql]);
-
-  let (code, out) = capture_cmd_in_dir(&backend, &[], "psql", &args);
-  if code != 0 {
-    return Err(format!("psql falhou:\n{}", out.trim()));
-  }
-  Ok(out)
 }
 
 /// Lista os tenants do registry `public.tenant`.
@@ -182,23 +169,14 @@ pub fn update_store_settings(schema: &str, s: &StoreSettings) -> Result<(), Stri
 }
 
 /// Exporta o schema do tenant para um arquivo SQL (`pg_dump --schema`).
+///
+/// O `pg_dump` roda no host quando ele está instalado; senão roda dentro do
+/// container do Postgres e a CLI escreve o arquivo no host.
 pub fn dump_tenant(schema: &str, output_file: &str) -> Result<(), String> {
   if !valid_schema(schema) {
     return Err(format!("nome de schema inválido: {schema}"));
   }
-  let backend = backend_dir();
-  let db_url = load_db_url(&backend);
-  if db_url.is_empty() {
-    return Err("DATABASE_URL não definido (backend/.env ausente?)".into());
-  }
-  let schema_arg = format!("--schema={schema}");
-  let file_arg = format!("--file={output_file}");
-  let (code, out) =
-    capture_cmd_in_dir(&backend, &[], "pg_dump", &[&db_url, &schema_arg, &file_arg]);
-  if code != 0 {
-    return Err(format!("pg_dump falhou:\n{}", out.trim()));
-  }
-  Ok(())
+  db::pg_dump_to_file(schema, output_file)
 }
 
 /// Provisiona um tenant novo (schema + migrations + bootstrap).
