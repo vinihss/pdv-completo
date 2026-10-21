@@ -18,6 +18,8 @@ import { closeDatabase, db } from "../client.js";
 import { PostgresIdentityRepository } from "../repositories/identity.repository.ts";
 import { newId } from "../../../application/identity/identity-helpers.js";
 import { users, categories, products, restaurantTables, storeSettings, kitchenGroups, stockMovements } from "../schema.js";
+import { runInTenantScope } from "../tenant-context.js";
+import { seedScope } from "../seed-scope.js";
 
 // Senha de DEV de todas as contas do seed (docs/26 §4). O PIN continua valendo
 // para a rota fallback `/login/pin`; o login novo usa email + esta senha, com
@@ -82,7 +84,19 @@ async function reconcileDemoUsers() {
   }
 }
 
+/**
+ * O seed base, dentro do escopo do tenant.
+ *
+ * O escopo não é burocracia: a coluna `tenant_id` é preenchida por um trigger
+ * que lê o `app.tenant_id`, e o GUC mora no startup packet do pool (o pool é
+ * por tenant). Sem escopo, o seed escreveria num pool sem o GUC e o
+ * `NOT NULL` da coluna rejeitaria a inserção.
+ */
 export async function runBaseSeed(): Promise<void> {
+  await runInTenantScope(seedScope(), () => runBaseSeedBody());
+}
+
+async function runBaseSeedBody(): Promise<void> {
   // ORDEM DO BOOT (server.ts): o registry cria as tabelas GLOBAIS de identidade
   // (`public.account`) e vem ANTES das migrations de tenant — a
   // `0012_user_account_id.sql` cria a FK do `user` para `public.account`.

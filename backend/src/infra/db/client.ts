@@ -2,7 +2,8 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { config } from "../../config/env.js";
 import * as schema from "./schema.js";
-import { resolveTenantSchemaInScope } from "./tenant-context.js";
+import { DEFAULT_TENANT_ID } from "../../domain/tenant.js";
+import { currentTenantScope, resolveTenantSchemaInScope } from "./tenant-context.js";
 import { getTenantPool, tenantDb, closeAllTenantPools } from "./tenant-db.js";
 
 // Postgres é o ÚNICO banco suportado (o SQLite foi removido). O Drizzle
@@ -19,8 +20,24 @@ import { getTenantPool, tenantDb, closeAllTenantPools } from "./tenant-db.js";
 // transparente.
 type DbLike = ReturnType<typeof tenantDb>;
 
+/**
+ * O tenant da requisição.
+ *
+ * Sem escopo ALS (scripts, seed, jobs) o tenant é o DEFAULT — a mesma regra
+ * do schema: `resolveTenantSchemaInScope()` cai no schema default quando não
+ * há escopo, e o tenant cai no default junto. Sem essa simetria, o
+ * `app.tenant_id` do pool seria vazio e o trigger de `tenant_id` deixaria a
+ * coluna nula.
+ */
+function currentTenantId(): string {
+  return currentTenantScope()?.tenantId ?? DEFAULT_TENANT_ID;
+}
+
 function currentDb(): DbLike {
-  return tenantDb(resolveTenantSchemaInScope());
+  // O `tenantId` vai junto: o pool de um tenant carrega o `app.tenant_id` no
+  // startup packet (é o que faz o trigger de `tenant_id` preencher a coluna em
+  // qualquer inserção, inclusive fora do Unit-of-Worker).
+  return tenantDb(resolveTenantSchemaInScope(), currentTenantId());
 }
 
 export const db = new Proxy({} as DbLike, {
@@ -37,7 +54,7 @@ export const db = new Proxy({} as DbLike, {
 // e todo acesso subsequente falharia com "Called end on pool more than once".
 export const pool: Pool = new Proxy({} as Pool, {
   get(_target, prop, receiver) {
-    const target = getTenantPool(resolveTenantSchemaInScope());
+    const target = getTenantPool(resolveTenantSchemaInScope(), currentTenantId());
     const value = Reflect.get(target, prop, receiver);
     return typeof value === "function" ? value.bind(target) : value;
   },

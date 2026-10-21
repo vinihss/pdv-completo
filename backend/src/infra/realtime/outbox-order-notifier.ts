@@ -45,5 +45,7 @@ export class OutboxOrderNotifier implements OrderNotifier {
  * schema (sem ALS); sem tenant → proxy `db` (ALS corrente, como hoje).
  */
 export function createOrderNotifier(tenant?: TenantContext): OrderNotifier {
-  return new OutboxOrderNotifier(tenant ? tenantDb(tenant.schemaName) : db);
+  return new OutboxOrderNotifier(
+    tenant ? tenantDb(tenant.schemaName, tenant.tenantId) : db,
+  );
 }

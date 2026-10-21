@@ -58,7 +58,13 @@ function setEnv(key: (typeof ENV_KEYS)[number], value: string | undefined): void
 }
 
 async function seedRegistry(rows: RegistryRow[]): Promise<void> {
-  await raw.exec("DELETE FROM public.tenant");
+  // Só as linhas que a SUÍTE plantou. A linha do tenant DEFAULT fica: desde
+  // a migration `0013_tenant_id.sql` as tabelas de negócio têm FK para
+  // `public.tenant(id)` — e o dado do default (as categorias do seed base,
+  // por exemplo) impede remover a linha dele. É a proteção que a FK existe
+  // para dar: um tenant com dado não some do registry por accidento (a
+  // operação de verdade é o `status` — suspended/active).
+  await raw.exec("DELETE FROM public.tenant WHERE slug <> 'default'");
   for (const row of rows) {
     await raw.all(
       `INSERT INTO public.tenant (slug, schema_name, display_name, status, custom_domain)
@@ -99,7 +105,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await raw.exec("DELETE FROM public.tenant");
+  // Só as linhas da suíte: a do tenant DEFAULT fica (ela tem dado — as
+  // categorias do seed base — e a FK `category → public.tenant` impede
+  // removê-la; a remoção de um tenant com dado é软的, via `status`).
+  await raw.exec("DELETE FROM public.tenant WHERE slug <> 'default'");
   invalidateTenantRegistryCache();
   for (const key of ENV_KEYS) setEnv(key, savedEnv.get(key));
   await closeTestApp();
@@ -316,9 +325,12 @@ describe("tenant: resolução por Host", () => {
         status: 503,
       });
     } finally {
-      await raw.exec("DELETE FROM public.tenant");
+      await raw.exec("DELETE FROM public.tenant WHERE slug <> 'default'");
+      // A definição ATUAL do CHECK (a da migration de registry `0003`, que
+      // aceita `public` e NULL — o schema do tenant default e o modelo por
+      // linha). A definição antiga rejeitaria a linha do default.
       await raw.exec(
-        "ALTER TABLE public.tenant ADD CONSTRAINT tenant_schema_name_check CHECK (schema_name ~ '^tenant_[a-z0-9_]+$')",
+        "ALTER TABLE public.tenant ADD CONSTRAINT tenant_schema_name_check CHECK (schema_name IS NULL OR schema_name = 'public' OR schema_name ~ '^tenant_[a-z0-9_]+$')",
       );
     }
   });
@@ -531,7 +543,9 @@ describe("registry: migrations, isolamento de schema e cache", () => {
       "0009_remove_whatsapp.sql",
       "0010_remove_payment_ifood.sql",
       "0011_delivery_gis.sql",
-      "0012_user_account_id.sql"
+      "0012_user_account_id.sql",
+      "0013_tenant_id.sql",
+      "0014_tenant_id_composite_fks.sql"
     ]);
     // E o diretório existe de verdade — a exclusão não é por pasta vazia.
     expect(fs.existsSync(path.dirname(REGISTRY_SQL))).toBe(true);

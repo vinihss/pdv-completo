@@ -30,7 +30,10 @@ export class PostgresTenantUnitOfWork implements TenantUnitOfWork {
 
   async run<T>(tenant: TenantContext, work: (session: TenantSession) => Promise<T>): Promise<T> {
     if (!tenant.tenantId || !tenant.schemaName) throw new Error("tenant_context_required");
-    const db = tenantDb(tenant.schemaName); // pool dedicado do schema — isolamento estrutural
+    // O id do tenant entra no pool: o `app.tenant_id` vai no startup packet
+    // (é o que faz o trigger de `tenant_id` preencher a coluna em qualquer
+    // inserção).
+    const db = tenantDb(tenant.schemaName, tenant.tenantId); // pool dedicado do schema — isolamento estrutural
     return db.transaction(async (tx: Tx) => {
       await tx.execute(sql`select set_config('app.tenant_id', ${tenant.tenantId}, true)`);
       return work(this.createSession(tx));

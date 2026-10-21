@@ -25,6 +25,8 @@ import { runMigrations } from "../migrate.js";
 import { runRegistryMigrations } from "../registry-migrate.js";
 import { closeDatabase, db } from "../client.js";
 import { users, storeSettings } from "../schema.js";
+import { runInTenantScope } from "../tenant-context.js";
+import { seedScope } from "../seed-scope.js";
 
 function randomPin(): string {
   return String(Math.floor(1000 + Math.random() * 9000));
@@ -37,7 +39,17 @@ export type ProdSeedOptions = {
   managerName?: string;
 };
 
+/**
+ * O bootstrap de produção, dentro do escopo do tenant.
+ *
+ * Dentro do escopo do tenant que está sendo criado (o `provision-tenant.ts`
+ * chama assim) ou no tenant default (o primeiro deploy).
+ */
 export async function runProdSeed(opts: ProdSeedOptions = {}): Promise<void> {
+  await runInTenantScope(seedScope(), () => runProdSeedBody(opts));
+}
+
+async function runProdSeedBody(opts: ProdSeedOptions = {}): Promise<void> {
   // O REGISTRY primeiro: a migration `0012_user_account_id.sql` cria a FK
   // `user.account_id → public.account`, e `public.account` é criada pela
   // migration de REGISTRY (`migrations/registry/0002_identity.sql`). Sem
