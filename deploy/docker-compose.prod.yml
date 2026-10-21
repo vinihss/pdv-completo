@@ -40,6 +40,12 @@ services:
     environment:
       - DEPLOYMENT_MODE=local
       - DATABASE_URL=postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}
+      # O DONO do schema (DDL) — o `DATABASE_URL` pode apontar para o papel
+      # RESTRITO do app (pré-requisito do RLS: superuser sempre burla row
+      # security, mesmo com FORCE ROW LEVEL SECURITY).
+      - MIGRATION_DATABASE_URL=${MIGRATION_DATABASE_URL:-postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}}
+      - APP_DB_ROLE=${APP_DB_ROLE:-pdv_app}
+      - APP_DB_PASSWORD=${APP_DB_PASSWORD:-}
       - JWT_SECRET=${JWT_SECRET}
       - CORS_ORIGIN=
       - PORT=3000
@@ -104,6 +110,9 @@ services:
       # deste compose não tem TLS — sem o parâmetro o `db.Connect` falha com
       # "pq: SSL is not enabled on the server" e o gateway sobe SEM pool.
       - DATABASE_URL=postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}?sslmode=disable
+      # O gateway também é auditado no boot (`DB_REQUIRE_RESTRICTED=1` recusa
+      # subir com papel superuser — ws-gateway/internal/db/role.go).
+      - APP_DB_ROLE=${APP_DB_ROLE:-pdv_app}
       - PORT=8080
       - JWT_SECRET=${JWT_SECRET}
       - WS_ALLOWED_ORIGINS=${WS_ALLOWED_ORIGINS:-}

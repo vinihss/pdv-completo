@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "../config/env.js";
 import { runMigrations } from "../infra/db/migrate.js";
 import { runRegistryMigrations } from "../infra/db/registry-migrate.js";
+import { ensureAppRole } from "../infra/db/ensure-app-role.js";
 import { checkDatabaseHealth } from "../infra/db/client.js";
 import { getTenantPool } from "../infra/db/tenant-db.js";
 import { resolveTenantSchemaInScope } from "../infra/db/tenant-context.js";
@@ -168,6 +169,21 @@ async function main() {
       // fica vermelho e o portão do deploy bloqueia).
       tratarFalhaDeMigrationNoBoot(err);
     }
+  }
+
+  // O PAPEL do app (sem superuser e sem BYPASSRLS) é pré-requisito do RLS:
+  // policy sem papel restrito é fachada de isolamento. Roda em TODOS os modos
+  // (não só no local) porque é ele quem cria o papel na primeira vez que a
+  // `DATABASE_URL` passa a apontar para ele.
+  //
+  // Falha aqui NÃO derruba o boot: o app pode continuar com o papel atual
+  // (o `APP_DB_PASSWORD` vazio = nada muda). Se a `DATABASE_URL` já aponta
+  // para um papel que não existe, quem acusa é o healthcheck — e o portão do
+  // deploy bloqueia, que é o sinal certo.
+  try {
+    await ensureAppRole();
+  } catch (err) {
+    console.error("[app-role] não consegui garantir o papel do app:", err instanceof Error ? err.message : err);
   }
 
   const app = await buildApp();

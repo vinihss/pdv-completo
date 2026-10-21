@@ -694,6 +694,43 @@ válido, e a API responde em `https://app.seudominio.com.br/api/...`.
   roda automaticamente no boot. O `install.sh` chama esse script após o
   seed-prod.
 
+## O papel do app (sem superuser) — o que o RLS vai exigir
+
+O modelo multi-tenant por linha (`docs/28-multitenant-row-level.md`) isola as
+lojas com **RLS**, e RLS é **inerte** enquanto o app conecta como superuser:
+superuser sempre burla row security, inclusive com `FORCE ROW LEVEL
+SECURITY`. Por isso o app passa a ter um papel próprio — `pdv_app`, sem
+superuser e sem BYPASSRLS — e o dono do schema fica só com o DDL.
+
+**Três envs** (no `deploy/.env`):
+
+| env | o que é | padrão |
+|---|---|---|
+| `DATABASE_URL` | a DSN do **app** (papel restrito) | a de hoje (o dono) |
+| `MIGRATION_DATABASE_URL` | a DSN do **dono** (quem aplica migration) | a de hoje |
+| `APP_DB_ROLE` / `APP_DB_PASSWORD` | o papel do app e a senha dele | `pdv_app` / vazio |
+
+**O que acontece no boot**: o backend (com o dono) garante o papel e os grants
+(`npm run db:ensure-app-role`, idempotente) e depois serve com o papel
+restrito. Sem `APP_DB_PASSWORD`, **nada muda** — o app segue com o papel que a
+`DATABASE_URL` apontar. É por isso que a troca é opt-in e reversível: desfazer
+é trocar a env de volta.
+
+**Para ativar em produção** (a ordem importa):
+
+1. `APP_DB_PASSWORD=<senha forte>` e `MIGRATION_DATABASE_URL=<a DSN de hoje>`
+   no `deploy/.env`; **mantenha** o `DATABASE_URL` de hoje.
+2. Reinicie o backend: ele cria o `pdv_app` e dá os grants, e segue usando o
+   papel de hoje.
+3. Confira no log: `[app-role] papel "pdv_app" criado` (ou "já existia").
+4. **Só agora** aponte o `DATABASE_URL` para o `pdv_app` e reinicie de novo.
+5. O gateway: para recusar subir com papel superuser, ligue
+   `DB_REQUIRE_RESTRICTED=1` no serviço do `ws-gateway` (ele já audita o papel
+   no boot e avisa).
+
+**Rollback**: voltar o `DATABASE_URL` para a DSN de hoje. O papel `pdv_app`
+pode ficar lá (sem `APP_DB_PASSWORD`, o boot não mexe nele).
+
 ## WhatsApp (opcional)
 
 A aba **WhatsApp** do gerente usa o [Embedded Signup da Meta](../docs/10-whatsapp-embedded-signup.md).

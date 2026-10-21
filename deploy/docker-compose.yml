@@ -33,6 +33,16 @@ services:
     environment:
       - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-local}
       - DATABASE_URL=${DATABASE_URL:-postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}}
+      # O DONO do schema (quem aplica DDL). O `DATABASE_URL` pode apontar para
+      # o papel RESTRITO do app (sem superuser, sem BYPASSRLS) — que é o
+      # pré-requisito do RLS (superuser sempre burla row security, mesmo com
+      # FORCE ROW LEVEL SECURITY). Sem `MIGRATION_DATABASE_URL` o dono é o
+      # próprio `DATABASE_URL` (comportamento de hoje).
+      - MIGRATION_DATABASE_URL=${MIGRATION_DATABASE_URL:-postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}}
+      # Papel do app: criado/ajustado no boot (`ensure-app-role`). Com a senha
+      # vazia, nada muda — o app segue com o papel do `DATABASE_URL`.
+      - APP_DB_ROLE=${APP_DB_ROLE:-pdv_app}
+      - APP_DB_PASSWORD=${APP_DB_PASSWORD:-}
       - DATABASE_POOL_MAX=${DATABASE_POOL_MAX:-10}
       - UPLOADS_DIR=/app/uploads
       - JWT_SECRET=${JWT_SECRET}
@@ -123,6 +133,9 @@ services:
       - pdv-internal
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgres://${POSTGRES_USER:-pdv}:${POSTGRES_PASSWORD:-pdv_password}@postgres:5432/${POSTGRES_DB:-pdv}?sslmode=disable}
+      # Papel restrito (o gateway também é auditado no boot: `DB_REQUIRE_RESTRICTED=1`
+      # recusa subir com um papel superuser — ver ws-gateway/internal/db/role.go).
+      - APP_DB_ROLE=${APP_DB_ROLE:-pdv_app}
       - PORT=8080
       - JWT_SECRET=${JWT_SECRET}
       - WS_ALLOWED_ORIGINS=${WS_ALLOWED_ORIGINS:-}
