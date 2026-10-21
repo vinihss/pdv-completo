@@ -3,7 +3,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::ops::{self, Service, StoreSettings, TenantInfo};
+use crate::ops::{self, SeedInfo, Service, StoreSettings, TenantInfo};
 
 // ============================================================
 // MENU
@@ -52,7 +52,7 @@ pub fn menu_items() -> Vec<MenuItem> {
     },
     MenuItem {
       label: "Aplicar seeds",
-      description: "popular dados de demonstração",
+      description: "catálogo de seeds do backend",
       action: Action::Seeds,
     },
     MenuItem {
@@ -128,6 +128,7 @@ pub enum StatusKind {
 pub enum ConfirmKind {
   CreateTenant { slug: String, name: String },
   Dump { slug: String, schema: String },
+  ApplySeed { id: String, title: String },
 }
 
 // ============================================================
@@ -222,6 +223,7 @@ pub enum Job {
   LoadTenants,
   LoadServices,
   LoadLogs,
+  LoadSeeds,
   LoadSettings {
     slug: String,
     schema: String,
@@ -252,8 +254,8 @@ pub enum Job {
   SetupDeps,
   SetupEnv,
   Migrate,
-  Seed {
-    prod: bool,
+  ApplySeed {
+    id: String,
   },
   SetupFull,
 }
@@ -262,6 +264,7 @@ pub enum JobResult {
   Tenants(Result<Vec<TenantInfo>, String>),
   Services(Result<Vec<Service>, String>),
   Logs(Result<Vec<String>, String>),
+  Seeds(Result<Vec<SeedInfo>, String>),
   Settings {
     slug: String,
     schema: String,
@@ -280,6 +283,7 @@ pub fn run_job(job: Job) -> JobResult {
     Job::LoadTenants => JobResult::Tenants(ops::list_tenants()),
     Job::LoadServices => JobResult::Services(ops::list_services().map_err(|e| e.to_string())),
     Job::LoadLogs => JobResult::Logs(ops::backend_logs(300)),
+    Job::LoadSeeds => JobResult::Seeds(ops::list_seeds()),
     Job::LoadSettings { slug, schema } => {
       let result = ops::get_store_settings(&schema);
       JobResult::Settings {
@@ -343,14 +347,9 @@ pub fn run_job(job: Job) -> JobResult {
         output: out,
       }
     }
-    Job::Seed { prod } => {
-      let script = if prod { "seed:prod" } else { "seed" };
-      let (code, out) = ops::npm_backend(script);
-      JobResult::Task {
-        title: format!("Aplicar seeds (npm run {script})"),
-        ok: code == 0,
-        output: out,
-      }
+    Job::ApplySeed { id } => {
+      let res = ops::apply_seed(&id);
+      task_result(format!("Aplicar seed '{id}'"), res)
     }
     Job::SetupFull => {
       let (ok, out) = ops::setup_full();
@@ -394,6 +393,14 @@ pub struct App {
   pub logs: Vec<String>,
   pub logs_scroll: usize,
 
+  /// Catálogo de seeds — lido do manifest do backend em runtime (seed novo
+  /// aparece na TUI sem recompilar a CLI).
+  pub seeds: Vec<SeedInfo>,
+  /// Verdadeiro quando o catálogo foi carregado com sucesso.
+  pub seeds_loaded: bool,
+  /// Último erro ao ler o catálogo (manifest ausente/inválido).
+  pub seeds_error: Option<String>,
+
   pub form: Form,
   pub form_kind: FormKind,
   pub active_slug: String,
@@ -409,6 +416,8 @@ pub struct App {
   pub output_title: String,
   pub output: Vec<String>,
   pub output_scroll: usize,
+  /// Tela para onde o painel de Output volta (Esc/Enter).
+  pub output_back: Screen,
 
   pub status: String,
   pub status_kind: StatusKind,
@@ -436,6 +445,9 @@ impl App {
       services: Vec::new(),
       logs: Vec::new(),
       logs_scroll: 0,
+      seeds: Vec::new(),
+      seeds_loaded: false,
+      seeds_error: None,
       form: Form {
         fields: Vec::new(),
         active: 0,
@@ -451,6 +463,7 @@ impl App {
       output_title: String::new(),
       output: Vec::new(),
       output_scroll: 0,
+      output_back: Screen::Services,
       status: "Carregando status dos serviços…".into(),
       status_kind: StatusKind::Info,
       job: None,
@@ -465,7 +478,16 @@ impl App {
   fn request(&mut self, job: Job, msg: &str) {
     self.job = Some(job);
     self.busy = true;
+    // Padrão: o painel de Output volta para o painel inicial.
+    self.output_back = Screen::Services;
     self.set_status(msg, StatusKind::Info);
+  }
+
+  /// Pede um job que, ao terminar, devolve o usuário para `back` em vez do
+  /// painel inicial (aplicar um seed volta para a lista de seeds).
+  fn request_from(&mut self, job: Job, msg: &str, back: Screen) {
+    self.request(job, msg);
+    self.output_back = back;
   }
 
   fn set_status(&mut self, msg: impl Into<String>, kind: StatusKind) {
@@ -518,6 +540,22 @@ impl App {
         self.output = e.lines().map(|l| l.to_string()).collect();
         self.output_scroll = 0;
         self.set_status("Falha ao ler os logs", StatusKind::Error);
+      }
+      JobResult::Seeds(Ok(seeds)) => {
+        self.seeds = seeds;
+        self.seeds_loaded = true;
+        self.seeds_error = None;
+        if self.submenu_idx >= self.seeds.len() {
+          self.submenu_idx = 0;
+        }
+        let n = self.seeds.len();
+        self.set_status(format!("{n} seed(s) no catálogo"), StatusKind::Success);
+      }
+      JobResult::Seeds(Err(e)) => {
+        self.seeds.clear();
+        self.seeds_loaded = false;
+        self.seeds_error = Some(e.clone());
+        self.set_status(format!("Erro ao carregar seeds: {e}"), StatusKind::Error);
       }
       JobResult::Settings {
         slug,
@@ -632,7 +670,7 @@ impl App {
 
   fn key_output(&mut self, key: KeyEvent) {
     match key.code {
-      KeyCode::Esc | KeyCode::Enter => self.back_to_services(),
+      KeyCode::Esc | KeyCode::Enter => self.back_from_output(),
       KeyCode::Up | KeyCode::Char('k') => self.output_scroll = self.output_scroll.saturating_sub(1),
       KeyCode::Down | KeyCode::Char('j') => {
         self.output_scroll = self.output_scroll.saturating_add(1)
@@ -647,12 +685,15 @@ impl App {
     let len = self.submenu_items().len();
     match key.code {
       KeyCode::Esc => self.back_to_services(),
+      KeyCode::Char('r') => self.request(Job::LoadSeeds, "Recarregando catálogo de seeds…"),
       KeyCode::Up | KeyCode::Char('k') => self.submenu_idx = self.submenu_idx.saturating_sub(1),
       KeyCode::Down | KeyCode::Char('j') => {
         if self.submenu_idx + 1 < len {
           self.submenu_idx += 1;
         }
       }
+      KeyCode::Char('g') => self.submenu_idx = 0,
+      KeyCode::Char('G') => self.submenu_idx = len.saturating_sub(1),
       KeyCode::Enter => self.run_submenu(),
       _ => {}
     }
@@ -756,6 +797,19 @@ impl App {
     }
   }
 
+  /// Volta do painel de Output para a tela de origem: o submenu que disparou
+  /// a tarefa (aplicar seed) ou o painel inicial (demais tarefas).
+  fn back_from_output(&mut self) {
+    match self.output_back {
+      Screen::Submenu => {
+        self.confirm = None;
+        self.screen = Screen::Submenu;
+        self.busy = false;
+      }
+      _ => self.back_to_services(),
+    }
+  }
+
   fn open_menu(&mut self) {
     let action = self.menu[self.selected].action;
     match action {
@@ -783,11 +837,14 @@ impl App {
         self.submenu = SubmenuKind::Setup;
         self.submenu_idx = 0;
         self.screen = Screen::Submenu;
+        // O item "aplicar seed de demonstração" depende do catálogo.
+        self.request(Job::LoadSeeds, "Carregando catálogo de seeds…");
       }
       Action::Seeds => {
         self.submenu = SubmenuKind::Seeds;
         self.submenu_idx = 0;
         self.screen = Screen::Submenu;
+        self.request(Job::LoadSeeds, "Carregando seeds…");
       }
       Action::Logs => self.request(Job::LoadLogs, "Carregando logs do backend…"),
       Action::ResetPin => {
@@ -933,20 +990,43 @@ impl App {
     }
   }
 
-  pub fn submenu_items(&self) -> Vec<&'static str> {
+  /// Itens do submenu atual. Os de Setup são fixos; os de seeds vêm do
+  /// catálogo lido do manifest do backend (runtime).
+  pub fn submenu_items(&self) -> Vec<String> {
     match self.submenu {
       SubmenuKind::Setup => vec![
-        "Instalar dependências",
-        "Configurar .env",
-        "Rodar migrations",
-        "Aplicar seeds",
-        "Setup completo",
+        "Instalar dependências".into(),
+        "Configurar .env".into(),
+        "Rodar migrations".into(),
+        self.setup_seed_label(),
+        "Setup completo".into(),
       ],
-      SubmenuKind::Seeds => vec![
-        "Seed de desenvolvimento (npm run seed)",
-        "Seed de produção (npm run seed:prod)",
-      ],
+      SubmenuKind::Seeds => self.seeds.iter().map(seed_label).collect(),
     }
+  }
+
+  /// Rótulo do item "aplicar seed" do Setup — o seed de demonstração do
+  /// catálogo (`demo`, o mesmo que o `pdv setup` roda).
+  fn setup_seed_label(&self) -> String {
+    match self.demo_seed() {
+      Some(seed) if seed.id == "demo" => "Aplicar seed de demonstração (demo)".into(),
+      Some(seed) => format!("Aplicar seed de demonstração (fallback: {})", seed.id),
+      None => "Aplicar seed de demonstração (catálogo indisponível)".into(),
+    }
+  }
+
+  /// Seed selecionado na lista de seeds.
+  pub fn selected_seed(&self) -> Option<&SeedInfo> {
+    self.seeds.get(self.submenu_idx)
+  }
+
+  /// Seed de demonstração do catálogo (`demo`); sem ele, o primeiro disponível.
+  pub fn demo_seed(&self) -> Option<&SeedInfo> {
+    self
+      .seeds
+      .iter()
+      .find(|s| s.id == "demo")
+      .or_else(|| self.seeds.first())
   }
 
   fn run_submenu(&mut self) {
@@ -955,15 +1035,74 @@ impl App {
         0 => self.request(Job::SetupDeps, "Instalando dependências…"),
         1 => self.request(Job::SetupEnv, "Configurando .env…"),
         2 => self.request(Job::Migrate, "Rodando migrations…"),
-        3 => self.request(Job::Seed { prod: false }, "Aplicando seeds…"),
+        3 => self.run_demo_seed(),
         4 => self.request(Job::SetupFull, "Executando setup completo…"),
         _ => {}
       },
-      SubmenuKind::Seeds => {
-        let prod = self.submenu_idx == 1;
-        self.request(Job::Seed { prod }, "Aplicando seeds…");
-      }
+      SubmenuKind::Seeds => self.run_selected_seed(),
     }
+  }
+
+  /// Aplica o seed de demonstração (`demo`) do catálogo. Sem `demo`, cai no
+  /// primeiro seed disponível — e avisa o usuário da troca.
+  fn run_demo_seed(&mut self) {
+    let Some(seed) = self.demo_seed().cloned() else {
+      self.set_status(
+        "Catálogo de seeds indisponível — aperte r para recarregar (ou rode `pdv db seeds`)",
+        StatusKind::Error,
+      );
+      return;
+    };
+    let note = if seed.id == "demo" {
+      None
+    } else {
+      Some(format!("o catálogo não tem 'demo' — usando '{}'", seed.id))
+    };
+    self.start_apply(&seed, note.as_deref());
+  }
+
+  /// Aplica o seed selecionado na lista.
+  fn run_selected_seed(&mut self) {
+    let Some(seed) = self.selected_seed().cloned() else {
+      let msg = if self.seeds_error.is_some() {
+        "Não há catálogo carregado — aperte r para recarregar"
+      } else if !self.seeds_loaded {
+        "Carregando o catálogo de seeds…"
+      } else {
+        "Nenhum seed selecionado"
+      };
+      self.set_status(msg, StatusKind::Warning);
+      return;
+    };
+    self.start_apply(&seed, None);
+  }
+
+  /// Inicia a aplicação de um seed: os destrutivos passam pela confirmação.
+  fn start_apply(&mut self, seed: &SeedInfo, note: Option<&str>) {
+    if seed.destructive {
+      self.confirm = Some(ConfirmKind::ApplySeed {
+        id: seed.id.clone(),
+        title: seed.title.clone(),
+      });
+      self.confirm_back = Screen::Submenu;
+      self.screen = Screen::Confirm;
+      self.set_status(
+        format!("'{}' é destrutivo — confirme para aplicar", seed.id),
+        StatusKind::Warning,
+      );
+      return;
+    }
+    let mut msg = format!("Aplicando seed '{}'…", seed.id);
+    if let Some(note) = note {
+      msg = format!("{msg} ({note})");
+    }
+    self.request_from(
+      Job::ApplySeed {
+        id: seed.id.clone(),
+      },
+      &msg,
+      Screen::Submenu,
+    );
   }
 
   // ========================================================
@@ -1072,17 +1211,24 @@ impl App {
   }
 
   fn run_confirm(&mut self) {
+    // A confirmação continua visível durante o job (a tela mostra
+    // "executando…"); o guarda evita disparar a ação duas vezes.
+    if self.busy {
+      return;
+    }
     let Some(kind) = self.confirm.clone() else {
       self.screen = self.confirm_back;
       return;
     };
-    self.confirm = None;
     match kind {
       ConfirmKind::CreateTenant { slug, name } => {
         self.request(Job::CreateTenant { slug, name }, "Provisionando tenant…");
       }
       ConfirmKind::Dump { slug, schema } => {
         self.request(Job::Dump { slug, schema }, "Exportando dump…");
+      }
+      ConfirmKind::ApplySeed { id, .. } => {
+        self.request_from(Job::ApplySeed { id }, "Aplicando seed…", Screen::Submenu);
       }
     }
   }
@@ -1096,9 +1242,17 @@ impl App {
             Some(ConfirmKind::Dump { slug, .. }) => format!(
                 "Fazer backup/dump do tenant '{slug}'?\nGera /tmp/tenant-{slug}-dump.sql (pg_dump --schema)."
             ),
+            Some(ConfirmKind::ApplySeed { id, title }) => format!(
+                "Aplicar o seed '{id}'?\n{title}\n\nEste seed é destrutivo: sobrescreve ou apaga dados existentes. Não é reversível."
+            ),
             None => "Executar esta ação?".into(),
         }
   }
+}
+
+/// Rótulo canônico de um seed no catálogo ("<id> — <title>").
+pub fn seed_label(seed: &SeedInfo) -> String {
+  format!("{} — {}", seed.id, seed.title)
 }
 
 // ============================================================
