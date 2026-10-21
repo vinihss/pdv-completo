@@ -82,8 +82,9 @@ próprio argumento e sai com código `!= 0` em uso inválido.
 | `migrate` | `npm run db:migrate` no backend |
 | `migrate-registry` | `npm run db:migrate:registry` |
 | `generate` | `npm run db:generate` |
-| `seed` | `npm run seed` |
-| `seed-prod` | `npm run seed:prod` |
+| `seeds` | Lista os seeds do catálogo (lido **em runtime** do manifest do backend) |
+| `seed <id>` | Aplica o seed `<id>` (`base`, `demo`, `prod`); sem id, só lista e imprime o uso |
+| `seed-prod` | **Depreciado** — alias de `seed prod` (avisa e delega) |
 | `deactivate-demo` | `npm run db:deactivate-demo` |
 | `provision <slug> [nome]` | Roda `src/infra/db/provision-tenant.ts` via `npx tsx` |
 | `reset-pin <slug> [pin]` | Roda `src/infra/db/reset-manager-pin.ts` via `npx tsx` |
@@ -94,6 +95,74 @@ próprio argumento e sai com código `!= 0` em uso inválido.
 antes de chamar o `tsx`, e exportam `SLUG`/`DISPLAY_NAME`/`PIN`/`USER_*` no
 ambiente. É a correção do bug da CLI Go, que passava `${DATABASE_URL}` literal
 (a variável não era expandida).
+
+### Catálogo de seeds
+
+Os seeds do backend são um **catálogo em manifest**:
+`backend/src/infra/db/seeds/manifest.json` (com o contrato em
+`manifest.schema.json`). Cada seed declara `id`, `title`, `description`,
+`npmScript`, `destructive`, `productionSafe` e `requiresPostgis`.
+
+| id | npm script | o que faz |
+|---|---|---|
+| `base` | `seed:base` | `store_settings`, usuários de teste, categorias, produtos, mesas e saldo inicial de estoque |
+| `demo` | `seed:demo` | seed base + catálogo demo, clientes e 30 dias de histórico (exige PostGIS) |
+| `prod` | `seed:prod` | bootstrap de primeiro deploy: `store_settings` real + um manager com PIN temporário |
+
+A CLI lê o manifest **em runtime**: adicionar um seed é mexer no manifest (e
+no `package.json` do backend), **não** recompilar a CLI. O mesmo catálogo
+move o backend (`npm run seed:apply -- <id>`) e a TUI.
+
+`pdv db seed <id>` roda o `npm run <npmScript>` do backend:
+
+- **no host**, quando `backend/node_modules` existe;
+- **dentro do container do backend** (`docker exec`), quando o ambiente é
+  100% containerizado — que é o padrão do `pdv setup` (o host só precisa do
+  Docker). Dentro do container a CLI escolhe o comando pela imagem: na de
+  **dev** (`src/` + `tsx`) roda `npm run <npmScript>`; na de **produção**
+  (só `dist/`, sem `tsx`) roda `node dist/infra/db/seeds/apply.js <id>`.
+
+Antes de um seed que exige PostGIS, a CLI roda um preflight
+(`SELECT postgis_version()`) e aborta com mensagem explícita quando a
+biblioteca não está na imagem do Postgres (a extensão pode estar *registrada*
+no banco e ainda assim o `ST_*` falhar).
+
+### Acesso ao banco sem `psql` no host
+
+O ambiente de dev roda tudo em containers e o host **não tem** `psql`/
+`pg_dump` instalados — chamá-los direto quebrava a TUI ("Listar tenants",
+"Editar configurações", "Backup/dump do tenant") num host limpo. A camada
+`ops/db.rs` resolve o alvo:
+
+| Situação | Estratégia |
+|---|---|
+| `psql` no `PATH` | usa o binário do host |
+| Sem `psql`, `DATABASE_URL` local (`localhost`/`127.0.0.1`) e container do Postgres rodando | `docker exec <container> psql …` |
+| Sem `psql` e URL **remota** | erro: o fallback de container não vale para um banco remoto — instale `postgresql-client` |
+| Sem `psql` e sem container | erro com as duas saídas (`pdv setup` ou `sudo apt install postgresql-client`) |
+
+Dentro do container a URL é reescrita para `localhost:5432` (o banco é o
+próprio container; a porta publicada no host pode ser outra) e o usuário, a
+senha, o nome do banco e o `?sslmode=` são preservados. Quando há **mais de
+um** container de Postgres do PDV na máquina, a escolha é desambiguada pela
+porta publicada; se ainda assim for ambíguo, a CLI para e pede
+`PDV_POSTGRES_CONTAINER=<container>`.
+
+### De onde sai o `DATABASE_URL`
+
+A URL do banco é resolvida nesta ordem:
+
+1. variável `DATABASE_URL` do ambiente;
+2. `backend/.env` (o arquivo gitignored do clone local);
+3. **derivada do `deploy/.env.dev`** — o env que o `pdv setup` gera para o
+   compose de dev (`POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` +
+   `DEV_POSTGRES_PORT`), com o host trocado para `localhost` (o compose usa o
+   nome do serviço `postgres`, que só resolve dentro da rede do projeto).
+
+O passo 3 é o que faz a CLI funcionar num host **só com Docker**: sem
+`backend/.env` nem `psql` instalados, ela ainda acha o banco e ainda aplica
+os seeds (o seed roda no host com essa URL exportada, ou dentro do container
+do backend, que já tem a URL do compose).
 
 ## 4. TUI (`pdv tui`)
 
@@ -127,9 +196,9 @@ backend.
 |---|---|
 | Listar tenants | Tabela de tenants; `Enter` abre os **detalhes** |
 | Adicionar novo tenant | Formulário (slug, nome) → confirmação → provisiona |
-| Setup | Submenu: instalar dependências · configurar `.env` · rodar migrations · aplicar seeds · setup completo |
+| Setup | Submenu: instalar dependências · configurar `.env` · rodar migrations · **aplicar seed de demonstração (demo)** · setup completo |
 | Status dos serviços | Tabela de containers (painel inicial) |
-| Aplicar seeds | Submenu: seed de desenvolvimento · seed de produção |
+| Aplicar seeds | Submenu com o **catálogo lido em runtime** (base · demo · prod); mostra descrição e flags do seed selecionado antes de aplicar, pede confirmação quando o seed é destrutivo e devolve a saída no painel de Output |
 | Visualizar logs | Últimas linhas do backend (`docker compose logs`, fallback para arquivos locais) |
 | Reset PIN do manager | Seletor de tenant → formulário (PIN opcional) → roda `reset-manager-pin.ts` |
 | Editar configurações | Seletor de tenant → formulário de `store_settings` → `UPDATE` |
@@ -158,7 +227,7 @@ Não há `r` de reset nessa tela (o reset é item próprio do menu).
 | `g` / `G` | Primeiro / último item |
 | `Enter` | Abre o item do menu / seleciona / confirma |
 | `Esc` | Volta um nível (telas → "Status dos Serviços") |
-| `r` | Recarrega o painel atual (serviços, tenants, logs) |
+| `r` | Recarrega o painel atual (serviços, tenants, logs, catálogo de seeds) |
 | `q` | Sai (exceto dentro de formulários, onde `q` é digitável) |
 | `s` / `d` / `u` | Atalhos na tela de detalhes do tenant |
 | `Tab` / `↑↓` | Alterna campos em formulários |
@@ -175,7 +244,10 @@ cmd/pdv/src/
 ├── ops/
 │   ├── mod.rs       list_tenants / get|update store_settings / dump_tenant /
 │   │                create_tenant / reset_manager_pin / add_user /
-│   │                backend_logs / setup_full (psql, pg_dump, npx tsx)
+│   │                backend_logs / setup_full
+│   ├── db.rs        acesso ao Postgres: psql/pg_dump no host OU via
+│   │                `docker exec` no container (ambiente 100% containerizado)
+│   ├── seeds.rs     catálogo de seeds lido do manifest do backend + aplicação
 │   └── services.rs  list_services (docker ps --format json)
 ├── tui/
 │   ├── mod.rs       loop, layout 30/70, execução dos jobs fora do draw
@@ -215,7 +287,9 @@ só `install.sh` na raiz do repo.
   [`25-admin-server-tui.md`](25-admin-server-tui.md). A TUI é somente local.
 - **Suspender/reativar/remover tenant** não são ações da TUI nesta fase (o menu
   tem 9 itens fixos; essas operações ficam como evolução).
-- **Testes** não portados nesta fase (`cargo test` roda sem testes).
+- **Testes**: a crate passou a ter testes unitários das partes puras
+  (parsing do manifest de seeds e resolução da estratégia de acesso ao banco:
+  host vs. container vs. URL remota).
 - **Autocomplete de shell** (`pdv completion`) não portado.
 
 Estas lacunas são intencionais nesta entrega; a evolução da TUI é a continuação
