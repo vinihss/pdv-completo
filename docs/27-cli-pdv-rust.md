@@ -89,12 +89,35 @@ próprio argumento e sai com código `!= 0` em uso inválido.
 | `provision <slug> [nome]` | Roda `src/infra/db/provision-tenant.ts` via `npx tsx` |
 | `reset-pin <slug> [pin]` | Roda `src/infra/db/reset-manager-pin.ts` via `npx tsx` |
 | `add-user <slug> <nome> <perfil> [pin]` | Roda `src/infra/db/add-user.ts` via `npx tsx` |
-| `list` | Roda `src/infra/db/list-tenants.ts` via `npx tsx` |
+| `list` | Lista os tenants do registry (mesma implementação da TUI; em single-tenant mostra o tenant implícito) |
 
 `provision`/`reset-pin`/`add-user`/`list` carregam `backend/.env` com `dotenvy`
 antes de chamar o `tsx`, e exportam `SLUG`/`DISPLAY_NAME`/`PIN`/`USER_*` no
 ambiente. É a correção do bug da CLI Go, que passava `${DATABASE_URL}` literal
 (a variável não era expandida).
+
+### Tenant implícito (ambiente single-tenant)
+
+Em single-tenant — o dev padrão: `TENANT_ROUTING=false` e
+`DEFAULT_TENANT_SCHEMA` vazio — o app inteiro roda no schema `public`
+(`resolveTenantSchemaInScope()` cai em `public`) e o registry `public.tenant`
+fica **vazio**: só o provisionamento de tenant insere linha lá.
+
+Sem tratamento, a lista de tenants vazia deixava a TUI sem alvo para os
+fluxos que operam sobre um tenant — mesmo existindo um `store_settings` de
+verdade (que vive em `public`, não em `tenant_<slug>`). Por isso:
+
+- `pdv db list` e a tela "Listar tenants" mostram o **tenant implícito**
+  (slug `default`, schema `public`, "Padrão (default)") quando o registry
+  está vazio;
+- `pdv db reset-pin default` e `pdv db add-user default …` resolvem para o
+  schema default — o backend (`src/infra/db/default-tenant.ts`) cai no
+  tenant implícito quando o slug reservado não está no registry;
+- "Editar configurações", "Reset PIN" e "Backup/dump" passam a operar no
+  store de dev.
+
+O slug `default` é **reservado**: se um tenant real for provisionado com ele,
+a linha do registry vence (a busca no registry vem antes do fallback).
 
 ### Catálogo de seeds
 
@@ -194,7 +217,7 @@ backend.
 
 | Item | Tela |
 |---|---|
-| Listar tenants | Tabela de tenants; `Enter` abre os **detalhes** |
+| Listar tenants | Tabela de tenants (em single-tenant, o **tenant implícito**); `Enter` abre os **detalhes** |
 | Adicionar novo tenant | Formulário (slug, nome) → confirmação → provisiona |
 | Setup | Submenu: instalar dependências · configurar `.env` · rodar migrations · **aplicar seed de demonstração (demo)** · setup completo |
 | Status dos serviços | Tabela de containers (painel inicial) |
@@ -203,6 +226,9 @@ backend.
 | Reset PIN do manager | Seletor de tenant → formulário (PIN opcional) → roda `reset-manager-pin.ts` |
 | Editar configurações | Seletor de tenant → formulário de `store_settings` → `UPDATE` |
 | Backup/dump do tenant | Seletor de tenant → confirmação → `pg_dump --schema` para `/tmp/tenant-<slug>-dump.sql` |
+
+Em single-tenant, o único item da tabela é o tenant implícito (schema
+`public`), e é ele que os fluxos de configuração/PIN/dump operam.
 
 **Detalhes do tenant** (atingido por "Listar tenants" → `Enter`) expõem os
 atalhos `s` (editar configurações), `d` (backup/dump) e `u` (adicionar usuário).

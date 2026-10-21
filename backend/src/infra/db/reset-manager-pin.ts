@@ -19,6 +19,7 @@ import { users } from "./schema.js";
 import { eq } from "drizzle-orm";
 import argon2 from "argon2";
 import { runInTenantScope } from "./tenant-context.js";
+import { defaultTenantScope } from "./default-tenant.js";
 import { findTenantBySlug } from "../tenant/registry.js";
 
 function randomPin(): string {
@@ -35,17 +36,31 @@ export async function resetManagerPin(slug: string, pin?: string): Promise<strin
   }
 
   // Lookup no registry — roda FORA do escopo do tenant (o registry vive em public).
-  const tenant = await findTenantBySlug(slug);
-  if (!tenant) {
-    throw new Error(`tenant "${slug}" não encontrado no registry (public.tenant)`);
+  // Em ambiente single-tenant o registry está VAZIO (ninguém provisiona
+  // tenant lá): o slug reservado `default` cai no schema default (`public`).
+  let tenant: Awaited<ReturnType<typeof findTenantBySlug>> = null;
+  let lookupError: unknown = null;
+  try {
+    tenant = await findTenantBySlug(slug);
+  } catch (err) {
+    lookupError = err;
+  }
+  const scope = tenant
+    ? { schemaName: tenant.schemaName, slug, isDefault: false }
+    : defaultTenantScope(slug);
+  if (!scope) {
+    throw new Error(
+      `tenant "${slug}" não encontrado no registry (public.tenant)` +
+        (lookupError ? ` — ${(lookupError as Error).message}` : ""),
+    );
   }
 
-  const schemaName = tenant.schemaName;
   const newPin = pin ?? randomPin();
   const pinHash = await argon2.hash(newPin);
 
-  // Entra no ALS do tenant para que o `db` Proxy roteie para `tenant_<slug>`.
-  await runInTenantScope({ schemaName, slug, isDefault: false }, async () => {
+  // Entra no ALS do tenant para que o `db` Proxy roteie para `tenant_<slug>`
+  // (ou para o schema default, no tenant implícito).
+  await runInTenantScope(scope, async () => {
     const managers = await db.query.users.findMany({
       where: eq(users.role, "manager"),
     });

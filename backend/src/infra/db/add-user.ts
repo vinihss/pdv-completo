@@ -20,6 +20,7 @@ import { closeDatabase, db } from "./client.js";
 import { users } from "./schema.js";
 import argon2 from "argon2";
 import { runInTenantScope } from "./tenant-context.js";
+import { defaultTenantScope } from "./default-tenant.js";
 import { findTenantBySlug } from "../tenant/registry.js";
 
 const PROFILES = ["waiter", "kitchen", "manager", "cashier", "courier"] as const;
@@ -51,15 +52,30 @@ export async function addUser(
     throw new Error(`PIN inválido: ${pin} (use 4–6 dígitos)`);
   }
 
-  const tenant = await findTenantBySlug(slug);
-  if (!tenant) {
-    throw new Error(`tenant "${slug}" não encontrado no registry (public.tenant)`);
+  // Mesmo fallback do `reset-manager-pin.ts`: em ambiente single-tenant o
+  // registry está vazio e o slug reservado `default` aponta para o schema
+  // default (`public`).
+  let tenant: Awaited<ReturnType<typeof findTenantBySlug>> = null;
+  let lookupError: unknown = null;
+  try {
+    tenant = await findTenantBySlug(slug);
+  } catch (err) {
+    lookupError = err;
+  }
+  const scope = tenant
+    ? { schemaName: tenant.schemaName, slug, isDefault: false }
+    : defaultTenantScope(slug);
+  if (!scope) {
+    throw new Error(
+      `tenant "${slug}" não encontrado no registry (public.tenant)` +
+        (lookupError ? ` — ${(lookupError as Error).message}` : ""),
+    );
   }
 
   const newPin = pin ?? randomPin();
   const pinHash = await argon2.hash(newPin);
 
-  await runInTenantScope({ schemaName: tenant.schemaName, slug, isDefault: false }, async () => {
+  await runInTenantScope(scope, async () => {
     await db.insert(users).values({
       name: userName,
       role: profile as Profile,

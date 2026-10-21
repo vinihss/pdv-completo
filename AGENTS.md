@@ -211,6 +211,7 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `npm run seed:apply -- <id>` | backend | aplica um seed pelo id do catálogo (`base`, `demo`, `prod`) — o mesmo catálogo em `backend/src/infra/db/seeds/manifest.json` que a CLI lê |
 | CLI `pdv db seeds` | CLI instalada | lista os seeds do catálogo (lido em runtime do manifest — seed novo não exige recompilar a CLI) |
 | CLI `pdv db seed <id>` | CLI instalada | aplica o seed `<id>`; roda no host (com `backend/node_modules`) ou dentro do container do backend |
+| CLI `pdv db list` | CLI instalada | tenants do registry `public.tenant`; em single-tenant (dev) mostra o **tenant implícito** (slug `default` → schema `public`), que é o alvo das operações de banco |
 | `npm run db:migrate` | backend | aplica `migrations/*.sql` (também roda no boot em modo local) |
 | `npm run db:migrate:registry` | backend | aplica `migrations/registry/*.sql` no schema `public` (registry de tenant; roda no boot antes do `db:migrate`) |
 | `npm run db:provision -- <slug> "<nome>"` | backend | provisiona um tenant novo: cria o schema `tenant_<slug>`, aplica as migrations dentro dele, registra em `public.tenant` e roda o bootstrap (`store_settings` + manager com PIN no log). `SEED=0` pula o bootstrap |

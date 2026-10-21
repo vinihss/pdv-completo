@@ -403,7 +403,37 @@ fn handle_db(cmd: DbSub) -> i32 {
         &[&slug, &name, &profile, pin_val],
       )
     }
-    DbSub::List => run_tsx_script("list-tenants.ts", &[], &[]),
+    DbSub::List => handle_db_list(),
+  }
+}
+
+/// Lista os tenants do registry — a MESMA implementação que a TUI usa
+/// (`ops::list_tenants`), para que os dois mostrem exatamente o mesmo
+/// (inclusive o tenant implícito do ambiente single-tenant).
+fn handle_db_list() -> i32 {
+  match crate::ops::list_tenants() {
+    Ok(tenants) => {
+      if tenants.is_empty() {
+        println!("Nenhum tenant encontrado no registry.");
+        return 0;
+      }
+      println!("Tenants (registry public.tenant):");
+      println!("{}", "-".repeat(72));
+      for t in &tenants {
+        let mut linha = format!(
+          "{:<20} {:<22} {:<18} {}",
+          t.slug, t.schema_name, t.display_name, t.status
+        );
+        if !t.custom_domain.is_empty() {
+          linha.push_str(&format!("  ({})", t.custom_domain));
+        }
+        println!("{}", linha);
+      }
+      println!("{}", "-".repeat(72));
+      println!("Total: {} tenant(s)", tenants.len());
+      0
+    }
+    Err(e) => crate::ui::die(&e),
   }
 }
 
