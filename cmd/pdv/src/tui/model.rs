@@ -127,7 +127,7 @@ pub enum StatusKind {
 #[derive(Debug, Clone)]
 pub enum ConfirmKind {
   CreateTenant { slug: String, name: String },
-  Dump { slug: String, schema: String },
+  Dump { slug: String, tenant_id: String },
   ApplySeed { id: String, title: String },
 }
 
@@ -229,7 +229,6 @@ pub enum Job {
     /// coluna `tenant_id`. Sem ele a sessão não vê linha nenhuma da loja.
     tenant_id: Option<String>,
     slug: String,
-    schema: String,
   },
   CreateTenant {
     slug: String,
@@ -249,12 +248,13 @@ pub enum Job {
     /// Id do tenant (uuid) — o contexto da policy de RLS (ver `LoadSettings`).
     tenant_id: Option<String>,
     slug: String,
-    schema: String,
     settings: StoreSettings,
   },
   Dump {
     slug: String,
-    schema: String,
+    /// Id do tenant (uuid) — o export é por `tenant_id` (o dump por schema
+    /// morreu com o RLS: o `pg_dump` não respeita a policy).
+    tenant_id: String,
   },
   SetupDeps,
   SetupEnv,
@@ -272,7 +272,6 @@ pub enum JobResult {
   Seeds(Result<Vec<SeedInfo>, String>),
   Settings {
     slug: String,
-    schema: String,
     /// Id do tenant (uuid) — o contexto que a policy de RLS exige (ver
     /// `Job::LoadSettings`).
     tenant_id: Option<String>,
@@ -292,15 +291,10 @@ pub fn run_job(job: Job) -> JobResult {
     Job::LoadServices => JobResult::Services(ops::list_services().map_err(|e| e.to_string())),
     Job::LoadLogs => JobResult::Logs(ops::backend_logs(300)),
     Job::LoadSeeds => JobResult::Seeds(ops::list_seeds()),
-    Job::LoadSettings {
-      slug,
-      schema,
-      tenant_id,
-    } => {
-      let result = ops::get_store_settings(&schema, tenant_id.as_deref());
+    Job::LoadSettings { slug, tenant_id } => {
+      let result = ops::get_store_settings(tenant_id.as_deref());
       JobResult::Settings {
         slug,
-        schema,
         tenant_id,
         result,
       }
@@ -324,17 +318,16 @@ pub fn run_job(job: Job) -> JobResult {
     }
     Job::SaveSettings {
       slug,
-      schema,
       tenant_id,
       settings,
     } => {
-      let res = ops::update_store_settings(&schema, tenant_id.as_deref(), &settings)
+      let res = ops::update_store_settings(tenant_id.as_deref(), &settings)
         .map(|_| format!("store_settings atualizado ({slug})."));
       task_result(format!("Salvar configurações ({slug})"), res)
     }
-    Job::Dump { slug, schema } => {
+    Job::Dump { slug, tenant_id } => {
       let out_file = format!("/tmp/tenant-{slug}-dump.sql");
-      let res = ops::dump_tenant(&schema, &out_file).map(|_| format!("Dump salvo em {out_file}"));
+      let res = ops::dump_tenant(&tenant_id, &out_file).map(|_| format!("Dump salvo em {out_file}"));
       task_result(format!("Backup/dump do tenant '{slug}'"), res)
     }
     Job::SetupDeps => {
@@ -576,12 +569,10 @@ impl App {
       }
       JobResult::Settings {
         slug,
-        schema,
         tenant_id,
         result,
       } => {
         self.active_slug = slug.clone();
-        self.active_schema = schema;
         self.active_tenant_id = tenant_id.clone();
         match result {
           Ok(s) => {
@@ -902,7 +893,6 @@ impl App {
     match self.pending {
       Pending::ResetPin => {
         self.active_slug = t.slug.clone();
-        self.active_schema = t.schema_name.clone();
         self.form = Form {
           fields: vec![Field::text("PIN (4–6 dígitos)", "", "vazio gera aleatório")],
           active: 0,
@@ -918,7 +908,6 @@ impl App {
         self.request(
           Job::LoadSettings {
             slug: t.slug.clone(),
-            schema: t.schema_name.clone(),
             tenant_id: Some(t.id.clone()),
           },
           "Carregando configurações…",
@@ -927,7 +916,7 @@ impl App {
       Pending::Dump => {
         self.confirm = Some(ConfirmKind::Dump {
           slug: t.slug.clone(),
-          schema: t.schema_name.clone(),
+          tenant_id: t.id.clone(),
         });
         self.confirm_back = Screen::Picker;
         self.screen = Screen::Confirm;
@@ -940,7 +929,6 @@ impl App {
       self.request(
         Job::LoadSettings {
           slug: t.slug.clone(),
-          schema: t.schema_name.clone(),
           tenant_id: Some(t.id.clone()),
         },
         "Carregando configurações…",
@@ -952,7 +940,7 @@ impl App {
     if let Some(t) = self.selected_tenant.clone() {
       self.confirm = Some(ConfirmKind::Dump {
         slug: t.slug.clone(),
-        schema: t.schema_name.clone(),
+        tenant_id: t.id.clone(),
       });
       self.confirm_back = Screen::Detail;
       self.screen = Screen::Confirm;
@@ -1215,12 +1203,10 @@ impl App {
           }
         }
         let slug = self.active_slug.clone();
-        let schema = self.active_schema.clone();
         let tenant_id = self.active_tenant_id.clone();
         self.request(
           Job::SaveSettings {
             slug,
-            schema,
             tenant_id,
             settings,
           },
@@ -1244,8 +1230,8 @@ impl App {
       ConfirmKind::CreateTenant { slug, name } => {
         self.request(Job::CreateTenant { slug, name }, "Provisionando tenant…");
       }
-      ConfirmKind::Dump { slug, schema } => {
-        self.request(Job::Dump { slug, schema }, "Exportando dump…");
+      ConfirmKind::Dump { slug, tenant_id } => {
+        self.request(Job::Dump { slug, tenant_id }, "Exportando dump…");
       }
       ConfirmKind::ApplySeed { id, .. } => {
         self.request_from(Job::ApplySeed { id }, "Aplicando seed…", Screen::Submenu);

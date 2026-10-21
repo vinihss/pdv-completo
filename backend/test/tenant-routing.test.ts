@@ -40,7 +40,8 @@ type RegistryRow = {
    *  `store_settings → public.tenant` recusa). */
   id?: string;
   slug: string;
-  schemaName: string;
+  // A coluna `schema_name` saiu do registry (migration `0018`): no modelo por
+  // linha a loja não tem schema.
   displayName?: string;
   status?: "active" | "suspended";
   customDomain?: string | null;
@@ -86,12 +87,11 @@ async function seedRegistry(rows: RegistryRow[]): Promise<void> {
   await rawOwner.exec("DELETE FROM public.tenant WHERE slug <> 'default'");
   for (const row of rows) {
     await raw.all(
-      `INSERT INTO public.tenant (id, slug, schema_name, display_name, status, custom_domain)
-       VALUES (COALESCE($1::uuid, gen_random_uuid()), $2, $3, $4, $5, $6)`,
+      `INSERT INTO public.tenant (id, slug, display_name, status, custom_domain)
+       VALUES (COALESCE($1::uuid, gen_random_uuid()), $2, $3, $4, $5)`,
       [
         row.id ?? null,
         row.slug,
-        row.schemaName,
         row.displayName ?? row.slug,
         row.status ?? "active",
         row.customDomain ?? null,
@@ -178,7 +178,7 @@ function routingOn(rootDomain: string = ROOT_DOMAIN): void {
 describe("tenant: resolução por Host", () => {
   it("subdomínio resolve pela 1ª label", async () => {
     routingOn();
-    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" }]);
+    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1" }]);
 
     // O `id` é gerado pelo banco (uuid) — o assert confere o que é estável e
     // o FORMATO do id, que é o que a policy vai comparar com `tenant_id`.
@@ -199,7 +199,7 @@ describe("tenant: resolução por Host", () => {
     // `umamisushiarte.com.br` tem 3 rótulos: sem a coluna de domínio próprio a
     // regra da 1ª label procuraria `umamisushiarte`, que não é a loja.
     await seedRegistry([
-      { slug: "umami", schemaName: "tenant_umami", customDomain: "umamisushiarte.com.br" },
+      { slug: "umami", customDomain: "umamisushiarte.com.br" },
     ]);
 
     expect(await resolveTenant("umamisushiarte.com.br")).toEqual(
@@ -213,7 +213,7 @@ describe("tenant: resolução por Host", () => {
   it("host é normalizado antes de casar: maiúsculas, porta e ponto final", async () => {
     routingOn();
     await seedRegistry([
-      { slug: "umami", schemaName: "tenant_umami", customDomain: "umamisushiarte.com.br" },
+      { slug: "umami", customDomain: "umamisushiarte.com.br" },
     ]);
 
     for (const host of ["UMAMISUSHIARTE.com.br", "umamisushiarte.com.br:443", "umamisushiarte.com.br."]) {
@@ -223,7 +223,7 @@ describe("tenant: resolução por Host", () => {
 
   it("apex, localhost e intranet caem no tenant default", async () => {
     routingOn();
-    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" }]);
+    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1" }]);
 
     for (const host of [ROOT_DOMAIN, "localhost", "localhost:5175", "intranet"]) {
       expect(await resolveTenant(host)).toEqual({
@@ -236,7 +236,7 @@ describe("tenant: resolução por Host", () => {
 
   it("sem PLATFORM_ROOT_DOMAIN vale a heurística de rótulos do §3.1", async () => {
     routingOn("");
-    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" }]);
+    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1" }]);
 
     // TLD de uma label: 2 rótulos é apex.
     expect((await resolveTenant("seudominio.tech")).isDefault).toBe(true);
@@ -263,8 +263,8 @@ describe("tenant: resolução por Host", () => {
     // O pior caso: alguém registra `app` (e o domínio próprio `app.…`) para
     // tomar a origem do app interno / da API.
     await seedRegistry([
-      { slug: "app", schemaName: "tenant_app", customDomain: "app.seudominio.com.br" },
-      { slug: "www", schemaName: "tenant_www", customDomain: "www.seudominio.com.br" },
+      { slug: "app", customDomain: "app.seudominio.com.br" },
+      { slug: "www", customDomain: "www.seudominio.com.br" },
     ]);
 
     for (const host of ["app.seudominio.com.br", "api.seudominio.com.br", "www.seudominio.com.br"]) {
@@ -281,7 +281,7 @@ describe("tenant: resolução por Host", () => {
   // loja errada para quem pediu a loja certa.
   it("slug inválido → tenant_not_resolved (404), nunca o default", async () => {
     routingOn();
-    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" }]);
+    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1" }]);
 
     const invalidos = [
       "-pdv1.seudominio.com.br", // começa com hífen
@@ -301,7 +301,7 @@ describe("tenant: resolução por Host", () => {
 
   it("host que não é da plataforma nem domínio de loja → 404, não o default", async () => {
     routingOn();
-    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" }]);
+    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1" }]);
 
     for (const host of ["outra-loja.seudominio.com.br", "loja.exemplo.net", "127.0.0.1"]) {
       await expect(resolveTenant(host)).rejects.toMatchObject({ code: "tenant_not_resolved", status: 404 });
@@ -310,7 +310,7 @@ describe("tenant: resolução por Host", () => {
 
   it("TENANT_ROUTING desligado (ou ausente) força o default, ignorando o Host", async () => {
     await seedRegistry([
-      { slug: "pdv1", schemaName: "tenant_pdv1", customDomain: "umamisushiarte.com.br" },
+      { slug: "pdv1", customDomain: "umamisushiarte.com.br" },
     ]);
 
     for (const valor of [undefined, "false", "0", "off", "no"]) {
@@ -336,7 +336,7 @@ describe("tenant: resolução por Host", () => {
 
   it("TENANT_ROUTING ligado no vocabulário do gate (1/true/yes/on)", async () => {
     setEnv("PLATFORM_ROOT_DOMAIN", ROOT_DOMAIN);
-    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" }]);
+    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1" }]);
 
     for (const valor of ["1", "true", "TRUE", " yes ", "on"]) {
       setEnv("TENANT_ROUTING", valor);
@@ -346,7 +346,7 @@ describe("tenant: resolução por Host", () => {
 
   it("tenant suspenso → 403 tenant_inactive", async () => {
     routingOn();
-    await seedRegistry([{ slug: "pdv1", schemaName: "tenant_pdv1", status: "suspended" }]);
+    await seedRegistry([{ slug: "pdv1", status: "suspended" }]);
 
     await expect(resolveTenant("pdv1.seudominio.com.br")).rejects.toMatchObject({
       code: "tenant_inactive",
@@ -354,38 +354,22 @@ describe("tenant: resolução por Host", () => {
     });
   });
 
-  it("o `schema_name` do registry é topologia MORTA: o runtime não olha", async () => {
+  it("o registry não tem coluna de schema: a loja é só `tenant_id`", async () => {
     routingOn();
     // No modelo por LINHA o schema deixou de ser topologia: as lojas moram
     // todas no `public` e quem separa uma da outra é a coluna `tenant_id` + o
-    // RLS. A coluna `schema_name` ainda existe (a Fase 3c tira), mas o
-    // runtime NÃO a usa — nem para rotear, nem para validar. Uma linha
-    // corrompida no registro não pode virar `search_path` nem 503: ela é
-    // simplesmente ignorada.
-    await rawOwner.exec("ALTER TABLE public.tenant DROP CONSTRAINT tenant_schema_name_check");
-    try {
-      await seedRegistry([{ slug: "pdv1", schemaName: "public; DROP TABLE public.tenant" }]);
-      const resolvido = await resolveTenant("pdv1.seudominio.com.br");
-      expect(resolvido.slug).toBe("pdv1");
-      expect(resolvido.isDefault).toBe(false);
-    } finally {
-      // Os schemas das lojas de teste primeiro: a FK `store_settings →
-  // public.tenant` impede apagar a linha do registry enquanto a loja tem
-  // dado (é a proteção que a FK existe para dar).
-  await rawOwner.exec("DROP SCHEMA IF EXISTS tenant_pdv1 CASCADE");
-  await rawOwner.exec("DROP SCHEMA IF EXISTS tenant_pdv2 CASCADE");
-  await closeAllTenantPools();
-  // O DONO: a FK `user.tenant_id → public.tenant` é verificada com as linhas
-  // REAIS, e o papel do app não enxerga o `user` de outra loja → o DELETE da
-  // linha do registry falhava com violação de FK.
-  await rawOwner.exec("DELETE FROM public.tenant WHERE slug <> 'default'");
-      // A definição ATUAL do CHECK (a da migration de registry `0003`, que
-      // aceita `public` e NULL — o schema do tenant default e o modelo por
-      // linha). A definição antiga rejeitaria a linha do default.
-      await rawOwner.exec(
-        "ALTER TABLE public.tenant ADD CONSTRAINT tenant_schema_name_check CHECK (schema_name IS NULL OR schema_name = 'public' OR schema_name ~ '^tenant_[a-z0-9_]+$')",
-      );
-    }
+    // RLS. A coluna `schema_name` saiu do banco na migration `0018` — o
+    // registry é a lista das lojas, e cada loja é uma LINHA.
+    const colunas = await raw.all(
+      `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'tenant'`,
+    );
+    expect(colunas.map((c: { column_name: string }) => c.column_name)).not.toContain("schema_name");
+
+    await seedRegistry([{ slug: "pdv1" }]);
+    const resolvido = await resolveTenant("pdv1.seudominio.com.br");
+    expect(resolvido.slug).toBe("pdv1");
+    expect(resolvido.isDefault).toBe(false);
   });
 
   it("normalizeTenantHost rejeita o que não é hostname", () => {
@@ -513,7 +497,7 @@ describe("GET /public/tenants/resolve", () => {
     // `store_settings` para ler, e a vitrine responde 503 em vez de cair no
     // `search_path` `public` e servir a marca da plataforma achando que é da loja.
     routingOn();
-    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" }]);
+    await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1" }]);
 
     const res = await api("get", "/public/tenants/resolve?host=pdv1.seudominio.com.br", { ip: nextIp() });
 
@@ -530,7 +514,7 @@ describe("GET /public/tenants/resolve", () => {
       // O registry ANTES do schema: a linha da loja precisa existir (a FK
       // `store_settings → public.tenant` recusa o dado de um tenant que não
       // está no registry).
-      await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" }]);
+      await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1" }]);
       await provisionTenant("Loja PDV1", TENANT_PDV1_ID);
 
       const res = await api("get", `/public/tenants/resolve?host=pdv1.${ROOT_DOMAIN}`, { ip: nextIp() });
@@ -556,8 +540,8 @@ describe("GET /public/tenants/resolve", () => {
     routingOn();
     try {
       await seedRegistry([
-        { id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" },
-        { id: TENANT_PDV2_ID, slug: "pdv2", schemaName: "tenant_pdv2" },
+        { id: TENANT_PDV1_ID, slug: "pdv1" },
+        { id: TENANT_PDV2_ID, slug: "pdv2" },
       ]);
       await provisionTenant("Loja Um", TENANT_PDV1_ID);
       await provisionTenant("Loja Dois", TENANT_PDV2_ID);
@@ -618,7 +602,8 @@ describe("registry: migrations, isolamento de schema e cache", () => {
       "0014_tenant_id_composite_fks.sql",
       "0015_rls_policies.sql",
       "0016_tenant_composite_pk.sql",
-      "0017_tenant_scoped_uniques.sql"
+      "0017_tenant_scoped_uniques.sql",
+      "0018_drop_tenant_schemas.sql"
     ]);
     // E o diretório existe de verdade — a exclusão não é por pasta vazia.
     expect(fs.existsSync(path.dirname(REGISTRY_SQL))).toBe(true);
@@ -664,7 +649,7 @@ describe("registry: migrations, isolamento de schema e cache", () => {
   });
 
   it("cache: a segunda resolução não vai ao banco, e a invalidação devolve o fresco", async () => {
-    await seedRegistry([{ slug: "pdv1", schemaName: "tenant_pdv1", displayName: "Loja A" }]);
+    await seedRegistry([{ slug: "pdv1", displayName: "Loja A" }]);
 
     expect((await findTenantBySlug("pdv1"))?.displayName).toBe("Loja A");
 
@@ -678,7 +663,7 @@ describe("registry: migrations, isolamento de schema e cache", () => {
 
   it("cache: o TTL do registry é respeitado", async () => {
     await seedRegistry([
-      { slug: "umami", schemaName: "tenant_umami", displayName: "Loja A", customDomain: "umamisushiarte.com.br" },
+      { slug: "umami", displayName: "Loja A", customDomain: "umamisushiarte.com.br" },
     ]);
     setEnv("TENANT_REGISTRY_CACHE_TTL_SECONDS", "0");
 
@@ -693,23 +678,25 @@ describe("registry: migrations, isolamento de schema e cache", () => {
     expect(await findTenantBySlug("ainda-nao-existe")).toBeNull();
 
     await raw.all(
-      `INSERT INTO public.tenant (slug, schema_name, display_name) VALUES ('ainda-nao-existe', 'tenant_nova', 'Nova')`,
+      `INSERT INTO public.tenant (slug, display_name) VALUES ('ainda-nao-existe', 'Nova')`,
     );
     expect(await findTenantBySlug("ainda-nao-existe")).toBeNull();
 
     invalidateTenantRegistryCache();
-    expect((await findTenantBySlug("ainda-nao-existe"))?.schemaName).toBe("tenant_nova");
+    // Depois da invalidação, a linha plantada aparece (o negativo estava
+    // cacheado, e o slug agora resolve).
+    expect((await findTenantBySlug("ainda-nao-existe"))?.displayName).toBe("Nova");
   });
 
   it("os CHECKs do registry valem no banco", async () => {
     await expect(
-      raw.all("INSERT INTO public.tenant (slug, schema_name, display_name) VALUES ('Slug Inválido', 'tenant_x', 'X')"),
+      raw.all("INSERT INTO public.tenant (slug, display_name) VALUES ('Slug Inválido', 'X')"),
     ).rejects.toThrow();
     // Duas lojas no MESMO schema: no modelo por LINHA isso é o normal (a
-    // separação é a coluna `tenant_id`), então o UNIQUE de `schema_name` saiu
-    // de cena — a coluna virou vestigial.
+    // separação é a coluna `tenant_id`), e a coluna `schema_name` saiu do
+    // banco na `0018`.
     await expect(
-      raw.all("INSERT INTO public.tenant (slug, schema_name, display_name) VALUES ('outro', 'public', 'X')"),
+      raw.all("INSERT INTO public.tenant (slug, display_name) VALUES ('outro', 'X')"),
     ).resolves.toBeDefined();
     // Domínio próprio com maiúscula não entra: o índice único é sobre `lower()`
     // e o `CHECK` exige a forma que o browser envia.
@@ -720,8 +707,8 @@ describe("registry: migrations, isolamento de schema e cache", () => {
     ).rejects.toThrow();
     // E dois tenants não podem disputar o mesmo endereço.
     await seedRegistry([
-      { slug: "a", schemaName: "tenant_a", customDomain: "loja.com.br" },
-      { slug: "b", schemaName: "tenant_b" },
+      { slug: "a", customDomain: "loja.com.br" },
+      { slug: "b" },
     ]);
     await expect(
       raw.all(

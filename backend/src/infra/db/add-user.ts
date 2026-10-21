@@ -63,7 +63,7 @@ export async function addUser(
     lookupError = err;
   }
   const scope = tenant
-    ? { tenantId: tenant.id, schemaName: tenant.schemaName, slug, isDefault: false }
+    ? { tenantId: tenant.id, slug, isDefault: false }
     : defaultTenantScope(slug);
   if (!scope) {
     throw new Error(

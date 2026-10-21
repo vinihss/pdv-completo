@@ -700,8 +700,8 @@ describe("identidade: conta com duas empresas", () => {
     // A linha do registry ANTES do dado: a FK `store_settings →
     // public.tenant` recusa o dado de um tenant que não está no registry.
     await raw.all(
-      `INSERT INTO public.tenant (id, slug, schema_name, display_name, status)
-       VALUES ($1, $2, 'public', $3, 'active')
+      `INSERT INTO public.tenant (id, slug, display_name, status)
+       VALUES ($1, $2, $3, 'active')
        ON CONFLICT (slug) DO UPDATE SET id = EXCLUDED.id`,
       [TENANT_B_ID, TENANT_B_SLUG, "Loja B"],
     );
@@ -760,9 +760,9 @@ describe("identidade: conta com duas empresas", () => {
     // loja (é o que a policy de RLS compara) — um id aleatório deixaria o
     // dado da loja invisível para o contexto.
     await raw.all(
-      `INSERT INTO public.tenant (id, slug, schema_name, display_name, status)
-       VALUES ($1, $2, $3, 'Loja B', 'active')
-       ON CONFLICT (slug) DO UPDATE SET id = EXCLUDED.id, schema_name = EXCLUDED.schema_name, status = 'active'`,
+      `INSERT INTO public.tenant (id, slug, display_name, status)
+       VALUES ($1, $2, $3, 'active')
+       ON CONFLICT (slug) DO UPDATE SET id = EXCLUDED.id, status = 'active'`,
       [TENANT_B_ID, TENANT_B_SLUG, TENANT_B_SCHEMA],
     );
     // A marca da loja. O `set_config(..., true)` é de TRANSAÇÃO: um `SET` de

@@ -35,7 +35,6 @@ export interface ActiveTenantRow {
   /** Id do tenant (uuid) — a identidade estável que o escopo ALS carrega. */
   id: string;
   slug: string;
-  schemaName: string;
   status: string;
 }
 

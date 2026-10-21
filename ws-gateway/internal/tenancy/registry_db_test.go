@@ -24,10 +24,11 @@ import (
 // criarTenantTable espelha `backend/migrations/registry/0001_tenant_registry.sql`
 // (só o que a suíte usa). `IF NOT EXISTS` de propósito: num banco que já roda o
 // registry de verdade, quem manda é a DDL real.
+// A tabela do registry no modelo por LINHA (`docs/28`): sem `schema_name` (a
+// coluna saiu na migration `0018`).
 const criarTenantTable = `CREATE TABLE IF NOT EXISTS public.tenant (
 	id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 	slug         TEXT NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9][a-z0-9-]*$'),
-	schema_name  TEXT UNIQUE CHECK (schema_name IS NULL OR schema_name = 'public' OR schema_name ~ '^tenant_[a-z0-9_]+$'),
 	display_name TEXT NOT NULL,
 	status       TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended')),
 	custom_domain TEXT,
@@ -53,10 +54,10 @@ func testDB(t *testing.T) *sql.DB {
 	return pool
 }
 
-// novoTenantDeTeste grava um tenant ativo e devolve (slug, schema, domínio
+// novoTenantDeTeste grava um tenant ativo e devolve (slug, id, domínio
 // próprio) com sufixo aleatório: a suíte não apaga o que é de outro teste, então
 // cada rodada só fala das linhas que plantou. O cleanup remove as três.
-func novoTenantDeTeste(t *testing.T, pool *sql.DB, status string) (slug, schema, dominio string) {
+func novoTenantDeTeste(t *testing.T, pool *sql.DB, status string) (slug, id, dominio string) {
 	t.Helper()
 
 	var sufixo [4]byte
@@ -65,21 +66,22 @@ func novoTenantDeTeste(t *testing.T, pool *sql.DB, status string) (slug, schema,
 	}
 	hexSufixo := hex.EncodeToString(sufixo[:])
 	slug = "loja-" + hexSufixo
-	schema = "tenant_loja_" + hexSufixo
 	dominio = hexSufixo + ".exemplo.test"
 
-	if _, err := pool.Exec(
-		`INSERT INTO public.tenant (slug, schema_name, display_name, status, custom_domain)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		slug, schema, "Loja de teste "+hexSufixo, status, dominio); err != nil {
+	var tenantID string
+	if err := pool.QueryRow(
+		`INSERT INTO public.tenant (slug, display_name, status, custom_domain)
+		 VALUES ($1, $2, $3, $4) RETURNING id`,
+		slug, "Loja de teste "+hexSufixo, status, dominio).Scan(&tenantID); err != nil {
 		t.Fatalf("não consegui plantar o tenant de teste: %v", err)
 	}
+	id = tenantID
 	t.Cleanup(func() {
 		if _, err := pool.Exec(`DELETE FROM public.tenant WHERE slug = $1`, slug); err != nil {
 			t.Errorf("não consegui limpar o tenant de teste %s: %v", slug, err)
 		}
 	})
-	return slug, schema, dominio
+	return slug, id, dominio
 }
 
 // O registry é a fonte do dispatcher: ativos entram com o schema certo, o
@@ -87,7 +89,7 @@ func novoTenantDeTeste(t *testing.T, pool *sql.DB, status string) (slug, schema,
 // só deixa de ser injetado quando virar linha do registry).
 func TestRegistryLeAtivosESaltaSuspensos(t *testing.T) {
 	pool := testDB(t)
-	ativo, schemaAtivo, _ := novoTenantDeTeste(t, pool, "active")
+	ativo, idAtivo, _ := novoTenantDeTeste(t, pool, "active")
 	suspenso, _, _ := novoTenantDeTeste(t, pool, "suspended")
 
 	tenants, err := NewRegistry(pool).Tenants(context.Background())
@@ -98,7 +100,7 @@ func TestRegistryLeAtivosESaltaSuspensos(t *testing.T) {
 	porSlug := map[string]string{}
 	temDefault := false
 	for _, tenant := range tenants {
-		porSlug[tenant.Slug] = tenant.Schema
+		porSlug[tenant.Slug] = tenant.ID
 		if tenant.Slug == DefaultSlug {
 			temDefault = true
 		}
@@ -107,8 +109,8 @@ func TestRegistryLeAtivosESaltaSuspensos(t *testing.T) {
 	if !temDefault {
 		t.Errorf("registry sem a linha `default` e o default não foi injetado: %v — o claim do JWT da loja default não casaria nada", porSlug)
 	}
-	if got := porSlug[ativo]; got != schemaAtivo {
-		t.Errorf("tenant ativo com schema %q, quer %q (slugs: %v)", got, schemaAtivo, porSlug)
+	if got := porSlug[ativo]; got != idAtivo {
+		t.Errorf("tenant ativo com id %q, quer %q (slugs: %v)", got, idAtivo, porSlug)
 	}
 	if _, achou := porSlug[suspenso]; achou {
 		t.Errorf("tenant SUSPENSO apareceu na lista de tenants a varrer: %v", porSlug)
@@ -120,19 +122,19 @@ func TestRegistryLeAtivosESaltaSuspensos(t *testing.T) {
 // default e ficaria muda.
 func TestRegistryResolveHost(t *testing.T) {
 	pool := testDB(t)
-	slug, schema, dominio := novoTenantDeTeste(t, pool, "active")
+	slug, id, dominio := novoTenantDeTeste(t, pool, "active")
 
 	fonte := NewRegistry(pool)
 	casos := []struct {
-		host       string
-		wantSlug   string
-		wantSchema string
+		host     string
+		wantSlug string
+		wantID   string
 	}{
-		{slug + ".pdv.app", slug, schema},             // subdomínio de slug conhecido
-		{dominio, slug, schema},                       // domínio próprio (custom_domain)
-		{"www." + slug + ".pdv.app", DefaultSlug, ""}, // rótulo reservado ⇒ default
-		{"desconhecido.pdv.app", DefaultSlug, ""},     // slug que não existe ⇒ default
-		{"localhost:8080", DefaultSlug, ""},           // 1 rótulo ⇒ default
+		{slug + ".pdv.app", slug, id},                        // subdomínio de slug conhecido
+		{dominio, slug, id},                                  // domínio próprio (custom_domain)
+		{"www." + slug + ".pdv.app", DefaultSlug, DefaultID}, // rótulo reservado ⇒ default
+		{"desconhecido.pdv.app", DefaultSlug, DefaultID},     // slug que não existe ⇒ default
+		{"localhost:8080", DefaultSlug, DefaultID},           // 1 rótulo ⇒ default
 	}
 
 	for _, c := range casos {
@@ -144,8 +146,8 @@ func TestRegistryResolveHost(t *testing.T) {
 			if got.Slug != c.wantSlug {
 				t.Errorf("Resolve(%q) = slug %q, quer %q", c.host, got.Slug, c.wantSlug)
 			}
-			if c.wantSchema != "" && got.Schema != c.wantSchema {
-				t.Errorf("Resolve(%q) = schema %q, quer %q", c.host, got.Schema, c.wantSchema)
+			if got.ID != c.wantID {
+				t.Errorf("Resolve(%q) = id %q, quer %q", c.host, got.ID, c.wantID)
 			}
 		})
 	}

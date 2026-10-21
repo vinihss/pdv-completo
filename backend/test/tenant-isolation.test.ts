@@ -45,16 +45,16 @@ beforeAll(async () => {
   await runRegistryMigrations();
 
   // Registrar tenants no registry (as lojas moram no schema ÚNICO: o
-  // `schema_name` é topologia morta — a coluna sai na Fase 3c).
+  // (a coluna `schema_name` saiu do registry na migration `0018`).
   await raw.all(
-    `INSERT INTO public.tenant (id, slug, schema_name, display_name, status)
-     VALUES ($1, $2, 'public', $3, $4)
+    `INSERT INTO public.tenant (id, slug, display_name, status)
+     VALUES ($1, $2, $3, $4)
      ON CONFLICT (slug) DO UPDATE SET id = EXCLUDED.id, display_name = EXCLUDED.display_name, status = EXCLUDED.status`,
     [TENANT_A_ID, TENANT_A_SLUG, "Tenant A", "active"]
   );
   await raw.all(
-    `INSERT INTO public.tenant (id, slug, schema_name, display_name, status)
-     VALUES ($1, $2, 'public', $3, $4)
+    `INSERT INTO public.tenant (id, slug, display_name, status)
+     VALUES ($1, $2, $3, $4)
      ON CONFLICT (slug) DO UPDATE SET id = EXCLUDED.id, display_name = EXCLUDED.display_name, status = EXCLUDED.status`,
     [TENANT_B_ID, TENANT_B_SLUG, "Tenant B", "active"]
   );
