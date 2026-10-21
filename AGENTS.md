@@ -212,11 +212,11 @@ O login lista os usuários ativos via `GET /auth/users`, que respeita os toggles
 | `npm run seed:apply -- <id>` | backend | aplica um seed pelo id do catálogo (`base`, `demo`, `prod`) — o mesmo catálogo em `backend/src/infra/db/seeds/manifest.json` que a CLI lê |
 | CLI `pdv db seeds` | CLI instalada | lista os seeds do catálogo (lido em runtime do manifest — seed novo não exige recompilar a CLI) |
 | CLI `pdv db seed <id>` | CLI instalada | aplica o seed `<id>`; roda no host (com `backend/node_modules`) ou dentro do container do backend |
-| CLI `pdv db list` | CLI instalada | tenants do registry `public.tenant`; em single-tenant (dev) mostra o **tenant implícito** (slug `default` → schema `public`), que é o alvo das operações de banco |
+| CLI `pdv db list` | CLI instalada | tenants do registry `public.tenant`; em single-tenant (dev) mostra o **tenant implícito** (slug `default`, id `00000000-…0001`), que é o alvo das operações de banco |
 | `npm run db:migrate` | backend | aplica `migrations/*.sql` (também roda no boot em modo local) |
 | `npm run db:ensure-app-role` | backend | cria/ajusta o **papel do app** (`pdv_app`, sem superuser e sem BYPASSRLS) e dá os grants — o pré-requisito do RLS; sem `APP_DB_PASSWORD` no ambiente, não faz nada |
 | `npm run db:migrate:registry` | backend | aplica `migrations/registry/*.sql` no schema `public` (registry de tenant; roda no boot antes do `db:migrate`) |
-| `npm run db:provision -- <slug> "<nome>"` | backend | provisiona um tenant novo: cria o schema `tenant_<slug>`, aplica as migrations dentro dele, registra em `public.tenant` e roda o bootstrap (`store_settings` + manager com PIN no log). `SEED=0` pula o bootstrap |
+| `npm run db:provision -- <slug> "<nome>"` | backend | provisiona um tenant novo: registra a loja em `public.tenant` (id uuid) e roda o bootstrap (`store_settings` + manager com PIN no log) **dentro do escopo da loja** — no modelo por linha **não há schema por loja** (`docs/28`). `SEED=0` pula o bootstrap |
 | CLI `pdv db provision <slug> "<nome>"` | CLI instalada | mesmo provisionamento pelo dispatcher (confira `pdv --help`) |
 | `npm run test` | backend | Vitest (`backend/test/*.test.ts`; confira `TEST_DATABASE_URL` e o setup atual) |
 | `npm run lint` | frontend | oxlint |
@@ -305,6 +305,28 @@ automático via Semantic Release no merge da `main` — a tag nasce sozinha.
 - **Lock otimista**: toda mutação de `order_item` exige `expectedVersion`
 - **Estoque é ledger**: saldo = soma dos `quantity_delta` de `stock_movement`
 - **Sem lint/typecheck configurado** — rode `npm run build` (tsc) para validar
+
+### Multi-tenant: por LINHA (não por schema)
+
+O modelo é **um schema, uma coluna, uma policy** (`docs/28-multitenant-row-level.md`):
+
+- **Todas as lojas moram no schema do app** (`public`). Não existe mais
+  `tenant_<slug>` (a coluna `schema_name` do registry saiu na migration
+  `0018`).
+- **Quem separa uma loja da outra é a coluna `tenant_id`** + a policy de RLS
+  (`USING (tenant_id = current_setting('app.tenant_id')::uuid)`).
+- **O `app.tenant_id` é do POOL** (vai no startup packet, e a transação o
+  reafirma com `set_config(..., true)`). Nunca faça `SET app.tenant_id` de
+  **sessão** num pool compartilhado: o `SET` gruda na conexão e a policy passa
+  a esconder a loja errada. Para mudar o contexto na marcação, use
+  `set_config('app.tenant_id', …, true)`.
+- **A chave de cache é o `tenantId`** (`${tenantId}:${chave}`) — nunca o schema
+  (misturaria as lojas).
+- **A PK é `(tenant_id, id)`** e as UNIQUEs são por loja. Todo `ON CONFLICT`
+  que cita só o `id` precisa citar o par.
+- **O app conecta com um papel restrito** (`pdv_app`, sem superuser e sem
+  BYPASSRLS). Conectando como dono, o RLS é **inerte** e a barreira não
+  existe.
 
 ### Frontend (resumo)
 

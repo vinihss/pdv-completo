@@ -67,7 +67,7 @@ o ratchet garante que o que já migrou não regrida):
 
 - `backend/src/infra/cache/`: `MemoryCache` (singleton de processo) + `RedisCacheClient` (`ioredis`) + `warmup.ts`.
 - `initCache()` no `server.ts` (boot): testa `REDIS_URL`; se falhar, cai para `MemoryCache` (não quebra o boot).
-- `tenantCache` particiona chaves por schema (`${resolveTenantSchemaInScope()}:${key}`) — evita vazamento entre lojas.
+- `tenantCache` particiona chaves por **tenant** (`${currentTenantId()}:${key}`) — evita vazamento entre lojas. A chave NÃO pode ser o schema: no modelo por linha (`docs/28`) todas as lojas moram no mesmo schema, e uma chave por schema misturaria as lojas.
 - `warmup.ts` pré-popula `store-settings`, categorias, produtos populares por tenant via `public.tenant` (registry). Se registry vazio/falha, usa `runWarmupLegacy()`.
 - `app.decorate("cache", ...)` expõe o cliente para rotas/hook; `getCache()` é sync ou async conforme cliente ativo.
 
@@ -101,7 +101,7 @@ A estrutura, a lista atual e as regras de compatibilidade estão em [`backend/mi
 
 Estado do checkout (confirme a pasta antes de criar): baseline `0001_init.sql` e incrementais `0003_courier_location.sql`, `0004_delivery_arrival_alert_sent.sql`, `0004_device_provisioning.sql`, `0005_cash_drawer_denominations.sql`, `0006_order_refund.sql`, `0008_cash_movement_category.sql`, `0009_remove_whatsapp.sql`, `0010_remove_payment_ifood.sql` e `0011_delivery_gis.sql`. Não há `0002`/`0007` (lacunas históricas — `0002_pagarme` saiu da pasta) e os dois `0004_*` são uma colisão histórica, ordenada lexicamente; não a replique. A próxima migration deve usar prefixo novo superior (`0012_*` no estado atual).
 
-- O runner lê apenas arquivos `.sql` diretamente em `backend/migrations/`, ordena pelo filename e aplica por schema dentro de transação.
+- O runner lê apenas arquivos `.sql` diretamente em `backend/migrations/`, ordena pelo filename e aplica **uma vez** (no schema do app) dentro de transação. O modelo por linha (`docs/28`) tirou o schema por loja: as migrations rodam uma vez e quem separa as lojas é a coluna `tenant_id` + o RLS.
 - `archive/` é histórico não executável; `registry/` usa runner separado e aplica somente em `public`. Não misture os diretórios.
 - Escreva DDL seguro para rollout e retentativa; use `IF NOT EXISTS` quando adequado, e não use `CREATE INDEX CONCURRENTLY` no runner transacional.
 - O boot aguarda os runners e aborta se falharem. Preserve o `await` de `runMigrations()`/`runRegistryMigrations()`.
@@ -110,9 +110,10 @@ Estado do checkout (confirme a pasta antes de criar): baseline `0001_init.sql` e
 
 > **Nota**: `docs/15-multi-tenant-schema.md` foi removido do repo (`308c9977`);
 > histórico em `git show 308c9977^:docs/15-multi-tenant-schema.md`. A decisão
-> atual (identidade centralizada + migração futura para schema único com RLS)
-> está em `docs/26-identidade-centralizada.md`. As fases citadas abaixo são
-> históricas — valide no código antes de assumir qualquer uma.
+> atual (identidade centralizada + **multi-tenant por linha**, entregue) está
+> em `docs/26-identidade-centralizada.md` e `docs/28-multitenant-row-level.md`.
+> As fases citadas abaixo são históricas — valide no código antes de assumir
+> qualquer uma.
 
 `backend/migrations/registry/` é um **diretório** e tem **runner próprio**
 (`src/infra/db/registry-migrate.ts`, `npm run db:migrate:registry`, controle em

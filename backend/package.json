@@ -23,6 +23,7 @@
     "db:provision": "tsx src/infra/db/provision-tenant.ts",
     "db:deactivate-demo": "tsx src/infra/db/deactivate-demo-catalog.ts",
     "uploads:migrate-layout": "tsx scripts/migrate-uploads-layout.ts",
+    "uploads:migrate-tenant-dirs": "tsx scripts/migrate-uploads-tenant-dirs.ts",
     "test": "vitest run",
     "test:architecture": "vitest run test/architecture.test.ts",
     "test:watch": "vitest"

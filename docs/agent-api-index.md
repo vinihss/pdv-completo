@@ -237,22 +237,24 @@ em cada caso). "autenticado" ≠ "público": rota sem token nenhum é só a de
 
 ### `GET /public/tenants/resolve`
 
-Único endpoint do multi-tenant (schema-por-tenant) que existe hoje: a vitrine de
-pedidos (`apps/pedido-public`) pergunta **em qual loja** está antes de qualquer
-outra chamada. Detalhe no antigo `docs/15-multi-tenant-schema.md` §6 (Fase 1) —
-removido em `308c9977`; recupere com
+Único endpoint do multi-tenant que existe hoje: a vitrine de pedidos
+(`apps/pedido-public`) pergunta **em qual loja** está antes de qualquer outra
+chamada. O modelo é o **multi-tenant por linha** (`docs/28-multitenant-row-level.md`):
+as lojas convivem no mesmo schema e quem as separa é a coluna `tenant_id` + a
+policy de RLS. O histórico (o modelo antigo, schema-por-loja) está em
 `git show 308c9977^:docs/15-multi-tenant-schema.md`.
 
 - **Sem autenticação** e com o rate limit de lookup público (20/min por IP).
 - O host vem de `?host=`, de `X-Tenant-Host` (que o Caddy injeta em `api.*`) ou
   do `Host`/`X-Forwarded-Host` da requisição — nessa ordem.
 - `200` → `{ found: true, tenant: { storeId, slug, name, logoUrl, primaryColor, usesDelivery, kitchenEnabled } }`.
-  O `schema_name` do banco **não** sai: é topologia interna.
+  A coluna `schema_name` do banco **não existe mais** (migration `0018`) e,
+  de qualquer modo, nunca sairia: é topologia interna.
 - `404` → `{ found: false, error: { code: "tenant_not_resolved", … } }` (endereço
   não é loja nenhuma; nunca cai no tenant default).
 - `403` → `tenant_inactive` (loja suspensa). `503` → `tenant_schema_unavailable`
-  (a loja está no registry mas o processo ainda não fala o schema dela — só
-  acontece entre a Fase 1 e a Fase 3).
+  (a loja está no registry mas ainda não foi semeada — não tem a linha dela em
+  `store_settings`).
 - Com `TENANT_ROUTING=false` (o default) **nenhum** endereço dá 404: todo host
   resolve para o tenant default, que é o comportamento de antes do multi-tenant.
 

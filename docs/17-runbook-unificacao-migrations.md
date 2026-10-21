@@ -3,7 +3,13 @@
 > **Data:** 2026-10-04 · **Branch:** `docs/pendencias-e-unificacao-migrations`
 > **Objetivo:** sair da cadeia de 10 arquivos em `backend/migrations/` (com duplo `0003_`, gap
 > `0008`–`0011` e `0012` desfazendo tudo) para um **único** `backend/migrations/0001_init.sql`,
-> idempotente, que passa a ser o DDL que cada schema de tenant recebe.
+> idempotente.
+>
+> **NOTA (2026-10-21):** este runbook descreve a unificação das migrations, que
+> continua valendo. A parte que falava em "o DDL que **cada schema de tenant**
+> recebe" ficou HISTÓRICA: o modelo por **linha** (`docs/28-multitenant-row-level.md`)
+> tirou o schema por loja — as migrations rodam **uma vez**, no schema do app, e
+> quem separa uma loja da outra é a coluna `tenant_id` + a policy de RLS.
 
 ## Garantias de segurança (leia antes de executar)
 
@@ -93,7 +99,11 @@ O banco zerado no passo 5 **só** é seguro porque o dado original está no `.du
 do schema zerado, ou recriar o banco a partir do dump integral. Não delete
 `/opt/backups/pdv-<stamp>.dump` até 24h pós-cutover.
 
-## Notas para multi-tenant (§15)
+## Notas para multi-tenant
+
+> As notas abaixo são HISTÓRICAS (o `docs/15`, removido do repo). O modelo
+> atual é o **multi-tenant por linha** (`docs/28-multitenant-row-level.md`):
+> um schema, uma coluna `tenant_id`, uma policy de RLS.
 
 - `provisionTenantSchema()` deve rodar **este** baseline por schema (`SET search_path` no
   schema do tenant + executar o arquivo), não a cadeia antiga.

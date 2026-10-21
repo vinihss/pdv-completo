@@ -225,7 +225,7 @@ backend.
 | Visualizar logs | Últimas linhas do backend (`docker compose logs`, fallback para arquivos locais) |
 | Reset PIN do manager | Seletor de tenant → formulário (PIN opcional) → roda `reset-manager-pin.ts` |
 | Editar configurações | Seletor de tenant → formulário de `store_settings` → `UPDATE` |
-| Backup/dump do tenant | Seletor de tenant → confirmação → `pg_dump --schema` para `/tmp/tenant-<slug>-dump.sql` |
+| Export do tenant | Seletor de tenant → confirmação → export por `tenant_id` (um `COPY` por tabela) para `/tmp/tenant-<slug>-dump.sql`. O `pg_dump --schema` morreu com o RLS: o `pg_dump` não respeita a policy e despejaria o banco inteiro |
 
 Em single-tenant, o único item da tabela é o tenant implícito (schema
 `public`), e é ele que os fluxos de configuração/PIN/dump operam.

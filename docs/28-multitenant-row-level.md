@@ -240,12 +240,41 @@ só a loja. O backup do BANCO INTEIRO (o `deploy/backup.sh`) continua valendo.
 | o boot aplicava migrations por loja | migrations **uma vez** |
 | o gateway fazia `SET LOCAL search_path` | só `SET LOCAL app.tenant_id` |
 
-### 3.5 Dados e consumidores (FASE 4)
+### 3.5 Dados e consumidores (FASE 4 — entregue)
 
-Migração do dado de produção; o gateway Go deixa de setar `search_path` e passa
-a usar o **id** (uuid) no `app.tenant_id`; a CLI e a TUI passam a filtrar por
-`tenant_id`; `docs/15`/`docs/17` são atualizados **na mesma leva** (a regra de
-conflito do `AGENTS.md`).
+O **gateway Go** deixou de setar `search_path` e passa a usar o **id** (uuid) no
+`app.tenant_id` — e a query do dispatcher filtra por `tenant_id` **explicitamente**
+(uma segunda barreira, independente do privilégio do papel do gateway: se o DSN
+dele for o dono, a policy é burlada e o dispatcher leria a fila de todas as
+lojas). O `WS_TENANTS` mudou de `slug=schema` para `slug=<uuid>`.
+
+A **CLI e a TUI** filtram por `tenant_id`: o diretório de uploads passou a ser
+`<uploadsDir>/<tenantId>/` (o id é a identidade estável — o slug pode ser
+renomeado), o dump por loja virou **export por tenant** (um `COPY` por tabela
+dentro de uma sessão com o `app.tenant_id` — o `pg_dump` não respeita a policy
+e despejaria o banco inteiro), e o `pdv db list` não mostra mais coluna de
+schema.
+
+O **dado**: não há dado de produção a migrar (o projeto não tem cliente real
+rodando — foi a premissa que o dono confirmou). A migração que importa é a do
+**volume de uploads** (o layout por loja mudou de schema para id):
+`npm run uploads:migrate-tenant-dirs` — o script move o diretório do default e
+**reporta** os das lojas velhas sem mapa (o mapa estava no registry, que a
+`0018` limpou; chutar o dono de um arquivo é pior do que não mover).
+
+Os **docs** (`AGENTS.md`, `docs/17`, `docs/25`, `docs/26`, `docs/27`,
+`docs/agent-api-index`, `docs/agent-backend`, `deploy/README.md`) foram
+atualizados **na mesma leva** (a regra de conflito do `AGENTS.md`).
+
+**O que fica de pendente (e é de operação, não de código):**
+
+1. **A `DATABASE_URL` de produção apontar para o papel restrito.** Sem isso o
+   RLS é **inerte** (superuser burla row security) e a barreira entre lojas
+   não existe. O passo a passo está no `deploy/README.md`.
+2. **O volume de uploads** de um ambiente que venha do modelo antigo.
+3. **O `pg_dump` do backup**: ele continua sendo do banco **inteiro** (é o que
+   o `deploy/backup.sh` faz) — o dump por loja não é mais possível, e a
+   alternativa é o export por tenant da CLI.
 
 ## 4. Regras que não se negociam
 
