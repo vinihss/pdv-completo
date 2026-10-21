@@ -20,7 +20,7 @@
 import { eq } from "drizzle-orm";
 import { db, pool, closeDatabase } from "./client.js";
 import { runInTenantScope } from "./tenant-context.js";
-import { resolveTenantSchema } from "../storage/index.js";
+
 import { listActiveTenants } from "../tenant/registry.js";
 import { DEFAULT_TENANT_SLUG } from "../../application/tenant/resolve-tenant.usecase.js";
 import { normalizeEmail, newId } from "../../application/identity/identity-helpers.js";
@@ -32,7 +32,6 @@ interface Scope {
   /** Id do tenant (uuid) — o mesmo que o escopo ALS carrega. */
   tenantId: string;
   slug: string;
-  schemaName: string;
 }
 
 /** Default primeiro, depois os ativos do registry (dedup por slug). */
@@ -41,14 +40,12 @@ async function resolveScopes(): Promise<Scope[]> {
   bySlug.set(DEFAULT_TENANT_SLUG, {
     tenantId: DEFAULT_TENANT_ID,
     slug: DEFAULT_TENANT_SLUG,
-    schemaName: resolveTenantSchema(),
   });
   for (const tenant of await listActiveTenants()) {
     if (bySlug.has(tenant.slug)) continue;
     bySlug.set(tenant.slug, {
       tenantId: tenant.id,
       slug: tenant.slug,
-      schemaName: tenant.schemaName,
     });
   }
   return [...bySlug.values()];
@@ -56,14 +53,13 @@ async function resolveScopes(): Promise<Scope[]> {
 
 async function backfillScope(scope: Scope): Promise<{ linked: number; skipped: number }> {
   return runInTenantScope({ ...scope, isDefault: scope.slug === DEFAULT_TENANT_SLUG }, async () => {
-    // Schema pode não estar provisionado (linha no registry antes do
-    // provisionamento): sem a tabela `user`, não há o que ligar.
+    // O schema é o ÚNICO do app: se a tabela `user` não estiver lá, o seed
+    // não rodou e não há o que ligar.
     const provisioned = await pool.query(
-      `SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'user' LIMIT 1`,
-      [scope.schemaName],
+      `SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'user' LIMIT 1`,
     );
     if (provisioned.rows.length === 0) {
-      console.log(`[backfill] ${scope.slug}: schema não provisionado — pulando`);
+      console.log(`[backfill] ${scope.slug}: sem tabela user (seed não rodou) — pulando`);
       return { linked: 0, skipped: 0 };
     }
 

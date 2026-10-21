@@ -102,11 +102,9 @@ export class PgIdentityTenantReader implements IdentityTenantReader {
     bySlug.set(fallback.slug, fallback);
     for (const tenant of await this.deps.listActiveTenants()) {
       if (bySlug.has(tenant.slug)) continue;
-      if (!isSafeSchemaName(tenant.schemaName)) continue;
       bySlug.set(tenant.slug, {
         tenantId: tenant.id,
         slug: tenant.slug,
-        schemaName: tenant.schemaName,
         isDefault: false,
       });
     }
@@ -122,23 +120,20 @@ export class PgIdentityTenantReader implements IdentityTenantReader {
     if (!this.deps.routingEnabled()) return null;
     const record = await this.deps.registry.findBySlug(slug);
     if (!record || record.status !== "active") return null;
-    if (!isSafeSchemaName(record.schemaName)) return null;
     return {
       tenantId: record.id,
       slug: record.slug,
-      schemaName: record.schemaName,
       isDefault: false,
     };
   }
 
   private async findLinkedUserInTenant(scope: TenantScope, accountId: string): Promise<LinkedUserRecord | null> {
     return runInTenantScope(scope, async () => {
-      // Checagem EXPLÍCITA de provisionamento (mesma razão do brand reader): com
-      // o schema ausente o `search_path` cai para `public` em silêncio e a linha
-      // de `public.user` seria lida como se fosse da loja.
+      // Checagem EXPLÍCITA de provisionamento (mesma razão do brand reader): o
+      // schema é o ÚNICO do app, e é lá que o `user` mora — se ele não
+      // estiver lá, o seed não rodou.
       const provisioned = await pool.query(
-        `SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'user' LIMIT 1`,
-        [scope.schemaName],
+        `SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'user' LIMIT 1`,
       );
       if (provisioned.rows.length === 0) return null;
 

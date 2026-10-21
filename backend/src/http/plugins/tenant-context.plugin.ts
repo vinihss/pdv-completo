@@ -38,7 +38,6 @@ async function tenantContextPlugin(app: FastifyInstance) {
         const tenant = await resolveTenant(typeof rawHost === "string" ? rawHost : undefined);
         enterTenantScope({
           tenantId: tenant.id,
-          schemaName: tenant.schemaName,
           slug: tenant.slug,
           isDefault: tenant.isDefault,
         });

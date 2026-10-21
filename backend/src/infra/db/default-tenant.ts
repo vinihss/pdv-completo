@@ -51,7 +51,6 @@ export function defaultTenantScope(slug: string): TenantScope | undefined {
   if (slug !== DEFAULT_TENANT_SLUG) return undefined;
   return {
     tenantId: DEFAULT_TENANT_ID,
-    schemaName: defaultTenantSchema(),
     slug: DEFAULT_TENANT_SLUG,
     isDefault: true,
   };

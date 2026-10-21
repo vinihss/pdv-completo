@@ -15,10 +15,7 @@ type Point = { latitude: number; longitude: number };
  * conexão não tem contexto e a policy falha.
  */
 function db() {
-  return getTenantPool(
-    resolveTenantSchemaInScope(),
-    currentTenantScope()?.tenantId ?? DEFAULT_TENANT_ID,
-  );
+  return getTenantPool(currentTenantScope()?.tenantId ?? DEFAULT_TENANT_ID);
 }
 function validatePoint(point: Point) {
   if (!Number.isFinite(point.latitude) || point.latitude < -90 || point.latitude > 90 ||

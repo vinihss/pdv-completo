@@ -675,13 +675,16 @@ func TestPollOnceParticionaPorTenant(t *testing.T) {
 	bd := testDB(t)
 	t.Setenv(dispatchEnv, "1")
 
-	schemaA, schemaB := "tenant_loja_a", "tenant_loja_b"
-	criaSchemaTenant(t, bd, schemaA)
-	criaSchemaTenant(t, bd, schemaB)
+	// No modelo por LINHA (`docs/28`) as lojas convivem no MESMO schema: quem
+	// separa uma da outra é a coluna `tenant_id` (a policy de RLS e o filtro
+	// explícito da query). O teste planta uma linha POR LOJA no schema único.
+	const idLojaA = "11111111-aaaa-0000-0000-00000000000a"
+	const idLojaB = "22222222-bbbb-0000-0000-00000000000b"
+	criaTabelaOutbox(t, bd)
 
 	room := "cash-drawer" // mesmo nome nas duas lojas, de propósito
-	idA := plantaPendenteNo(t, bd, schemaA, "cash.drawer.opened", `{"loja":"A"}`, room)
-	idB := plantaPendenteNo(t, bd, schemaB, "cash.drawer.opened", `{"loja":"B"}`, room)
+	idA := plantaPendenteNo(t, bd, idLojaA, "cash.drawer.opened", `{"loja":"A"}`, room)
+	idB := plantaPendenteNo(t, bd, idLojaB, "cash.drawer.opened", `{"loja":"B"}`, room)
 
 	hub := newRecordingHub()
 	hub.assinarNo("loja-a", room, 1)
@@ -690,8 +693,8 @@ func TestPollOnceParticionaPorTenant(t *testing.T) {
 	// O `ID` (uuid) acompanha o tenant: é o que a transação grava em
 	// `app.tenant_id` (e o que a policy vai comparar com `tenant_id`).
 	fonte := tenancy.NewStatic([]tenancy.Tenant{
-		{ID: "11111111-aaaa-0000-0000-00000000000a", Slug: "loja-a", Schema: schemaA},
-		{ID: "22222222-bbbb-0000-0000-00000000000b", Slug: "loja-b", Schema: schemaB},
+		{ID: idLojaA, Slug: "loja-a"},
+		{ID: idLojaB, Slug: "loja-b"},
 	})
 
 	n, err := NewWithSource(bd, hub, fonte).PollOnce(context.Background())
@@ -699,17 +702,17 @@ func TestPollOnceParticionaPorTenant(t *testing.T) {
 		t.Fatalf("PollOnce falhou: %v", err)
 	}
 	if n < 2 {
-		t.Errorf("ciclo leu %d evento(s), no mínimo 2 (uma por schema)", n)
+		t.Errorf("ciclo leu %d evento(s), no mínimo 2 (uma por loja)", n)
 	}
 
 	confereFrameDe(t, hub, "loja-a", room, "A")
 	confereFrameDe(t, hub, "loja-b", room, "B")
 
-	if !publicadoNo(t, bd, schemaA, idA) {
-		t.Errorf("evento de %s continua pendente: o SELECT não rodou no schema do tenant", schemaA)
+	if !publicadoNo(t, bd, idLojaA, idA) {
+		t.Errorf("evento da loja A continua pendente: o SELECT não pegou a linha da loja")
 	}
-	if !publicadoNo(t, bd, schemaB, idB) {
-		t.Errorf("evento de %s continua pendente: o SELECT não rodou no schema do tenant", schemaB)
+	if !publicadoNo(t, bd, idLojaB, idB) {
+		t.Errorf("evento da loja B continua pendente: o SELECT não pegou a linha da loja")
 	}
 }
 
@@ -764,17 +767,23 @@ func testDB(t *testing.T) *sql.DB {
 }
 
 // criarOutboxTable é a tabela que o dispatcher lê, com os mesmos nomes de
-// coluna do backend (backend/migrations/0001_init.sql). `IF NOT EXISTS` de
-// propósito: quem apontar a env para um banco que já tem a tabela real do
-// migrate usa a real.
+// coluna do backend (backend/migrations/0001_init.sql + a `0013`, que
+// acrescenta o `tenant_id` e compõe a PK). `IF NOT EXISTS` de propósito: quem
+// apontar a env para um banco que já tem a tabela real do migrate usa a real.
+//
+// O `tenant_id` NÃO é opcional: no modelo por linha (`docs/28`) é ele que
+// separa uma loja da outra no schema único — e a query do dispatcher filtra
+// por ele (`current_setting('app.tenant_id')`).
 const criarOutboxTable = `CREATE TABLE IF NOT EXISTS outbox_event (
-	id text PRIMARY KEY,
+	id text NOT NULL,
+	tenant_id uuid NOT NULL,
 	seq bigint NOT NULL,
 	event_type text NOT NULL,
 	payload text NOT NULL,
 	room text NOT NULL,
 	published boolean NOT NULL DEFAULT false,
-	created_at text NOT NULL DEFAULT to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'::text)
+	created_at text NOT NULL DEFAULT to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'::text),
+	PRIMARY KEY (tenant_id, id)
 )`
 
 // plantaPendente grava uma linha como o backend grava (a intenção de emitir
@@ -792,9 +801,11 @@ func plantaPendente(t *testing.T, db *sql.DB, eventType, payload string) (id, ro
 	id = "outbox-test-" + hex.EncodeToString(suffix[:])
 	room = "outbox-test:" + id
 
+	// O `tenant_id` é o do default implícito — o mesmo id que o backend grava
+	// no seed (`00000000-0000-0000-0000-000000000001`).
 	_, err := db.Exec(
-		`INSERT INTO outbox_event (id, seq, event_type, payload, room) VALUES ($1, $2, $3, $4, $5)`,
-		id, time.Now().UnixNano(), eventType, payload, room,
+		`INSERT INTO outbox_event (id, tenant_id, seq, event_type, payload, room) VALUES ($1, $2, $3, $4, $5, $6)`,
+		id, "00000000-0000-0000-0000-000000000001", time.Now().UnixNano(), eventType, payload, room,
 	)
 	if err != nil {
 		t.Fatalf("não consegui plantar o evento pendente: %v", err)
@@ -813,7 +824,7 @@ func publicado(t *testing.T, db *sql.DB, id string) bool {
 	return valor
 }
 
-// criaSchemaTenant garante um schema de tenant com a própria `outbox_event`,
+// criaTabelaOutbox garante a `outbox_event` do schema único (o do app),
 // como o migrate cria quando provisiona uma loja (docs/15 §3.3).
 //
 // O nome é interpolado porque `CREATE SCHEMA IF NOT EXISTS $1` não aceita
@@ -821,28 +832,20 @@ func publicado(t *testing.T, db *sql.DB, id string) bool {
 // que barra a env e o registry, o mesmo CHECK do banco
 // (`^tenant_[a-z0-9_]+$`). Constante de teste sem validação seria o único
 // caminho de injeção, e ele não existe.
-func criaSchemaTenant(t *testing.T, db *sql.DB, schema string) {
+// criaTabelaOutbox cria a `outbox_event` no schema ÚNICO (o do app) — no
+// modelo por linha (`docs/28`) todas as lojas moram no mesmo schema e quem as
+// separa é a coluna `tenant_id`.
+func criaTabelaOutbox(t *testing.T, db *sql.DB) {
 	t.Helper()
 
-	if !tenancy.ValidSchema(schema) {
-		t.Fatalf("schema de teste %q rejeitado pelo ValidSchema: o helper só aceita o formato do registry", schema)
-	}
-	if _, err := db.Exec(`CREATE SCHEMA IF NOT EXISTS ` + schema); err != nil {
-		t.Fatalf("não consegui criar o schema %s (a role de teste precisa de CREATE): %v", schema, err)
-	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS ` + schema + `.outbox_event ` +
-		`(id text PRIMARY KEY, seq bigint NOT NULL, event_type text NOT NULL, payload text NOT NULL, ` +
-		`room text NOT NULL, published boolean NOT NULL DEFAULT false, ` +
-		`created_at text NOT NULL DEFAULT to_char((now() AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'::text))`); err != nil {
-		t.Fatalf("não consegui criar %s.outbox_event: %v", schema, err)
+	if _, err := db.Exec(criarOutboxTable); err != nil {
+		t.Fatalf("não consegui criar a outbox_event: %v", err)
 	}
 }
 
-// plantaPendenteNo grava em um SCHEMA ESPECÍFICO, sempre qualificando a tabela:
-// um INSERT com a tabela crua cairia no search_path da conexão e plantaria a
-// linha no schema errado, o que transformaria o teste de partição num teste de
-// nada.
-func plantaPendenteNo(t *testing.T, db *sql.DB, schema, eventType, payload, room string) (id string) {
+// plantaPendenteNo grava um evento pendente DA LOJA (`tenant_id`): é a coluna
+// que separa uma loja da outra no schema único.
+func plantaPendenteNo(t *testing.T, db *sql.DB, tenantID, eventType, payload, room string) (id string) {
 	t.Helper()
 
 	var suffix [6]byte
@@ -852,23 +855,23 @@ func plantaPendenteNo(t *testing.T, db *sql.DB, schema, eventType, payload, room
 	id = "outbox-test-" + hex.EncodeToString(suffix[:])
 
 	_, err := db.Exec(
-		`INSERT INTO `+schema+`.outbox_event (id, seq, event_type, payload, room) VALUES ($1, $2, $3, $4, $5)`,
-		id, time.Now().UnixNano(), eventType, payload, room,
+		`INSERT INTO outbox_event (id, tenant_id, seq, event_type, payload, room) VALUES ($1, $2, $3, $4, $5, $6)`,
+		id, tenantID, time.Now().UnixNano(), eventType, payload, room,
 	)
 	if err != nil {
-		t.Fatalf("não consegui plantar o evento pendente em %s: %v", schema, err)
+		t.Fatalf("não consegui plantar o evento pendente da loja %s: %v", tenantID, err)
 	}
 	return id
 }
 
-// publicadoNo lê `published` QUALIFICADO pelo schema — é a asserção de que a
-// linha saiu da fila no lugar certo.
-func publicadoNo(t *testing.T, db *sql.DB, schema, id string) bool {
+// publicadoNo lê `published` da linha da LOJA — é a asserção de que a linha
+// saiu da fila.
+func publicadoNo(t *testing.T, db *sql.DB, tenantID, id string) bool {
 	t.Helper()
 
 	var valor bool
-	if err := db.QueryRow(`SELECT published FROM `+schema+`.outbox_event WHERE id = $1`, id).Scan(&valor); err != nil {
-		t.Fatalf("não consegui ler published de %s em %s: %v", id, schema, err)
+	if err := db.QueryRow(`SELECT published FROM outbox_event WHERE tenant_id = $1 AND id = $2`, tenantID, id).Scan(&valor); err != nil {
+		t.Fatalf("não consegui ler published de %s da loja %s: %v", id, tenantID, err)
 	}
 	return valor
 }

@@ -1,6 +1,6 @@
 import { config } from "../../config/env.js";
 import { ensureStorageRoot, LocalDiskStorage } from "./local-disk-storage.js";
-import { resolveTenantSchema } from "./tenant.js";
+import { resolveTenant } from "./tenant.js";
 import type { FileStorage } from "./storage.js";
 
 /**
@@ -11,7 +11,7 @@ import type { FileStorage } from "./storage.js";
 
 export function createStorage(
   root: string = config.uploadsDir,
-  tenant: () => string = resolveTenantSchema
+  tenant: () => string = resolveTenant
 ): FileStorage {
   return new LocalDiskStorage({ root, tenant });
 }
@@ -28,7 +28,7 @@ export function initStorage(): void {
   ensureStorageRoot(config.uploadsDir);
 }
 
-export { resolveTenantSchema } from "./tenant.js";
+export { resolveTenant } from "./tenant.js";
 export { storageDirFor, LocalDiskStorage } from "./local-disk-storage.js";
 export {
   STORAGE_KINDS,

@@ -184,9 +184,9 @@ rollback em minutos:
 
 | PR | O quê | Por que é seguro sozinho |
 |---|---|---|
-| **F3a** (`0016`) | as PKs das 30 tabelas viram `(tenant_id, id)` + o dado dos schemas de loja é COPIADO para `public` | o schema `public` passa a aceitar duas lojas; o runtime ainda lê o schema da loja (que segue de pé, com o original) |
-| **F3b** (código) | o runtime lê `public`; a chave do cache passa a ser o `tenant_id`; o storage é por tenant; o provisionamento é um `INSERT` | o dado já está em `public` (a cópia da F3a) — o schema antigo segue de pé, como redundância |
-| **F3c** (`0017`) | os schemas de loja são dropados; a coluna `schema_name` sai | só quando ninguém mais lê schema |
+| **F3a** (`0016`) | as PKs das 30 tabelas viram `(tenant_id, id)` + o dado dos schemas de loja é COPIADO para `public` | o schema `public` passa a aceitar duas lojas; o runtime ainda lê o schema da loja (que segue de pé, com o original) — **entregue** |
+| **F3b** (`0017` + código) | o runtime lê `public`; a chave do cache passa a ser o `tenant_id`; o storage é por tenant; o provisionamento é um `INSERT` | o dado já está em `public` (a cópia da F3a) — o schema antigo segue de pé, como redundância — **entregue** |
+| **F3c** | os schemas de loja são dropados; a coluna `schema_name` sai | só quando ninguém mais lê schema |
 
 **Por que a PK precisa ser composta (e não só a coluna).** No schema
 único, o `id` deixa de ser globalmente único: o `store_settings` é o
@@ -204,7 +204,28 @@ trigger preenche a coluna na escrita, o app nunca escreve o tenant.
 **A chave do cache precisa sair do schema.** Hoje o cache é particionado
 por schema (`${schema}:${chave}`) e o cache de `user.active` também. Com um
 schema só, as duas chaves passariam a misturar as lojas — o `active` de uma
-loja vazaria para a outra. A chave passa a ser o `tenant_id`.
+loja vazaria para a outra. A chave passa a ser o `tenant_id` (`${tenantId}:${chave}`).
+
+**As UNIQUEs que eram GLOBAIS viram por loja** (migration `0017`). No schema
+único, um índice único global é uma lei de física do schema: `user.email`
+único no banco inteiro significa que a loja B não pode ter um
+`gerente@minhaloja.com.br` se a loja A tem o mesmo e-mail — e o seed de
+qualquer loja bate no índice e morre. O mesmo valia para `customer.cpf`,
+`customer.email`, `order(channel, external_ref)`, a chave de provisionamento
+ativa e o "só um caixa aberto". Todos viram `(tenant_id, …)`: a unicidade
+passa a ser DENTRO da loja, que é o que o negócio quer.
+
+**O que mais mudou no runtime (F3b)**
+
+| Antes (schema-por-loja) | Agora (por linha) |
+|---|---|
+| o escopo (ALS) carregava `schemaName` | carrega só `tenantId` + `slug` |
+| o pool era por schema (o `search_path` no startup packet) | o pool é por **tenant** (o `app.tenant_id` no startup packet); o `search_path` é o do app |
+| o cache era particionado por schema | por `tenantId` |
+| o storage era `<uploadsDir>/<schema>/` | `<uploadsDir>/<tenantId>/` |
+| o provisionamento criava schema + migrations | um `INSERT` no registry + o bootstrap |
+| o boot aplicava migrations por loja | migrations **uma vez** |
+| o gateway fazia `SET LOCAL search_path` | só `SET LOCAL app.tenant_id` |
 
 ### 3.5 Dados e consumidores (FASE 4)
 
@@ -267,7 +288,7 @@ rollback:
 | **F0** | role `pdv_app` + `public.tenant.id` + linha do default | sim (a DSN) — e é a parte de maior risco de infra, então vem primeiro, com o schema-por-tenant ainda no ar (rollback em minutos) — **entregue** |
 | **F1** | `tenant_id` nas 30 tabelas + trigger + backfill + FKs compostas | não — **entregue** |
 | **F2** | policies + `FORCE RLS` + `app.tenant_id` no pool + suíte de isolamento | sim — **a barreira passa a existir aqui** — **entregue** |
-| **F3** | fim do schema-por-tenant (pool único, migrations 1x, provisionamento, storage) | sim — em 3 PRs (expand/contract): **F3a** (PK composta, `0016`) entregue, F3b (runtime) e F3c (limpeza) pendentes |
+| **F3** | fim do schema-por-tenant (pool por tenant, migrations 1x, provisionamento, storage) | sim — em 3 PRs (expand/contract): **F3a** (PK composta, `0016`) e **F3b** (runtime + UNIQUEs por loja, `0017`) entregues; F3c (limpeza: drop dos schemas antigos + a coluna `schema_name`) pendente |
 | **F4** | dado de produção, gateway Go, CLI/TUI, docs | — |
 
 ## 7. Decisões em aberto (dono do produto)

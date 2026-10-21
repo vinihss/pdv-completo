@@ -142,10 +142,11 @@ const setConfigStmt = `SELECT set_config($1, $2, true)`
 // nome mal configurado nunca pode virar `search_path`, e "cair no schema da
 // conexão" seria exatamente o vazamento que este pacote existe para impedir.
 //
-// `app.tenant_id` é aditivo: nada no banco lê ele hoje (RLS pendente), e gravá-lo
-// é o que faz o contexto existir para quem vier depois. `search_path` é a
-// barreira que vale hoje: `outbox_event` sem qualificação passa a resolver
-// dentro do schema do tenant.
+// `app.tenant_id` é o contexto de LINHA: é o que a policy de RLS do Postgres
+// compara com a coluna `tenant_id` da tabela. Sem ele, a query não tem como
+// saber de qual loja é — e o RLS não tem como filtrar: fail-closed.
+//
+// O `search_path` deixou de ser setado (o modelo por linha tem UM schema só).
 func Statements(t Tenant) ([]Statement, error) {
 	var out []Statement
 	if t.Slug != "" {
@@ -160,12 +161,10 @@ func Statements(t Tenant) ([]Statement, error) {
 		}
 		out = append(out, Statement{Query: setConfigStmt, Args: []any{"app.tenant_id", t.ID}})
 	}
-	if t.Schema != "" {
-		if !safeSchemaRE.MatchString(t.Schema) {
-			return nil, fmt.Errorf("tenancy: schema de tenant inseguro %q", t.Schema)
-		}
-		out = append(out, Statement{Query: setConfigStmt, Args: []any{"search_path", SearchPath(t.Schema)}})
-	}
+	// O `search_path` NÃO é mais setado: no modelo por LINHA (`docs/28`) todas
+	// as lojas moram no MESMO schema (`public`) e quem separa uma da outra é a
+	// coluna `tenant_id` + a policy de RLS. O `app.tenant_id` (acima) é o
+	// contexto de linha; o schema deixou de ser topologia.
 	return out, nil
 }
 

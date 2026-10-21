@@ -7,29 +7,34 @@ import type { ICacheClient } from "./cache-client.js";
  * Adapter do port `TenantCache` (ports/effects.ts) — FASE 0 da refatoração.
  *
  * Diferença em relação ao `tenantCache` de `infra/cache/index.ts`: a
- * partição por loja aqui é por `tenant.schemaName` EXPLÍCITO, recebido no
+ * partição por loja aqui é por `tenant.tenantId` EXPLÍCITO, recebido no
  * construtor — sem depender do `AsyncLocalStorage` (seam
- * `resolveTenantSchemaInScope`). O use case migrado recebe o `TenantContext`
+ * `currentTenantScope`). O use case migrado recebe o `TenantContext`
  * e instancia este adapter com ele; workers/webhooks fora de um request no ar
  * (onde o ALS não está populado) particionam corretamente por construção.
  *
- * O prefixo é `${schemaName}:` — o MESMO formato do `tenantCache` atual, então
+ * O prefixo é `${tenantId}:` — o MESMO formato do `tenantCache` atual, então
  * as duas superfícies enxergam as mesmas chaves (nenhum warmup/invalidação
  * muda de significado durante a migração).
+ *
+ * POR QUE O ID E NÃO O SLUG: o slug é rótulo (pode ser renomeado) e o id é
+ * identidade. E por que o TENANT e não o schema: no modelo por linha todas as
+ * lojas moram no mesmo schema — particionar por schema misturaria as lojas
+ * (o `active` de uma vazaria para a outra).
  */
 export class TenantCacheAdapter implements TenantCache {
   private readonly prefix: string;
   private readonly cache?: ICacheClient;
 
   /**
-   * @param tenant contexto do tenant (só o `schemaName` é usado)
+   * @param tenant contexto do tenant (só o `tenantId` é usado)
    * @param cache cliente concreto; quando omitido, resolve `getCache()` POR
    *   CHAMADA — igual ao `tenantCache` atual, que lê a instância corrente do
    *   processo (`initCache()` pode trocar MemoryCache por Redis no boot, e um
    *   default avaliado na construção capturaria a instância errada).
    */
-  constructor(tenant: Pick<TenantContext, "schemaName">, cache?: ICacheClient) {
-    this.prefix = `${tenant.schemaName}:`;
+  constructor(tenant: Pick<TenantContext, "tenantId">, cache?: ICacheClient) {
+    this.prefix = `${tenant.tenantId}:`;
     this.cache = cache;
   }
 

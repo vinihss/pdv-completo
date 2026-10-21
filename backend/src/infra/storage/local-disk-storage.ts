@@ -27,11 +27,17 @@ import {
  * construção — sem depender de nome de arquivo.
  */
 
-/** Identificador de schema do Postgres: vira segmento de caminho, então é validado. */
-const SCHEMA_RE = /^[A-Za-z_][A-Za-z0-9_$]{0,62}$/;
+/**
+ * Identificador do TENANT: vira segmento de caminho, então é validado.
+ *
+ * É o `tenantId` (uuid) no modelo por linha — o mesmo formato do id que o
+ * registry dá. O regex aceita o uuid (com hífens) e um slug, e barra
+ * qualquer coisa que possa escapar do diretório (`..`, `/`).
+ */
+const TENANT_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/;
 
 export function storageDirFor(root: string, tenant: string, kind: StorageKind): string {
-  if (!SCHEMA_RE.test(tenant)) throw Errors.validationFailed({ field: "tenant" });
+  if (!TENANT_RE.test(tenant)) throw Errors.validationFailed({ field: "tenant" });
   if (!isStorageKind(kind)) throw Errors.validationFailed({ field: "kind" });
   return path.join(root, tenant, kind);
 }
@@ -44,7 +50,7 @@ export function ensureStorageRoot(root: string): void {
 export interface LocalDiskStorageOptions {
   /** Raiz do volume de uploads (`config.uploadsDir`). */
   root: string;
-  /** Schema do tenant, resolvido por operação — a seam (`tenant.ts`). */
+  /** Tenant da operação, resolvido por operação — a seam (`tenant.ts`). */
   tenant: () => string;
 }
 

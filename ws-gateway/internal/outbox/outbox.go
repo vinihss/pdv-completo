@@ -37,12 +37,23 @@ const (
 	// implementações do dispatcher disputam o mesmo lock do mesmo lote. O que
 	// segura isso não é o lock: é o perdedor não publicar E o vencedor só
 	// publicar se for o dono do `/realtime` (gate.go e PollOnce).
-	PollMS     = 200
-	BatchSize  = 50
-	lockName   = "pdv:outbox:owner" // ver LOCKS.outboxDispatcher em infra/locks.ts
+	PollMS    = 200
+	BatchSize = 50
+	lockName  = "pdv:outbox:owner" // ver LOCKS.outboxDispatcher em infra/locks.ts
+	// O `tenant_id` entra no filtro EXPLICITO (e não só na policy de RLS):
+	// a barreira do banco é a policy (o app conecta com o papel restrito), mas
+	// o gateway roda num DSN próprio — e se esse DSN for o dono (superuser), a
+	// policy é burlada e o dispatcher leria a fila de TODAS as lojas. Com o
+	// filtro no WHERE, o `app.tenant_id` da transação (o `tenancy.Apply` grava)
+	// é a segunda barreira, independente do privilégio do papel.
+	//
+	// `current_setting` SEM `missing_ok`: sem contexto de tenant a query ERRA
+	// (fail-closed) em vez de devolver a fila inteira — um vazio é
+	// indistinguível de "a loja não tem evento".
 	selectStmt = `SELECT id, event_type, room, payload
 			FROM outbox_event
 			WHERE published = false
+			  AND tenant_id = current_setting('app.tenant_id')::uuid
 			ORDER BY created_at ASC, seq ASC
 			LIMIT $1`
 )

@@ -62,7 +62,7 @@ import { TenantScopeAdapter } from "../db/tenant-scope-adapter.js";
 import { invalidateActiveUser } from "../auth/active-user-check.js";
 import { MailerPortAdapter } from "../mail/mailer-port-adapter.js";
 import { listActiveTenants } from "../tenant/registry.js";
-import { resolveTenantSchema } from "../storage/index.js";
+
 import { config } from "../../config/env.js";
 import type { TenantContext } from "../../application/ports/tenant-context.js";
 import type { GeocodingService, RoutingService } from "../../application/ports/effects.js";
@@ -76,22 +76,19 @@ import { DEFAULT_TENANT_ID } from "../../domain/tenant.js";
 function requireTenant(): TenantContext {
   const scope = currentTenantScope();
   if (!scope) {
-    // Fallback: sem ALS (testes unitários, jobs), usa o schema padrão — como o
-    // proxy `db` fazia antes (resolveTenantSchemaInScope → DEFAULT_TENANT_SCHEMA ?? "public").
+    // Fallback: sem ALS (testes unitários, jobs), é o default implícito.
     return {
       // O id FIXO do default (`domain/tenant.ts`): o mesmo da linha no
       // registry, para que o `app.tenant_id` gravado na transação seja
       // idêntico ao do caminho com ALS.
       tenantId: DEFAULT_TENANT_ID,
       slug: "default",
-      schemaName: process.env.DEFAULT_TENANT_SCHEMA ?? "public",
       source: "internal",
     };
   }
   return {
     tenantId: scope.tenantId,
     slug: scope.slug,
-    schemaName: scope.schemaName,
     source: "http",
   };
 }
@@ -105,10 +102,10 @@ const tenant = requireTenant;
 // original — o adapter usa o wrapper `alsTenantCache` para satisfazer o
 // port TenantCache com invalidatePrefix (prefixo + "*" = invalidatePattern).
 const cache = alsTenantCache;
-// Armazenamento fixa o schema explicitamente (o port FileStorage resolve
-// tenant() por operação, mas o schemaName precisa ser conhecido). O
-// resolveTenantSchema padrão (ALS) pode não estar ativo em jobs/webhooks,
-// então usamos o explicit com fallback env.
+// Armazenamento fixa o tenant explicitamente (o port FileStorage resolve
+// tenant() por operação, mas o diretório precisa ser conhecido). O tenant
+// padrão (ALS) pode não estar ativo em jobs/webhooks, então usamos o
+// explícito — o default implícito.
 //
 // A raiz TEM que ser a mesma que a rota de serving usa (`getStorage()` →
 // `createStorage(config.uploadsDir)`): com dois defaults distintos
@@ -116,7 +113,9 @@ const cache = alsTenantCache;
 // diretório e o `GET /uploads/*` lia de outro — 404 em todo arquivo recém
 // enviado. `config.uploadsDir` é a fonte única.
 const storageRoot = config.uploadsDir;
-const storage = new StoragePortAdapter({ schemaName: "public" }, storageRoot);
+// O diretório de uploads é por TENANT (`<uploadsDir>/<tenantId>/`) — no
+// modelo por linha o schema é um só, e o id é a identidade estável.
+const storage = new StoragePortAdapter({ tenantId: DEFAULT_TENANT_ID }, storageRoot);
 
 // ---------------------------------------------------------------------------
 // Factories dos use cases migrados
@@ -305,7 +304,6 @@ export const provisioningEmailInstances = createProvisioningEmailUsecases({
 const tenantRegistry = new TenantRegistryAdapter();
 export const tenantInstances = createTenantUsecases({
   registry: tenantRegistry,
-  defaultSchema: resolveTenantSchema,
   publicBrand: new PublicTenantBrandReaderAdapter(),
 });
 
@@ -340,7 +338,6 @@ export const identityInstances = createIdentityUsecases({
       return {
         tenantId: t.id,
         slug: t.slug,
-        schemaName: t.schemaName,
         isDefault: t.isDefault,
       };
     },

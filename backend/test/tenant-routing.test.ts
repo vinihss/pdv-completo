@@ -101,42 +101,33 @@ async function seedRegistry(rows: RegistryRow[]): Promise<void> {
   invalidateTenantRegistryCache();
 }
 
-// Provisiona de verdade um schema de tenant: `CREATE SCHEMA` + migrations +
-// `store_settings` com marca própria. É o mínimo que o teste da vitrine precisa
-// para provar que a leitura via ALS/pool por schema pega a marca DA LOJA.
-async function provisionTenantSchema(
-  schemaName: string,
-  merchantName: string,
-  tenantId: string,
-): Promise<void> {
-  // Derruba um schema de execução anterior (teste abortado antes do `finally`)
-  // para o `CREATE SCHEMA` não falhar com "already exists".
-  // DDL é do DONO (o papel do app não é owner).
-  await rawOwner.exec(`DROP SCHEMA IF EXISTS ${schemaName} CASCADE`);
-  // O pool daquele schema guardava o OID do schema DERRUBADO (o
-  // `search_path` é resolvido uma vez por sessão) — recriado o schema, a
-  // conexão antiga aponta para o schema destruído e a leitura volta "sem
-  // store_settings". Fechar os pools resolve.
-  await closeAllTenantPools();
-  await rawOwner.exec(`CREATE SCHEMA ${schemaName}`);
-  // E o papel do app precisa de acesso ao schema novo (em produção quem faz
-  // isso é o provisionamento — `grantAppRoleOnSchema`).
-  await grantAppRoleOnSchema(schemaName);
-  await runMigrations({ schema: schemaName });
-  // O `SET` é da sessão do INSERT: a policy de RLS exige que a linha escrita
-  // seja da loja da sessão (e o trigger preenche o `tenant_id` a partir dele).
-  // O `SET` vai na MESMA instrução do INSERT (o `pg` não aceita múltiplos
-  // comandos num prepared statement, e o `SET` precisa valer para o INSERT).
+// Provisiona de verdade uma LOJA: a linha do registry + a marca dela (o
+// `store_settings` da loja). No modelo por LINHA (`docs/28`) a loja não tem
+// schema — as lojas convivem no `public` e quem separa uma da outra é a
+// coluna `tenant_id` (a policy de RLS filtra na leitura).
+async function provisionTenant(merchantName: string, tenantId: string): Promise<void> {
+  // O `set_config(..., true)` é de TRANSAÇÃO: um `SET` de sessão gruda na
+  // conexão do POOL (que é reutilizada) e envenenaria o `app.tenant_id` das
+  // outras leituras — a policy passaria a esconder a loja errada.
   await raw.exec(
-    `SET app.tenant_id = '${tenantId}';
-     INSERT INTO ${schemaName}.store_settings
+    `SELECT set_config('app.tenant_id', '${tenantId}', true);
+     INSERT INTO store_settings
        (id, merchant_name, merchant_city, brand_color, uses_delivery, kitchen_enabled)
-     VALUES ('singleton', '${merchantName}', '${merchantName}', '#123456', true, false)`,
+     VALUES ('singleton', '${merchantName}', '${merchantName}', '#123456', true, false)
+     ON CONFLICT (tenant_id, id) DO UPDATE
+       SET merchant_name = EXCLUDED.merchant_name,
+           merchant_city = EXCLUDED.merchant_city,
+           brand_color = EXCLUDED.brand_color,
+           uses_delivery = EXCLUDED.uses_delivery,
+           kitchen_enabled = EXCLUDED.kitchen_enabled`,
   );
 }
 
-async function dropTenantSchema(schemaName: string): Promise<void> {
-  await rawOwner.exec(`DROP SCHEMA IF EXISTS ${schemaName} CASCADE`);
+/** Apaga o dado da loja (a marca). O DONO: o papel do app não enxerga a linha
+ *  de outra loja, e a FK `store_settings → public.tenant` é verificada com as
+ *  linhas REAIS. */
+async function dropTenantData(tenantId: string): Promise<void> {
+  await rawOwner.exec(`DELETE FROM store_settings WHERE tenant_id = '${tenantId}'`);
 }
 
 beforeAll(async () => {
@@ -195,7 +186,6 @@ describe("tenant: resolução por Host", () => {
     expect(resolvido).toEqual(
       expect.objectContaining({
         slug: "pdv1",
-        schemaName: "tenant_pdv1",
         isDefault: false,
       }),
     );
@@ -215,7 +205,6 @@ describe("tenant: resolução por Host", () => {
     expect(await resolveTenant("umamisushiarte.com.br")).toEqual(
       expect.objectContaining({
         slug: "umami",
-        schemaName: "tenant_umami",
         isDefault: false,
       }),
     );
@@ -240,7 +229,6 @@ describe("tenant: resolução por Host", () => {
       expect(await resolveTenant(host)).toEqual({
         id: DEFAULT_TENANT_ID,
         slug: DEFAULT_TENANT_SLUG,
-        schemaName: "public",
         isDefault: true,
       });
     }
@@ -258,11 +246,16 @@ describe("tenant: resolução por Host", () => {
     await expect(resolveTenant(ROOT_DOMAIN)).rejects.toMatchObject({ code: "tenant_not_resolved" });
   });
 
-  it("DEFAULT_TENANT_SCHEMA do ambiente é o schema do default", async () => {
+  it("o default do ambiente é o default implícito (id fixo)", async () => {
     routingOn();
+    // No modelo por LINHA o default não tem schema: o que o identifica é o
+    // `id` fixo (o mesmo da linha do registry) — é ele que vai para o
+    // `app.tenant_id` e o que a policy de RLS compara.
     setEnv("DEFAULT_TENANT_SCHEMA", "tenant_default");
-
-    expect((await resolveTenant(ROOT_DOMAIN)).schemaName).toBe("tenant_default");
+    const resolvido = await resolveTenant(ROOT_DOMAIN);
+    expect(resolvido.id).toBe(DEFAULT_TENANT_ID);
+    expect(resolvido.slug).toBe(DEFAULT_TENANT_SLUG);
+    expect(resolvido.isDefault).toBe(true);
   });
 
   it("www/app/api não são tenant: caem no default mesmo com linha no registry", async () => {
@@ -278,7 +271,6 @@ describe("tenant: resolução por Host", () => {
       expect(await resolveTenant(host)).toEqual({
         id: DEFAULT_TENANT_ID,
         slug: DEFAULT_TENANT_SLUG,
-        schemaName: "public",
         isDefault: true,
       });
     }
@@ -327,13 +319,11 @@ describe("tenant: resolução por Host", () => {
       expect(await resolveTenant("pdv1.seudominio.com.br")).toEqual({
         id: DEFAULT_TENANT_ID,
         slug: DEFAULT_TENANT_SLUG,
-        schemaName: "public",
         isDefault: true,
       });
       expect(await resolveTenant("umamisushiarte.com.br")).toEqual({
         id: DEFAULT_TENANT_ID,
         slug: DEFAULT_TENANT_SLUG,
-        schemaName: "public",
         isDefault: true,
       });
     }
@@ -364,18 +354,20 @@ describe("tenant: resolução por Host", () => {
     });
   });
 
-  it("schema_name fora do padrão é recusado no código, não só pelo CHECK do banco", async () => {
+  it("o `schema_name` do registry é topologia MORTA: o runtime não olha", async () => {
     routingOn();
-    // O `CHECK` do banco é a primeira barreira; aqui ela é removida de propósito
-    // para provar que a segunda (código) existe — o nome do schema entra num
-    // `search_path` na Fase 2, então uma linha corrompida não pode passar.
+    // No modelo por LINHA o schema deixou de ser topologia: as lojas moram
+    // todas no `public` e quem separa uma da outra é a coluna `tenant_id` + o
+    // RLS. A coluna `schema_name` ainda existe (a Fase 3c tira), mas o
+    // runtime NÃO a usa — nem para rotear, nem para validar. Uma linha
+    // corrompida no registro não pode virar `search_path` nem 503: ela é
+    // simplesmente ignorada.
     await rawOwner.exec("ALTER TABLE public.tenant DROP CONSTRAINT tenant_schema_name_check");
     try {
       await seedRegistry([{ slug: "pdv1", schemaName: "public; DROP TABLE public.tenant" }]);
-      await expect(resolveTenant("pdv1.seudominio.com.br")).rejects.toMatchObject({
-        code: "tenant_schema_unavailable",
-        status: 503,
-      });
+      const resolvido = await resolveTenant("pdv1.seudominio.com.br");
+      expect(resolvido.slug).toBe("pdv1");
+      expect(resolvido.isDefault).toBe(false);
     } finally {
       // Os schemas das lojas de teste primeiro: a FK `store_settings →
   // public.tenant` impede apagar a linha do registry enquanto a loja tem
@@ -539,7 +531,7 @@ describe("GET /public/tenants/resolve", () => {
       // `store_settings → public.tenant` recusa o dado de um tenant que não
       // está no registry).
       await seedRegistry([{ id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" }]);
-      await provisionTenantSchema("tenant_pdv1", "Loja PDV1", TENANT_PDV1_ID);
+      await provisionTenant("Loja PDV1", TENANT_PDV1_ID);
 
       const res = await api("get", `/public/tenants/resolve?host=pdv1.${ROOT_DOMAIN}`, { ip: nextIp() });
 
@@ -556,7 +548,7 @@ describe("GET /public/tenants/resolve", () => {
       // E o `schema_name` continua nunca saindo.
       expect("schema" in res.json.tenant).toBe(false);
     } finally {
-      await dropTenantSchema("tenant_pdv1");
+      await dropTenantData(TENANT_PDV1_ID);
     }
   });
 
@@ -567,8 +559,8 @@ describe("GET /public/tenants/resolve", () => {
         { id: TENANT_PDV1_ID, slug: "pdv1", schemaName: "tenant_pdv1" },
         { id: TENANT_PDV2_ID, slug: "pdv2", schemaName: "tenant_pdv2" },
       ]);
-      await provisionTenantSchema("tenant_pdv1", "Loja Um", TENANT_PDV1_ID);
-      await provisionTenantSchema("tenant_pdv2", "Loja Dois", TENANT_PDV2_ID);
+      await provisionTenant("Loja Um", TENANT_PDV1_ID);
+      await provisionTenant("Loja Dois", TENANT_PDV2_ID);
 
       const res1 = await api("get", `/public/tenants/resolve?host=pdv1.${ROOT_DOMAIN}`, { ip: nextIp() });
       const res2 = await api("get", `/public/tenants/resolve?host=pdv2.${ROOT_DOMAIN}`, { ip: nextIp() });
@@ -578,8 +570,8 @@ describe("GET /public/tenants/resolve", () => {
       expect(res1.json.tenant.name).toBe("Loja Um");
       expect(res2.json.tenant.name).toBe("Loja Dois");
     } finally {
-      await dropTenantSchema("tenant_pdv1");
-      await dropTenantSchema("tenant_pdv2");
+      await dropTenantData(TENANT_PDV1_ID);
+      await dropTenantData(TENANT_PDV2_ID);
     }
   });
 
@@ -625,7 +617,8 @@ describe("registry: migrations, isolamento de schema e cache", () => {
       "0013_tenant_id.sql",
       "0014_tenant_id_composite_fks.sql",
       "0015_rls_policies.sql",
-      "0016_tenant_composite_pk.sql"
+      "0016_tenant_composite_pk.sql",
+      "0017_tenant_scoped_uniques.sql"
     ]);
     // E o diretório existe de verdade — a exclusão não é por pasta vazia.
     expect(fs.existsSync(path.dirname(REGISTRY_SQL))).toBe(true);

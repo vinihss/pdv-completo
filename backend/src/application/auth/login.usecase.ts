@@ -35,7 +35,6 @@ export interface LoginUsecaseDeps {
   resolveTenant: (host: string | undefined) => Promise<{
     id: string;
     slug: string;
-    schemaName: string;
     isDefault: boolean;
   }>;
   /** Valida o vínculo aparelho→usuário (docs/21 §5.3) e toca `last_seen_at`. */
@@ -59,7 +58,6 @@ export function createLoginUsecase(deps: LoginUsecaseDeps) {
       const tenant = await deps.resolveTenant(host);
       deps.scope.enter({
         tenantId: tenant.id,
-        schemaName: tenant.schemaName,
         slug: tenant.slug,
         isDefault: tenant.isDefault,
       });

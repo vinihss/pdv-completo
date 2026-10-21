@@ -3,14 +3,18 @@
 // Valida que o roteamento por `Host` + JWT com `tenant` impede vazamento de
 // dados entre tenants: cada tenant vê só seus usuários, tokens de um tenant
 // são rejeitados em outro, e requests concorrentes não contaminam o ALS.
+//
+// MODELO POR LINHA (`docs/28`): as duas lojas de teste convivem no MESMO
+// schema (`public`) — quem as separa é a coluna `tenant_id` + a policy de
+// RLS (a `0015`). Antes (o `docs/15`) cada loja tinha um schema próprio, e o
+// isolamento era o schema; agora o isolamento é a LINHA. É por isso que os
+// ids das lojas são FIXOS aqui: o `tenant_id` que o app grava na transação
+// (`app.tenant_id`) tem que ser o mesmo da linha do registry.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import argon2 from "argon2";
 import { api, closeTestApp, raw, rawOwner } from "./helpers.js";
-import { runMigrations } from "../src/infra/db/migrate.js";
 import { runRegistryMigrations } from "../src/infra/db/registry-migrate.js";
 import { invalidateTenantRegistryCache } from "../src/infra/tenant/registry.js";
-import { grantAppRoleOnSchema } from "../src/infra/db/ensure-app-role.js";
-import { closeAllTenantPools } from "../src/infra/db/tenant-db.js";
 import { runInTenantScope } from "../src/infra/db/tenant-context.js";
 
 const ROOT_DOMAIN = "teste.local";
@@ -21,8 +25,7 @@ const TENANT_A_ID = "aaaaaaaa-1111-2222-3333-44444444444a";
 const TENANT_B_ID = "bbbbbbbb-1111-2222-3333-44444444444b";
 const TENANT_A_SLUG = "a";
 const TENANT_B_SLUG = "b";
-const TENANT_A_SCHEMA = "tenant_test_a";
-const TENANT_B_SCHEMA = "tenant_test_b";
+// As lojas NÃO têm schema (modelo por linha): o schema é o do app.
 
 let userIdA: string;
 let userIdB: string;
@@ -41,42 +44,27 @@ beforeAll(async () => {
   // Aplicar migrations do registry (tabela public.tenant)
   await runRegistryMigrations();
 
-  // Criar schemas de tenant
-  // DDL é do DONO (o papel do app não é owner).
-  await rawOwner.exec(`CREATE SCHEMA IF NOT EXISTS ${TENANT_A_SCHEMA}`);
-  await rawOwner.exec(`CREATE SCHEMA IF NOT EXISTS ${TENANT_B_SCHEMA}`);
-  // O `search_path` é resolvido uma vez por sessão: uma conexão de um pool
-  // antigo aponta para o schema DESTRUÍDO. Fechar os pools força a recriação.
-  await closeAllTenantPools();
-  // E o papel do app precisa de acesso aos schemas (em produção quem faz isso
-  // é o provisionamento — `grantAppRoleOnSchema`).
-  await grantAppRoleOnSchema(TENANT_A_SCHEMA);
-  await grantAppRoleOnSchema(TENANT_B_SCHEMA);
-
-  // Registrar tenants no registry
+  // Registrar tenants no registry (as lojas moram no schema ÚNICO: o
+  // `schema_name` é topologia morta — a coluna sai na Fase 3c).
   await raw.all(
     `INSERT INTO public.tenant (id, slug, schema_name, display_name, status)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (slug) DO UPDATE SET id = EXCLUDED.id, schema_name = EXCLUDED.schema_name, display_name = EXCLUDED.display_name, status = EXCLUDED.status`,
-    [TENANT_A_ID, TENANT_A_SLUG, TENANT_A_SCHEMA, "Tenant A", "active"]
+     VALUES ($1, $2, 'public', $3, $4)
+     ON CONFLICT (slug) DO UPDATE SET id = EXCLUDED.id, display_name = EXCLUDED.display_name, status = EXCLUDED.status`,
+    [TENANT_A_ID, TENANT_A_SLUG, "Tenant A", "active"]
   );
   await raw.all(
     `INSERT INTO public.tenant (id, slug, schema_name, display_name, status)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (slug) DO UPDATE SET id = EXCLUDED.id, schema_name = EXCLUDED.schema_name, display_name = EXCLUDED.display_name, status = EXCLUDED.status`,
-    [TENANT_B_ID, TENANT_B_SLUG, TENANT_B_SCHEMA, "Tenant B", "active"]
+     VALUES ($1, $2, 'public', $3, $4)
+     ON CONFLICT (slug) DO UPDATE SET id = EXCLUDED.id, display_name = EXCLUDED.display_name, status = EXCLUDED.status`,
+    [TENANT_B_ID, TENANT_B_SLUG, "Tenant B", "active"]
   );
 
   // Invalidar cache do registry para garantir que as novas entradas sejam lidas
   invalidateTenantRegistryCache();
 
-  // Aplicar migrations em cada schema de tenant
-  await runMigrations({ schema: TENANT_A_SCHEMA });
-  await runMigrations({ schema: TENANT_B_SCHEMA });
-
-  // Popular tenant A — usa nomes totalmente qualificados (schema.table) para
-  // não depender de `search_path` (cada `pool.query` pode pegar conexão
-  // diferente do pool, então `SET LOCAL` não sobrevive entre statements).
+  // Popular tenant A — o `set_config` é de TRANSAÇÃO (um `SET` de sessão
+  // gruda na conexão do POOL e envenenaria o `app.tenant_id` das outras
+  // leituras).
   const pinHashA = await argon2.hash("1111");
   // O `set_config(..., true)` é de TRANSAÇÃO (um `SET` de sessão gruda na
   // conexão do POOL e envenenaria o `app.tenant_id` das outras leituras): a
@@ -84,13 +72,13 @@ beforeAll(async () => {
   // trigger preenche o `tenant_id` a partir dele.
   await raw.exec(`
     SELECT set_config('app.tenant_id', '${TENANT_A_ID}', true);
-    INSERT INTO ${TENANT_A_SCHEMA}.store_settings (id, merchant_name, merchant_city, enabled_payment_methods, uses_delivery, kitchen_enabled)
+    INSERT INTO store_settings (id, merchant_name, merchant_city, enabled_payment_methods, uses_delivery, kitchen_enabled)
     VALUES ('singleton', 'Tenant A', 'Cidade A', '["cash"]', false, false)
     ON CONFLICT (tenant_id, id) DO NOTHING
   `);
   await raw.exec(`
     SELECT set_config('app.tenant_id', '${TENANT_A_ID}', true);
-    INSERT INTO ${TENANT_A_SCHEMA}."user" (id, name, role, pin_hash, active, failed_attempts)
+    INSERT INTO "user" (id, name, role, pin_hash, active, failed_attempts)
     VALUES ('user-a', 'Usuário A', 'waiter', '${pinHashA}', true, 0)
     ON CONFLICT (tenant_id, id) DO NOTHING
   `);
@@ -100,13 +88,13 @@ beforeAll(async () => {
   const pinHashB = await argon2.hash("2222");
   await raw.exec(`
     SELECT set_config('app.tenant_id', '${TENANT_B_ID}', true);
-    INSERT INTO ${TENANT_B_SCHEMA}.store_settings (id, merchant_name, merchant_city, enabled_payment_methods, uses_delivery, kitchen_enabled)
+    INSERT INTO store_settings (id, merchant_name, merchant_city, enabled_payment_methods, uses_delivery, kitchen_enabled)
     VALUES ('singleton', 'Tenant B', 'Cidade B', '["cash"]', false, false)
     ON CONFLICT (tenant_id, id) DO NOTHING
   `);
   await raw.exec(`
     SELECT set_config('app.tenant_id', '${TENANT_B_ID}', true);
-    INSERT INTO ${TENANT_B_SCHEMA}."user" (id, name, role, pin_hash, active, failed_attempts)
+    INSERT INTO "user" (id, name, role, pin_hash, active, failed_attempts)
     VALUES ('user-b', 'Usuário B', 'waiter', '${pinHashB}', true, 0)
     ON CONFLICT (tenant_id, id) DO NOTHING
   `);
@@ -127,10 +115,11 @@ afterAll(async () => {
     else process.env[key] = value;
   }
 
-  // Limpar schemas de tenant
-  // DDL é do DONO (o papel do app não é owner).
-  await rawOwner.exec(`DROP SCHEMA IF EXISTS ${TENANT_A_SCHEMA} CASCADE`);
-  await rawOwner.exec(`DROP SCHEMA IF EXISTS ${TENANT_B_SCHEMA} CASCADE`);
+  // Limpar o dado das lojas de teste. O DONO: o papel do app não enxerga a
+  // linha de outra loja, e a FK `store_settings → public.tenant` é verificada
+  // com as linhas REAIS.
+  await rawOwner.all(`DELETE FROM "user" WHERE tenant_id IN ($1, $2)`, [TENANT_A_ID, TENANT_B_ID]);
+  await rawOwner.all(`DELETE FROM store_settings WHERE tenant_id IN ($1, $2)`, [TENANT_A_ID, TENANT_B_ID]);
 
   // Remover tenants do registry
   // O DONO: a FK `user.tenant_id → public.tenant` é verificada com as linhas
@@ -149,7 +138,6 @@ describe("Isolamento multi-tenant", () => {
     await runInTenantScope(
       {
         tenantId: TENANT_A_ID,
-        schemaName: TENANT_A_SCHEMA,
         slug: TENANT_A_SLUG,
         isDefault: false,
       },
@@ -167,7 +155,6 @@ describe("Isolamento multi-tenant", () => {
     await runInTenantScope(
       {
         tenantId: TENANT_B_ID,
-        schemaName: TENANT_B_SCHEMA,
         slug: TENANT_B_SLUG,
         isDefault: false,
       },
@@ -185,7 +172,6 @@ describe("Isolamento multi-tenant", () => {
     await runInTenantScope(
       {
         tenantId: TENANT_A_ID,
-        schemaName: TENANT_A_SCHEMA,
         slug: TENANT_A_SLUG,
         isDefault: false,
       },
@@ -205,7 +191,6 @@ describe("Isolamento multi-tenant", () => {
     await runInTenantScope(
       {
         tenantId: TENANT_A_ID,
-        schemaName: TENANT_A_SCHEMA,
         slug: TENANT_A_SLUG,
         isDefault: false,
       },
@@ -223,7 +208,6 @@ describe("Isolamento multi-tenant", () => {
     await runInTenantScope(
       {
         tenantId: TENANT_B_ID,
-        schemaName: TENANT_B_SCHEMA,
         slug: TENANT_B_SLUG,
         isDefault: false,
       },
@@ -255,7 +239,6 @@ describe("Isolamento multi-tenant", () => {
       runInTenantScope(
         {
         tenantId: TENANT_A_ID,
-        schemaName: TENANT_A_SCHEMA,
         slug: TENANT_A_SLUG,
         isDefault: false,
       },
@@ -268,7 +251,6 @@ describe("Isolamento multi-tenant", () => {
       runInTenantScope(
         {
         tenantId: TENANT_B_ID,
-        schemaName: TENANT_B_SCHEMA,
         slug: TENANT_B_SLUG,
         isDefault: false,
       },

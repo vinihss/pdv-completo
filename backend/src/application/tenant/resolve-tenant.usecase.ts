@@ -60,8 +60,6 @@ export type ResolvedTenant = {
   /** Id do tenant (uuid) — a identidade estável (o `slug` pode ser renomeado). */
   id: string;
   slug: string;
-  /** Schema de onde o processo fala. Nunca vai para o cliente. */
-  schemaName: string;
   /** `true` quando veio do ambiente (apex/`localhost`/reservado/kill-switch). */
   isDefault: boolean;
 };
@@ -87,8 +85,6 @@ function platformRootDomain(): string | null {
 export interface TenantUsecasesDeps {
   /** Port do registry (`infra/tenant/registry.ts` via adapter): SQL + cache no adapter. */
   registry: TenantRegistry;
-  /** Schema default do ambiente (`resolveTenantSchema`) — lido a cada chamada. */
-  defaultSchema: () => string;
   /** Port da marca pública: encapsula `runInTenantScope` + checagem de provisionamento. */
   publicBrand: PublicTenantBrandReader;
 }
@@ -114,19 +110,6 @@ export type PublicTenant = {
 };
 
 export function createTenantUsecases(deps: TenantUsecasesDeps) {
-  /** Valida e devolve o schema default do ambiente. */
-  function defaultSchemaName(): string {
-    const value = deps.defaultSchema();
-    if (!isSafeSchemaName(value)) {
-      // `DEFAULT_TENANT_SCHEMA` é controlado pela operação, mas entra num
-      // `search_path` na Fase 2: valida na entrada, nunca confie no env para
-      // montar identificador.
-      console.error(`[tenant] DEFAULT_TENANT_SCHEMA inválido: ${JSON.stringify(value)} — usando o fallback`);
-      return "public";
-    }
-    return value;
-  }
-
   function defaultTenant(): ResolvedTenant {
     // O default tem id FIXO (`domain/tenant.ts`): é o mesmo id da linha que a
     // migration `0003_tenant_id.sql` cria no registry, e o mesmo que o
@@ -135,30 +118,18 @@ export function createTenantUsecases(deps: TenantUsecasesDeps) {
     return {
       id: DEFAULT_TENANT_ID,
       slug: DEFAULT_TENANT_SLUG,
-      schemaName: defaultSchemaName(),
       isDefault: true,
     };
   }
 
-  function fromRecord(record: { id: string; slug: string; schemaName: string; status: string }): ResolvedTenant {
+  function fromRecord(record: { id: string; slug: string; status: string }): ResolvedTenant {
     if (record.status !== "active") throw Errors.tenantInactive(record.slug);
-    // O default tem LINHA no registry (a migration `0003_tenant_id.sql`), e a
-    // linha carrega `schema_name = 'public'` — que é o schema do default só
-    // por coincidência: o default de verdade vem do ambiente
-    // (`DEFAULT_TENANT_SCHEMA`). Resolvido pelo registry, o default sai pelo
-    // caminho do ambiente — que é o único que sabe qual schema ele fala.
+    // O default tem LINHA no registry (a migration `0003_tenant_id.sql`) — e a
+    // linha carrega `schema_name = 'public'` (o schema ÚNICO do modelo por
+    // linha). Resolvido pelo registry, o default sai pelo caminho do ambiente,
+    // que é o único que sabe qual é o default.
     if (record.slug === DEFAULT_TENANT_SLUG) return defaultTenant();
-    if (!isValidTenantSchemaName(record.schemaName)) {
-      // Não deveria existir: o `CHECK` do registry barra isso (§3.2). Se existir,
-      // é o registry corrompido — e o nome do schema entra num `search_path` na
-      // Fase 2, então a segunda barreira (código) é obrigatória mesmo com o
-      // constraint no banco.
-      console.error(
-        `[tenant] schema_name fora do padrão no registry (slug=${record.slug}): ${JSON.stringify(record.schemaName)}`,
-      );
-      throw Errors.tenantSchemaUnavailable(record.slug, record.schemaName);
-    }
-    return { id: record.id, slug: record.slug, schemaName: record.schemaName, isDefault: false };
+    return { id: record.id, slug: record.slug, isDefault: false };
   }
 
   /**
@@ -216,7 +187,6 @@ export function createTenantUsecases(deps: TenantUsecasesDeps) {
     const tenant = await resolveTenant(rawHost);
     const brand = await deps.publicBrand.read({
       tenantId: tenant.id,
-      schemaName: tenant.schemaName,
       slug: tenant.slug,
       isDefault: tenant.isDefault,
     });

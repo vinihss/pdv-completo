@@ -5,7 +5,7 @@ import type {
 import { Errors } from "../../domain/errors.js";
 import { pool } from "./client.js";
 import { PostgresStoreSettingsReader } from "./store-settings-reader.js";
-import { runInTenantScope } from "./tenant-context.js";
+import { resolveTenantSchemaInScope, runInTenantScope } from "./tenant-context.js";
 
 /**
  * Adapter do port `PublicTenantBrandReader` (ports/effects.ts).
@@ -26,27 +26,29 @@ export class PublicTenantBrandReaderAdapter implements PublicTenantBrandReader {
   async read(tenant: {
     slug: string;
     tenantId: string;
-    schemaName: string;
     isDefault: boolean;
   }): Promise<PublicTenantBrand> {
     return runInTenantScope(
       {
         tenantId: tenant.tenantId,
-        schemaName: tenant.schemaName,
         slug: tenant.slug,
         isDefault: tenant.isDefault,
       },
       async () => {
+        // No modelo por LINHA a marca de cada loja é a LINHA dela em
+        // `store_settings` — o `id` é o mesmo ('singleton') em toda loja e o
+        // que as separa é a coluna `tenant_id`, filtrada pela policy de RLS.
+        // Sem a linha, a loja não foi semeada: a vitrine responde 503 em vez
+        // de servir a marca de outra loja.
         const { rows } = await pool.query(
-          `SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'store_settings' LIMIT 1`,
-          [tenant.schemaName],
+          `SELECT 1 FROM store_settings WHERE id = 'singleton' LIMIT 1`,
         );
         if (rows.length === 0) {
           console.error(
-            `[tenant] ${tenant.slug} resolve para o schema ${tenant.schemaName}, que não está provisionado ` +
-              `(sem store_settings) — vitrine indisponível até o provisionamento`,
+            `[tenant] ${tenant.slug} não tem store_settings (loja não semeada) ` +
+              `— vitrine indisponível até o seed`,
           );
-          throw Errors.tenantSchemaUnavailable(tenant.slug, tenant.schemaName);
+          throw Errors.tenantSchemaUnavailable(tenant.slug, resolveTenantSchemaInScope());
         }
 
         const s = await new PostgresStoreSettingsReader().get();

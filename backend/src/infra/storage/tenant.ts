@@ -1,17 +1,15 @@
 /**
- * SEAM — o schema (tenant) do storage. Única função do backend que decide de
- * qual loja é a operação de arquivo.
+ * SEAM — o TENANT do storage. Única função do backend que decide de qual
+ * loja é a operação de arquivo.
  *
- * Fase 2 (`docs/15-multi-tenant-schema.md` §4.7): agora lê o
- * `AsyncLocalStorage` — populado no `onRequest` a partir do subdomínio —
- * para decidir o diretório do tenant. O comportamento de fallback (sem
- * request no ar) continua sendo `DEFAULT_TENANT_SCHEMA ?? "public"`,
- * exatamente como antes.
+ * O diretório é por `tenantId` (o uuid da loja), não por schema: no modelo
+ * por linha (`docs/28`) o schema é um só, e o id é a identidade estável (o
+ * slug pode ser renomeado). O `AsyncLocalStorage` — populado no `onRequest`
+ * a partir do subdomínio — diz qual é a loja; sem request no ar (jobs, seed),
+ * é o default implícito.
  */
-import { resolveTenantSchemaInScope } from "../db/tenant-context.js";
+import { currentTenantId } from "../db/tenant-context.js";
 
-export const FALLBACK_TENANT_SCHEMA = "public";
-
-export function resolveTenantSchema(): string {
-  return resolveTenantSchemaInScope();
+export function resolveTenant(): string {
+  return currentTenantId();
 }

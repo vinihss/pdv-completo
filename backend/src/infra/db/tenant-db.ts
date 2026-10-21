@@ -19,6 +19,12 @@ import * as schema from "./schema.js";
 // Cada tenant tem o seu `Pool` com `max: TENANT_POOL_MAX`.
 // Enquanto um tenant está ativo, `TENANT_POOL_MAX` conexões no máximo.
 // `TENANT_POOL_MAX_TOTAL` limita o NÚMERO de tenants com pool aberto.
+/**
+ * O schema ÚNICO do app: no modelo por linha (`docs/28`) todas as lojas moram
+ * aqui, e o `tenant_id` + o RLS é que separa uma da outra.
+ */
+const APP_SCHEMA = "public";
+
 const DEFAULT_TENANT_POOL_MAX = 4;
 const DEFAULT_TENANT_POOL_MAX_TOTAL = 16;
 
@@ -41,17 +47,18 @@ type TenantPoolEntry = {
 
 // LRU simples: array com o mais recentemente usado POR ÚLTIMO.
 //
-// A chave é (schema, tenant): o `app.tenant_id` vai no startup packet do pool
-// (é o que faz o trigger de `tenant_id` preencher a coluna), e um pool criado
-// SEM o id (o caminho sem escopo ALS) não pode ser reaproveitado por um
-// tenant que tem id — nem o contrário. Schema e tenant são 1:1 no modelo
-// atual, então a chave dupla raramente cria dois pools para o mesmo schema —
-// mas ela elimina a classe de bug em que o pool "errado" (sem o GUC) serve o
-// tenant.
+// A chave é o TENANT: o `app.tenant_id` vai no startup packet do pool (é o
+// que faz o trigger de `tenant_id` preencher a coluna e o que a policy de RLS
+// compara), e um pool criado SEM o id (o caminho sem escopo ALS) não pode ser
+// reaproveitado por um tenant que tem id — nem o contrario.
+//
+// O SCHEMA saiu da chave: no modelo por linha (`docs/28`) todas as lojas moram
+// no mesmo schema, e quem separa uma da outra é o `tenant_id`. O `search_path`
+// do pool é o do app (`public`), igual para todos.
 const pools = new Map<string, TenantPoolEntry>();
 
-function poolKey(schemaName: string, tenantId?: string): string {
-  return `${schemaName}|${tenantId ?? ""}`;
+function poolKey(tenantId?: string): string {
+  return tenantId ?? "";
 }
 
 function touch(key: string): void {
@@ -110,23 +117,13 @@ function tenantGucOption(tenantId: string | undefined): string {
   return ` -c app.tenant_id=${tenantId}`;
 }
 
-function createPool(schemaName: string, tenantId?: string): Pool {
-  // Validação em camada: o `search_path` vai para um `-c search_path=...` do
-  // startup packet, então o nome precisa ser identificador seguro (mesmo
-  // filtro do `resolveTenantSchemaInScope`). O `isValidTenantSchemaName`
-  // (`tenant_*`) é regra do REGISTRY e vale na resolução por Host
-  // (`resolve-tenant.usecase.ts`), não aqui: o `DEFAULT_TENANT_SCHEMA` é
-  // operação e aceita qualquer schema seguro — ex.: `public` ou `umami1`.
-  if (!isSafeSchemaName(schemaName)) {
-    throw new Error(`[tenant-db] schema_name inválido para pool: ${JSON.stringify(schemaName)}`);
-  }
-
+function createPool(tenantId?: string): Pool {
   const pool = new Pool({
     connectionString: config.databaseUrl,
     max: tenantPoolMax(),
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
-    options: `-c search_path=${schemaName},public,pg_temp${tenantGucOption(tenantId)}`,
+    options: `-c search_path=${APP_SCHEMA},public,pg_temp${tenantGucOption(tenantId)}`,
   });
 
   // Sem este listener, o Node mata o PROCESSO (não só a requisição) quando a
@@ -140,29 +137,30 @@ function createPool(schemaName: string, tenantId?: string): Pool {
   // query abre outra. O que NÃO pode é derrubar o servidor por causa disso
   // (mesmo precedente do Redis em `infra/cache/redis-cache-client.ts`).
   pool.on("error", (err) => {
-    console.warn(`[tenant-db] erro de conexão no pool de ${schemaName}:`, err?.message ?? String(err));
+    console.warn(`[tenant-db] erro de conexão no pool do tenant ${tenantId ?? "(default)"}:`, err?.message ?? String(err));
   });
 
   return pool;
 }
 
 /**
- * Devolve o `Pool` dedicado ao schema — cria um novo quando não existe.
- * O `options` fixa o `search_path` no startup packet de cada conexão.
+ * Devolve o `Pool` dedicado ao TENANT — cria um novo quando não existe.
+ * O `options` fixa o `search_path` (o schema ÚNICO do app) e o
+ * `app.tenant_id` no startup packet de cada conexão.
  */
-export function getTenantPool(schemaName: string, tenantId?: string): Pool {
-  const key = poolKey(schemaName, tenantId);
+export function getTenantPool(tenantId?: string): Pool {
+  const key = poolKey(tenantId);
   if (!pools.has(key)) {
     evictLRU();
-    pools.set(key, { pool: createPool(schemaName, tenantId), lastUsed: Date.now() });
+    pools.set(key, { pool: createPool(tenantId), lastUsed: Date.now() });
   }
   touch(key);
   return pools.get(key)!.pool;
 }
 
-/** Devolve o `db` do Drizzle escopado ao schema do tenant. */
-export function tenantDb(schemaName: string, tenantId?: string) {
-  return drizzle(getTenantPool(schemaName, tenantId), { schema });
+/** Devolve o `db` do Drizzle escopado ao tenant. */
+export function tenantDb(tenantId?: string) {
+  return drizzle(getTenantPool(tenantId), { schema });
 }
 
 /** Fecha TODOS os pools (usado no shutdown do processo). */
@@ -173,11 +171,11 @@ export async function closeAllTenantPools(): Promise<void> {
 }
 
 /** Mapa atual (só para testes/diagnóstico — não muta). */
-export function getTenantPoolSnapshot(): Array<{ schema: string; max: number; used: number }> {
-  const out: Array<{ schema: string; max: number; used: number }> = [];
+export function getTenantPoolSnapshot(): Array<{ tenant: string; max: number; used: number }> {
+  const out: Array<{ tenant: string; max: number; used: number }> = [];
   for (const [key, entry] of pools) {
     out.push({
-      schema: key.split("|")[0],
+      tenant: key || "(default)",
       max: tenantPoolMax(),
       used: entry.pool.totalCount,
     });

@@ -16,7 +16,7 @@ import { getTenantPool } from "../infra/db/tenant-db.js";
 import { resolveTenantSchemaInScope } from "../infra/db/tenant-context.js";
 import { startOutboxDispatcher } from "../infra/realtime/outbox-dispatcher.js";
 import { startMaintenanceJobs } from "../infra/maintenance.js";
-import { initStorage, resolveTenantSchema } from "../infra/storage/index.js";
+import { initStorage } from "../infra/storage/index.js";
 import { initCache, getCache } from "../infra/cache/index.js";
 import { getStoreSettingsUsecase } from "../infra/composition/default-usecases.js";
 import { listActiveTenants } from "../infra/tenant/registry.js";
@@ -117,10 +117,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       const schemaName = resolveTenantSchemaInScope();
       // O id do tenant vai junto (o `app.tenant_id` mora no startup packet do
       // pool) — é o que a policy de RLS compara com a coluna `tenant_id`.
-      const pool = getTenantPool(
-        schemaName,
-        currentTenantScope()?.tenantId ?? DEFAULT_TENANT_ID,
-      );
+      const pool = getTenantPool(currentTenantScope()?.tenantId ?? DEFAULT_TENANT_ID);
       const client = await pool.connect();
       try {
         const { rows } = await client.query<{ name: string; applied_at: string }>("SELECT name, applied_at FROM _migrations ORDER BY name");
@@ -165,12 +162,12 @@ export async function buildApp(): Promise<FastifyInstance> {
 async function main() {
   if (config.deploymentMode === "local") {
     try {
+      // As migrations rodam UMA vez, no schema do app: no modelo por linha
+      // (`docs/28`) todas as lojas moram no mesmo schema e o `tenant_id`
+      // separa uma da outra. (Antes: uma passada de migrations por schema de
+      // loja — o `docs/15`.)
       await runRegistryMigrations();
       await runMigrations();
-      for (const tenant of await listActiveTenants()) {
-        if (tenant.schemaName === resolveTenantSchema()) continue;
-        await runMigrations({ schema: tenant.schemaName });
-      }
     } catch (err) {
       // Dev: só avisa. Produção/cloud: relança e o boot morre (o healthcheck
       // fica vermelho e o portão do deploy bloqueia).
