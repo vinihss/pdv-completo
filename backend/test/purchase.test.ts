@@ -20,7 +20,7 @@ describe("compras e custo médio (0017)", () => {
       UPDATE store_settings SET inventory_enabled = true, purchase_enabled = true;
       INSERT INTO product (id, name, price, category_id, kitchen_group_id, track_stock, low_stock_threshold, cost_price)
         VALUES ('${PROD.id}', '${PROD.name}', ${PROD.price}, '${FIXTURE.category}', '${FIXTURE.kitchenGroup}', true, ${PROD.threshold}, ${PROD.costPrice})
-        ON CONFLICT (id) DO NOTHING;
+        ON CONFLICT (tenant_id, id) DO NOTHING;
     `);
   });
   afterAll(() => closeTestApp());

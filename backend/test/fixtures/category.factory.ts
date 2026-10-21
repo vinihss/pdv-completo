@@ -18,7 +18,7 @@ export async function createCategory(overrides: Partial<InsertCategory> = {}): P
     .insert(categories)
     .values(category)
     .onConflictDoUpdate({
-      target: categories.id,
+      target: [categories.tenantId, categories.id],
       set: category,
     });
 

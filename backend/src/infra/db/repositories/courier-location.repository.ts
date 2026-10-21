@@ -39,7 +39,7 @@ export class PostgresCourierLocationRepository implements CourierLocationReposit
         updatedAt: input.updatedAt,
       })
       .onConflictDoUpdate({
-        target: courierLocations.courierId,
+        target: [courierLocations.tenantId, courierLocations.courierId],
         set: {
           latitude: input.latitude,
           longitude: input.longitude,

@@ -87,12 +87,12 @@ async function ensureCatalog(): Promise<void> {
     const cats = await tx
       .insert(categories)
       .values(DEMO_CATEGORIES)
-      .onConflictDoNothing({ target: categories.id })
+      .onConflictDoNothing({ target: [categories.tenantId, categories.id] })
       .returning();
     const grps = await tx
       .insert(kitchenGroups)
       .values(DEMO_KITCHEN_GROUPS)
-      .onConflictDoNothing({ target: kitchenGroups.id })
+      .onConflictDoNothing({ target: [kitchenGroups.tenantId, kitchenGroups.id] })
       .returning();
 
     const catRows = await tx.select({ id: categories.id, name: categories.name }).from(categories).orderBy(asc(categories.name));
@@ -123,7 +123,7 @@ async function ensureCatalog(): Promise<void> {
           featured: def.featured ?? false,
           variations: JSON.stringify(def.variations ?? []),
         })
-        .onConflictDoNothing({ target: products.id })
+        .onConflictDoNothing({ target: [products.tenantId, products.id] })
         .returning();
       if (row) created++;
     }
@@ -145,7 +145,7 @@ async function ensureCustomers(): Promise<void> {
           notes: i % 4 === 0 ? "Cliente de demonstração" : null,
         })),
       )
-      .onConflictDoNothing({ target: customers.id })
+      .onConflictDoNothing({ target: [customers.tenantId, customers.id] })
       .returning();
 
     // Grade 4x4 em volta da base: coordenadas determinísticas (o seed não
@@ -169,7 +169,7 @@ async function ensureCustomers(): Promise<void> {
     const addr = await tx
       .insert(customerAddresses)
       .values(addressRows)
-      .onConflictDoNothing({ target: customerAddresses.id })
+      .onConflictDoNothing({ target: [customerAddresses.tenantId, customerAddresses.id] })
       .returning();
 
     // Backfill das coordenadas: bancos semeados antes desta mudança já têm os
@@ -339,7 +339,7 @@ async function ensureInitialAdjustments(tx: Tx, plan: PlanDay[], ctx: Ctx): Prom
         createdBy: ctx.people.roberto,
         createdAt: isoOnDay(31, 9, 0), // antes do 1º dia de histórico (seq cronológico)
       })
-      .onConflictDoNothing({ target: stockMovements.id })
+      .onConflictDoNothing({ target: [stockMovements.tenantId, stockMovements.id] })
       .returning();
     if (row) created++;
   }
@@ -406,7 +406,7 @@ async function insertOrderChildren(tx: Tx, order: PlanOrder, ctx: Ctx): Promise<
           updatedAt: it.updatedAt ?? order.closedAt ?? order.openedAt,
         })),
       )
-      .onConflictDoNothing({ target: orderItems.id });
+      .onConflictDoNothing({ target: [orderItems.tenantId, orderItems.id] });
   }
 
   // pagamentos
@@ -429,7 +429,7 @@ async function insertOrderChildren(tx: Tx, order: PlanOrder, ctx: Ctx): Promise<
           createdAt: order.closedAt ? isoMinus(order.closedAt, 1) : order.openedAt,
         })),
       )
-      .onConflictDoNothing({ target: orderPayments.id });
+      .onConflictDoNothing({ target: [orderPayments.tenantId, orderPayments.id] });
   }
 
   // ledger: 'sale' só para produto RASTREADO, item não cancelado e comanda
@@ -454,7 +454,7 @@ async function insertOrderChildren(tx: Tx, order: PlanOrder, ctx: Ctx): Promise<
       ];
     });
     if (saleRows.length > 0) {
-      await tx.insert(stockMovements).values(saleRows).onConflictDoNothing({ target: stockMovements.id });
+      await tx.insert(stockMovements).values(saleRows).onConflictDoNothing({ target: [stockMovements.tenantId, stockMovements.id] });
     }
   }
 
@@ -475,7 +475,7 @@ async function insertOrderChildren(tx: Tx, order: PlanOrder, ctx: Ctx): Promise<
         notes: order.delivery.notes,
         createdAt: order.openedAt,
       })
-      .onConflictDoNothing({ target: deliveries.id });
+      .onConflictDoNothing({ target: [deliveries.tenantId, deliveries.id] });
   }
 
   // sino (read_at nulo = não lido, só para comandas abertas ativas)
@@ -493,7 +493,7 @@ async function insertOrderChildren(tx: Tx, order: PlanOrder, ctx: Ctx): Promise<
       readAt: order.alertReadAt,
       createdAt: order.openedAt,
     })
-    .onConflictDoNothing({ target: alerts.id });
+    .onConflictDoNothing({ target: [alerts.tenantId, alerts.id] });
 
   // auditoria — as MESMAS ações que a aplicação grava (ver usecases)
   const auditRows: AuditRow[] = [
@@ -558,7 +558,7 @@ async function insertOrderChildren(tx: Tx, order: PlanOrder, ctx: Ctx): Promise<
       });
     }
   }
-  await tx.insert(auditLog).values(auditRows).onConflictDoNothing({ target: auditLog.id });
+  await tx.insert(auditLog).values(auditRows).onConflictDoNothing({ target: [auditLog.tenantId, auditLog.id] });
 }
 
 async function insertDayOrders(tx: Tx, day: PlanDay, ctx: Ctx): Promise<number> {
@@ -567,7 +567,7 @@ async function insertDayOrders(tx: Tx, day: PlanDay, ctx: Ctx): Promise<number> 
     const [inserted] = await tx
       .insert(orders)
       .values(orderRow(order))
-      .onConflictDoNothing({ target: orders.id })
+      .onConflictDoNothing({ target: [orders.tenantId, orders.id] })
       .returning();
     // mesa ocupada de comanda aberta: idempotente, mesmo se a comanda já
     // existir de uma execução anterior (alguém pode ter liberado a mesa).
@@ -607,7 +607,7 @@ async function insertDrawer(tx: Tx, drawer: PlanDrawer, ctx: Ctx, dayKey: string
       closingDifference: drawer.closingDifference,
       closingNote: drawer.closingNote,
     })
-    .onConflictDoNothing({ target: cashDrawers.id })
+    .onConflictDoNothing({ target: [cashDrawers.tenantId, cashDrawers.id] })
     .returning();
   if (!row) return false; // já existia (reexecução)
 
@@ -625,7 +625,7 @@ async function insertDrawer(tx: Tx, drawer: PlanDrawer, ctx: Ctx, dayKey: string
           createdAt: m.createdAt,
         })),
       )
-      .onConflictDoNothing({ target: cashDrawerMovements.id });
+      .onConflictDoNothing({ target: [cashDrawerMovements.tenantId, cashDrawerMovements.id] });
   }
 
   const auditRows: AuditRow[] = [
@@ -666,7 +666,7 @@ async function insertDrawer(tx: Tx, drawer: PlanDrawer, ctx: Ctx, dayKey: string
       createdAt: drawer.closedAt,
     });
   }
-  await tx.insert(auditLog).values(auditRows).onConflictDoNothing({ target: auditLog.id });
+  await tx.insert(auditLog).values(auditRows).onConflictDoNothing({ target: [auditLog.tenantId, auditLog.id] });
   return true;
 }
 
@@ -802,7 +802,7 @@ async function ensureCourierDemo(ctx: Ctx): Promise<void> {
       INSERT INTO courier_location (courier_id, latitude, longitude, accuracy, updated_at, position)
       VALUES (${courierId}, ${latitude}, ${longitude}, 15, ${new Date().toISOString()},
               ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326))
-      ON CONFLICT (courier_id) DO UPDATE
+      ON CONFLICT (tenant_id, courier_id) DO UPDATE
         SET latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude,
             accuracy = EXCLUDED.accuracy, updated_at = EXCLUDED.updated_at,
             position = EXCLUDED.position`);
@@ -898,7 +898,7 @@ async function runDemoSeedBody(): Promise<void> {
         details: JSON.stringify({ note: "seed:demo concluído — marque este banco como demo; ver cabeçalho de seeds/demo.ts" }),
         createdAt: new Date().toISOString(),
       })
-      .onConflictDoNothing({ target: auditLog.id });
+      .onConflictDoNothing({ target: [auditLog.tenantId, auditLog.id] });
   });
 
   await printSummaryAndValidate();

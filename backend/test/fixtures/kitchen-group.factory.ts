@@ -18,7 +18,7 @@ export async function createKitchenGroup(overrides: Partial<InsertKitchenGroup> 
     .insert(kitchenGroups)
     .values(group)
     .onConflictDoUpdate({
-      target: kitchenGroups.id,
+      target: [kitchenGroups.tenantId, kitchenGroups.id],
       set: group,
     });
 

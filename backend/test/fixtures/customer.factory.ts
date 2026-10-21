@@ -19,7 +19,7 @@ export async function createCustomer(overrides: Partial<InsertCustomer> = {}): P
     .insert(customers)
     .values(customer)
     .onConflictDoUpdate({
-      target: customers.id,
+      target: [customers.tenantId, customers.id],
       set: customer,
     });
 

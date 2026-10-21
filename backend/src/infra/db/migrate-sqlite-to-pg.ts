@@ -254,7 +254,7 @@ async function main(): Promise<void> {
       await client.query(
         `INSERT INTO "user" (id, name, role, pin_hash, active)
          VALUES ('system', 'Pedidos automáticos (self-service)', 'system', 'SYSTEM_ACCOUNT_NO_LOGIN', false)
-         ON CONFLICT (id) DO NOTHING`,
+         ON CONFLICT (tenant_id, id) DO NOTHING`,
       );
     }
 

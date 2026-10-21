@@ -72,13 +72,13 @@ beforeAll(async () => {
     `SET app.tenant_id = '${TENANT_A_ID}';
      INSERT INTO "user" (id, name, role, pin_hash, active, failed_attempts, tenant_id)
      VALUES ('rls-user-a', 'Usuário A', 'waiter', 'x', true, 0, '${TENANT_A_ID}')
-     ON CONFLICT (id) DO NOTHING`,
+     ON CONFLICT (tenant_id, id) DO NOTHING`,
   );
   await raw.all(
     `SET app.tenant_id = '${TENANT_B_ID}';
      INSERT INTO "user" (id, name, role, pin_hash, active, failed_attempts, tenant_id)
      VALUES ('rls-user-b', 'Usuário B', 'waiter', 'x', true, 0, '${TENANT_B_ID}')
-     ON CONFLICT (id) DO NOTHING`,
+     ON CONFLICT (tenant_id, id) DO NOTHING`,
   );
 
   await closeTestApp();
