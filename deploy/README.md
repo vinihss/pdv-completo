@@ -731,6 +731,32 @@ restrito. Sem `APP_DB_PASSWORD`, **nada muda** — o app segue com o papel que a
 **Rollback**: voltar o `DATABASE_URL` para a DSN de hoje. O papel `pdv_app`
 pode ficar lá (sem `APP_DB_PASSWORD`, o boot não mexe nele).
 
+> ⚠️ **ATENÇÃO: enquanto o `DATABASE_URL` apontar para o dono, o RLS é
+> INERTE.** As policies existem no banco, mas superuser sempre burla row
+> security (inclusive com `FORCE ROW LEVEL SECURITY`). A barreira de isolamento
+> entre lojas **só existe** com o papel restrito no `DATABASE_URL`. Isto não é
+> uma etapa de migração que se pode adiar: é a propriedade que o modelo por
+> linha (`docs/28-multitenant-row-level.md`) promete.
+
+### O volume de uploads (o layout mudou)
+
+O diretório por loja passou a ser o **`tenantId`**
+(`<uploadsDir>/<tenantId>/<kind>/<arquivo>`), e não o schema. Em um ambiente
+que veio do modelo antigo (o diretório `public/` ou `tenant_<slug>/`), mova os
+arquivos antes de subir o app novo:
+
+```bash
+# no host, com o backend em pé (o script fala com o banco pelo registry)
+npm run uploads:migrate-tenant-dirs -- --dry-run   # só o plano
+npm run uploads:migrate-tenant-dirs                # move (idempotente)
+```
+
+O script só move o diretório do default (`public` → o id fixo
+`00000000-0000-0000-0000-000000000001`); um diretório `tenant_<slug>` de loja
+velha **é reportado e não é movido** — o mapa estava no registry, que a
+migration `0018` limpou, e chutar o dono de um arquivo é pior do que não
+mover.
+
 ## WhatsApp (opcional)
 
 A aba **WhatsApp** do gerente usa o [Embedded Signup da Meta](../docs/10-whatsapp-embedded-signup.md).

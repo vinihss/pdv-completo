@@ -123,7 +123,7 @@ As fases são independentes: a Fase 1 pode começar e ser entregue sozinha.
   exposição (porta interna vs. Caddy) na Fase 1.
 - **PIN do manager** só aparece no stdout do provision — capturar e mostrar
   uma vez, nunca persistir (nem em log de auditoria).
-- **Dependência pendente:** a reavaliação do modelo (schema único + `tenant_id`
+- **Dependência RESOLVIDA:** a reavaliação do modelo (schema único + `tenant_id`
   + RLS) — antes `docs/23-reavaliacao-multi-tenant.md`, removido em `308c9977`
   (`git show 308c9977^:docs/23-reavaliacao-multi-tenant.md`) — **foi decidida**:
   ver `docs/26-identidade-centralizada.md` (§9, workstream B). O admin-server
